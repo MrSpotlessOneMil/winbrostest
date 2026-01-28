@@ -1,11 +1,22 @@
 -- ============================================
--- CLEANING BUSINESS AUTOMATION - OPTIMIZED DATABASE SCHEMA
+-- CLEANING BUSINESS AUTOMATION - SCHEMA (TEAMS + CLEANER LOCATION)
 -- ============================================
--- This schema includes all tables needed for the complete automation system
--- Includes: customers, jobs, cleaners, assignments, calls, system_events, GHL leads, reminders
+-- WARNING: THIS SCRIPT WIPES YOUR DATABASE.
+-- It drops and recreates the public schema (ALL TABLES/DATA LOST).
+-- Run in Supabase SQL editor with extreme care.
 
--- Enable UUID extension (if not already enabled)
+begin;
+
+-- Wipe everything in public schema
+drop schema if exists public cascade;
+create schema public;
+
+-- Needed extensions
 create extension if not exists "pgcrypto";
+
+-- Allow common roles to use public schema
+grant usage on schema public to postgres, anon, authenticated, service_role;
+grant all on schema public to postgres, service_role;
 
 -- ============================================
 -- TABLE: customers
@@ -39,11 +50,29 @@ comment on column public.customers.phone_number is 'E.164 format phone number (e
 comment on column public.customers.texting_transcript is 'Full SMS conversation history with timestamps';
 
 -- ============================================
+-- TABLE: teams
+-- ============================================
+create table if not exists public.teams (
+  id serial primary key,
+  name text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted_at timestamptz
+);
+
+create index if not exists idx_teams_active on public.teams(active) where active = true;
+create index if not exists idx_teams_created_at on public.teams(created_at desc);
+
+comment on table public.teams is 'Crews/teams (contains multiple cleaners)';
+
+-- ============================================
 -- TABLE: jobs
 -- ============================================
 create table if not exists public.jobs (
   id serial primary key,
   customer_id integer not null references public.customers(id) on delete cascade,
+  team_id integer references public.teams(id) on delete set null,
   phone_number text not null,
   service_type text not null default 'Standard cleaning',
   date date,
@@ -76,6 +105,7 @@ create table if not exists public.jobs (
 
 -- Indexes for jobs
 create index if not exists idx_jobs_customer_id on public.jobs(customer_id);
+create index if not exists idx_jobs_team_id on public.jobs(team_id) where team_id is not null;
 create index if not exists idx_jobs_phone_number on public.jobs(phone_number);
 create index if not exists idx_jobs_date on public.jobs(date) where date is not null;
 create index if not exists idx_jobs_status on public.jobs(status);
@@ -89,7 +119,7 @@ comment on table public.jobs is 'Cleaning job bookings and service requests';
 comment on column public.jobs.status is 'Job lifecycle: lead → quoted → scheduled → in_progress → completed';
 
 -- ============================================
--- TABLE: cleaners
+-- TABLE: cleaners (workers)
 -- ============================================
 create table if not exists public.cleaners (
   id serial primary key,
@@ -100,8 +130,13 @@ create table if not exists public.cleaners (
   connecteam_user_id text,
   max_team_size integer not null default 1 check (max_team_size >= 1 and max_team_size <= 6),
   availability jsonb, -- JSONB format: {"tz": "America/Los_Angeles", "rules": [{"days": ["MO","TU"], "start": "09:00", "end": "17:00"}], "is24_7": false}
+  last_location_lat double precision,
+  last_location_lng double precision,
+  last_location_accuracy_meters double precision,
+  last_location_updated_at timestamptz,
   active boolean not null default true,
   created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   deleted_at timestamptz
 );
 
@@ -110,14 +145,42 @@ create index if not exists idx_cleaners_active on public.cleaners(active) where 
 create index if not exists idx_cleaners_telegram_id on public.cleaners(telegram_id) where telegram_id is not null;
 create index if not exists idx_cleaners_connecteam_user_id on public.cleaners(connecteam_user_id)
   where connecteam_user_id is not null;
+create index if not exists idx_cleaners_location_updated_at on public.cleaners(last_location_updated_at desc)
+  where last_location_updated_at is not null;
 
 comment on table public.cleaners is 'Team members who perform cleaning services';
 comment on column public.cleaners.telegram_id is 'Telegram chat ID for job notifications';
 comment on column public.cleaners.availability is 'JSONB availability rules with timezone and day/time windows';
+comment on column public.cleaners.last_location_lat is 'Latest known latitude';
+comment on column public.cleaners.last_location_lng is 'Latest known longitude';
+comment on column public.cleaners.last_location_updated_at is 'Timestamp of last location update';
 
 -- ============================================
--- TABLE: cleaner_assignments
+-- TABLE: team_members (cleaners inside teams)
 -- ============================================
+create table if not exists public.team_members (
+  id serial primary key,
+  team_id integer not null references public.teams(id) on delete cascade,
+  cleaner_id integer not null references public.cleaners(id) on delete cascade,
+  role text not null default 'technician' check (role in ('lead', 'technician')),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_team_members_team_cleaner on public.team_members(team_id, cleaner_id);
+create index if not exists idx_team_members_team_id on public.team_members(team_id);
+create index if not exists idx_team_members_cleaner_id on public.team_members(cleaner_id);
+create index if not exists idx_team_members_role on public.team_members(role);
+create index if not exists idx_team_members_active on public.team_members(is_active) where is_active = true;
+
+comment on table public.team_members is 'Membership mapping of cleaners to teams';
+
+-- ============================================
+-- TABLE: cleaner_assignments (job ↔ cleaner, optional)
+-- ============================================
+-- This table is kept for compatibility with existing automation code.
+-- If you only assign jobs to teams, you can keep this empty and just set jobs.team_id.
 create table if not exists public.cleaner_assignments (
   id serial primary key,
   job_id integer not null references public.jobs(id) on delete cascade,
@@ -131,7 +194,6 @@ create table if not exists public.cleaner_assignments (
   updated_at timestamptz not null default now()
 );
 
--- Indexes for cleaner_assignments
 create index if not exists idx_assignments_job_id on public.cleaner_assignments(job_id);
 create index if not exists idx_assignments_cleaner_id on public.cleaner_assignments(cleaner_id);
 create index if not exists idx_assignments_status on public.cleaner_assignments(status);
@@ -139,7 +201,7 @@ create index if not exists idx_assignments_pending on public.cleaner_assignments
   where status = 'pending';
 create index if not exists idx_assignments_created_at on public.cleaner_assignments(created_at);
 
-comment on table public.cleaner_assignments is 'Tracks which cleaners are assigned to which jobs';
+comment on table public.cleaner_assignments is 'Tracks which individual cleaners are assigned to which jobs (optional)';
 
 -- ============================================
 -- TABLE: calls
@@ -338,9 +400,27 @@ create trigger set_jobs_updated_at
   for each row
   execute function public.set_updated_at();
 
+drop trigger if exists set_teams_updated_at on public.teams;
+create trigger set_teams_updated_at
+  before update on public.teams
+  for each row
+  execute function public.set_updated_at();
+
+drop trigger if exists set_cleaners_updated_at on public.cleaners;
+create trigger set_cleaners_updated_at
+  before update on public.cleaners
+  for each row
+  execute function public.set_updated_at();
+
 drop trigger if exists set_assignments_updated_at on public.cleaner_assignments;
 create trigger set_assignments_updated_at
   before update on public.cleaner_assignments
+  for each row
+  execute function public.set_updated_at();
+
+drop trigger if exists set_team_members_updated_at on public.team_members;
+create trigger set_team_members_updated_at
+  before update on public.team_members
   for each row
   execute function public.set_updated_at();
 
@@ -356,7 +436,9 @@ create trigger set_leads_updated_at
 
 alter table public.customers enable row level security;
 alter table public.jobs enable row level security;
+alter table public.teams enable row level security;
 alter table public.cleaners enable row level security;
+alter table public.team_members enable row level security;
 alter table public.cleaner_assignments enable row level security;
 alter table public.calls enable row level security;
 alter table public.system_events enable row level security;
@@ -372,7 +454,13 @@ create policy "Service role full access" on public.customers
 create policy "Service role full access" on public.jobs
   for all using (auth.role() = 'service_role');
 
+create policy "Service role full access" on public.teams
+  for all using (auth.role() = 'service_role');
+
 create policy "Service role full access" on public.cleaners
+  for all using (auth.role() = 'service_role');
+
+create policy "Service role full access" on public.team_members
   for all using (auth.role() = 'service_role');
 
 create policy "Service role full access" on public.cleaner_assignments
@@ -403,7 +491,13 @@ create policy "Authenticated read" on public.customers
 create policy "Authenticated read" on public.jobs
   for select using (auth.role() = 'authenticated');
 
+create policy "Authenticated read" on public.teams
+  for select using (auth.role() = 'authenticated');
+
 create policy "Authenticated read" on public.cleaners
+  for select using (auth.role() = 'authenticated');
+
+create policy "Authenticated read" on public.team_members
   for select using (auth.role() = 'authenticated');
 
 create policy "Authenticated read" on public.cleaner_assignments
@@ -422,3 +516,25 @@ create policy "Authenticated read" on public.system_events
 alter publication supabase_realtime add table public.system_events;
 alter publication supabase_realtime add table public.jobs;
 alter publication supabase_realtime add table public.cleaner_assignments;
+
+-- ============================================
+-- GRANTS & DEFAULT PRIVILEGES (IMPORTANT FOR SUPABASE API)
+-- ============================================
+
+-- Allow API roles to use schema
+grant usage on schema public to anon, authenticated, service_role;
+
+-- Allow API roles to read all current tables
+grant select on all tables in schema public to anon, authenticated, service_role;
+
+-- Allow API roles to use sequences for serial IDs
+grant usage, select on all sequences in schema public to anon, authenticated, service_role;
+
+-- Ensure NEW tables/sequences also get readable by default
+alter default privileges in schema public
+  grant select on tables to anon, authenticated, service_role;
+
+alter default privileges in schema public
+  grant usage, select on sequences to anon, authenticated, service_role;
+
+commit;

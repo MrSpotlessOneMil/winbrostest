@@ -16,85 +16,111 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const include_metrics = searchParams.get("include_metrics") === "true"
 
+  // If the server is accidentally running with the anon key (no service role),
+  // RLS will block reads after a schema reset. Fail loudly with a clear message.
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_KEY) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "Server Supabase service role key is missing. Set SUPABASE_SERVICE_ROLE_KEY in .env.local and restart `npm run dev`.",
+      } satisfies ApiResponse<never>,
+      { status: 500 }
+    )
+  }
+
   const client = getSupabaseClient()
   const date = searchParams.get("date") || todayISO()
 
-  const cleanersRes = await client.from("cleaners").select("*").eq("active", true).order("created_at", { ascending: true })
-  if (cleanersRes.error) {
-    const response: ApiResponse<Team[]> = { success: true, data: [] }
-    return NextResponse.json(response)
+  // Load teams and their members (cleaners) including location fields
+  const teamsRes = await client
+    .from("teams")
+    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
+    .eq("active", true)
+    .order("created_at", { ascending: true })
+
+  if (teamsRes.error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Failed to load teams: ${teamsRes.error.message}`,
+      } satisfies ApiResponse<never>,
+      { status: 500 }
+    )
   }
 
-  // Preload assignments for the date (to derive "current job" and status).
+  // Preload jobs for the date to derive status + metrics
   const jobsRes = await client
     .from("jobs")
-    .select("id, date, status, price")
+    .select("id, date, status, price, team_id")
     .eq("date", date)
     .neq("status", "cancelled")
 
-  const jobById = new Map<number, any>()
-  for (const j of jobsRes.data || []) jobById.set(Number(j.id), j)
-
-  const assignmentsRes = await client
-    .from("cleaner_assignments")
-    .select("job_id, cleaner_id, status, updated_at")
-    .neq("status", "cancelled")
-
-  const byCleaner = new Map<number, any[]>()
-  for (const a of assignmentsRes.data || []) {
-    const cleanerId = Number(a.cleaner_id)
-    const jobId = Number(a.job_id)
-    const job = jobById.get(jobId)
-    if (!job) continue
-    const arr = byCleaner.get(cleanerId) || []
-    arr.push({ ...a, job })
-    byCleaner.set(cleanerId, arr)
+  const jobsByTeam = new Map<number, any[]>()
+  for (const j of jobsRes.data || []) {
+    const teamId = j.team_id != null ? Number(j.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    const arr = jobsByTeam.get(teamId) || []
+    arr.push(j)
+    jobsByTeam.set(teamId, arr)
   }
 
-  const teamsBase: Team[] = (cleanersRes.data || []).map((c: any) => {
-    const cleanerId = Number(c.id)
-    const assignments = byCleaner.get(cleanerId) || []
-    const inProgress = assignments.find((a) => String(a.job?.status) === "in_progress")
-    const scheduled = assignments.find((a) => String(a.job?.status) === "scheduled")
-    const current = inProgress || scheduled
-
-    let status: Team["status"] = "available"
-    if (current?.job?.status === "in_progress") status = "on-job"
-    else if (current?.job?.status === "scheduled") status = "traveling"
-
-    const memberId = String(c.id)
-    const teamId = String(c.id)
-
-    return {
-      id: teamId,
-      name: String(c.name || `Team ${teamId}`),
-      lead_id: memberId,
-      members: [
-        {
-          id: memberId,
+  const teamsBase: Team[] = (teamsRes.data || []).map((t: any) => {
+    const teamId = String(t.id)
+    const rawMembers = Array.isArray(t.team_members) ? t.team_members : []
+    const members = rawMembers
+      .map((tm: any) => {
+        const c = tm.cleaners
+        if (!c) return null
+        return {
+          id: String(c.id),
           name: String(c.name || "Cleaner"),
           phone: String(c.phone || ""),
           telegram_id: c.telegram_id || undefined,
-          role: "lead",
+          role: tm.role === "lead" ? "lead" : "technician",
           team_id: teamId,
-          is_active: Boolean(c.active),
-        },
-      ],
+          is_active: Boolean(tm.is_active) && Boolean(c.active),
+          // extra fields for UI (not typed in TeamMember, but kept for consumers that want it)
+          last_location_lat: c.last_location_lat ?? null,
+          last_location_lng: c.last_location_lng ?? null,
+          last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
+          last_location_updated_at: c.last_location_updated_at ?? null,
+        } as any
+      })
+      .filter(Boolean)
+
+    const lead = members.find((m: any) => m.role === "lead") || members[0]
+    const leadId = lead?.id ? String(lead.id) : teamId
+
+    const teamJobs = jobsByTeam.get(Number(t.id)) || []
+    const hasInProgress = teamJobs.some((j) => String(j.status) === "in_progress")
+    const hasScheduled = teamJobs.some((j) => String(j.status) === "scheduled")
+
+    let status: Team["status"] = "available"
+    if (hasInProgress) status = "on-job"
+    else if (hasScheduled) status = "traveling"
+
+    const currentJob = teamJobs.find((j) => String(j.status) === "in_progress") || teamJobs.find((j) => String(j.status) === "scheduled")
+
+    return {
+      id: teamId,
+      name: String(t.name || `Team ${teamId}`),
+      lead_id: leadId,
+      members,
       status,
-      current_job_id: current?.job?.id != null ? String(current.job.id) : undefined,
+      current_job_id: currentJob?.id != null ? String(currentJob.id) : undefined,
       daily_target: dailyTarget(),
-      is_active: Boolean(c.active),
+      is_active: Boolean(t.active),
     }
   })
 
   let teamsWithMetrics: any[] = teamsBase
   if (include_metrics) {
     teamsWithMetrics = teamsBase.map((team) => {
-      const cleanerId = Number(team.id)
-      const assignments = byCleaner.get(cleanerId) || []
-      const completed = assignments.filter((a) => String(a.job?.status) === "completed")
-      const scheduled = assignments.filter((a) => String(a.job?.status) === "scheduled" || String(a.job?.status) === "in_progress")
-      const revenue = completed.reduce((sum, a) => sum + (a.job?.price != null ? Number(a.job.price) : 0), 0)
+      const teamJobs = jobsByTeam.get(Number(team.id)) || []
+      const completed = teamJobs.filter((j) => String(j.status) === "completed")
+      const scheduled = teamJobs.filter((j) => String(j.status) === "scheduled" || String(j.status) === "in_progress")
+      const revenue = completed.reduce((sum, j) => sum + (j.price != null ? Number(j.price) : 0), 0)
 
       const daily_metrics: TeamDailyMetrics = {
         team_id: team.id,
@@ -111,10 +137,6 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  const response: ApiResponse<typeof teamsWithMetrics> = {
-    success: true,
-    data: teamsWithMetrics,
-  }
-
+  const response: ApiResponse<typeof teamsWithMetrics> = { success: true, data: teamsWithMetrics }
   return NextResponse.json(response)
 }

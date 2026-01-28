@@ -58,39 +58,14 @@ export async function GET(request: NextRequest) {
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
-  // If team_id is provided, resolve job_ids via cleaner_assignments first (keeps things reliable across Supabase join filtering).
-  let allowedJobIds: number[] | null = null
-  if (team_id) {
-    const teamCleanerId = Number(team_id)
-    if (!Number.isNaN(teamCleanerId)) {
-      const { data: assignments, error: assignErr } = await client
-        .from("cleaner_assignments")
-        .select("job_id")
-        .eq("cleaner_id", teamCleanerId)
-        .neq("status", "cancelled")
-
-      if (assignErr) {
-        return NextResponse.json(
-          { data: [], total: 0, page, per_page, total_pages: 0 } satisfies PaginatedResponse<Job>,
-          { status: 200 }
-        )
-      }
-      allowedJobIds = (assignments || []).map((a: any) => Number(a.job_id)).filter((n) => Number.isFinite(n))
-      if (allowedJobIds.length === 0) {
-        const empty: PaginatedResponse<Job> = { data: [], total: 0, page, per_page, total_pages: 0 }
-        return NextResponse.json(empty)
-      }
-    }
-  }
-
   let query = client
     .from("jobs")
-    .select("*, customers (*), cleaner_assignments (*, cleaners (*))", { count: "exact" })
+    .select("*, customers (*), teams ( id, name )", { count: "exact" })
     .order("created_at", { ascending: false })
 
   if (date) query = query.eq("date", date)
   if (status) query = query.eq("status", status === "in-progress" ? "in_progress" : status)
-  if (allowedJobIds) query = query.in("id", allowedJobIds)
+  if (team_id) query = query.eq("team_id", Number(team_id))
 
   const { data: rows, error, count } = await query.range(start, end)
   if (error) {
@@ -100,18 +75,13 @@ export async function GET(request: NextRequest) {
 
   const jobs: Job[] = (rows || []).map((row: any) => {
     const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers
-    const assignments = Array.isArray(row.cleaner_assignments) ? row.cleaner_assignments : []
-    const primaryAssignment = assignments.find((a: any) => a?.status === "confirmed") || assignments[0]
-    const cleaner = primaryAssignment?.cleaners
+    const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
 
     const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "Unknown"
     const scheduledDate = toIsoDateOnly(row.date || row.created_at)
     const scheduledTime = toTimeHHMM(row.scheduled_at)
     const durationMinutes = row.hours ? Math.round(Number(row.hours) * 60) : 120
     const estimatedValue = row.price ? Number(row.price) : 0
-
-    const teamConfirmed = Boolean(primaryAssignment && ["accepted", "confirmed"].includes(String(primaryAssignment.status)))
-    const teamConfirmedAt = primaryAssignment?.updated_at ? String(primaryAssignment.updated_at) : undefined
 
     return {
       id: String(row.id),
@@ -127,9 +97,9 @@ export async function GET(request: NextRequest) {
       estimated_value: estimatedValue,
       actual_value: row.actual_value != null ? Number(row.actual_value) : undefined,
       status: mapDbStatusToApi(row.status),
-      team_id: cleaner?.id != null ? String(cleaner.id) : (primaryAssignment?.cleaner_id != null ? String(primaryAssignment.cleaner_id) : undefined),
-      team_confirmed: teamConfirmed,
-      team_confirmed_at: teamConfirmedAt,
+      team_id: row.team_id != null ? String(row.team_id) : undefined,
+      team_confirmed: Boolean(row.team_id),
+      team_confirmed_at: row.updated_at ? String(row.updated_at) : undefined,
       notes: row.notes ? String(row.notes) : undefined,
       upsell_notes: row.upsell_notes ? String(row.upsell_notes) : undefined,
       completion_notes: row.completion_notes ? String(row.completion_notes) : undefined,

@@ -7,6 +7,13 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   MapPin,
   Phone,
   DollarSign,
@@ -30,6 +37,17 @@ type UiTeam = Team & {
   } | null
   leadName: string
   memberNames: string[]
+  membersDetailed: Array<{
+    id: string
+    name: string
+    phone: string
+    role: "lead" | "technician"
+    is_active: boolean
+    last_location_lat?: number | null
+    last_location_lng?: number | null
+    last_location_accuracy_meters?: number | null
+    last_location_updated_at?: string | null
+  }>
 }
 
 const statusConfig = {
@@ -42,6 +60,7 @@ const statusConfig = {
 export default function TeamsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [loading, setLoading] = useState(false)
+  const [selectedTeam, setSelectedTeam] = useState<UiTeam | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -61,6 +80,17 @@ export default function TeamsPage() {
             ...t,
             leadName,
             memberNames,
+            membersDetailed: members.map((m: any) => ({
+              id: String(m.id),
+              name: String(m.name || "Cleaner"),
+              phone: String(m.phone || ""),
+              role: m.role === "lead" ? "lead" : "technician",
+              is_active: Boolean(m.is_active),
+              last_location_lat: m.last_location_lat ?? null,
+              last_location_lng: m.last_location_lng ?? null,
+              last_location_accuracy_meters: m.last_location_accuracy_meters ?? null,
+              last_location_updated_at: m.last_location_updated_at ?? null,
+            })),
             currentJob: t.current_job_id
               ? {
                   address: "—",
@@ -271,7 +301,12 @@ export default function TeamsPage() {
                 )}
 
                 <Button variant="ghost" className="w-full justify-between" disabled={team.status === "off"}>
-                  View Full Details
+                  <span
+                    className="w-full text-left"
+                    onClick={() => setSelectedTeam(team)}
+                  >
+                    View Full Details
+                  </span>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </CardContent>
@@ -282,6 +317,62 @@ export default function TeamsPage() {
 
       {loading && <p className="text-sm text-muted-foreground">Loading teams…</p>}
       {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
+
+      <Dialog open={!!selectedTeam} onOpenChange={(open) => !open && setSelectedTeam(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{selectedTeam?.name || "Team"}</DialogTitle>
+            <DialogDescription>
+              Team members and latest known locations
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {(selectedTeam?.membersDetailed || []).map((m) => {
+              const hasLoc = m.last_location_lat != null && m.last_location_lng != null
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-start justify-between rounded-lg border border-border bg-muted/30 p-3"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-foreground">{m.name}</span>
+                      <Badge variant="outline">{m.role}</Badge>
+                      {!m.is_active && (
+                        <Badge variant="secondary">inactive</Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Phone className="h-4 w-4" />
+                        <span>{m.phone || "—"}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MapPin className="h-4 w-4" />
+                        <span>
+                          {hasLoc
+                            ? `${Number(m.last_location_lat).toFixed(5)}, ${Number(m.last_location_lng).toFixed(5)}`
+                            : "No location yet"}
+                        </span>
+                      </div>
+                    </div>
+                    {m.last_location_updated_at && (
+                      <p className="text-xs text-muted-foreground">
+                        Updated: {new Date(m.last_location_updated_at).toLocaleString()}
+                        {m.last_location_accuracy_meters != null ? ` (±${Math.round(Number(m.last_location_accuracy_meters))}m)` : ""}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+            {(selectedTeam?.membersDetailed || []).length === 0 && (
+              <p className="text-sm text-muted-foreground">No team members yet.</p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
