@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -8,36 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trophy, Medal, DollarSign, Star, Briefcase, Crown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const leaderboardData = {
-  tips: [
-    { rank: 1, name: "Marcus Johnson", team: "Alpha", value: 485, change: "+12%" },
-    { rank: 2, name: "Chris Wilson", team: "Charlie", value: 420, change: "+8%" },
-    { rank: 3, name: "David Martinez", team: "Bravo", value: 365, change: "+5%" },
-    { rank: 4, name: "Derek Williams", team: "Alpha", value: 290, change: "-2%" },
-    { rank: 5, name: "James Lee", team: "Delta", value: 245, change: "+15%" },
-  ],
-  upsells: [
-    { rank: 1, name: "Chris Wilson", team: "Charlie", value: 780, change: "+22%" },
-    { rank: 2, name: "Marcus Johnson", team: "Alpha", value: 650, change: "+18%" },
-    { rank: 3, name: "David Martinez", team: "Bravo", value: 520, change: "+10%" },
-    { rank: 4, name: "Ryan Smith", team: "Alpha", value: 380, change: "+5%" },
-    { rank: 5, name: "Chris Parker", team: "Bravo", value: 320, change: "-3%" },
-  ],
-  jobs: [
-    { rank: 1, name: "Marcus Johnson", team: "Alpha", value: 42, change: "+8" },
-    { rank: 2, name: "David Martinez", team: "Bravo", value: 38, change: "+5" },
-    { rank: 3, name: "Chris Wilson", team: "Charlie", value: 35, change: "+7" },
-    { rank: 4, name: "James Lee", team: "Delta", value: 32, change: "+3" },
-    { rank: 5, name: "Derek Williams", team: "Alpha", value: 28, change: "+4" },
-  ],
-  reviews: [
-    { rank: 1, name: "Chris Wilson", team: "Charlie", value: 12, change: "+3" },
-    { rank: 2, name: "Marcus Johnson", team: "Alpha", value: 10, change: "+2" },
-    { rank: 3, name: "David Martinez", team: "Bravo", value: 8, change: "+1" },
-    { rank: 4, name: "Derek Williams", team: "Alpha", value: 6, change: "+2" },
-    { rank: 5, name: "Ryan Smith", team: "Alpha", value: 5, change: "+1" },
-  ],
-}
+type Entry = { rank: number; name: string; team: string; value: number; change: string }
 
 const getRankIcon = (rank: number) => {
   if (rank === 1) return <Crown className="h-5 w-5 text-yellow-500" />
@@ -54,6 +26,43 @@ const getRankClass = (rank: number) => {
 }
 
 export default function LeaderboardPage() {
+  const [range, setRange] = useState<"week" | "month" | "quarter" | "year">("month")
+  const [loading, setLoading] = useState(false)
+  const [leaderboardData, setLeaderboardData] = useState<{
+    tips: Entry[]
+    upsells: Entry[]
+    jobs: Entry[]
+    reviews: Entry[]
+  }>({ tips: [], upsells: [], jobs: [], reviews: [] })
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/leaderboard?range=${range}`, { cache: "no-store" })
+        const json = await res.json()
+        if (cancelled) return
+        const raw = json?.data || {}
+        // API also returns `range` inside `data` — ignore anything that's not an array.
+        setLeaderboardData({
+          tips: Array.isArray(raw.tips) ? raw.tips : [],
+          upsells: Array.isArray(raw.upsells) ? raw.upsells : [],
+          jobs: Array.isArray(raw.jobs) ? raw.jobs : [],
+          reviews: Array.isArray(raw.reviews) ? raw.reviews : [],
+        })
+      } catch {
+        if (!cancelled) setLeaderboardData({ tips: [], upsells: [], jobs: [], reviews: [] })
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [range])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -65,7 +74,7 @@ export default function LeaderboardPage() {
           </h1>
           <p className="text-sm text-muted-foreground">Team lead performance rankings</p>
         </div>
-        <Select defaultValue="month">
+        <Select value={range} onValueChange={(v) => setRange(v as any)}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -91,11 +100,11 @@ export default function LeaderboardPage() {
                 2
               </div>
             </div>
-            <h3 className="mt-3 font-semibold text-foreground">Chris Wilson</h3>
-            <p className="text-sm text-muted-foreground">Team Charlie</p>
+            <h3 className="mt-3 font-semibold text-foreground">{leaderboardData.tips[1]?.name || "—"}</h3>
+            <p className="text-sm text-muted-foreground">{leaderboardData.tips[1]?.team || "—"}</p>
             <div className="mt-3 flex items-center gap-1 text-xl font-bold text-foreground">
               <DollarSign className="h-5 w-5" />
-              1,200
+              {leaderboardData.tips[1]?.value ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">Total Earnings</p>
           </CardContent>
@@ -113,11 +122,11 @@ export default function LeaderboardPage() {
                 1
               </div>
             </div>
-            <h3 className="mt-3 text-lg font-semibold text-foreground">Marcus Johnson</h3>
-            <p className="text-sm text-muted-foreground">Team Alpha</p>
+            <h3 className="mt-3 text-lg font-semibold text-foreground">{leaderboardData.tips[0]?.name || "—"}</h3>
+            <p className="text-sm text-muted-foreground">{leaderboardData.tips[0]?.team || "—"}</p>
             <div className="mt-3 flex items-center gap-1 text-2xl font-bold text-yellow-500">
               <DollarSign className="h-6 w-6" />
-              1,435
+              {leaderboardData.tips[0]?.value ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">Total Earnings</p>
           </CardContent>
@@ -134,11 +143,11 @@ export default function LeaderboardPage() {
                 3
               </div>
             </div>
-            <h3 className="mt-3 font-semibold text-foreground">David Martinez</h3>
-            <p className="text-sm text-muted-foreground">Team Bravo</p>
+            <h3 className="mt-3 font-semibold text-foreground">{leaderboardData.tips[2]?.name || "—"}</h3>
+            <p className="text-sm text-muted-foreground">{leaderboardData.tips[2]?.team || "—"}</p>
             <div className="mt-3 flex items-center gap-1 text-xl font-bold text-foreground">
               <DollarSign className="h-5 w-5" />
-              885
+              {leaderboardData.tips[2]?.value ?? 0}
             </div>
             <p className="text-xs text-muted-foreground">Total Earnings</p>
           </CardContent>
@@ -172,7 +181,11 @@ export default function LeaderboardPage() {
               </TabsTrigger>
             </TabsList>
 
-            {Object.entries(leaderboardData).map(([category, data]) => (
+            {(
+              ["tips", "upsells", "jobs", "reviews"] as Array<keyof typeof leaderboardData>
+            ).map((category) => {
+              const data = leaderboardData[category]
+              return (
               <TabsContent key={category} value={category} className="space-y-3">
                 {data.map((entry) => (
                   <div
@@ -214,8 +227,12 @@ export default function LeaderboardPage() {
                     </div>
                   </div>
                 ))}
+                {!loading && data.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No data yet.</p>
+                )}
               </TabsContent>
-            ))}
+              )
+            })}
           </Tabs>
         </CardContent>
       </Card>

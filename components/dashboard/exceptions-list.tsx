@@ -1,28 +1,18 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AlertTriangle, Clock, Users, MapPin, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-// NOTE: We intentionally keep this dynamic (no hardcoded exceptions).
-// When you want real exceptions, we can add a dedicated `/api/exceptions` backed by `system_events` + alert tables.
-const exceptions: Array<{
-  id: string
-  type: "no-confirm" | "high-value" | "routing" | "scheduling"
-  title: string
-  description: string
-  time: string
-  priority: "high" | "medium" | "low"
-  action: string
-}> = []
-
 const typeIcons = {
   "no-confirm": Users,
   "high-value": AlertTriangle,
   routing: MapPin,
   scheduling: Clock,
+  system: AlertTriangle,
 }
 
 const priorityConfig = {
@@ -31,7 +21,40 @@ const priorityConfig = {
   low: { label: "Low", className: "bg-muted text-muted-foreground border-border" },
 }
 
+type ExceptionItem = {
+  id: string
+  type: "no-confirm" | "high-value" | "routing" | "scheduling" | "system"
+  title: string
+  description: string
+  time: string
+  priority: "high" | "medium" | "low"
+  action: string
+}
+
 export function ExceptionsList() {
+  const [items, setItems] = useState<ExceptionItem[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function refresh() {
+    setError(null)
+    try {
+      const res = await fetch("/api/exceptions?limit=10", { cache: "no-store" })
+      const json = await res.json()
+      if (!res.ok || json?.success === false) throw new Error(json?.error || "Failed to load exceptions")
+      setItems(Array.isArray(json?.data) ? (json.data as ExceptionItem[]) : [])
+    } catch (e: any) {
+      setItems(null)
+      setError(e?.message || "Failed to load exceptions")
+    }
+  }
+
+  useEffect(() => {
+    refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const exceptions = useMemo(() => items || [], [items])
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -42,12 +65,13 @@ export function ExceptionsList() {
           </CardTitle>
           <CardDescription>Issues requiring attention</CardDescription>
         </div>
-        <Button variant="outline" size="sm">
-          View All
+        <Button variant="outline" size="sm" onClick={refresh}>
+          Refresh
           <ChevronRight className="ml-1 h-4 w-4" />
         </Button>
       </CardHeader>
       <CardContent>
+        {error && <p className="text-sm text-muted-foreground">{error}</p>}
         {exceptions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-success/10">

@@ -118,6 +118,7 @@ export interface Message {
 
 // Singleton client
 let supabaseClient: SupabaseClient | null = null
+let supabaseServiceClient: SupabaseClient | null = null
 
 // Export supabase as a getter for dashboard compatibility
 export const supabase = {
@@ -151,6 +152,36 @@ export function getSupabaseClient(): SupabaseClient {
     supabaseClient = createClient(supabaseUrl, supabaseKey)
   }
   return supabaseClient
+}
+
+/**
+ * Service-role-only client (bypasses RLS). Use this for server-side APIs only.
+ * We intentionally DO NOT fall back to anon keys here.
+ */
+export function getSupabaseServiceClient(): SupabaseClient {
+  if (!supabaseServiceClient) {
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      process.env.PUBLIC_SUPABASE_URL
+
+    const serviceKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE
+
+    if (!supabaseUrl || !serviceKey) {
+      throw new Error(
+        "Missing Supabase service role env. Set SUPABASE_SERVICE_ROLE_KEY in .env.local and restart `npm run dev`."
+      )
+    }
+
+    supabaseServiceClient = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    })
+  }
+
+  return supabaseServiceClient
 }
 
 async function updateCustomerHubSpotId(customerId: string, contactId: string): Promise<void> {

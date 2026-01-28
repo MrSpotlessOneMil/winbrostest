@@ -377,6 +377,47 @@ create index if not exists idx_messages_phone_number on public.messages(phone_nu
 create index if not exists idx_messages_timestamp on public.messages(timestamp desc);
 
 -- ============================================
+-- TABLE: tips
+-- ============================================
+create table if not exists public.tips (
+  id serial primary key,
+  job_id integer references public.jobs(id) on delete set null,
+  team_id integer references public.teams(id) on delete set null,
+  cleaner_id integer references public.cleaners(id) on delete set null,
+  amount numeric(10,2) not null check (amount >= 0),
+  reported_via text not null default 'manual' check (reported_via in ('telegram','manual')),
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_tips_created_at on public.tips(created_at desc);
+create index if not exists idx_tips_team_id on public.tips(team_id) where team_id is not null;
+create index if not exists idx_tips_job_id on public.tips(job_id) where job_id is not null;
+
+comment on table public.tips is 'Tips collected by teams/cleaners';
+
+-- ============================================
+-- TABLE: upsells
+-- ============================================
+create table if not exists public.upsells (
+  id serial primary key,
+  job_id integer references public.jobs(id) on delete set null,
+  team_id integer references public.teams(id) on delete set null,
+  cleaner_id integer references public.cleaners(id) on delete set null,
+  upsell_type text not null,
+  value numeric(10,2) not null default 0 check (value >= 0),
+  reported_via text not null default 'manual' check (reported_via in ('telegram','manual')),
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_upsells_created_at on public.upsells(created_at desc);
+create index if not exists idx_upsells_team_id on public.upsells(team_id) where team_id is not null;
+create index if not exists idx_upsells_job_id on public.upsells(job_id) where job_id is not null;
+
+comment on table public.upsells is 'Upsells recorded by teams/cleaners';
+
+-- ============================================
 -- AUTOMATIC UPDATED_AT TRIGGERS
 -- ============================================
 
@@ -446,6 +487,8 @@ alter table public.leads enable row level security;
 alter table public.followup_queue enable row level security;
 alter table public.reminder_notifications enable row level security;
 alter table public.messages enable row level security;
+alter table public.tips enable row level security;
+alter table public.upsells enable row level security;
 
 -- Service role has full access (for backend API)
 create policy "Service role full access" on public.customers
@@ -482,6 +525,12 @@ create policy "Service role full access" on public.reminder_notifications
   for all using (auth.role() = 'service_role');
 
 create policy "Service role full access" on public.messages
+  for all using (auth.role() = 'service_role');
+
+create policy "Service role full access" on public.tips
+  for all using (auth.role() = 'service_role');
+
+create policy "Service role full access" on public.upsells
   for all using (auth.role() = 'service_role');
 
 -- Authenticated users can read (for dashboard)
@@ -527,14 +576,28 @@ grant usage on schema public to anon, authenticated, service_role;
 -- Allow API roles to read all current tables
 grant select on all tables in schema public to anon, authenticated, service_role;
 
+-- Service role should be able to write (used by server-side APIs/webhooks)
+grant insert, update, delete on all tables in schema public to service_role;
+
 -- Allow API roles to use sequences for serial IDs
 grant usage, select on all sequences in schema public to anon, authenticated, service_role;
+
+-- Service role can advance sequences (inserts)
+grant usage, select, update on all sequences in schema public to service_role;
 
 -- Ensure NEW tables/sequences also get readable by default
 alter default privileges in schema public
   grant select on tables to anon, authenticated, service_role;
 
+-- Ensure NEW tables are writable by service_role
+alter default privileges in schema public
+  grant insert, update, delete on tables to service_role;
+
 alter default privileges in schema public
   grant usage, select on sequences to anon, authenticated, service_role;
+
+-- Ensure NEW sequences are writable by service_role
+alter default privileges in schema public
+  grant usage, select, update on sequences to service_role;
 
 commit;

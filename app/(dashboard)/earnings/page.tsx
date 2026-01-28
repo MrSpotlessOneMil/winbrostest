@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,47 +19,50 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { DollarSign, TrendingUp, Gift, Sparkles, ArrowUpRight } from "lucide-react"
 
-// Tips data
-const tipsData = [
-  { date: "Mon", tips: 145, upsells: 280 },
-  { date: "Tue", tips: 210, upsells: 350 },
-  { date: "Wed", tips: 95, upsells: 180 },
-  { date: "Thu", tips: 185, upsells: 420 },
-  { date: "Fri", tips: 250, upsells: 380 },
-  { date: "Sat", tips: 180, upsells: 300 },
-]
-
-// Recent tips
-const recentTips = [
-  { id: 1, jobId: "JOB-1234", team: "Alpha", lead: "Marcus J.", amount: 45, time: "10 min ago" },
-  { id: 2, jobId: "JOB-1235", team: "Charlie", lead: "Chris W.", amount: 30, time: "25 min ago" },
-  { id: 3, jobId: "JOB-1236", team: "Bravo", lead: "David M.", amount: 20, time: "1 hour ago" },
-  { id: 4, jobId: "JOB-1237", team: "Alpha", lead: "Marcus J.", amount: 50, time: "2 hours ago" },
-]
-
-// Recent upsells
-const recentUpsells = [
-  { id: 1, jobId: "JOB-1234", team: "Alpha", lead: "Marcus J.", type: "Gutter Cleaning", value: 150, time: "15 min ago" },
-  { id: 2, jobId: "JOB-1235", team: "Charlie", lead: "Chris W.", type: "Screen Cleaning", value: 80, time: "45 min ago" },
-  { id: 3, jobId: "JOB-1236", team: "Bravo", lead: "David M.", type: "Pressure Wash Add", value: 120, time: "1 hour ago" },
-  { id: 4, jobId: "JOB-1237", team: "Alpha", lead: "Marcus J.", type: "Solar Panel Clean", value: 200, time: "3 hours ago" },
-]
-
-// Team breakdown
-const teamBreakdown = [
-  { team: "Alpha", tips: 320, upsells: 580, jobs: 8 },
-  { team: "Bravo", tips: 185, upsells: 320, jobs: 6 },
-  { team: "Charlie", tips: 290, upsells: 450, jobs: 7 },
-]
-
 const chartConfig = {
   tips: { label: "Tips", color: "#4ade80" },
   upsells: { label: "Upsells", color: "#5b8def" },
 }
 
 export default function EarningsPage() {
-  const totalTips = tipsData.reduce((sum, d) => sum + d.tips, 0)
-  const totalUpsells = tipsData.reduce((sum, d) => sum + d.upsells, 0)
+  const [range, setRange] = useState<"today" | "week" | "month">("week")
+  const [loading, setLoading] = useState(false)
+  const [data, setData] = useState<{
+    totalTips: number
+    totalUpsells: number
+    teamBreakdown: Array<{ team: string; tips: number; upsells: number; jobs: number }>
+    recentTips: any[]
+    recentUpsells: any[]
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/earnings?range=${range}`, { cache: "no-store" })
+        const json = await res.json()
+        if (!cancelled) setData(json.data || null)
+      } catch {
+        if (!cancelled) setData(null)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [range])
+
+  const totalTips = Number(data?.totalTips || 0)
+  const totalUpsells = Number(data?.totalUpsells || 0)
+  const teamBreakdown = (data?.teamBreakdown || []) as Array<{ team: string; tips: number; upsells: number; jobs: number }>
+
+  const tipsData = useMemo(() => {
+    // simple placeholder series: shows totals as one bar if you don't have daily bucketing yet
+    return [{ date: range, tips: totalTips, upsells: totalUpsells }]
+  }, [range, totalTips, totalUpsells])
 
   return (
     <div className="space-y-6">
@@ -68,7 +72,7 @@ export default function EarningsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Tips & Upsells</h1>
           <p className="text-sm text-muted-foreground">Track additional revenue from field operations</p>
         </div>
-        <Select defaultValue="week">
+        <Select value={range} onValueChange={(v) => setRange(v as any)}>
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -94,7 +98,7 @@ export default function EarningsPage() {
                   <p className="text-2xl font-semibold text-foreground">${totalTips}</p>
                   <span className="flex items-center text-xs text-success">
                     <ArrowUpRight className="h-3 w-3" />
-                    +15%
+                    —
                   </span>
                 </div>
               </div>
@@ -113,7 +117,7 @@ export default function EarningsPage() {
                   <p className="text-2xl font-semibold text-foreground">${totalUpsells}</p>
                   <span className="flex items-center text-xs text-success">
                     <ArrowUpRight className="h-3 w-3" />
-                    +22%
+                    —
                   </span>
                 </div>
               </div>
@@ -128,7 +132,7 @@ export default function EarningsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Tip/Job</p>
-                <p className="text-2xl font-semibold text-foreground">$28</p>
+                <p className="text-2xl font-semibold text-foreground">—</p>
               </div>
             </div>
           </CardContent>
@@ -141,7 +145,7 @@ export default function EarningsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Upsell Rate</p>
-                <p className="text-2xl font-semibold text-foreground">34%</p>
+                <p className="text-2xl font-semibold text-foreground">—</p>
               </div>
             </div>
           </CardContent>
@@ -211,6 +215,9 @@ export default function EarningsPage() {
                   </div>
                 </div>
               ))}
+              {!loading && (!teamBreakdown || teamBreakdown.length === 0) && (
+                <p className="text-sm text-muted-foreground">No tips/upsells yet.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -229,45 +236,45 @@ export default function EarningsPage() {
               </TabsList>
 
               <TabsContent value="tips" className="space-y-3">
-                {recentTips.map((tip) => (
+                {(data?.recentTips || []).map((tip: any) => (
                   <div
                     key={tip.id}
                     className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{tip.lead}</span>
+                        <span className="text-sm font-medium text-foreground">Tip</span>
                         <Badge variant="outline" className="text-xs">
-                          Team {tip.team}
+                          Team {tip.team_id ?? "—"}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {tip.jobId} - {tip.time}
+                        Job {tip.job_id ?? "—"} - {new Date(tip.created_at).toLocaleString()}
                       </p>
                     </div>
-                    <span className="text-lg font-semibold text-success">+${tip.amount}</span>
+                    <span className="text-lg font-semibold text-success">+${Number(tip.amount || 0)}</span>
                   </div>
                 ))}
               </TabsContent>
 
               <TabsContent value="upsells" className="space-y-3">
-                {recentUpsells.map((upsell) => (
+                {(data?.recentUpsells || []).map((upsell: any) => (
                   <div
                     key={upsell.id}
                     className="flex items-center justify-between rounded-lg bg-muted/50 p-3"
                   >
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-foreground">{upsell.type}</span>
+                        <span className="text-sm font-medium text-foreground">{upsell.upsell_type || "Upsell"}</span>
                         <Badge variant="outline" className="text-xs">
-                          Team {upsell.team}
+                          Team {upsell.team_id ?? "—"}
                         </Badge>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {upsell.lead} - {upsell.time}
+                        Job {upsell.job_id ?? "—"} - {new Date(upsell.created_at).toLocaleString()}
                       </p>
                     </div>
-                    <span className="text-lg font-semibold text-primary">+${upsell.value}</span>
+                    <span className="text-lg font-semibold text-primary">+${Number(upsell.value || 0)}</span>
                   </div>
                 ))}
               </TabsContent>
@@ -275,6 +282,7 @@ export default function EarningsPage() {
           </CardContent>
         </Card>
       </div>
+      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
     </div>
   )
 }
