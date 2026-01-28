@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -132,9 +133,11 @@ export default function TeamsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Teams</h1>
           <p className="text-sm text-muted-foreground">Real-time crew tracking and performance</p>
         </div>
-        <Button>
-          <Users className="mr-2 h-4 w-4" />
-          Manage Teams
+        <Button asChild>
+          <Link href="/teams/manage">
+            <Users className="mr-2 h-4 w-4" />
+            Manage Teams
+          </Link>
         </Button>
       </div>
 
