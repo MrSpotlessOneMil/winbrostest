@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,92 +18,19 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
-const teams = [
-  {
-    id: "alpha",
-    name: "Team Alpha",
-    lead: "Marcus Johnson",
-    members: ["Marcus J.", "Derek W.", "Ryan S."],
-    status: "on-job",
-    currentJob: {
-      address: "456 Maple Ave, Austin TX",
-      customer: "Mike Thompson",
-      service: "Window + Pressure Wash",
-      eta: "1h 20m remaining",
-    },
-    stats: {
-      revenue: 2450,
-      target: 3600,
-      jobsCompleted: 5,
-      jobsTotal: 8,
-      avgRating: 4.9,
-      tipsToday: 85,
-      upsellsToday: 120,
-    },
-  },
-  {
-    id: "bravo",
-    name: "Team Bravo",
-    lead: "David Martinez",
-    members: ["David M.", "Chris P.", "James K."],
-    status: "traveling",
-    currentJob: {
-      address: "789 Pine Dr, Austin TX",
-      customer: "Jennifer Williams",
-      service: "Window Cleaning",
-      eta: "15 min to arrival",
-    },
-    stats: {
-      revenue: 1850,
-      target: 3600,
-      jobsCompleted: 4,
-      jobsTotal: 7,
-      avgRating: 4.8,
-      tipsToday: 45,
-      upsellsToday: 80,
-    },
-  },
-  {
-    id: "charlie",
-    name: "Team Charlie",
-    lead: "Chris Wilson",
-    members: ["Chris W.", "Mike B."],
-    status: "on-job",
-    currentJob: {
-      address: "222 Birch St, Austin TX",
-      customer: "Emma Stevens",
-      service: "Full Service Package",
-      eta: "45 min remaining",
-    },
-    stats: {
-      revenue: 3100,
-      target: 3600,
-      jobsCompleted: 6,
-      jobsTotal: 7,
-      avgRating: 5.0,
-      tipsToday: 120,
-      upsellsToday: 200,
-    },
-  },
-  {
-    id: "delta",
-    name: "Team Delta",
-    lead: "James Lee",
-    members: ["James L.", "Kevin R.", "Tom S."],
-    status: "off",
-    currentJob: null,
-    stats: {
-      revenue: 0,
-      target: 0,
-      jobsCompleted: 0,
-      jobsTotal: 0,
-      avgRating: 4.7,
-      tipsToday: 0,
-      upsellsToday: 0,
-    },
-  },
-]
+type UiTeam = Team & {
+  daily_metrics?: TeamDailyMetrics
+  currentJob?: {
+    address: string
+    customer: string
+    service: string
+    eta: string
+  } | null
+  leadName: string
+  memberNames: string[]
+}
 
 const statusConfig = {
   "on-job": { label: "On Job", className: "bg-success/10 text-success border-success/20", icon: Truck },
@@ -112,9 +40,59 @@ const statusConfig = {
 }
 
 export default function TeamsPage() {
-  const activeTeams = teams.filter((t) => t.status !== "off")
-  const totalRevenue = activeTeams.reduce((sum, t) => sum + t.stats.revenue, 0)
-  const totalTarget = activeTeams.reduce((sum, t) => sum + t.stats.target, 0)
+  const [teams, setTeams] = useState<UiTeam[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
+        const json = (await res.json()) as ApiResponse<any[]>
+        const rows = Array.isArray(json.data) ? json.data : []
+        const mapped: UiTeam[] = rows.map((t: any) => {
+          const members = Array.isArray(t.members) ? t.members : []
+          const lead = members.find((m: any) => m.role === "lead") || members[0]
+          const leadName = String(lead?.name || t.name || "Team Lead")
+          const memberNames = members.map((m: any) => String(m.name || "")).filter(Boolean)
+          return {
+            ...t,
+            leadName,
+            memberNames,
+            currentJob: t.current_job_id
+              ? {
+                  address: "—",
+                  customer: "—",
+                  service: "—",
+                  eta: "—",
+                }
+              : null,
+          }
+        })
+        if (!cancelled) setTeams(mapped)
+      } catch {
+        if (!cancelled) setTeams([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const activeTeams = useMemo(() => teams.filter((t) => t.status !== "off" && t.is_active), [teams])
+  const totalRevenue = useMemo(
+    () => activeTeams.reduce((sum, t) => sum + Number(t.daily_metrics?.revenue || 0), 0),
+    [activeTeams]
+  )
+  const totalTarget = useMemo(
+    () => activeTeams.reduce((sum, t) => sum + Number(t.daily_metrics?.target || t.daily_target || 0), 0),
+    [activeTeams]
+  )
 
   return (
     <div className="space-y-6">
@@ -140,7 +118,7 @@ export default function TeamsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Active Teams</p>
-                <p className="text-2xl font-semibold text-foreground">{activeTeams.length}/4</p>
+                <p className="text-2xl font-semibold text-foreground">{activeTeams.length}</p>
               </div>
             </div>
           </CardContent>
@@ -179,7 +157,7 @@ export default function TeamsPage() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Avg Rating</p>
-                <p className="text-2xl font-semibold text-foreground">4.85</p>
+                <p className="text-2xl font-semibold text-foreground">—</p>
               </div>
             </div>
           </CardContent>
@@ -190,7 +168,11 @@ export default function TeamsPage() {
       <div className="grid gap-6 lg:grid-cols-2">
         {teams.map((team) => {
           const StatusIcon = statusConfig[team.status as keyof typeof statusConfig].icon
-          const revenuePercent = team.stats.target > 0 ? (team.stats.revenue / team.stats.target) * 100 : 0
+          const target = Number(team.daily_metrics?.target || team.daily_target || 0)
+          const revenue = Number(team.daily_metrics?.revenue || 0)
+          const jobsCompleted = Number(team.daily_metrics?.jobs_completed || 0)
+          const jobsScheduled = Number(team.daily_metrics?.jobs_scheduled || 0)
+          const revenuePercent = target > 0 ? (revenue / target) * 100 : 0
 
           return (
             <Card
@@ -205,7 +187,7 @@ export default function TeamsPage() {
                     </div>
                     <div>
                       <CardTitle className="text-lg">{team.name}</CardTitle>
-                      <CardDescription>Lead: {team.lead}</CardDescription>
+                      <CardDescription>Lead: {team.leadName}</CardDescription>
                     </div>
                   </div>
                   <Badge
@@ -221,7 +203,7 @@ export default function TeamsPage() {
                 {/* Members */}
                 <div className="flex items-center gap-2">
                   <div className="flex -space-x-2">
-                    {team.members.map((member, i) => (
+                    {team.memberNames.map((member) => (
                       <Avatar key={member} className="h-8 w-8 border-2 border-background">
                         <AvatarFallback className="text-xs bg-muted">
                           {member.split(" ").map((n) => n[0]).join("")}
@@ -229,7 +211,7 @@ export default function TeamsPage() {
                       </Avatar>
                     ))}
                   </div>
-                  <span className="text-sm text-muted-foreground">{team.members.length} members</span>
+                  <span className="text-sm text-muted-foreground">{team.memberNames.length} members</span>
                 </div>
 
                 {/* Current Job */}
@@ -259,7 +241,7 @@ export default function TeamsPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">Daily Revenue</span>
                         <span className="font-medium text-foreground">
-                          ${team.stats.revenue.toLocaleString()} / ${team.stats.target.toLocaleString()}
+                          ${revenue.toLocaleString()} / ${target.toLocaleString()}
                         </span>
                       </div>
                       <Progress value={revenuePercent} className="h-2" />
@@ -268,20 +250,20 @@ export default function TeamsPage() {
                     <div className="grid grid-cols-4 gap-2 text-center">
                       <div className="rounded-lg bg-muted/50 p-2">
                         <p className="text-lg font-semibold text-foreground">
-                          {team.stats.jobsCompleted}/{team.stats.jobsTotal}
+                          {jobsCompleted}/{jobsScheduled}
                         </p>
                         <p className="text-xs text-muted-foreground">Jobs</p>
                       </div>
                       <div className="rounded-lg bg-muted/50 p-2">
-                        <p className="text-lg font-semibold text-foreground">{team.stats.avgRating}</p>
+                        <p className="text-lg font-semibold text-foreground">—</p>
                         <p className="text-xs text-muted-foreground">Rating</p>
                       </div>
                       <div className="rounded-lg bg-success/10 p-2">
-                        <p className="text-lg font-semibold text-success">${team.stats.tipsToday}</p>
+                        <p className="text-lg font-semibold text-success">$0</p>
                         <p className="text-xs text-muted-foreground">Tips</p>
                       </div>
                       <div className="rounded-lg bg-primary/10 p-2">
-                        <p className="text-lg font-semibold text-primary">${team.stats.upsellsToday}</p>
+                        <p className="text-lg font-semibold text-primary">$0</p>
                         <p className="text-xs text-muted-foreground">Upsells</p>
                       </div>
                     </div>
@@ -297,6 +279,9 @@ export default function TeamsPage() {
           )
         })}
       </div>
+
+      {loading && <p className="text-sm text-muted-foreground">Loading teams…</p>}
+      {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
     </div>
   )
 }

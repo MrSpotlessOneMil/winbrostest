@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -32,76 +33,60 @@ import {
   TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
 
-// Funnel data
-const funnelData = [
-  { name: "Leads In", value: 156, fill: "#5b8def" },
-  { name: "Contacted", value: 124, fill: "#38bdf8" },
-  { name: "Qualified", value: 89, fill: "#2dd4bf" },
-  { name: "Booked", value: 67, fill: "#4ade80" },
-]
+function timeAgo(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return "—"
+  const diffMs = Date.now() - t
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
 
-// Lead source performance
-const sourceData = [
-  { source: "Phone", leads: 45, booked: 32, rate: 71 },
-  { source: "Meta", leads: 52, booked: 18, rate: 35 },
-  { source: "Website", leads: 38, booked: 12, rate: 32 },
-  { source: "SMS", leads: 21, booked: 5, rate: 24 },
-]
+function titleSource(source: string): string {
+  if (!source) return "Other"
+  return source.slice(0, 1).toUpperCase() + source.slice(1)
+}
 
-// Recent leads
-const leads = [
-  {
-    id: "LEAD-001",
-    name: "Amanda Roberts",
-    phone: "(512) 555-0123",
-    source: "phone",
-    status: "new",
-    service: "Window cleaning - 2 story home",
-    estimatedValue: 400,
-    createdAt: "2 min ago",
-  },
-  {
-    id: "LEAD-002",
-    name: "Tom Anderson",
-    phone: "(512) 555-0456",
-    source: "meta",
-    status: "contacted",
-    service: "Full service package",
-    estimatedValue: 800,
-    createdAt: "8 min ago",
-  },
-  {
-    id: "LEAD-003",
-    name: "Lisa Chen",
-    phone: "(512) 555-0789",
-    source: "website",
-    status: "qualified",
-    service: "Window + Gutter cleaning",
-    estimatedValue: 520,
-    createdAt: "15 min ago",
-  },
-  {
-    id: "LEAD-004",
-    name: "Brian Miller",
-    phone: "(512) 555-0321",
-    source: "sms",
-    status: "booked",
-    service: "Pressure washing inquiry",
-    estimatedValue: 350,
-    createdAt: "25 min ago",
-  },
-  {
-    id: "LEAD-005",
-    name: "Sarah Johnson",
-    phone: "(512) 555-0654",
-    source: "phone",
-    status: "nurturing",
-    service: "Service plan interest",
-    estimatedValue: 1200,
-    createdAt: "32 min ago",
-  },
-]
+type UiLead = {
+  id: string
+  name: string
+  phone: string
+  source: "phone" | "meta" | "website" | "sms"
+  status: "new" | "contacted" | "qualified" | "booked" | "nurturing" | "lost"
+  service: string
+  estimatedValue: number
+  createdAt: string
+}
+
+function mapLead(l: ApiLead): UiLead {
+  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" ? l.source : "phone") as UiLead["source"]
+  const status =
+    (l.status === "new" ||
+    l.status === "contacted" ||
+    l.status === "qualified" ||
+    l.status === "booked" ||
+    l.status === "nurturing" ||
+    l.status === "lost"
+      ? l.status
+      : "new") as UiLead["status"]
+
+  return {
+    id: String(l.id),
+    name: l.name || "Unknown",
+    phone: l.phone || "",
+    source,
+    status,
+    service: l.service_interest || "Service inquiry",
+    estimatedValue: l.estimated_value != null ? Number(l.estimated_value) : 0,
+    createdAt: timeAgo(l.created_at),
+  }
+}
 
 const sourceIcons = {
   phone: Phone,
@@ -125,7 +110,69 @@ const chartConfig = {
 }
 
 export default function LeadsPage() {
-  const closeRate = Math.round((67 / 156) * 100)
+  const [leads, setLeads] = useState<UiLead[]>([])
+  const [loading, setLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/leads?page=1&per_page=200`, { cache: "no-store" })
+        const json = (await res.json()) as PaginatedResponse<ApiLead> | ApiResponse<any>
+        const raw = (json as any)?.data
+        const rows = Array.isArray(raw) ? raw : (json as PaginatedResponse<ApiLead>).data
+        const mapped = (rows || []).map(mapLead)
+        if (!cancelled) setLeads(mapped)
+      } catch {
+        if (!cancelled) setLeads([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const filteredLeads = useMemo(() => {
+    if (statusFilter === "all") return leads
+    return leads.filter((l) => l.status === statusFilter)
+  }, [leads, statusFilter])
+
+  const funnel = useMemo(() => {
+    const total = leads.length
+    const contacted = leads.filter((l) => ["contacted", "qualified", "booked", "nurturing"].includes(l.status)).length
+    const qualified = leads.filter((l) => ["qualified", "booked"].includes(l.status)).length
+    const booked = leads.filter((l) => l.status === "booked").length
+    return [
+      { name: "Leads In", value: total, fill: "#5b8def" },
+      { name: "Contacted", value: contacted, fill: "#38bdf8" },
+      { name: "Qualified", value: qualified, fill: "#2dd4bf" },
+      { name: "Booked", value: booked, fill: "#4ade80" },
+    ]
+  }, [leads])
+
+  const sourceData = useMemo(() => {
+    const sources: Array<UiLead["source"]> = ["phone", "meta", "website", "sms"]
+    return sources.map((s) => {
+      const items = leads.filter((l) => l.source === s)
+      const booked = items.filter((l) => l.status === "booked").length
+      const rate = items.length ? Math.round((booked / items.length) * 100) : 0
+      return { source: titleSource(s), leads: items.length, booked, rate }
+    })
+  }, [leads])
+
+  const totals = useMemo(() => {
+    const total = leads.length
+    const booked = leads.filter((l) => l.status === "booked").length
+    const avgValue =
+      leads.length ? Math.round(leads.reduce((sum, l) => sum + Number(l.estimatedValue || 0), 0) / leads.length) : 0
+    const closeRate = total ? Math.round((booked / total) * 100) : 0
+    return { total, booked, avgValue, closeRate }
+  }, [leads])
 
   return (
     <div className="space-y-6">
@@ -155,11 +202,11 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Total Leads</p>
-                <p className="text-3xl font-semibold text-foreground">156</p>
+                <p className="text-3xl font-semibold text-foreground">{totals.total}</p>
               </div>
               <div className="flex items-center text-success">
                 <ArrowUpRight className="h-4 w-4" />
-                <span className="text-sm font-medium">+12%</span>
+                <span className="text-sm font-medium">—</span>
               </div>
             </div>
           </CardContent>
@@ -169,11 +216,11 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Booked</p>
-                <p className="text-3xl font-semibold text-foreground">67</p>
+                <p className="text-3xl font-semibold text-foreground">{totals.booked}</p>
               </div>
               <div className="flex items-center text-success">
                 <ArrowUpRight className="h-4 w-4" />
-                <span className="text-sm font-medium">+8%</span>
+                <span className="text-sm font-medium">—</span>
               </div>
             </div>
           </CardContent>
@@ -183,11 +230,11 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Close Rate</p>
-                <p className="text-3xl font-semibold text-foreground">{closeRate}%</p>
+                <p className="text-3xl font-semibold text-foreground">{totals.closeRate}%</p>
               </div>
               <div className="flex items-center text-destructive">
                 <ArrowDownRight className="h-4 w-4" />
-                <span className="text-sm font-medium">-2%</span>
+                <span className="text-sm font-medium">—</span>
               </div>
             </div>
           </CardContent>
@@ -197,11 +244,11 @@ export default function LeadsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Avg Lead Value</p>
-                <p className="text-3xl font-semibold text-foreground">$485</p>
+                <p className="text-3xl font-semibold text-foreground">${totals.avgValue}</p>
               </div>
               <div className="flex items-center text-success">
                 <ArrowUpRight className="h-4 w-4" />
-                <span className="text-sm font-medium">+5%</span>
+                <span className="text-sm font-medium">—</span>
               </div>
             </div>
           </CardContent>
@@ -218,9 +265,10 @@ export default function LeadsPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {funnelData.map((stage, index) => {
-                const percentage = Math.round((stage.value / funnelData[0].value) * 100)
-                const dropoff = index > 0 ? funnelData[index - 1].value - stage.value : 0
+              {funnel.map((stage, index) => {
+                const base = funnel[0]?.value || 0
+                const percentage = base ? Math.round((stage.value / base) * 100) : 0
+                const dropoff = index > 0 ? funnel[index - 1].value - stage.value : 0
                 
                 return (
                   <div key={stage.name} className="space-y-2">
@@ -292,7 +340,7 @@ export default function LeadsPage() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Search leads..." className="w-64 pl-10" />
             </div>
-            <Select defaultValue="all">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32">
                 <Filter className="mr-2 h-4 w-4" />
                 <SelectValue />
@@ -310,7 +358,7 @@ export default function LeadsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {leads.map((lead) => {
+            {filteredLeads.map((lead) => {
               const SourceIcon = sourceIcons[lead.source as keyof typeof sourceIcons]
               return (
                 <div
@@ -361,6 +409,10 @@ export default function LeadsPage() {
                 </div>
               )
             })}
+            {loading && <p className="text-sm text-muted-foreground">Loading leads…</p>}
+            {!loading && leads.length === 0 && (
+              <p className="text-sm text-muted-foreground">No leads yet.</p>
+            )}
           </div>
         </CardContent>
       </Card>

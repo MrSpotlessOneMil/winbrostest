@@ -1,48 +1,50 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
+import { getSupabaseClient } from "@/lib/supabase"
 
-// Mock data - Replace with Supabase queries when integrated
-const mockJobs: Job[] = [
-  {
-    id: "job-1234",
-    hcp_job_id: "hcp-1234",
-    customer_id: "cust-001",
-    customer_name: "Sarah Johnson",
-    customer_phone: "(512) 555-0123",
-    address: "123 Oak Street, Austin TX",
-    service_type: "window_cleaning",
-    scheduled_date: "2026-01-27",
-    scheduled_time: "08:00",
-    duration_minutes: 120,
-    estimated_value: 350,
-    status: "completed",
-    team_id: "team-alpha",
-    team_confirmed: true,
-    team_confirmed_at: "2026-01-26T15:00:00Z",
-    notes: "2-story home, access from backyard",
-    created_at: "2026-01-20T10:00:00Z",
-    updated_at: "2026-01-27T10:30:00Z",
-  },
-  {
-    id: "job-1235",
-    hcp_job_id: "hcp-1235",
-    customer_id: "cust-002",
-    customer_name: "Mike Thompson",
-    customer_phone: "(512) 555-0456",
-    address: "456 Maple Ave, Austin TX",
-    service_type: "full_service",
-    scheduled_date: "2026-01-27",
-    scheduled_time: "10:30",
-    duration_minutes: 180,
-    estimated_value: 480,
-    status: "in-progress",
-    team_id: "team-alpha",
-    team_confirmed: true,
-    team_confirmed_at: "2026-01-26T15:30:00Z",
-    created_at: "2026-01-21T14:00:00Z",
-    updated_at: "2026-01-27T10:30:00Z",
-  },
-]
+function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
+  switch ((status || "").toLowerCase()) {
+    case "cancelled":
+      return "cancelled"
+    case "completed":
+      return "completed"
+    case "in_progress":
+      return "in-progress"
+    case "scheduled":
+      return "scheduled"
+    case "quoted":
+      return "confirmed"
+    case "lead":
+      return "scheduled"
+    default:
+      return "scheduled"
+  }
+}
+
+function mapDbServiceTypeToApi(serviceType: string | null | undefined): Job["service_type"] {
+  const raw = (serviceType || "").toLowerCase()
+  if (raw.includes("gutter")) return "gutter_cleaning"
+  if (raw.includes("pressure")) return "pressure_washing"
+  if (raw.includes("window")) return "window_cleaning"
+  return "full_service"
+}
+
+function toIsoDateOnly(value: unknown): string {
+  if (!value) return new Date().toISOString().slice(0, 10)
+  const d = new Date(String(value))
+  if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10)
+  return d.toISOString().slice(0, 10)
+}
+
+function toTimeHHMM(value: unknown): string {
+  if (!value) return "09:00"
+  const s = String(value)
+  // Postgres `time` comes through like "10:30:00"
+  if (/^\d{2}:\d{2}/.test(s)) return s.slice(0, 5)
+  const d = new Date(s)
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(11, 16)
+  return "09:00"
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -52,30 +54,97 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1")
   const per_page = parseInt(searchParams.get("per_page") || "20")
 
-  // Filter jobs based on query params
-  let filteredJobs = [...mockJobs]
-
-  if (date) {
-    filteredJobs = filteredJobs.filter((job) => job.scheduled_date === date)
-  }
-  if (team_id) {
-    filteredJobs = filteredJobs.filter((job) => job.team_id === team_id)
-  }
-  if (status) {
-    filteredJobs = filteredJobs.filter((job) => job.status === status)
-  }
-
-  // Pagination
-  const total = filteredJobs.length
+  const client = getSupabaseClient()
   const start = (page - 1) * per_page
-  const paginatedJobs = filteredJobs.slice(start, start + per_page)
+  const end = start + per_page - 1
 
+  // If team_id is provided, resolve job_ids via cleaner_assignments first (keeps things reliable across Supabase join filtering).
+  let allowedJobIds: number[] | null = null
+  if (team_id) {
+    const teamCleanerId = Number(team_id)
+    if (!Number.isNaN(teamCleanerId)) {
+      const { data: assignments, error: assignErr } = await client
+        .from("cleaner_assignments")
+        .select("job_id")
+        .eq("cleaner_id", teamCleanerId)
+        .neq("status", "cancelled")
+
+      if (assignErr) {
+        return NextResponse.json(
+          { data: [], total: 0, page, per_page, total_pages: 0 } satisfies PaginatedResponse<Job>,
+          { status: 200 }
+        )
+      }
+      allowedJobIds = (assignments || []).map((a: any) => Number(a.job_id)).filter((n) => Number.isFinite(n))
+      if (allowedJobIds.length === 0) {
+        const empty: PaginatedResponse<Job> = { data: [], total: 0, page, per_page, total_pages: 0 }
+        return NextResponse.json(empty)
+      }
+    }
+  }
+
+  let query = client
+    .from("jobs")
+    .select("*, customers (*), cleaner_assignments (*, cleaners (*))", { count: "exact" })
+    .order("created_at", { ascending: false })
+
+  if (date) query = query.eq("date", date)
+  if (status) query = query.eq("status", status === "in-progress" ? "in_progress" : status)
+  if (allowedJobIds) query = query.in("id", allowedJobIds)
+
+  const { data: rows, error, count } = await query.range(start, end)
+  if (error) {
+    const empty: PaginatedResponse<Job> = { data: [], total: 0, page, per_page, total_pages: 0 }
+    return NextResponse.json(empty)
+  }
+
+  const jobs: Job[] = (rows || []).map((row: any) => {
+    const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers
+    const assignments = Array.isArray(row.cleaner_assignments) ? row.cleaner_assignments : []
+    const primaryAssignment = assignments.find((a: any) => a?.status === "confirmed") || assignments[0]
+    const cleaner = primaryAssignment?.cleaners
+
+    const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "Unknown"
+    const scheduledDate = toIsoDateOnly(row.date || row.created_at)
+    const scheduledTime = toTimeHHMM(row.scheduled_at)
+    const durationMinutes = row.hours ? Math.round(Number(row.hours) * 60) : 120
+    const estimatedValue = row.price ? Number(row.price) : 0
+
+    const teamConfirmed = Boolean(primaryAssignment && ["accepted", "confirmed"].includes(String(primaryAssignment.status)))
+    const teamConfirmedAt = primaryAssignment?.updated_at ? String(primaryAssignment.updated_at) : undefined
+
+    return {
+      id: String(row.id),
+      hcp_job_id: row.hcp_job_id ? String(row.hcp_job_id) : "",
+      customer_id: customer?.id != null ? String(customer.id) : String(row.customer_id ?? ""),
+      customer_name: customerName,
+      customer_phone: String(customer?.phone_number || row.phone_number || ""),
+      address: String(row.address || customer?.address || ""),
+      service_type: mapDbServiceTypeToApi(row.service_type),
+      scheduled_date: scheduledDate,
+      scheduled_time: scheduledTime,
+      duration_minutes: durationMinutes,
+      estimated_value: estimatedValue,
+      actual_value: row.actual_value != null ? Number(row.actual_value) : undefined,
+      status: mapDbStatusToApi(row.status),
+      team_id: cleaner?.id != null ? String(cleaner.id) : (primaryAssignment?.cleaner_id != null ? String(primaryAssignment.cleaner_id) : undefined),
+      team_confirmed: teamConfirmed,
+      team_confirmed_at: teamConfirmedAt,
+      notes: row.notes ? String(row.notes) : undefined,
+      upsell_notes: row.upsell_notes ? String(row.upsell_notes) : undefined,
+      completion_notes: row.completion_notes ? String(row.completion_notes) : undefined,
+      created_at: row.created_at ? String(row.created_at) : new Date().toISOString(),
+      updated_at: row.updated_at ? String(row.updated_at) : new Date().toISOString(),
+    }
+  })
+
+  const total = Number(count || 0)
   const response: PaginatedResponse<Job> = {
-    data: paginatedJobs,
+    data: jobs,
     total,
     page,
     per_page,
-    total_pages: Math.ceil(total / per_page),
+    total_pages: total ? Math.ceil(total / per_page) : 0,
   }
 
   return NextResponse.json(response)
@@ -85,31 +154,89 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    // TODO: Validate body against Job type
-    // TODO: Create job in Supabase
-    // TODO: Sync with Housecall Pro
+    const client = getSupabaseClient()
 
-    const newJob: Job = {
-      id: `job-${Date.now()}`,
-      hcp_job_id: `hcp-${Date.now()}`,
-      ...body,
+    const phone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
+    const firstLast = String(body.customer_name || body.name || "Unknown").trim().split(" ")
+    const first_name = firstLast[0] || undefined
+    const last_name = firstLast.slice(1).join(" ") || undefined
+
+    // Upsert-like behavior: create customer if not found by phone_number.
+    let customerId: number | null = null
+    if (phone) {
+      const existing = await client
+        .from("customers")
+        .select("*")
+        .eq("phone_number", phone)
+        .maybeSingle()
+      if (!existing.error && existing.data?.id != null) {
+        customerId = Number(existing.data.id)
+      } else {
+        const created = await client
+          .from("customers")
+          .insert({
+            phone_number: phone,
+            first_name,
+            last_name,
+            email: body.email || undefined,
+            address: body.address || undefined,
+          })
+          .select("*")
+          .single()
+        if (created.error) throw created.error
+        customerId = Number(created.data.id)
+      }
+    }
+
+    const scheduledDate = body.scheduled_date || body.date || undefined
+    const scheduledAt = body.scheduled_time || body.scheduled_at || undefined
+    const inserted = await client
+      .from("jobs")
+      .insert({
+        customer_id: customerId,
+        phone_number: phone,
+        address: body.address || undefined,
+        service_type: body.service_type || "Standard cleaning",
+        date: scheduledDate,
+        scheduled_at: scheduledAt,
+        hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
+        price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
+        status: "scheduled",
+        booked: true,
+      })
+      .select("*, customers (*)")
+      .single()
+    if (inserted.error) throw inserted.error
+
+    const row: any = inserted.data
+    const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers
+    const customerName =
+      [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || body.customer_name || "Unknown"
+
+    const createdJob: Job = {
+      id: String(row.id),
+      hcp_job_id: "",
+      customer_id: customer?.id != null ? String(customer.id) : String(row.customer_id ?? ""),
+      customer_name: customerName,
+      customer_phone: String(customer?.phone_number || row.phone_number || ""),
+      address: String(row.address || customer?.address || ""),
+      service_type: mapDbServiceTypeToApi(row.service_type),
+      scheduled_date: toIsoDateOnly(row.date || row.created_at),
+      scheduled_time: toTimeHHMM(row.scheduled_at),
+      duration_minutes: row.hours ? Math.round(Number(row.hours) * 60) : 120,
+      estimated_value: row.price ? Number(row.price) : 0,
+      status: mapDbStatusToApi(row.status),
       team_confirmed: false,
-      status: "scheduled",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: row.created_at ? String(row.created_at) : new Date().toISOString(),
+      updated_at: row.updated_at ? String(row.updated_at) : new Date().toISOString(),
     }
 
-    const response: ApiResponse<Job> = {
-      success: true,
-      data: newJob,
-      message: "Job created successfully",
-    }
-
+    const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })
   } catch (error) {
     const response: ApiResponse<never> = {
       success: false,
-      error: "Failed to create job",
+      error: error instanceof Error ? error.message : "Failed to create job",
     }
     return NextResponse.json(response, { status: 400 })
   }

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import {
   Area,
   AreaChart,
@@ -11,16 +12,9 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import type { ApiResponse, DailyMetrics } from "@/lib/types"
 
-const revenueData = [
-  { date: "Mon", revenue: 4200, target: 4800 },
-  { date: "Tue", revenue: 5100, target: 4800 },
-  { date: "Wed", revenue: 3800, target: 4800 },
-  { date: "Thu", revenue: 5600, target: 4800 },
-  { date: "Fri", revenue: 6200, target: 4800 },
-  { date: "Sat", revenue: 4850, target: 4800 },
-  { date: "Sun", revenue: 0, target: 0 },
-]
+type Point = { date: string; revenue: number; target: number }
 
 const chartConfig = {
   revenue: {
@@ -34,14 +28,58 @@ const chartConfig = {
 }
 
 export function RevenueChart() {
+  const [range, setRange] = useState<"week" | "month" | "quarter">("week")
+  const [data, setData] = useState<Point[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        // For now, "month" and "quarter" still use the weekly aggregate (keeps API simple).
+        const apiRange = "week"
+        const res = await fetch(`/api/metrics?range=${apiRange}`, { cache: "no-store" })
+        const json = (await res.json()) as ApiResponse<DailyMetrics[]>
+        const rows = (json as any).data as any[]
+        const points: Point[] = Array.isArray(rows)
+          ? rows.map((m: DailyMetrics) => {
+              const d = new Date(`${m.date}T00:00:00Z`)
+              const label = d.toLocaleDateString("en-US", { weekday: "short" })
+              return {
+                date: label,
+                revenue: Number(m.total_revenue || 0),
+                target: Number(m.target_revenue || 0),
+              }
+            })
+          : []
+        if (!cancelled) setData(points)
+      } catch {
+        if (!cancelled) setData([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [range])
+
+  const description = useMemo(() => {
+    if (range === "week") return "Daily revenue vs target"
+    if (range === "month") return "Revenue vs target (rolling)"
+    return "Revenue vs target (rolling)"
+  }, [range])
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle>Revenue Overview</CardTitle>
-          <CardDescription>Daily revenue vs target ($4,800/crew/day)</CardDescription>
+          <CardDescription>{description}</CardDescription>
         </div>
-        <Select defaultValue="week">
+        <Select value={range} onValueChange={(v) => setRange(v as any)}>
           <SelectTrigger className="w-32">
             <SelectValue />
           </SelectTrigger>
@@ -54,7 +92,7 @@ export function RevenueChart() {
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-[300px] w-full">
-          <AreaChart data={revenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#5b8def" stopOpacity={0.3} />
@@ -95,6 +133,7 @@ export function RevenueChart() {
             />
           </AreaChart>
         </ChartContainer>
+        {loading && <p className="mt-2 text-xs text-muted-foreground">Loading…</p>}
       </CardContent>
     </Card>
   )

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -19,28 +19,47 @@ import {
   Filter,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { Job as ApiJob, PaginatedResponse } from "@/lib/types"
 
-// Mock data for jobs
-const jobsData = {
-  "2026-01-26": [
-    { id: "1234", time: "8:00 AM", customer: "Sarah J.", value: 350, team: "Alpha", status: "completed" },
-    { id: "1235", time: "10:30 AM", customer: "Mike T.", value: 480, team: "Alpha", status: "completed" },
-    { id: "1236", time: "1:00 PM", customer: "Jennifer W.", value: 420, team: "Bravo", status: "in-progress" },
-  ],
-  "2026-01-27": [
-    { id: "1238", time: "8:00 AM", customer: "Lisa C.", value: 520, team: "Alpha", status: "scheduled" },
-    { id: "1239", time: "9:30 AM", customer: "Brian M.", value: 380, team: "Bravo", status: "scheduled" },
-    { id: "1240", time: "11:00 AM", customer: "Amanda R.", value: 450, team: "Alpha", status: "scheduled" },
-    { id: "1241", time: "2:00 PM", customer: "Tom A.", value: 800, team: "Charlie", status: "scheduled" },
-    { id: "1242", time: "3:30 PM", customer: "Robert D.", value: 550, team: "Bravo", status: "scheduled" },
-  ],
-  "2026-01-28": [
-    { id: "1243", time: "8:00 AM", customer: "Emma S.", value: 400, team: "Alpha", status: "scheduled" },
-    { id: "1244", time: "10:00 AM", customer: "David L.", value: 620, team: "Bravo", status: "scheduled" },
-  ],
-  "2026-01-29": [
-    { id: "1245", time: "9:00 AM", customer: "Chris P.", value: 350, team: "Charlie", status: "scheduled" },
-  ],
+type CalendarJob = {
+  id: string
+  time: string
+  customer: string
+  value: number
+  team: string
+  status: "completed" | "in-progress" | "scheduled" | "cancelled"
+  date: string
+}
+
+function toTimeDisplay(hhmm: string | null | undefined): string {
+  const s = String(hhmm || "")
+  if (!/^\d{2}:\d{2}$/.test(s)) return "—"
+  const [hStr, mStr] = s.split(":")
+  const h = Number(hStr)
+  const m = Number(mStr)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "—"
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}
+
+function isoDateKey(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, "0")
+  const d = String(date.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+function mapJobForCalendar(row: ApiJob): CalendarJob {
+  return {
+    id: row.id,
+    time: toTimeDisplay(row.scheduled_time),
+    customer: row.customer_name || "Unknown",
+    value: Number(row.estimated_value || 0),
+    team: row.team_id ? String(row.team_id) : "—",
+    status: row.status,
+    date: row.scheduled_date,
+  }
 }
 
 const statusColors = {
@@ -51,8 +70,10 @@ const statusColors = {
 }
 
 export default function JobsPage() {
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 0, 27))
+  const [currentDate, setCurrentDate] = useState(new Date())
   const [selectedTeam, setSelectedTeam] = useState("all")
+  const [jobs, setJobs] = useState<CalendarJob[]>([])
+  const [loading, setLoading] = useState(false)
 
   const getDaysInMonth = (date: Date) => {
     const year = date.getFullYear()
@@ -66,12 +87,7 @@ export default function JobsPage() {
 
   const { daysInMonth, startingDay } = getDaysInMonth(currentDate)
 
-  const formatDateKey = (day: number) => {
-    const year = currentDate.getFullYear()
-    const month = String(currentDate.getMonth() + 1).padStart(2, "0")
-    const dayStr = String(day).padStart(2, "0")
-    return `${year}-${month}-${dayStr}`
-  }
+  const formatDateKey = (day: number) => isoDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))
 
   const navigateMonth = (direction: "prev" | "next") => {
     setCurrentDate((prev) => {
@@ -94,6 +110,52 @@ export default function JobsPage() {
     )
   }
 
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        // Pull a larger set and filter client-side for the month (avoids N requests/day).
+        const res = await fetch(`/api/jobs?page=1&per_page=500`, { cache: "no-store" })
+        const json = (await res.json()) as PaginatedResponse<ApiJob>
+        const mapped = (json.data || []).map(mapJobForCalendar)
+
+        // Filter to current month and optional team filter.
+        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+        const startKey = isoDateKey(monthStart)
+        const endKey = isoDateKey(monthEnd)
+
+        const filtered = mapped.filter((j) => j.date >= startKey && j.date <= endKey)
+        const teamFiltered =
+          selectedTeam === "all" ? filtered : filtered.filter((j) => String(j.team) === String(selectedTeam))
+
+        if (!cancelled) setJobs(teamFiltered)
+      } catch {
+        if (!cancelled) setJobs([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [currentDate, selectedTeam])
+
+  const jobsByDate = useMemo(() => {
+    const map = new Map<string, CalendarJob[]>()
+    for (const j of jobs) {
+      const arr = map.get(j.date) || []
+      arr.push(j)
+      map.set(j.date, arr)
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => a.time.localeCompare(b.time))
+    }
+    return map
+  }, [jobs])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -110,10 +172,10 @@ export default function JobsPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Teams</SelectItem>
-              <SelectItem value="alpha">Team Alpha</SelectItem>
-              <SelectItem value="bravo">Team Bravo</SelectItem>
-              <SelectItem value="charlie">Team Charlie</SelectItem>
-              <SelectItem value="delta">Team Delta</SelectItem>
+              <SelectItem value="1">Team 1</SelectItem>
+              <SelectItem value="2">Team 2</SelectItem>
+              <SelectItem value="3">Team 3</SelectItem>
+              <SelectItem value="4">Team 4</SelectItem>
             </SelectContent>
           </Select>
           <Button>
@@ -175,8 +237,8 @@ export default function JobsPage() {
                 {Array.from({ length: daysInMonth }).map((_, i) => {
                   const day = i + 1
                   const dateKey = formatDateKey(day)
-                  const dayJobs = jobsData[dateKey as keyof typeof jobsData] || []
-                  const totalRevenue = dayJobs.reduce((sum, job) => sum + job.value, 0)
+                  const dayJobs = jobsByDate.get(dateKey) || []
+                  const totalRevenue = dayJobs.reduce((sum, job) => sum + Number(job.value || 0), 0)
 
                   return (
                     <div
@@ -219,6 +281,9 @@ export default function JobsPage() {
                   )
                 })}
               </div>
+              {loading && (
+                <p className="mt-3 text-xs text-muted-foreground">Loading jobs…</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -231,7 +296,9 @@ export default function JobsPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-6">
-                {Object.entries(jobsData).map(([date, jobs]) => (
+                {Array.from(jobsByDate.entries())
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([date, dayJobs]) => (
                   <div key={date}>
                     <div className="mb-3 flex items-center gap-2">
                       <div className="h-px flex-1 bg-border" />
@@ -246,7 +313,7 @@ export default function JobsPage() {
                     </div>
 
                     <div className="space-y-2">
-                      {jobs.map((job) => (
+                      {dayJobs.map((job) => (
                         <div
                           key={job.id}
                           className="flex items-center gap-4 rounded-lg border border-border bg-muted/30 p-4 transition-colors hover:bg-muted/50"
@@ -276,7 +343,7 @@ export default function JobsPage() {
                                 </div>
                                 <div className="flex items-center gap-1">
                                   <DollarSign className="h-4 w-4" />
-                                  ${job.value}
+                                  ${Number(job.value || 0)}
                                 </div>
                               </div>
                             </div>
@@ -289,6 +356,9 @@ export default function JobsPage() {
                     </div>
                   </div>
                 ))}
+                {!loading && jobs.length === 0 && (
+                  <p className="text-sm text-muted-foreground">No jobs found for this month.</p>
+                )}
               </div>
             </CardContent>
           </Card>

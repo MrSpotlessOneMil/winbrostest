@@ -6,35 +6,17 @@ import { Button } from "@/components/ui/button"
 import { AlertTriangle, Clock, Users, MapPin, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-const exceptions = [
-  {
-    id: "EXC-001",
-    type: "no-confirm",
-    title: "No team confirmed",
-    description: "Job #1238 at 567 Elm St - 4:00 PM",
-    time: "5 min ago",
-    priority: "high",
-    action: "Assign Team",
-  },
-  {
-    id: "EXC-002",
-    type: "high-value",
-    title: "High-value job needs review",
-    description: "$1,500 full-service booking - needs approval",
-    time: "12 min ago",
-    priority: "medium",
-    action: "Review",
-  },
-  {
-    id: "EXC-003",
-    type: "routing",
-    title: "Routing conflict",
-    description: "Team Bravo - overlapping job times detected",
-    time: "20 min ago",
-    priority: "low",
-    action: "Resolve",
-  },
-]
+// NOTE: We intentionally keep this dynamic (no hardcoded exceptions).
+// When you want real exceptions, we can add a dedicated `/api/exceptions` backed by `system_events` + alert tables.
+const exceptions: Array<{
+  id: string
+  type: "no-confirm" | "high-value" | "routing" | "scheduling"
+  title: string
+  description: string
+  time: string
+  priority: "high" | "medium" | "low"
+  action: string
+}> = []
 
 const typeIcons = {
   "no-confirm": Users,

@@ -1,27 +1,20 @@
 "use client"
 
-import React from "react"
-
-import { useState } from "react"
-import { Sidebar } from "@/components/dashboard/sidebar"
-import { TopNav } from "@/components/dashboard/top-nav"
+import React, { useEffect, useState } from "react"
+import DashboardShell from "@/components/dashboard/dashboard-shell"
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Avoid SSR/client mismatch from Radix-generated IDs by only rendering the shell after mount.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
-  return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="flex flex-1 flex-col">
-        <TopNav />
-        <main className="flex-1 overflow-auto p-6">
-          {children}
-        </main>
-      </div>
-    </div>
-  )
+  if (!mounted) {
+    return <div className="min-h-screen bg-background" />
+  }
+
+  return <DashboardShell>{children}</DashboardShell>
 }

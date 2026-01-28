@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,15 +18,25 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CloudRain, CalendarDays, ArrowRight, AlertTriangle, Check, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { format } from "date-fns"
+import type { Job } from "@/lib/types"
 
-// Mock affected jobs
-const affectedJobs = [
-  { id: "1238", customer: "Lisa Chen", time: "8:00 AM", value: 520, team: "Alpha", address: "123 Oak St" },
-  { id: "1239", customer: "Brian Miller", time: "9:30 AM", value: 380, team: "Bravo", address: "456 Maple Ave" },
-  { id: "1240", customer: "Amanda Roberts", time: "11:00 AM", value: 450, team: "Alpha", address: "789 Pine Dr" },
-  { id: "1241", customer: "Tom Anderson", time: "2:00 PM", value: 800, team: "Charlie", address: "321 Cedar Ln" },
-  { id: "1242", customer: "Robert Davis", time: "3:30 PM", value: 550, team: "Bravo", address: "654 Birch St" },
-]
+type PreviewJob = { id: string; customer: string; time: string; value: number; team: string; address: string }
+
+function toIso(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+function toTimeDisplay(hhmm: string | null | undefined): string {
+  const s = String(hhmm || "")
+  if (!/^\d{2}:\d{2}$/.test(s)) return "—"
+  const [hStr, mStr] = s.split(":")
+  const h = Number(hStr)
+  const m = Number(mStr)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "—"
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}
 
 export default function RainDayPage() {
   const [affectedDate, setAffectedDate] = useState<Date | undefined>(undefined)
@@ -34,15 +44,64 @@ export default function RainDayPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [isComplete, setIsComplete] = useState(false)
+  const [previewJobs, setPreviewJobs] = useState<PreviewJob[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
 
-  const totalRevenue = affectedJobs.reduce((sum, job) => sum + job.value, 0)
+  const affectedIso = useMemo(() => (affectedDate ? toIso(affectedDate) : null), [affectedDate])
+  const totalRevenue = previewJobs.reduce((sum, job) => sum + job.value, 0)
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadPreview() {
+      if (!affectedIso) {
+        setPreviewJobs([])
+        return
+      }
+      setPreviewLoading(true)
+      try {
+        const res = await fetch(`/api/rain-day?date=${affectedIso}`, { cache: "no-store" })
+        const json = await res.json()
+        const jobs = Array.isArray(json?.data?.jobs) ? (json.data.jobs as any[]) : []
+        const mapped: PreviewJob[] = jobs.map((j) => ({
+          id: String(j.id),
+          customer: String(j.customer_name || "Unknown"),
+          time: String(j.time || "—"),
+          value: Number(j.value || 0),
+          team: String(j.team_id || "—"),
+          address: String(j.address || "—"),
+        }))
+        if (!cancelled) setPreviewJobs(mapped)
+      } catch {
+        if (!cancelled) setPreviewJobs([])
+      } finally {
+        if (!cancelled) setPreviewLoading(false)
+      }
+    }
+    loadPreview()
+    return () => {
+      cancelled = true
+    }
+  }, [affectedIso])
 
   const handleReschedule = async () => {
     setIsProcessing(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsProcessing(false)
-    setIsComplete(true)
+    try {
+      const res = await fetch("/api/rain-day", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          affected_date: affectedDate ? toIso(affectedDate) : null,
+          target_date: targetDate ? toIso(targetDate) : null,
+          initiated_by: "dashboard",
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to reschedule")
+      setIsComplete(true)
+    } catch {
+      // leave as-is; UI will let them retry
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   const resetForm = () => {
@@ -83,15 +142,13 @@ export default function RainDayPage() {
             </div>
             <h2 className="mt-4 text-xl font-semibold text-foreground">Reschedule Complete</h2>
             <p className="mt-2 text-muted-foreground">
-              {affectedJobs.length} jobs have been rescheduled from{" "}
+              {previewJobs.length} jobs have been rescheduled from{" "}
               {affectedDate && format(affectedDate, "MMM d")} to{" "}
               {targetDate && format(targetDate, "MMM d")}
             </p>
             <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-              <p>- Customers notified via SMS</p>
-              <p>- Teams notified via Telegram</p>
-              <p>- HCP records updated</p>
-              <p>- Team confirmation requests sent</p>
+              <p>- Job dates updated in Supabase</p>
+              <p>- (Next) Wire HCP + SMS + Telegram notifications here</p>
             </div>
             <Button onClick={resetForm} className="mt-6">
               Start New Reschedule
@@ -185,14 +242,14 @@ export default function RainDayPage() {
               <CardTitle>Jobs to Reschedule</CardTitle>
               <CardDescription>
                 {affectedDate
-                  ? `${affectedJobs.length} exterior jobs scheduled for ${format(affectedDate, "MMM d")}`
+                  ? `${previewJobs.length} jobs scheduled for ${format(affectedDate, "MMM d")}`
                   : "Select an affected date to see jobs"}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {affectedDate ? (
                 <div className="space-y-3">
-                  {affectedJobs.map((job) => (
+                  {previewJobs.map((job) => (
                     <div
                       key={job.id}
                       className="flex items-center justify-between rounded-lg border border-border bg-muted/30 p-3"
@@ -211,6 +268,7 @@ export default function RainDayPage() {
                     <span className="font-medium text-foreground">Total Revenue Impact</span>
                     <span className="text-lg font-semibold text-primary">${totalRevenue}</span>
                   </div>
+                  {previewLoading && <p className="text-sm text-muted-foreground">Loading jobs…</p>}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
@@ -235,7 +293,7 @@ export default function RainDayPage() {
             className="gap-2"
           >
             <CloudRain className="h-5 w-5" />
-            Reschedule {affectedJobs.length} Jobs
+            Reschedule {previewJobs.length} Jobs
           </Button>
         </div>
       )}
@@ -246,7 +304,7 @@ export default function RainDayPage() {
           <DialogHeader>
             <DialogTitle>Confirm Rain Day Reschedule</DialogTitle>
             <DialogDescription>
-              This action will move all {affectedJobs.length} exterior jobs from{" "}
+              This action will move all {previewJobs.length} jobs from{" "}
               {affectedDate && format(affectedDate, "MMMM d")} to{" "}
               {targetDate && format(targetDate, "MMMM d")}.
             </DialogDescription>
@@ -265,7 +323,7 @@ export default function RainDayPage() {
               </li>
               <li className="flex items-center gap-2">
                 <Check className="h-4 w-4 text-success" />
-                Send SMS notifications to {affectedJobs.length} customers
+                Send SMS notifications to {previewJobs.length} customers
               </li>
               <li className="flex items-center gap-2">
                 <Check className="h-4 w-4 text-success" />

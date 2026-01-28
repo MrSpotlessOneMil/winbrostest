@@ -1,57 +1,66 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { MapPin, Clock, DollarSign, ChevronRight, User } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { Job as ApiJob, PaginatedResponse } from "@/lib/types"
 
-const jobs = [
-  {
-    id: "JOB-1234",
-    customer: "Sarah Johnson",
-    address: "123 Oak Street, Austin TX",
-    time: "8:00 AM - 10:00 AM",
-    value: 350,
-    status: "completed",
-    team: "Alpha",
-    service: "Window Cleaning",
-    upsell: "Gutter cleaning added",
-  },
-  {
-    id: "JOB-1235",
-    customer: "Mike Thompson",
-    address: "456 Maple Ave, Austin TX",
-    time: "10:30 AM - 12:30 PM",
-    value: 480,
-    status: "in-progress",
-    team: "Alpha",
-    service: "Window + Pressure Wash",
-    upsell: null,
-  },
-  {
-    id: "JOB-1236",
-    customer: "Jennifer Williams",
-    address: "789 Pine Dr, Austin TX",
-    time: "1:00 PM - 3:00 PM",
-    value: 420,
-    status: "scheduled",
-    team: "Bravo",
-    service: "Window Cleaning",
-    upsell: null,
-  },
-  {
-    id: "JOB-1237",
-    customer: "Robert Davis",
-    address: "321 Cedar Ln, Austin TX",
-    time: "3:30 PM - 5:30 PM",
-    value: 550,
-    status: "scheduled",
-    team: "Bravo",
-    service: "Full Service Package",
-    upsell: null,
-  },
-]
+type UiJob = {
+  id: string
+  customer: string
+  address: string
+  time: string
+  value: number
+  status: ApiJob["status"]
+  team: string
+  service: string
+  upsell: string | null
+}
+
+function toTimeDisplay(hhmm: string | null | undefined): string {
+  const s = String(hhmm || "")
+  if (!/^\d{2}:\d{2}$/.test(s)) return "—"
+  const [hStr, mStr] = s.split(":")
+  const h = Number(hStr)
+  const m = Number(mStr)
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "—"
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+}
+
+function mapJob(row: ApiJob): UiJob {
+  const start = toTimeDisplay(row.scheduled_time)
+  const durationMin = Number(row.duration_minutes || 0)
+  const end =
+    durationMin > 0
+      ? (() => {
+          const now = new Date()
+          const t = String(row.scheduled_time || "")
+          if (!/^\d{2}:\d{2}$/.test(t)) return ""
+          const [hStr, mStr] = t.split(":")
+          const d = new Date(now)
+          d.setHours(Number(hStr), Number(mStr), 0, 0)
+          d.setMinutes(d.getMinutes() + durationMin)
+          return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+        })()
+      : ""
+
+  return {
+    id: `JOB-${row.id}`,
+    customer: row.customer_name || "Unknown",
+    address: row.address || "—",
+    time: end ? `${start} - ${end}` : start,
+    value: Number(row.estimated_value || 0),
+    status: row.status,
+    team: row.team_id ? String(row.team_id) : "—",
+    service: String(row.service_type || "Service"),
+    upsell: row.upsell_notes || null,
+  }
+}
 
 const statusConfig = {
   completed: { label: "Completed", className: "bg-success/10 text-success border-success/20" },
@@ -61,12 +70,42 @@ const statusConfig = {
 }
 
 export function TodaysJobs() {
+  const [jobs, setJobs] = useState<UiJob[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/jobs?date=${today}&page=1&per_page=50`, { cache: "no-store" })
+        const json = (await res.json()) as PaginatedResponse<ApiJob>
+        const rows = (json.data || []).map(mapJob)
+        if (!cancelled) setJobs(rows)
+      } catch {
+        if (!cancelled) setJobs([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [today])
+
+  const projectedRevenue = jobs.reduce((sum, j) => sum + Number(j.value || 0), 0)
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <CardTitle>Today's Jobs</CardTitle>
-          <CardDescription>12 jobs scheduled • $5,800 projected revenue</CardDescription>
+          <CardDescription>
+            {jobs.length} jobs scheduled • ${projectedRevenue.toLocaleString()} projected revenue
+          </CardDescription>
         </div>
         <Button variant="outline" size="sm">
           View All
@@ -129,6 +168,10 @@ export function TodaysJobs() {
               </div>
             </div>
           ))}
+          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {!loading && jobs.length === 0 && (
+            <p className="text-sm text-muted-foreground">No jobs scheduled for today.</p>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -1,49 +1,57 @@
 "use client"
 
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Phone, MessageSquare, Globe, Instagram, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { Lead as ApiLead, PaginatedResponse } from "@/lib/types"
 
-const leads = [
-  {
-    id: "LEAD-001",
-    name: "Amanda Roberts",
-    source: "phone",
-    time: "2 min ago",
-    status: "new",
-    service: "Window cleaning estimate",
-    value: "~$400",
-  },
-  {
-    id: "LEAD-002",
-    name: "Tom Anderson",
-    source: "meta",
-    time: "8 min ago",
-    status: "contacted",
-    service: "Full service package",
-    value: "~$800",
-  },
-  {
-    id: "LEAD-003",
-    name: "Lisa Chen",
-    source: "website",
-    time: "15 min ago",
-    status: "booked",
-    service: "Window + Gutter cleaning",
-    value: "$520",
-  },
-  {
-    id: "LEAD-004",
-    name: "Brian Miller",
-    source: "sms",
-    time: "25 min ago",
-    status: "nurturing",
-    service: "Pressure washing inquiry",
-    value: "TBD",
-  },
-]
+type UiLead = {
+  id: string
+  name: string
+  source: "phone" | "meta" | "website" | "sms"
+  time: string
+  status: "new" | "contacted" | "booked" | "nurturing" | "lost"
+  service: string
+  value: string
+}
+
+function timeAgo(iso: string): string {
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return "—"
+  const diffMs = Date.now() - t
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
+function mapLead(l: ApiLead): UiLead {
+  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" ? l.source : "phone") as UiLead["source"]
+  const status =
+    (l.status === "new" || l.status === "contacted" || l.status === "booked" || l.status === "nurturing" || l.status === "lost"
+      ? l.status
+      : "new") as UiLead["status"]
+  const value =
+    l.estimated_value != null
+      ? `$${Number(l.estimated_value).toLocaleString()}`
+      : "TBD"
+
+  return {
+    id: `LEAD-${l.id}`,
+    name: l.name || "Unknown",
+    source,
+    time: timeAgo(l.created_at),
+    status,
+    service: l.service_interest || "Service inquiry",
+    value,
+  }
+}
 
 const sourceIcons = {
   phone: Phone,
@@ -61,6 +69,30 @@ const statusConfig = {
 }
 
 export function RecentLeads() {
+  const [leads, setLeads] = useState<UiLead[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/leads?page=1&per_page=6`, { cache: "no-store" })
+        const json = (await res.json()) as PaginatedResponse<ApiLead>
+        const rows = (json.data || []).map(mapLead)
+        if (!cancelled) setLeads(rows)
+      } catch {
+        if (!cancelled) setLeads([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -121,6 +153,10 @@ export function RecentLeads() {
               </div>
             )
           })}
+          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+          {!loading && leads.length === 0 && (
+            <p className="text-sm text-muted-foreground">No recent leads.</p>
+          )}
         </div>
       </CardContent>
     </Card>

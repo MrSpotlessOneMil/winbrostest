@@ -2,7 +2,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { toE164 } from './phone-utils'
 import { getClientConfig } from './client-config'
 import { syncHubSpotContact, syncHubSpotDeal } from './hubspot'
-import { notifyJobDetailsChange, type JobChange } from './telegram'
+// IMPORTANT: Explicit extension to avoid Next resolving `telegram.tsx`.
+import { notifyJobDetailsChange, type JobChange } from './telegram.ts'
 import { logSystemEvent } from './system-events'
 
 type HubSpotSyncOptions = {

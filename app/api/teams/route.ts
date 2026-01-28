@@ -1,118 +1,115 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Team, TeamDailyMetrics, ApiResponse } from "@/lib/types"
+import { getSupabaseClient } from "@/lib/supabase"
 
-// Mock data - Replace with Supabase queries
-const mockTeams: Team[] = [
-  {
-    id: "team-alpha",
-    name: "Team Alpha",
-    lead_id: "member-1",
-    members: [
-      { id: "member-1", name: "Marcus Johnson", phone: "(512) 555-1001", telegram_id: "marcus_j", role: "lead", team_id: "team-alpha", is_active: true },
-      { id: "member-2", name: "Derek Williams", phone: "(512) 555-1002", role: "technician", team_id: "team-alpha", is_active: true },
-      { id: "member-3", name: "Ryan Smith", phone: "(512) 555-1003", role: "technician", team_id: "team-alpha", is_active: true },
-    ],
-    status: "on-job",
-    current_job_id: "job-1235",
-    daily_target: 1200,
-    is_active: true,
-  },
-  {
-    id: "team-bravo",
-    name: "Team Bravo",
-    lead_id: "member-4",
-    members: [
-      { id: "member-4", name: "David Martinez", phone: "(512) 555-2001", telegram_id: "david_m", role: "lead", team_id: "team-bravo", is_active: true },
-      { id: "member-5", name: "Chris Parker", phone: "(512) 555-2002", role: "technician", team_id: "team-bravo", is_active: true },
-      { id: "member-6", name: "James Kim", phone: "(512) 555-2003", role: "technician", team_id: "team-bravo", is_active: true },
-    ],
-    status: "traveling",
-    current_job_id: "job-1236",
-    daily_target: 1200,
-    is_active: true,
-  },
-  {
-    id: "team-charlie",
-    name: "Team Charlie",
-    lead_id: "member-7",
-    members: [
-      { id: "member-7", name: "Chris Wilson", phone: "(512) 555-3001", telegram_id: "chris_w", role: "lead", team_id: "team-charlie", is_active: true },
-      { id: "member-8", name: "Mike Brown", phone: "(512) 555-3002", role: "technician", team_id: "team-charlie", is_active: true },
-    ],
-    status: "on-job",
-    current_job_id: "job-1240",
-    daily_target: 1200,
-    is_active: true,
-  },
-  {
-    id: "team-delta",
-    name: "Team Delta",
-    lead_id: "member-9",
-    members: [
-      { id: "member-9", name: "James Lee", phone: "(512) 555-4001", telegram_id: "james_l", role: "lead", team_id: "team-delta", is_active: true },
-      { id: "member-10", name: "Kevin Robinson", phone: "(512) 555-4002", role: "technician", team_id: "team-delta", is_active: true },
-      { id: "member-11", name: "Tom Stevens", phone: "(512) 555-4003", role: "technician", team_id: "team-delta", is_active: true },
-    ],
-    status: "off",
-    daily_target: 1200,
-    is_active: true,
-  },
-]
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
 
-const mockDailyMetrics: Record<string, TeamDailyMetrics> = {
-  "team-alpha": {
-    team_id: "team-alpha",
-    date: "2026-01-27",
-    revenue: 2450,
-    target: 3600,
-    jobs_completed: 5,
-    jobs_scheduled: 8,
-    tips: 320,
-    upsells: 580,
-    avg_rating: 4.9,
-  },
-  "team-bravo": {
-    team_id: "team-bravo",
-    date: "2026-01-27",
-    revenue: 1850,
-    target: 3600,
-    jobs_completed: 4,
-    jobs_scheduled: 7,
-    tips: 185,
-    upsells: 320,
-    avg_rating: 4.8,
-  },
-  "team-charlie": {
-    team_id: "team-charlie",
-    date: "2026-01-27",
-    revenue: 3100,
-    target: 3600,
-    jobs_completed: 6,
-    jobs_scheduled: 7,
-    tips: 290,
-    upsells: 450,
-    avg_rating: 5.0,
-  },
-  "team-delta": {
-    team_id: "team-delta",
-    date: "2026-01-27",
-    revenue: 0,
-    target: 0,
-    jobs_completed: 0,
-    jobs_scheduled: 0,
-    tips: 0,
-    upsells: 0,
-  },
+function dailyTarget(): number {
+  const raw = process.env.DAILY_TARGET_PER_CREW || process.env.DAILY_TARGET || process.env.BOOKING_DAILY_TARGET
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) ? parsed : 1200
 }
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const include_metrics = searchParams.get("include_metrics") === "true"
 
-  const teamsWithMetrics = mockTeams.map((team) => ({
-    ...team,
-    ...(include_metrics && { daily_metrics: mockDailyMetrics[team.id] }),
-  }))
+  const client = getSupabaseClient()
+  const date = searchParams.get("date") || todayISO()
+
+  const cleanersRes = await client.from("cleaners").select("*").eq("active", true).order("created_at", { ascending: true })
+  if (cleanersRes.error) {
+    const response: ApiResponse<Team[]> = { success: true, data: [] }
+    return NextResponse.json(response)
+  }
+
+  // Preload assignments for the date (to derive "current job" and status).
+  const jobsRes = await client
+    .from("jobs")
+    .select("id, date, status, price")
+    .eq("date", date)
+    .neq("status", "cancelled")
+
+  const jobById = new Map<number, any>()
+  for (const j of jobsRes.data || []) jobById.set(Number(j.id), j)
+
+  const assignmentsRes = await client
+    .from("cleaner_assignments")
+    .select("job_id, cleaner_id, status, updated_at")
+    .neq("status", "cancelled")
+
+  const byCleaner = new Map<number, any[]>()
+  for (const a of assignmentsRes.data || []) {
+    const cleanerId = Number(a.cleaner_id)
+    const jobId = Number(a.job_id)
+    const job = jobById.get(jobId)
+    if (!job) continue
+    const arr = byCleaner.get(cleanerId) || []
+    arr.push({ ...a, job })
+    byCleaner.set(cleanerId, arr)
+  }
+
+  const teamsBase: Team[] = (cleanersRes.data || []).map((c: any) => {
+    const cleanerId = Number(c.id)
+    const assignments = byCleaner.get(cleanerId) || []
+    const inProgress = assignments.find((a) => String(a.job?.status) === "in_progress")
+    const scheduled = assignments.find((a) => String(a.job?.status) === "scheduled")
+    const current = inProgress || scheduled
+
+    let status: Team["status"] = "available"
+    if (current?.job?.status === "in_progress") status = "on-job"
+    else if (current?.job?.status === "scheduled") status = "traveling"
+
+    const memberId = String(c.id)
+    const teamId = String(c.id)
+
+    return {
+      id: teamId,
+      name: String(c.name || `Team ${teamId}`),
+      lead_id: memberId,
+      members: [
+        {
+          id: memberId,
+          name: String(c.name || "Cleaner"),
+          phone: String(c.phone || ""),
+          telegram_id: c.telegram_id || undefined,
+          role: "lead",
+          team_id: teamId,
+          is_active: Boolean(c.active),
+        },
+      ],
+      status,
+      current_job_id: current?.job?.id != null ? String(current.job.id) : undefined,
+      daily_target: dailyTarget(),
+      is_active: Boolean(c.active),
+    }
+  })
+
+  let teamsWithMetrics: any[] = teamsBase
+  if (include_metrics) {
+    teamsWithMetrics = teamsBase.map((team) => {
+      const cleanerId = Number(team.id)
+      const assignments = byCleaner.get(cleanerId) || []
+      const completed = assignments.filter((a) => String(a.job?.status) === "completed")
+      const scheduled = assignments.filter((a) => String(a.job?.status) === "scheduled" || String(a.job?.status) === "in_progress")
+      const revenue = completed.reduce((sum, a) => sum + (a.job?.price != null ? Number(a.job.price) : 0), 0)
+
+      const daily_metrics: TeamDailyMetrics = {
+        team_id: team.id,
+        date,
+        revenue,
+        target: dailyTarget(),
+        jobs_completed: completed.length,
+        jobs_scheduled: scheduled.length,
+        tips: 0,
+        upsells: 0,
+      }
+
+      return { ...team, daily_metrics }
+    })
+  }
 
   const response: ApiResponse<typeof teamsWithMetrics> = {
     success: true,

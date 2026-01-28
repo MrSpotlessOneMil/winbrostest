@@ -1,53 +1,23 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { MapPin, DollarSign } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
-const teams = [
-  {
-    name: "Team Alpha",
-    lead: "Marcus Johnson",
-    status: "on-job",
-    currentJob: "456 Maple Ave",
-    revenue: 830,
-    target: 1200,
-    jobsCompleted: 2,
-    jobsTotal: 4,
-  },
-  {
-    name: "Team Bravo",
-    lead: "David Martinez",
-    status: "traveling",
-    currentJob: "En route to 789 Pine Dr",
-    revenue: 650,
-    target: 1200,
-    jobsCompleted: 1,
-    jobsTotal: 3,
-  },
-  {
-    name: "Team Charlie",
-    lead: "Chris Wilson",
-    status: "on-job",
-    currentJob: "222 Birch St",
-    revenue: 1100,
-    target: 1200,
-    jobsCompleted: 3,
-    jobsTotal: 4,
-  },
-  {
-    name: "Team Delta",
-    lead: "James Lee",
-    status: "off",
-    currentJob: null,
-    revenue: 0,
-    target: 0,
-    jobsCompleted: 0,
-    jobsTotal: 0,
-  },
-]
+type UiTeam = {
+  name: string
+  lead: string
+  status: Team["status"]
+  currentJob: string | null
+  revenue: number
+  target: number
+  jobsCompleted: number
+  jobsTotal: number
+}
 
 const statusConfig = {
   "on-job": { label: "On Job", className: "bg-success/10 text-success border-success/20" },
@@ -57,6 +27,50 @@ const statusConfig = {
 }
 
 export function TeamStatus() {
+  const [teams, setTeams] = useState<UiTeam[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
+        const json = (await res.json()) as ApiResponse<any[]>
+        const rows = Array.isArray((json as any).data) ? ((json as any).data as any[]) : []
+        const mapped: UiTeam[] = rows.map((t) => {
+          const members = Array.isArray(t.members) ? t.members : []
+          const lead = members.find((m: any) => m.role === "lead") || members[0]
+          const dm: TeamDailyMetrics | undefined = t.daily_metrics
+          const revenue = Number(dm?.revenue || 0)
+          const target = Number(dm?.target || t.daily_target || 0)
+          const jobsCompleted = Number(dm?.jobs_completed || 0)
+          const jobsTotal = Number(dm?.jobs_scheduled || 0)
+          return {
+            name: String(t.name || "Team"),
+            lead: String(lead?.name || "Lead"),
+            status: t.status as Team["status"],
+            currentJob: t.current_job_id ? `Job ${t.current_job_id}` : null,
+            revenue,
+            target,
+            jobsCompleted,
+            jobsTotal,
+          }
+        })
+        if (!cancelled) setTeams(mapped)
+      } catch {
+        if (!cancelled) setTeams([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <Card>
       <CardHeader>
@@ -106,12 +120,14 @@ export function TeamStatus() {
                       {team.jobsCompleted}/{team.jobsTotal} jobs
                     </span>
                   </div>
-                  <Progress value={(team.revenue / team.target) * 100} className="h-1.5" />
+                  <Progress value={team.target ? (team.revenue / team.target) * 100 : 0} className="h-1.5" />
                 </div>
               </>
             )}
           </div>
         ))}
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
       </CardContent>
     </Card>
   )
