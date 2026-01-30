@@ -21,11 +21,8 @@ import {
 import { notifyCleanerAssignment } from './telegram'
 import { logSystemEvent } from './system-events'
 
-// Extended Cleaner type with location data
-export interface CleanerWithLocation extends Cleaner {
-  home_lat?: number
-  home_lng?: number
-}
+// Extended Cleaner type with location data (now included in base Cleaner interface)
+export type CleanerWithLocation = Cleaner
 
 // Earth's radius in miles
 const EARTH_RADIUS_MILES = 3958.8
@@ -125,8 +122,24 @@ export async function findBestCleaners(
     }
   }
 
-  // Sort cleaners with location by distance (ascending)
-  cleanersWithDistance.sort((a, b) => a.distance - b.distance)
+  // Sort cleaners: team leads first, then by distance (ascending)
+  cleanersWithDistance.sort((a, b) => {
+    // Team leads get priority
+    const aIsLead = a.cleaner.is_team_lead ? 1 : 0
+    const bIsLead = b.cleaner.is_team_lead ? 1 : 0
+    if (bIsLead !== aIsLead) {
+      return bIsLead - aIsLead // Team leads first
+    }
+    // Within same category, sort by distance
+    return a.distance - b.distance
+  })
+
+  // Sort cleaners without location: team leads first
+  cleanersWithoutLocation.sort((a, b) => {
+    const aIsLead = a.cleaner.is_team_lead ? 1 : 0
+    const bIsLead = b.cleaner.is_team_lead ? 1 : 0
+    return bIsLead - aIsLead
+  })
 
   // Combine: cleaners with location first, then those without
   const allCleaners = [...cleanersWithDistance, ...cleanersWithoutLocation]
@@ -212,7 +225,7 @@ export async function assignNextAvailableCleaner(
     jobWithCoords.lng !== undefined &&
     jobWithCoords.lng !== null
   ) {
-    // Sort eligible cleaners by distance from job location
+    // Sort eligible cleaners by team lead status, then distance from job location
     const cleanersWithDistance = eligibleCleaners
       .map((cleaner) => {
         if (
@@ -232,14 +245,31 @@ export async function assignNextAvailableCleaner(
         // Cleaners without location get placed at the end
         return { cleaner, distance: Infinity }
       })
-      .sort((a, b) => a.distance - b.distance)
+      .sort((a, b) => {
+        // Team leads get priority
+        const aIsLead = a.cleaner.is_team_lead ? 1 : 0
+        const bIsLead = b.cleaner.is_team_lead ? 1 : 0
+        if (bIsLead !== aIsLead) {
+          return bIsLead - aIsLead // Team leads first
+        }
+        // Within same category, sort by distance
+        return a.distance - b.distance
+      })
 
     selectedCleaner = cleanersWithDistance[0].cleaner
+    const distanceInfo = cleanersWithDistance[0].distance === Infinity
+      ? 'no location'
+      : `${cleanersWithDistance[0].distance.toFixed(1)} mi`
     console.log(
-      `[cleaner-assignment] Selected cleaner ${selectedCleaner.name} (distance: ${cleanersWithDistance[0].distance.toFixed(1)} mi)`
+      `[cleaner-assignment] Selected cleaner ${selectedCleaner.name} (${selectedCleaner.is_team_lead ? 'team lead, ' : ''}${distanceInfo})`
     )
   } else {
-    // No job coordinates - use first available cleaner
+    // No job coordinates - prioritize team leads, then first available
+    eligibleCleaners.sort((a, b) => {
+      const aIsLead = a.is_team_lead ? 1 : 0
+      const bIsLead = b.is_team_lead ? 1 : 0
+      return bIsLead - aIsLead
+    })
     selectedCleaner = eligibleCleaners[0]
   }
 

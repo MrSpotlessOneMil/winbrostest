@@ -72,12 +72,17 @@ export interface Cleaner {
   id?: string
   name: string
   phone?: string
+  email?: string
   telegram_id?: string
   telegram_username?: string
   connecteam_user_id?: string
   max_team_size?: number
   availability?: Record<string, unknown>
   active?: boolean
+  is_team_lead?: boolean
+  home_address?: string
+  home_lat?: number
+  home_lng?: number
   created_at?: string
 }
 
