@@ -451,10 +451,13 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[OSIRIS] Tip recorded: Job ${jobId}, Amount $${amount}`)
-      
+
       // Send confirmation back to chat
-      // TODO: Call Telegram API to send confirmation message
-      
+      await sendTelegramMessage(
+        chatId,
+        `<b>Tip Recorded!</b>\n\nJob #${jobId}: $${amount}\n\nThank you for reporting this tip.`
+      )
+
       return NextResponse.json({ success: true, action: "tip_recorded", data: { ...tip, db_id: tipRow.id } })
     }
 
@@ -486,6 +489,12 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[OSIRIS] Upsell recorded: Job ${jobId}, Type: ${upsellType}`)
+
+      // Send confirmation back to chat
+      await sendTelegramMessage(
+        chatId,
+        `<b>Upsell Recorded!</b>\n\nJob #${jobId}: ${upsellType.trim()}\n\nGreat work on the upsell!`
+      )
 
       return NextResponse.json({ success: true, action: "upsell_recorded", data: { ...upsell, db_id: upsellRow.id } })
     }

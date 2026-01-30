@@ -37,12 +37,11 @@ export async function handleHCPWebhook(
   rawBody: string,
   signature: string
 ): Promise<{ success: boolean; message: string; error?: string }> {
-  // Skip signature validation if no signature provided (for initial setup)
-  // Real events should have signatures
+  // Validate webhook signature if provided
+  // validateWebhookSignature returns true if no secret is configured (dev mode)
   if (signature && !validateWebhookSignature(rawBody, signature)) {
-    console.warn('[HCP Webhook] Signature validation failed, but continuing for now')
-    // TODO: Enable strict validation once webhook secret is confirmed working
-    // return { success: false, message: 'Invalid signature', error: 'INVALID_SIGNATURE' }
+    console.error('[HCP Webhook] Signature validation failed - rejecting request')
+    return { success: false, message: 'Invalid signature', error: 'INVALID_SIGNATURE' }
   }
 
   console.log(`[HCP Webhook] Received event: ${payload.event}`)

@@ -2,13 +2,13 @@
  * Follow-up Queue Processor
  *
  * Processes pending follow-ups (calls, SMS) and checks for customer silence.
- * Called every 15 minutes by Upstash QStash.
+ * Called every 2 minutes by Vercel Cron.
  *
  * Endpoint: GET /api/cron/ghl-followups
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { Receiver } from '@upstash/qstash'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import {
   getPendingFollowups,
   processFollowUp,
@@ -16,38 +16,8 @@ import {
 } from '@/integrations/ghl/follow-up-scheduler'
 
 export async function GET(request: NextRequest) {
-  const qstashSignature = request.headers.get('upstash-signature')
-
-  if (qstashSignature) {
-    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
-    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
-
-    if (!currentSigningKey || !nextSigningKey) {
-      console.error('QStash signing keys not configured')
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
-    }
-
-    try {
-      const receiver = new Receiver({ currentSigningKey, nextSigningKey })
-      const body = await request.text()
-      const isValid = await receiver.verify({ signature: qstashSignature, body })
-
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid QStash signature' }, { status: 401 })
-      }
-    } catch (error) {
-      console.error('QStash verification error:', error)
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 })
-    }
-  } else {
-    // Fall back to CRON_SECRET for manual triggers
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret) {
-      const authHeader = request.headers.get('authorization')
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   return executeFollowups()

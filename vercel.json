@@ -1,0 +1,32 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/process-scheduled-tasks",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/ghl-followups",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/check-timeouts",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/post-cleaning-followup",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/unified-daily",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/send-reminders",
+      "schedule": "0 16 * * *"
+    },
+    {
+      "path": "/api/cron/monthly-followup",
+      "schedule": "0 18 * * *"
+    }
+  ]
+}

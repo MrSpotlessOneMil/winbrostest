@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 
 /**
  * Unified daily cron endpoint that consolidates multiple cron jobs
@@ -9,11 +10,8 @@ import { NextRequest, NextResponse } from 'next/server'
  * - send-reminders: Cleaner reminder notifications
  */
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   try {
@@ -23,7 +21,8 @@ export async function GET(request: NextRequest) {
       timestamp: new Date().toISOString(),
     }
 
-    const domain = process.env.NEXT_PUBLIC_DOMAIN || 'https://spotlessscrubbers.org'
+    const domain = process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
+    const cronSecret = process.env.CRON_SECRET || ''
 
     // 1. Execute GHL followups
     try {

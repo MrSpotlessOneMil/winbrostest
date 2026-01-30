@@ -2,9 +2,9 @@
 -- SEED WINBROS TENANT
 -- ============================================================================
 -- Run this after multi-tenant-schema.sql to add WinBros as the first tenant.
--- Password: test
 --
--- IMPORTANT: Replace all [YOUR_*] placeholders with actual API keys before running!
+-- IMPORTANT: Replace all [PLACEHOLDER] values with your actual API keys!
+-- Password: test
 -- ============================================================================
 
 -- Enable pgcrypto for password hashing
@@ -75,7 +75,7 @@ INSERT INTO tenants (
   'winbros',
 
   -- Authentication (password: test)
-  'jaspergrenager@gmail.com',
+  '[YOUR_EMAIL]@gmail.com',
   crypt('test', gen_salt('bf')),
 
   -- Business Info
@@ -84,34 +84,34 @@ INSERT INTO tenants (
   'Los Angeles',
   'Mary',
 
-  -- OpenPhone (get from OpenPhone Dashboard -> Settings -> API)
+  -- OpenPhone - Get from OpenPhone Dashboard > Settings > API
   '[YOUR_OPENPHONE_API_KEY]',
   '[YOUR_OPENPHONE_PHONE_ID]',
-  '[YOUR_OPENPHONE_PHONE_NUMBER]',
+  '[YOUR_OPENPHONE_PHONE_NUMBER_ID]',
 
-  -- VAPI (get from VAPI Dashboard)
+  -- VAPI - Get from VAPI Dashboard
   '[YOUR_VAPI_API_KEY]',
   '[YOUR_VAPI_ASSISTANT_ID]',
   '[YOUR_VAPI_PHONE_ID]',
 
-  -- HousecallPro (get from HCP Dashboard -> Settings -> API)
+  -- HousecallPro - Get from HCP Dashboard > Settings > API
   '[YOUR_HCP_API_KEY]',
   '[YOUR_HCP_COMPANY_ID]',
   '[YOUR_HCP_WEBHOOK_SECRET]',
 
-  -- Stripe (get from Stripe Dashboard -> Developers -> API Keys)
-  '[YOUR_STRIPE_SECRET_KEY]',
-  '[YOUR_STRIPE_WEBHOOK_SECRET]',
+  -- Stripe - Get from Stripe Dashboard > Developers > API Keys
+  '[YOUR_STRIPE_SECRET_KEY]',  -- sk_live_... or sk_test_...
+  '[YOUR_STRIPE_WEBHOOK_SECRET]',  -- whsec_...
 
-  -- GoHighLevel (get from GHL Dashboard -> Settings)
+  -- GoHighLevel - Get from GHL Dashboard
   '[YOUR_GHL_LOCATION_ID]',
-  NULL,  -- GHL webhook secret (optional)
+  NULL,  -- GHL webhook secret (if applicable)
 
-  -- Telegram (get bot token from @BotFather)
-  '[YOUR_TELEGRAM_BOT_TOKEN]',
-  NULL,  -- Owner chat ID - set later via /myid command
+  -- Telegram - Get from BotFather
+  '[YOUR_TELEGRAM_BOT_TOKEN]',  -- Format: 123456789:ABC...
+  NULL,  -- Owner chat ID - run /myid in your bot to get this
 
-  -- Wave (get from Wave Dashboard -> API)
+  -- Wave - Get from Wave Dashboard > Settings > Integrations
   '[YOUR_WAVE_API_TOKEN]',
   '[YOUR_WAVE_BUSINESS_ID]',
   '[YOUR_WAVE_INCOME_ACCOUNT_ID]',
@@ -143,8 +143,8 @@ INSERT INTO tenants (
   }'::jsonb,
 
   -- Owner Contact
-  '[YOUR_OWNER_PHONE]',
-  'jaspergrenager@gmail.com',
+  '+1[YOUR_PHONE]',
+  '[YOUR_EMAIL]@gmail.com',
   NULL  -- Set Google review link when available
 );
 
@@ -166,27 +166,39 @@ FROM tenants
 WHERE slug = 'winbros';
 
 -- ============================================================================
--- NOTES
+-- POST-SETUP: Update with your actual values
 -- ============================================================================
 --
--- WinBros Webhook URLs (configure in external services):
+-- After running this script with placeholders, update with real values:
+--
+-- UPDATE tenants SET
+--   openphone_api_key = 'your_real_key',
+--   stripe_secret_key = 'sk_live_...',
+--   -- etc...
+-- WHERE slug = 'winbros';
+--
+-- ============================================================================
+-- WEBHOOK URLs (configure in external services):
+-- ============================================================================
+--
+-- Replace [YOUR_DOMAIN] with your Vercel deployment URL
 --
 -- VAPI:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/vapi/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/vapi/winbros
 --
 -- HousecallPro:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/housecall-pro/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/housecall-pro/winbros
 --
 -- Stripe:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/stripe/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/stripe/winbros
 --
 -- GoHighLevel:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/ghl/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/ghl/winbros
 --
 -- OpenPhone:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/openphone/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/openphone/winbros
 --
 -- Telegram Bot:
---   https://spotless-scrubbers-api.vercel.app/api/webhooks/telegram/winbros
+--   https://[YOUR_DOMAIN]/api/webhooks/telegram/winbros
 --
 -- ============================================================================

@@ -1,14 +1,15 @@
 /**
  * Send Final Payments Cron Job
  *
- * QStash endpoint that runs every 15 minutes to check for jobs
+ * Vercel Cron endpoint that runs every 15 minutes to check for jobs
  * that have passed their scheduled final payment time and sends
  * the final payment link automatically.
  *
- * Triggered by: QStash schedule (every 15 minutes)
+ * Triggered by: Vercel Cron (every 15 minutes)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { getAllJobs, updateJob } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 
@@ -24,7 +25,7 @@ function extractScheduledFinalPayment(notes?: string): Date | null {
   return isNaN(date.getTime()) ? null : date
 }
 
-async function handleRequest(request: NextRequest) {
+async function executeHandler() {
   const now = new Date()
 
   // Get all jobs with status scheduled or in_progress
@@ -105,25 +106,14 @@ async function handleRequest(request: NextRequest) {
   })
 }
 
-// Apply QStash signature verification if configured
-export const POST = (async (request: NextRequest) => {
-  // Check if QStash is configured
-  const qstashKey = process.env.QSTASH_CURRENT_SIGNING_KEY
-
-  if (qstashKey) {
-    // Dynamically import and apply verification
-    const { verifySignatureAppRouter } = await import('@upstash/qstash/nextjs')
-    return verifySignatureAppRouter(handleRequest)(request)
+export async function GET(request: NextRequest) {
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
-  // No QStash verification - just run the handler
-  return handleRequest(request)
-}) as (request: NextRequest) => Promise<Response>
+  return executeHandler()
+}
 
-export async function GET() {
-  return NextResponse.json({
-    endpoint: 'send-final-payments',
-    schedule: 'Every 15 minutes via QStash',
-    description: 'Automatically sends final payment links for completed jobs',
-  })
+export async function POST(request: NextRequest) {
+  return GET(request)
 }

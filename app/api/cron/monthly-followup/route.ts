@@ -1,10 +1,10 @@
 /**
  * Monthly Re-engagement Follow-up Cron Job
  *
- * QStash endpoint that runs daily to send re-engagement SMS messages
+ * Vercel Cron endpoint that runs daily to send re-engagement SMS messages
  * to customers 30 days after their last completed service.
  *
- * Triggered by: QStash schedule (daily)
+ * Triggered by: Vercel Cron (daily)
  *
  * Logic:
  * 1. Find completed jobs where completed_at < NOW() - 30 days
@@ -16,7 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { Receiver } from '@upstash/qstash'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { getSupabaseClient, getCustomerByPhone, updateJob } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 import { sendSMS } from '@/lib/openphone'
@@ -26,38 +26,8 @@ import { monthlyFollowup } from '@/lib/sms-templates'
 const DEFAULT_DISCOUNT = '15%'
 
 export async function GET(request: NextRequest) {
-  const qstashSignature = request.headers.get('upstash-signature')
-
-  if (qstashSignature) {
-    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
-    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
-
-    if (!currentSigningKey || !nextSigningKey) {
-      console.error('QStash signing keys not configured')
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
-    }
-
-    try {
-      const receiver = new Receiver({ currentSigningKey, nextSigningKey })
-      const body = await request.text()
-      const isValid = await receiver.verify({ signature: qstashSignature, body })
-
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid QStash signature' }, { status: 401 })
-      }
-    } catch (error) {
-      console.error('QStash verification error:', error)
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 })
-    }
-  } else {
-    // Fall back to CRON_SECRET for manual triggers
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret) {
-      const authHeader = request.headers.get('authorization')
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   return executeMonthlyFollowup()

@@ -2,13 +2,13 @@
  * Post-Cleaning Review Request Cron Job
  *
  * Sends review request SMS to customers 2+ hours after job completion.
- * Called periodically by Upstash QStash.
+ * Called periodically by Vercel Cron.
  *
  * Endpoint: GET/POST /api/cron/post-cleaning-followup
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { verifySignature } from '@/lib/qstash'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { getSupabaseClient, getCustomerByPhone } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { postCleaningReview } from '@/lib/sms-templates'
@@ -22,30 +22,8 @@ interface JobResult {
 }
 
 export async function GET(request: NextRequest) {
-  // Verify QStash signature if present
-  const qstashSignature = request.headers.get('upstash-signature')
-
-  if (qstashSignature) {
-    try {
-      const body = await request.text()
-      const isValid = await verifySignature(qstashSignature, body)
-
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid QStash signature' }, { status: 401 })
-      }
-    } catch (error) {
-      console.error('QStash verification error:', error)
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 })
-    }
-  } else {
-    // Fall back to CRON_SECRET for manual triggers
-    const cronSecret = process.env.CRON_SECRET
-    if (cronSecret) {
-      const authHeader = request.headers.get('authorization')
-      if (authHeader !== `Bearer ${cronSecret}`) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-    }
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   return executePostCleaningFollowup()

@@ -1,17 +1,17 @@
 /**
  * Cron Job: Check for assignment timeouts
  *
- * This endpoint is called every 15 minutes by Upstash QStash.
+ * This endpoint is called every 5 minutes by Vercel Cron.
  * It checks for pending cleaner assignments and:
  * 1. Sends urgent follow-ups to unresponsive cleaners
  * 2. Alerts owner if no one responds within the timeout window
  * 3. Handles cleaner cancellation re-broadcasts
  *
- * Scheduled via: Upstash QStash (setup with npm run setup-qstash)
+ * Scheduled via: Vercel Cron (vercel.json)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { Receiver } from '@upstash/qstash'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import {
   getSupabaseClient,
   getJobById,
@@ -39,48 +39,10 @@ const CANCEL_REASSIGN_LOOKBACK_MINUTES = 180
 const PACIFIC_TIME_ZONE = 'America/Los_Angeles'
 const OWNER_PHONE = process.env.OWNER_PHONE || ''
 
-// Main GET handler - supports both QStash and manual CRON_SECRET triggers
+// Main GET handler - supports Vercel Cron and manual CRON_SECRET triggers
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  const qstashSignature = request.headers.get('upstash-signature')
-
-  // If QStash signature present, verify it
-  if (qstashSignature) {
-    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
-    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
-
-    if (!currentSigningKey || !nextSigningKey) {
-      console.error('QStash signing keys not configured')
-      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
-    }
-
-    try {
-      const receiver = new Receiver({
-        currentSigningKey,
-        nextSigningKey,
-      })
-
-      const body = await request.text()
-      const isValid = await receiver.verify({
-        signature: qstashSignature,
-        body,
-      })
-
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid QStash signature' }, { status: 401 })
-      }
-
-      // QStash verified, proceed with execution
-    } catch (error) {
-      console.error('QStash verification error:', error)
-      return NextResponse.json({ error: 'Signature verification failed' }, { status: 401 })
-    }
-  } else {
-    // Otherwise, require CRON_SECRET for manual triggers
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   return await executeCheckTimeouts(request)

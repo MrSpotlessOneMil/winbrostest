@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createSchedule, listSchedules, deleteSchedule } from "@/lib/qstash"
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_DOMAIN || "https://spotless-scrubbers-api.vercel.app"
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_DOMAIN || process.env.VERCEL_URL
 
 function getFullUrl(path: string): string {
   const baseUrl = APP_URL?.startsWith("http") ? APP_URL : `https://${APP_URL}`

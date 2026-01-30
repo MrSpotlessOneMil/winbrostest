@@ -13,6 +13,7 @@ export type SystemEventSource =
   | 'housecall_pro'
   | 'job_updates'
   | 'lead_followup'
+  | 'scheduler'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -86,6 +87,7 @@ export type SystemEventType =
   | 'LEAD_FOLLOWUP_ERROR'
   | 'MONTHLY_FOLLOWUP_SENT'
   | 'CUSTOMER_NOTIFIED'
+  | 'LEAD_FOLLOWUP_EXECUTED'
 
 export interface SystemEventInput {
   event_type: SystemEventType

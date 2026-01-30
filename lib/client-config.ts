@@ -88,7 +88,7 @@ export function getClientConfig(brandOverride?: BrandMode): ClientConfig {
     cleanerHourlyRate: parseFloat(process.env.CLEANER_HOURLY_RATE || '25'),
     depositPercent: parseFloat(process.env.DEPOSIT_PERCENT || '50'),
     processingFeePct: parseFloat(process.env.PROCESSING_FEE_PCT || '3'),
-    domain: process.env.NEXT_PUBLIC_DOMAIN || 'https://spotlessscrubbers.org',
+    domain: process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000'),
     reviewLink: process.env.REVIEW_LINK,
     brandMode,
     openphonePhoneId,

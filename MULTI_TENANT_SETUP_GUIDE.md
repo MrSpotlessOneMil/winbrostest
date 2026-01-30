@@ -13,10 +13,9 @@ This guide walks you through setting up the multi-tenant cleaning business autom
 5. [Step 3: Environment Variables](#step-3-environment-variables)
 6. [Step 4: Deploy to Vercel](#step-4-deploy-to-vercel)
 7. [Step 5: Configure Webhooks](#step-5-configure-webhooks)
-8. [Step 6: Set Up QStash Schedules](#step-6-set-up-qstash-schedules)
-9. [Step 7: Testing](#step-7-testing)
-10. [Adding New Tenants](#adding-new-tenants)
-11. [Troubleshooting](#troubleshooting)
+8. [Step 6: Testing](#step-6-testing)
+9. [Adding New Tenants](#adding-new-tenants)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -69,9 +68,8 @@ Examples for WinBros (slug: "winbros"):
 Before starting, ensure you have:
 
 - [ ] Supabase project set up
-- [ ] Vercel account for deployment
+- [ ] Vercel account for deployment (Pro plan recommended for more cron jobs)
 - [ ] Access to all API dashboards (OpenPhone, VAPI, Stripe, etc.)
-- [ ] QStash/Upstash account
 
 ---
 
@@ -140,11 +138,8 @@ OPENAI_API_KEY="sk-proj-..."
 NEXT_PUBLIC_SUPABASE_URL="https://kcmbwstjmdrjkhxhkkjt.supabase.co"
 SUPABASE_SERVICE_ROLE_KEY="eyJhbGci..."
 
-# QStash (shared - one queue for all tenants)
-QSTASH_URL="https://qstash.upstash.io"
-QSTASH_TOKEN="eyJVc2Vy..."
-QSTASH_CURRENT_SIGNING_KEY="sig_..."
-QSTASH_NEXT_SIGNING_KEY="sig_..."
+# Cron Security (for Vercel Cron jobs)
+CRON_SECRET="your-secret-here"  # Generate with: openssl rand -hex 32
 
 # Gmail (shared for system emails)
 GMAIL_USER="jackdeanmail@gmail.com"
@@ -217,55 +212,72 @@ curl "https://api.telegram.org/bot8586633109:AAFrM9VqeRH00hUwymOkxp93_Ql-CVxX2M4
 
 ---
 
-## Step 6: Set Up QStash Schedules
+## Automatic Cron Jobs (Vercel Cron)
 
-After deployment, create the cron schedules:
+The platform uses **Vercel Cron** for scheduled tasks - no manual setup required! When you deploy to Vercel, the cron jobs are automatically configured via `vercel.json`.
 
-```bash
-curl -X POST "https://spotless-scrubbers-api.vercel.app/api/setup/qstash-schedules" \
-  -H "Authorization: Bearer YOUR_QSTASH_TOKEN"
-```
+### Cron Jobs Included
 
-This creates:
-- Post-cleaning follow-up: Every 15 minutes
-- Monthly follow-up: Daily at 10am PST
-- GHL follow-ups: Every 2 minutes
-- Send reminders: Daily at 8am PST
-- Unified daily: Daily at 7am PST
-- Check timeouts: Every 5 minutes
+| Job | Schedule | Description |
+|-----|----------|-------------|
+| Process Scheduled Tasks | Every minute | Executes delayed tasks from the database |
+| GHL Follow-ups | Every 2 minutes | Processes GHL lead follow-up sequences |
+| Check Timeouts | Every 5 minutes | Handles cleaner acceptance timeouts |
+| Post-Cleaning Follow-up | Every 15 minutes | Sends review requests after job completion |
+| Unified Daily | Daily at 7am PST | Consolidates daily jobs |
+| Send Reminders | Daily at 8am PST | Customer and cleaner reminders |
+| Monthly Follow-up | Daily at 10am PST | Re-engagement for past customers |
+
+### Database Scheduler
+
+For delayed tasks (like lead follow-up sequences), the platform uses a database-backed scheduler:
+
+1. Run the schema migration to add the `scheduled_tasks` table:
+   ```sql
+   -- In Supabase SQL Editor, run:
+   -- scripts/add-scheduled-tasks-table.sql
+   ```
+
+2. The `process-scheduled-tasks` cron processes these tasks every minute automatically.
+
+### Vercel Plan Considerations
+
+- **Hobby Plan**: Limited to 2 cron jobs. The platform consolidates jobs into `unified-daily` for hobby plans.
+- **Pro Plan**: Supports all 7 cron jobs. Recommended for production use.
 
 ---
 
-## Step 7: Testing
+## Step 6: Testing
 
-### 7.1 Test Tenant Lookup
+### 6.1 Test Tenant Lookup
 
 In Supabase SQL Editor:
 ```sql
 SELECT * FROM get_tenant_by_slug('winbros');
 ```
 
-### 7.2 Test Webhook (HousecallPro Lead)
+### 6.2 Test Webhook (HousecallPro Lead)
 
 1. Create a test lead in HousecallPro
 2. Check Vercel logs for: `[OSIRIS] HCP Webhook received: lead.created`
 3. Verify in Supabase: `SELECT * FROM leads WHERE tenant_id = (SELECT id FROM tenants WHERE slug = 'winbros');`
 
-### 7.3 Test Lead Follow-up
+### 6.3 Test Lead Follow-up
 
 After a lead is created:
-1. Check QStash dashboard for scheduled follow-up messages
-2. Verify SMS sent via OpenPhone logs
-3. Check `system_events` table for log entries
+1. Check `scheduled_tasks` table for pending follow-up tasks
+2. Wait for cron to process or manually trigger: `GET /api/cron/process-scheduled-tasks`
+3. Verify SMS sent via OpenPhone logs
+4. Check `system_events` table for log entries
 
-### 7.4 Test Stripe Payment Flow
+### 6.4 Test Stripe Payment Flow
 
 1. Create a test checkout session
 2. Complete payment in Stripe test mode
 3. Verify job created in `jobs` table
 4. Verify cleaner assignment triggered
 
-### 7.5 Test Telegram Cleaner Notifications
+### 6.5 Test Telegram Cleaner Notifications
 
 1. Create a job and trigger cleaner assignment
 2. Check Telegram for notification with Accept/Decline buttons
@@ -322,9 +334,10 @@ After adding the tenant, configure webhooks in external services:
 
 ### Lead follow-up not running
 
-1. Check QStash dashboard for scheduled messages
+1. Check `scheduled_tasks` table for pending tasks: `SELECT * FROM scheduled_tasks WHERE status = 'pending';`
 2. Verify tenant has `lead_followup_enabled: true` in workflow_config
-3. Check `leads` table has correct `followup_stage` and `next_followup_at`
+3. Check Vercel Cron logs for `process-scheduled-tasks` errors
+4. Manually test the cron endpoint: `curl -H "Authorization: Bearer YOUR_CRON_SECRET" https://your-domain/api/cron/process-scheduled-tasks`
 
 ### Cleaner not receiving Telegram notifications
 

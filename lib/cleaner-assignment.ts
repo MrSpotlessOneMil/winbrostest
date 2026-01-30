@@ -201,9 +201,47 @@ export async function assignNextAvailableCleaner(
     return { success: false, exhausted: true }
   }
 
-  // TODO: If job has lat/lng, sort by distance. For now, use first available.
-  // In future, integrate with geocoding to get job coordinates
-  const selectedCleaner = eligibleCleaners[0]
+  // Sort by distance if job has lat/lng coordinates
+  // Cast to access potential lat/lng fields (for future geocoding integration)
+  const jobWithCoords = job as typeof job & { lat?: number; lng?: number }
+  let selectedCleaner: CleanerWithLocation
+
+  if (
+    jobWithCoords.lat !== undefined &&
+    jobWithCoords.lat !== null &&
+    jobWithCoords.lng !== undefined &&
+    jobWithCoords.lng !== null
+  ) {
+    // Sort eligible cleaners by distance from job location
+    const cleanersWithDistance = eligibleCleaners
+      .map((cleaner) => {
+        if (
+          cleaner.home_lat !== undefined &&
+          cleaner.home_lat !== null &&
+          cleaner.home_lng !== undefined &&
+          cleaner.home_lng !== null
+        ) {
+          const distance = calculateDistance(
+            cleaner.home_lat,
+            cleaner.home_lng,
+            jobWithCoords.lat!,
+            jobWithCoords.lng!
+          )
+          return { cleaner, distance }
+        }
+        // Cleaners without location get placed at the end
+        return { cleaner, distance: Infinity }
+      })
+      .sort((a, b) => a.distance - b.distance)
+
+    selectedCleaner = cleanersWithDistance[0].cleaner
+    console.log(
+      `[cleaner-assignment] Selected cleaner ${selectedCleaner.name} (distance: ${cleanersWithDistance[0].distance.toFixed(1)} mi)`
+    )
+  } else {
+    // No job coordinates - use first available cleaner
+    selectedCleaner = eligibleCleaners[0]
+  }
 
   if (!selectedCleaner.id) {
     console.error(`[cleaner-assignment] Selected cleaner has no ID`)
