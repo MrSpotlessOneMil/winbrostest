@@ -3,6 +3,9 @@ import type { RainDayReschedule, ApiResponse, Job } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, AuthUser } from "@/lib/auth"
 import { getDefaultTenant } from "@/lib/tenant"
+import { updateJob as updateHCPJob } from "@/integrations/housecall-pro/hcp-client"
+import { sendSMS } from "@/lib/openphone"
+import { notifyScheduleChange } from "@/lib/telegram"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -123,12 +126,89 @@ export async function POST(request: NextRequest) {
 
     // Process each job
     const client = getSupabaseServiceClient()
+    let notificationsSent = 0
+
     for (const job of affectedJobs) {
       try {
         const numericId = Number(job.id)
         if (!Number.isFinite(numericId)) throw new Error("Invalid job id")
+
+        // 1. Update local database
         const { error: updateErr } = await client.from("jobs").update({ date: target_date }).eq("id", numericId)
         if (updateErr) throw updateErr
+
+        // 2. Sync with HousecallPro if job has HCP ID
+        if (job.hcp_job_id && tenant.housecall_pro_api_key) {
+          try {
+            // Convert target_date to ISO datetime (keep same time, change date)
+            const newScheduledStart = `${target_date}T${job.scheduled_time || "09:00"}:00Z`
+            await updateHCPJob(job.hcp_job_id, { scheduled_start: newScheduledStart })
+            console.log(`[Rain Day] Updated HCP job ${job.hcp_job_id} to ${target_date}`)
+          } catch (hcpErr) {
+            console.error(`[Rain Day] Failed to update HCP job ${job.hcp_job_id}:`, hcpErr)
+            // Continue anyway - local DB is source of truth
+          }
+        }
+
+        // 3. Send SMS notification to customer
+        if (job.customer_phone && tenant.openphone_api_key) {
+          try {
+            const oldDateFormatted = new Date(affected_date + "T12:00:00").toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })
+            const newDateFormatted = new Date(target_date + "T12:00:00").toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })
+            const businessName = tenant.business_name_short || tenant.name
+            const smsMessage = `Hi ${job.customer_name}! Due to weather conditions, your ${businessName} cleaning originally scheduled for ${oldDateFormatted} has been rescheduled to ${newDateFormatted}. Same time: ${job.scheduled_time || "9:00 AM"}. Reply with any questions!`
+
+            const smsResult = await sendSMS(tenant, job.customer_phone, smsMessage)
+            if (smsResult.success) {
+              notificationsSent++
+              console.log(`[Rain Day] SMS sent to customer ${job.customer_phone}`)
+            }
+          } catch (smsErr) {
+            console.error(`[Rain Day] Failed to send SMS to ${job.customer_phone}:`, smsErr)
+          }
+        }
+
+        // 4. Notify assigned cleaners via Telegram
+        if (job.team_id) {
+          try {
+            // Fetch cleaner info from database
+            const { data: cleaner } = await client
+              .from("cleaners")
+              .select("id, name, telegram_id, phone")
+              .eq("id", job.team_id)
+              .single()
+
+            if (cleaner?.telegram_id) {
+              const oldDateFormatted = new Date(affected_date + "T12:00:00").toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })
+              const telegramResult = await notifyScheduleChange(
+                tenant,
+                { telegram_id: cleaner.telegram_id, name: cleaner.name, phone: cleaner.phone },
+                { id: job.id, date: target_date, scheduled_at: job.scheduled_time, address: job.address },
+                oldDateFormatted,
+                job.scheduled_time || "09:00"
+              )
+              if (telegramResult.success) {
+                notificationsSent++
+                console.log(`[Rain Day] Telegram notification sent to cleaner ${cleaner.name}`)
+              }
+            }
+          } catch (telegramErr) {
+            console.error(`[Rain Day] Failed to notify cleaner ${job.team_id}:`, telegramErr)
+          }
+        }
+
         successfullyRescheduled.push(job.id)
       } catch {
         failedJobs.push(job.id)
@@ -144,7 +224,7 @@ export async function POST(request: NextRequest) {
       jobs_affected: affectedJobs.length,
       jobs_successfully_rescheduled: successfullyRescheduled.length,
       jobs_failed: failedJobs,
-      notifications_sent: successfullyRescheduled.length * 2, // customer + team
+      notifications_sent: notificationsSent,
       created_at: new Date().toISOString(),
       completed_at: new Date().toISOString(),
     }

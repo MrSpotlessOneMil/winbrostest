@@ -68,7 +68,7 @@ INSERT INTO tenants (
   -- Basic Info
   'WinBros Cleaning',
   'winbros',
-  '{{OWNER_EMAIL}}',
+  '{{TENANT_EMAIL}}',
   crypt('test', gen_salt('bf')),
 
   -- Business Info
@@ -102,7 +102,7 @@ INSERT INTO tenants (
 
   -- Telegram (get from BotFather)
   '{{TELEGRAM_BOT_TOKEN}}',
-  '{{TELEGRAM_CHAT_ID}}',  -- Owner chat ID
+  '{{OWNER_TELEGRAM_CHAT_ID}}',
 
   -- Wave (get from Wave Dashboard -> Integrations)
   '{{WAVE_API_TOKEN}}',
@@ -152,7 +152,7 @@ SELECT
   'winbros',
   crypt('test', gen_salt('bf')),
   'WinBros Admin',
-  '{{OWNER_EMAIL}}'
+  '{{TENANT_EMAIL}}'
 FROM tenants
 WHERE slug = 'winbros';
 

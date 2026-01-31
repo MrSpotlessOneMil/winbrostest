@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
 
       // Get review link and tip link from tenant config
       const reviewLink = tenant.google_review_link || 'https://g.page/review'
-      const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.id}` // TODO: Implement tip page
+      const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.id}`
       const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
       // Send the combined follow-up message
