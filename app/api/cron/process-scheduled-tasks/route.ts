@@ -47,32 +47,6 @@ export async function GET(request: NextRequest) {
     failed: 0,
     skipped: 0,
     details: [] as Array<{ taskId: string; type: string; success: boolean; error?: string }>,
-    frequentCrons: {} as Record<string, { success: boolean; error?: string }>,
-  }
-
-  const domain = process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
-  const cronSecret = process.env.CRON_SECRET || ''
-
-  // Also run frequent cron jobs (consolidated for Hobby plan)
-  const frequentCrons = [
-    '/api/cron/ghl-followups',
-    '/api/cron/check-timeouts',
-    '/api/cron/post-cleaning-followup',
-  ]
-
-  for (const cronPath of frequentCrons) {
-    try {
-      const response = await fetch(`${domain}${cronPath}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${cronSecret}` },
-      })
-      results.frequentCrons[cronPath] = { success: response.ok }
-    } catch (error) {
-      results.frequentCrons[cronPath] = {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
   }
 
   try {
