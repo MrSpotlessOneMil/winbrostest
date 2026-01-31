@@ -14,21 +14,31 @@ import { assignNextAvailableCleaner } from "@/lib/cleaner-assignment"
 import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
+import { getDefaultTenant } from "@/lib/tenant"
 
 /**
  * Webhook handler for Telegram bot messages and callback queries
  *
  * Handles:
+ * - NEW CLEANER ONBOARDING - Cleaners can register via Telegram
  * - Team job confirmations
  * - Tip reports
  * - Upsell reports
  * - Team availability updates
  * - Cleaner accept/decline callbacks from inline keyboard buttons
+ * - TEAM LEAD COMMANDS - /team, /leaderboard, /briefing
  *
  * Callback Data Formats:
  * - accept:{jobId}:{assignmentId} - Cleaner accepts job assignment
  * - decline:{jobId}:{assignmentId} - Cleaner declines job assignment
  */
+
+// Onboarding state machine - stored in memory (consider Redis for production scale)
+const onboardingStates = new Map<string, {
+  step: 'name' | 'phone' | 'availability' | 'confirm'
+  data: { name?: string; phone?: string; availability?: string }
+  startedAt: number
+}>()
 
 interface TelegramMessage {
   message_id: number
@@ -67,6 +77,16 @@ interface TelegramUpdate {
 const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d{2})?)/i
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
+
+// Patterns for new cleaner onboarding
+const JOIN_PATTERNS = [
+  /^(hi|hello|hey|join|register|sign\s*up|new\s+cleaner|i('m| am) a (new )?cleaner)/i,
+  /^i\s+want\s+to\s+(join|work|clean)/i,
+  /^(start|begin|onboard)/i,
+]
+
+// Phone number validation
+const PHONE_PATTERN = /^[\d\s\-\(\)\+]{10,}$/
 
 // Owner/ops Telegram chat ID for escalations
 const OWNER_TELEGRAM_CHAT_ID = process.env.OWNER_TELEGRAM_CHAT_ID
@@ -393,21 +413,83 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] Telegram message from ${from.username || from.first_name}: ${text}`)
 
-    // Handle /start or /myid command - reply with the chat ID
-    if (text.toLowerCase() === "/start" || text.toLowerCase() === "/myid") {
+    // Handle /start command - different response based on context
+    if (text.toLowerCase() === "/start") {
       await sendTelegramMessage(
         chatId,
-        `Your Telegram Chat ID is: <code>${chatId}</code>\n\nCopy this and add it to your environment variables as OWNER_TELEGRAM_CHAT_ID to receive escalation notifications.`
+        `<b>Welcome to the Cleaning Team Bot!</b>
+
+<b>For New Cleaners:</b>
+Send "join" or "I'm a new cleaner" to register.
+
+<b>For Existing Cleaners:</b>
+• Report tips: "tip job 123 - $20"
+• Report upsells: "upsell job 123 - deep clean"
+• Accept/decline jobs via buttons
+
+<b>For Team Leads:</b>
+• /team - View your team
+• /leaderboard - View performance
+• /briefing - Get daily briefing
+
+<b>Your Chat ID:</b> <code>${chatId}</code>`
+      )
+      return NextResponse.json({ success: true, action: "start_sent", chat_id: chatId })
+    }
+
+    // Handle /myid command
+    if (text.toLowerCase() === "/myid") {
+      await sendTelegramMessage(
+        chatId,
+        `Your Telegram Chat ID is: <code>${chatId}</code>\n\nProvide this to your manager to complete your registration.`
       )
       return NextResponse.json({ success: true, action: "chat_id_sent", chat_id: chatId })
     }
 
     const client = getSupabaseClient()
 
+    // Check if user is in onboarding flow
+    const onboardingState = onboardingStates.get(chatId)
+    if (onboardingState) {
+      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState)
+    }
+
+    // Check if this is a new cleaner trying to join
+    const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
+    if (isJoinRequest) {
+      // Check if they're already registered
+      const { data: existingCleaner } = await client
+        .from("cleaners")
+        .select("id, name")
+        .eq("telegram_id", telegramUserId)
+        .maybeSingle()
+
+      if (existingCleaner) {
+        await sendTelegramMessage(
+          chatId,
+          `<b>You're already registered!</b>\n\nHi ${existingCleaner.name}, you're already in our system. You'll receive job notifications here.\n\nNeed help? Contact your team lead.`
+        )
+        return NextResponse.json({ success: true, action: "already_registered" })
+      }
+
+      // Start onboarding flow
+      onboardingStates.set(chatId, {
+        step: 'name',
+        data: {},
+        startedAt: Date.now()
+      })
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/3:</b> What's your full name?`
+      )
+      return NextResponse.json({ success: true, action: "onboarding_started" })
+    }
+
     // Best-effort lookup: map telegram user to cleaner by telegram_id
     const { data: cleaner } = await client
       .from("cleaners")
-      .select("id,name,active")
+      .select("id,name,active,is_team_lead,phone,email")
       .eq("telegram_id", telegramUserId)
       .maybeSingle()
 
@@ -420,6 +502,28 @@ export async function POST(request: NextRequest) {
         .eq("is_active", true)
         .maybeSingle()
       if (tm?.team_id != null) teamId = Number(tm.team_id)
+    }
+
+    // Handle team lead commands
+    if (text.toLowerCase() === "/team" && cleaner?.is_team_lead) {
+      return await handleTeamCommand(chatId, cleaner, client)
+    }
+
+    if (text.toLowerCase() === "/leaderboard" && cleaner?.is_team_lead) {
+      return await handleLeaderboardCommand(chatId, cleaner, client)
+    }
+
+    if (text.toLowerCase() === "/briefing" && cleaner?.is_team_lead) {
+      return await handleBriefingCommand(chatId, cleaner, client)
+    }
+
+    // Non-team lead trying team lead commands
+    if (["/team", "/leaderboard", "/briefing"].includes(text.toLowerCase()) && !cleaner?.is_team_lead) {
+      await sendTelegramMessage(
+        chatId,
+        `This command is only available to team leads. Contact your manager if you believe this is an error.`
+      )
+      return NextResponse.json({ success: true, action: "not_team_lead" })
     }
 
     // Parse tip report
@@ -532,4 +636,361 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+/**
+ * Handle onboarding flow steps
+ */
+async function handleOnboardingStep(
+  chatId: string,
+  telegramUserId: string,
+  from: { first_name: string; username?: string },
+  text: string,
+  state: { step: string; data: { name?: string; phone?: string; availability?: string }; startedAt: number }
+): Promise<NextResponse> {
+  const client = getSupabaseClient()
+
+  // Timeout check - 30 minutes
+  if (Date.now() - state.startedAt > 30 * 60 * 1000) {
+    onboardingStates.delete(chatId)
+    await sendTelegramMessage(
+      chatId,
+      `Your registration session has expired. Send "join" to start again.`
+    )
+    return NextResponse.json({ success: true, action: "onboarding_expired" })
+  }
+
+  // Handle cancel
+  if (text.toLowerCase() === "cancel" || text.toLowerCase() === "/cancel") {
+    onboardingStates.delete(chatId)
+    await sendTelegramMessage(
+      chatId,
+      `Registration cancelled. Send "join" anytime to start again.`
+    )
+    return NextResponse.json({ success: true, action: "onboarding_cancelled" })
+  }
+
+  switch (state.step) {
+    case 'name':
+      // Validate name (at least 2 characters, letters and spaces only)
+      if (text.length < 2 || !/^[a-zA-Z\s]+$/.test(text)) {
+        await sendTelegramMessage(
+          chatId,
+          `Please enter a valid name (letters only, at least 2 characters).`
+        )
+        return NextResponse.json({ success: true, action: "invalid_name" })
+      }
+
+      state.data.name = text.trim()
+      state.step = 'phone'
+      onboardingStates.set(chatId, state as typeof state & { step: 'phone' })
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Step 2/3:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
+      )
+      return NextResponse.json({ success: true, action: "name_collected" })
+
+    case 'phone':
+      // Validate phone
+      const cleanPhone = text.replace(/[\s\-\(\)]/g, '')
+      if (!PHONE_PATTERN.test(text) || cleanPhone.length < 10) {
+        await sendTelegramMessage(
+          chatId,
+          `Please enter a valid phone number (at least 10 digits).`
+        )
+        return NextResponse.json({ success: true, action: "invalid_phone" })
+      }
+
+      state.data.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
+      state.step = 'availability'
+      onboardingStates.set(chatId, state as typeof state & { step: 'availability' })
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Step 3/3:</b> What's your general availability?\n\n(e.g., "Weekdays 9am-5pm" or "Mon-Fri anytime")`
+      )
+      return NextResponse.json({ success: true, action: "phone_collected" })
+
+    case 'availability':
+      state.data.availability = text.trim()
+      state.step = 'confirm'
+      onboardingStates.set(chatId, state as typeof state & { step: 'confirm' })
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Please confirm your details:</b>\n\n` +
+        `Name: ${state.data.name}\n` +
+        `Phone: ${state.data.phone}\n` +
+        `Availability: ${state.data.availability}\n\n` +
+        `Type <b>YES</b> to confirm or <b>NO</b> to start over.`
+      )
+      return NextResponse.json({ success: true, action: "availability_collected" })
+
+    case 'confirm':
+      if (text.toLowerCase() === 'yes' || text.toLowerCase() === 'y') {
+        // Get default tenant
+        const tenant = await getDefaultTenant()
+        if (!tenant) {
+          await sendTelegramMessage(chatId, `Registration error. Please contact support.`)
+          onboardingStates.delete(chatId)
+          return NextResponse.json({ success: false, error: "No tenant configured" })
+        }
+
+        // Create cleaner record
+        const { data: newCleaner, error: insertError } = await client
+          .from("cleaners")
+          .insert({
+            tenant_id: tenant.id,
+            name: state.data.name,
+            phone: state.data.phone,
+            telegram_id: telegramUserId,
+            telegram_username: from.username || null,
+            active: true,
+            is_team_lead: false,
+            availability: { general: state.data.availability }
+          })
+          .select("id, name")
+          .single()
+
+        if (insertError) {
+          console.error("[OSIRIS] Error creating cleaner:", insertError)
+          await sendTelegramMessage(
+            chatId,
+            `There was an error registering you. Please try again or contact support.`
+          )
+          onboardingStates.delete(chatId)
+          return NextResponse.json({ success: false, error: "Failed to create cleaner" })
+        }
+
+        onboardingStates.delete(chatId)
+
+        await sendTelegramMessage(
+          chatId,
+          `<b>Welcome aboard, ${state.data.name}!</b> 🎉\n\n` +
+          `You're now registered and will receive job notifications here.\n\n` +
+          `<b>Quick tips:</b>\n` +
+          `• When you get a job, tap "Available" or "Not Available"\n` +
+          `• Report tips: "tip job 123 - $20"\n` +
+          `• Report upsells: "upsell job 123 - deep clean"\n\n` +
+          `Questions? Reply here and a team lead will help.`
+        )
+
+        // Log the event
+        await logSystemEvent({
+          source: "telegram",
+          event_type: "CLEANER_BROADCAST",
+          message: `New cleaner registered via Telegram: ${state.data.name}`,
+          cleaner_id: newCleaner.id,
+          phone_number: state.data.phone,
+          metadata: {
+            telegram_id: telegramUserId,
+            registration_method: "telegram_onboarding"
+          }
+        })
+
+        return NextResponse.json({ success: true, action: "cleaner_registered", cleaner_id: newCleaner.id })
+      } else if (text.toLowerCase() === 'no' || text.toLowerCase() === 'n') {
+        // Start over
+        onboardingStates.set(chatId, {
+          step: 'name',
+          data: {},
+          startedAt: Date.now()
+        })
+
+        await sendTelegramMessage(
+          chatId,
+          `No problem, let's start over.\n\n<b>Step 1/3:</b> What's your full name?`
+        )
+        return NextResponse.json({ success: true, action: "onboarding_restart" })
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `Please type <b>YES</b> to confirm or <b>NO</b> to start over.`
+        )
+        return NextResponse.json({ success: true, action: "invalid_confirmation" })
+      }
+
+    default:
+      onboardingStates.delete(chatId)
+      return NextResponse.json({ success: true, action: "invalid_state" })
+  }
+}
+
+/**
+ * Handle /team command for team leads
+ */
+async function handleTeamCommand(
+  chatId: string,
+  cleaner: { id: string; name: string; is_team_lead?: boolean },
+  client: ReturnType<typeof getSupabaseClient>
+): Promise<NextResponse> {
+  // Get all cleaners (team members)
+  const { data: teamMembers, error } = await client
+    .from("cleaners")
+    .select("id, name, phone, is_team_lead, active, telegram_id")
+    .eq("active", true)
+    .order("is_team_lead", { ascending: false })
+    .order("name")
+
+  if (error || !teamMembers) {
+    await sendTelegramMessage(chatId, `Error fetching team data. Please try again.`)
+    return NextResponse.json({ success: false, error: "Failed to fetch team" })
+  }
+
+  const teamList = teamMembers.map((m, i) => {
+    const leadBadge = m.is_team_lead ? " ⭐" : ""
+    const telegramStatus = m.telegram_id ? "✅" : "❌"
+    return `${i + 1}. ${m.name}${leadBadge}\n   📱 ${m.phone || 'No phone'}\n   Telegram: ${telegramStatus}`
+  }).join("\n\n")
+
+  await sendTelegramMessage(
+    chatId,
+    `<b>Your Team (${teamMembers.length} members)</b>\n\n${teamList}\n\n⭐ = Team Lead\n✅ = Telegram connected`
+  )
+
+  return NextResponse.json({ success: true, action: "team_list_sent" })
+}
+
+/**
+ * Handle /leaderboard command for team leads
+ */
+async function handleLeaderboardCommand(
+  chatId: string,
+  cleaner: { id: string; name: string },
+  client: ReturnType<typeof getSupabaseClient>
+): Promise<NextResponse> {
+  // Get job completion stats for the past 30 days
+  const thirtyDaysAgo = new Date()
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+  const { data: assignments, error } = await client
+    .from("cleaner_assignments")
+    .select(`
+      cleaner_id,
+      status,
+      cleaners!inner(name)
+    `)
+    .gte("created_at", thirtyDaysAgo.toISOString())
+    .eq("status", "confirmed")
+
+  if (error) {
+    await sendTelegramMessage(chatId, `Error fetching leaderboard. Please try again.`)
+    return NextResponse.json({ success: false, error: "Failed to fetch leaderboard" })
+  }
+
+  // Count jobs per cleaner
+  const jobCounts = new Map<string, { name: string; count: number }>()
+  for (const a of assignments || []) {
+    const cleanerData = a.cleaners as unknown as { name: string }
+    const existing = jobCounts.get(a.cleaner_id) || { name: cleanerData?.name || 'Unknown', count: 0 }
+    existing.count++
+    jobCounts.set(a.cleaner_id, existing)
+  }
+
+  // Sort by count descending
+  const sorted = Array.from(jobCounts.entries())
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 10)
+
+  if (sorted.length === 0) {
+    await sendTelegramMessage(
+      chatId,
+      `<b>Leaderboard (Last 30 Days)</b>\n\nNo completed jobs in the last 30 days.`
+    )
+    return NextResponse.json({ success: true, action: "leaderboard_empty" })
+  }
+
+  const medals = ["🥇", "🥈", "🥉"]
+  const leaderboard = sorted.map(([, data], i) => {
+    const medal = medals[i] || `${i + 1}.`
+    return `${medal} ${data.name} - ${data.count} jobs`
+  }).join("\n")
+
+  await sendTelegramMessage(
+    chatId,
+    `<b>🏆 Leaderboard (Last 30 Days)</b>\n\n${leaderboard}`
+  )
+
+  return NextResponse.json({ success: true, action: "leaderboard_sent" })
+}
+
+/**
+ * Handle /briefing command for team leads
+ */
+async function handleBriefingCommand(
+  chatId: string,
+  cleaner: { id: string; name: string },
+  client: ReturnType<typeof getSupabaseClient>
+): Promise<NextResponse> {
+  const today = new Date().toISOString().split('T')[0]
+
+  // Get today's jobs
+  const { data: todaysJobs, error: jobsError } = await client
+    .from("jobs")
+    .select(`
+      id,
+      date,
+      scheduled_at,
+      address,
+      status,
+      cleaner_assignments(
+        cleaner_id,
+        status,
+        cleaners(name)
+      )
+    `)
+    .eq("date", today)
+    .order("scheduled_at")
+
+  if (jobsError) {
+    await sendTelegramMessage(chatId, `Error fetching briefing. Please try again.`)
+    return NextResponse.json({ success: false, error: "Failed to fetch briefing" })
+  }
+
+  // Get pending jobs needing assignment
+  const { data: pendingJobs } = await client
+    .from("jobs")
+    .select("id, date, address")
+    .gte("date", today)
+    .is("cleaner_confirmed", null)
+    .limit(5)
+
+  // Build briefing message
+  let briefing = `<b>📋 Daily Briefing for ${cleaner.name}</b>\n\n`
+  briefing += `<b>Date:</b> ${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}\n\n`
+
+  // Today's jobs summary
+  briefing += `<b>Today's Jobs (${todaysJobs?.length || 0}):</b>\n`
+  if (todaysJobs && todaysJobs.length > 0) {
+    for (const job of todaysJobs) {
+      const assignment = job.cleaner_assignments?.[0] as unknown as { cleaners?: { name: string }; status?: string }
+      const cleanerName = assignment?.cleaners?.name || 'Unassigned'
+      const status = job.status || 'scheduled'
+      briefing += `• ${job.scheduled_at || 'TBD'} - ${cleanerName} (${status})\n`
+    }
+  } else {
+    briefing += `No jobs scheduled for today.\n`
+  }
+
+  // Pending assignments
+  if (pendingJobs && pendingJobs.length > 0) {
+    briefing += `\n<b>⚠️ Needs Assignment (${pendingJobs.length}):</b>\n`
+    for (const job of pendingJobs) {
+      briefing += `• Job #${job.id} on ${job.date}\n`
+    }
+  }
+
+  // Quick stats
+  const { count: weekJobs } = await client
+    .from("jobs")
+    .select("*", { count: "exact", head: true })
+    .gte("date", today)
+    .lte("date", new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+
+  briefing += `\n<b>📊 This Week:</b> ${weekJobs || 0} jobs scheduled`
+
+  await sendTelegramMessage(chatId, briefing)
+
+  return NextResponse.json({ success: true, action: "briefing_sent" })
 }
