@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
 
   const searchParams = request.nextUrl.searchParams
   const range = searchParams.get("range") || "month"
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   const now = new Date()
   const start = new Date(now)
@@ -22,10 +28,10 @@ export async function GET(request: NextRequest) {
   const startIso = start.toISOString()
 
   const [tipsRes, upsellsRes, jobsRes, teamsRes] = await Promise.all([
-    client.from("tips").select("amount,team_id,created_at").eq("user_id", user.id).gte("created_at", startIso),
-    client.from("upsells").select("value,team_id,created_at").eq("user_id", user.id).gte("created_at", startIso),
-    client.from("jobs").select("id,team_id,status,created_at").eq("user_id", user.id).gte("created_at", startIso),
-    client.from("teams").select("id,name").eq("user_id", user.id).eq("active", true),
+    client.from("tips").select("amount,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
+    client.from("upsells").select("value,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
+    client.from("jobs").select("id,team_id,status,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
+    client.from("teams").select("id,name").eq("tenant_id", tenant.id).eq("active", true),
   ])
 
   if (tipsRes.error) return NextResponse.json({ success: false, error: tipsRes.error.message }, { status: 500 })
@@ -87,4 +93,3 @@ export async function GET(request: NextRequest) {
     },
   })
 }
-

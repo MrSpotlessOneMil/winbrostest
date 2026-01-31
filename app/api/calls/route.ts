@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Call, PaginatedResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 function mapOutcome(value: unknown): Call["outcome"] | undefined {
   const raw = typeof value === "string" ? value.toLowerCase() : ""
@@ -25,7 +26,12 @@ function mapDirection(value: unknown): Call["call_type"] {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ data: [], total: 0, page: 1, per_page: 50, total_pages: 0 })
+  }
 
   const searchParams = request.nextUrl.searchParams
   const page = parseInt(searchParams.get("page") || "1")
@@ -35,12 +41,12 @@ export async function GET(request: NextRequest) {
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   let query = client
     .from("calls")
     .select("*, customers (*)", { count: "exact" })
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
 
   if (phone) query = query.eq("phone_number", phone)

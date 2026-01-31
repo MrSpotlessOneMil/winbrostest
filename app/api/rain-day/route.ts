@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RainDayReschedule, ApiResponse, Job } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, AuthUser } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -46,12 +47,12 @@ function toTimeHHMM(value: unknown): string {
   return "09:00"
 }
 
-async function getAffectedJobs(date: string, userId: number): Promise<Job[]> {
-  const client = getSupabaseClient()
+async function getAffectedJobs(date: string, tenantId: string): Promise<Job[]> {
+  const client = getSupabaseServiceClient()
   const { data, error } = await client
     .from("jobs")
     .select("*, customers (*), cleaner_assignments (*, cleaners (*))")
-    .eq("user_id", userId)
+    .eq("tenant_id", tenantId)
     .eq("date", date)
     .neq("status", "cancelled")
     .order("scheduled_at", { ascending: true })
@@ -97,7 +98,12 @@ async function getAffectedJobs(date: string, userId: number): Promise<Job[]> {
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
 
   try {
     const body = await request.json()
@@ -111,12 +117,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Get all affected jobs
-    const affectedJobs = await getAffectedJobs(affected_date, user.id)
+    const affectedJobs = await getAffectedJobs(affected_date, tenant.id)
     const successfullyRescheduled: string[] = []
     const failedJobs: string[] = []
 
     // Process each job
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     for (const job of affectedJobs) {
       try {
         const numericId = Number(job.id)
@@ -162,7 +168,12 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
 
   const searchParams = request.nextUrl.searchParams
   const date = searchParams.get("date")
@@ -175,7 +186,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Get preview of jobs that would be affected
-  const affectedJobs = await getAffectedJobs(date, user.id)
+  const affectedJobs = await getAffectedJobs(date, tenant.id)
   const totalRevenue = affectedJobs.reduce((sum, job) => sum + job.estimated_value, 0)
 
   return NextResponse.json({

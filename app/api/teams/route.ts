@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Team, TeamDailyMetrics, ApiResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -16,7 +17,6 @@ function dailyTarget(): number {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
 
   const searchParams = request.nextUrl.searchParams
   const include_metrics = searchParams.get("include_metrics") === "true"
@@ -34,14 +34,26 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const client = getSupabaseClient()
+  // Get the default tenant (winbros) for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "No tenant configured. Please set up the winbros tenant first.",
+      } satisfies ApiResponse<never>,
+      { status: 500 }
+    )
+  }
+
+  const client = getSupabaseServiceClient()
   const date = searchParams.get("date") || todayISO()
 
   // Load teams and their members (cleaners) including location fields
   const teamsRes = await client
     .from("teams")
-    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
-    .eq("user_id", user.id)
+    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
+    .eq("tenant_id", tenant.id)
     .eq("active", true)
     .order("created_at", { ascending: true })
 
@@ -59,7 +71,7 @@ export async function GET(request: NextRequest) {
   const jobsRes = await client
     .from("jobs")
     .select("id, date, status, price, team_id")
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .eq("date", date)
     .neq("status", "cancelled")
 

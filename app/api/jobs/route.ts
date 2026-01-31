@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -50,7 +51,12 @@ function toTimeHHMM(value: unknown): string {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ data: [], total: 0, page: 1, per_page: 20, total_pages: 0 })
+  }
 
   const searchParams = request.nextUrl.searchParams
   const date = searchParams.get("date")
@@ -59,14 +65,14 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1")
   const per_page = parseInt(searchParams.get("per_page") || "20")
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
   let query = client
     .from("jobs")
     .select("*, customers (*), teams ( id, name )", { count: "exact" })
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
 
   if (date) query = query.eq("date", date)
@@ -129,12 +135,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
 
   try {
     const body = await request.json()
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
 
     const phone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
     const firstLast = String(body.customer_name || body.name || "Unknown").trim().split(" ")
@@ -147,6 +158,7 @@ export async function POST(request: NextRequest) {
       const existing = await client
         .from("customers")
         .select("*")
+        .eq("tenant_id", tenant.id)
         .eq("phone_number", phone)
         .maybeSingle()
       if (!existing.error && existing.data?.id != null) {
@@ -155,7 +167,7 @@ export async function POST(request: NextRequest) {
         const created = await client
           .from("customers")
           .insert({
-            user_id: user.id,
+            tenant_id: tenant.id,
             phone_number: phone,
             first_name,
             last_name,
@@ -174,7 +186,7 @@ export async function POST(request: NextRequest) {
     const inserted = await client
       .from("jobs")
       .insert({
-        user_id: user.id,
+        tenant_id: tenant.id,
         customer_id: customerId,
         phone_number: phone,
         address: body.address || undefined,

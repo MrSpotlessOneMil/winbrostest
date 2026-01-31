@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 type NotificationItem = {
   id: string
@@ -41,7 +42,12 @@ function titleFrom(row: any): { title: string; subtitle?: string } {
 export async function GET(req: NextRequest) {
   const authResult = await requireAuth(req)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: true, data: [] })
+  }
 
   const limit = Math.min(20, Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "10")))
   const client = getSupabaseServiceClient()
@@ -49,7 +55,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await client
     .from("system_events")
     .select("id,event_type,source,message,created_at")
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
     .limit(limit)
 

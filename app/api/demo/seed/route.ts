@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getDefaultTenant } from "@/lib/tenant"
 
 type Scenario =
   | "seed_all"
@@ -42,11 +43,25 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const scenario: Scenario = body.scenario || "seed_all"
 
+  // Get the default tenant (winbros) - required for all operations
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json(
+      { success: false, error: "No default tenant found. Please set up the winbros tenant first." },
+      { status: 500 }
+    )
+  }
+  const tenantId = tenant.id
+
   const names = ["Marcus Johnson", "David Martinez", "Chris Wilson", "Derek Williams", "Ryan Smith", "Emma Stevens"]
   const streets = ["Oak St", "Maple Ave", "Pine Dr", "Cedar Ln", "Birch St"]
 
   async function addTeam() {
-    const { data, error } = await client.from("teams").insert({ name: `Demo Team ${Date.now()}`, active: true }).select("*").single()
+    const { data, error } = await client.from("teams").insert({
+      tenant_id: tenantId,
+      name: `Demo Team ${Date.now()}`,
+      active: true,
+    }).select("*").single()
     if (error) throw error
     return data
   }
@@ -55,6 +70,7 @@ export async function POST(request: NextRequest) {
     const name = rand(names)
     const phone = randPhone()
     const { data: cleaner, error } = await client.from("cleaners").insert({
+      tenant_id: tenantId,
       name,
       phone,
       active: true,
@@ -67,6 +83,7 @@ export async function POST(request: NextRequest) {
 
     if (teamId) {
       await client.from("team_members").upsert({
+        tenant_id: tenantId,
         team_id: teamId,
         cleaner_id: cleaner.id,
         role: "technician",
@@ -80,6 +97,7 @@ export async function POST(request: NextRequest) {
     const parts = rand(names).split(" ")
     const phone = randPhone()
     const { data, error } = await client.from("customers").upsert({
+      tenant_id: tenantId,
       phone_number: phone,
       first_name: parts[0],
       last_name: parts.slice(1).join(" "),
@@ -94,6 +112,7 @@ export async function POST(request: NextRequest) {
     const customer = await addCustomer()
     const notes = await generateFakeSummary("job notes")
     const { data, error } = await client.from("jobs").insert({
+      tenant_id: tenantId,
       customer_id: customer.id,
       team_id: teamId ?? null,
       phone_number: customer.phone_number,
@@ -117,6 +136,7 @@ export async function POST(request: NextRequest) {
     const phone = randPhone()
     const parts = rand(names).split(" ")
     const { data, error } = await client.from("leads").insert({
+      tenant_id: tenantId,
       source_id: `demo-${Date.now()}`,
       phone_number: phone,
       first_name: parts[0],
@@ -134,6 +154,7 @@ export async function POST(request: NextRequest) {
     const customer = await addCustomer()
     const transcript = await generateFakeSummary("call transcript")
     const { data, error } = await client.from("calls").insert({
+      tenant_id: tenantId,
       customer_id: customer.id,
       phone_number: customer.phone_number,
       direction: "inbound",
@@ -154,6 +175,7 @@ export async function POST(request: NextRequest) {
 
   async function addTip(teamId?: number, jobId?: number) {
     const { data, error } = await client.from("tips").insert({
+      tenant_id: tenantId,
       team_id: teamId ?? null,
       job_id: jobId ?? null,
       amount: Math.round((10 + Math.random() * 80) * 100) / 100,
@@ -165,6 +187,7 @@ export async function POST(request: NextRequest) {
 
   async function addUpsell(teamId?: number, jobId?: number) {
     const { data, error } = await client.from("upsells").insert({
+      tenant_id: tenantId,
       team_id: teamId ?? null,
       job_id: jobId ?? null,
       upsell_type: rand(["Screen Cleaning", "Gutter Cleaning", "Solar Panel Clean", "Extra Pressure Wash"]),
@@ -179,6 +202,7 @@ export async function POST(request: NextRequest) {
     const customer = await addCustomer()
     const content = await generateFakeSummary("sms message")
     const { error } = await client.from("messages").insert({
+      tenant_id: tenantId,
       customer_id: customer.id,
       phone_number: customer.phone_number,
       role: "client",

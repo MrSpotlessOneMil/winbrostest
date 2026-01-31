@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 type ExceptionType = "no-confirm" | "high-value" | "routing" | "scheduling" | "system"
 type Priority = "high" | "medium" | "low"
@@ -76,7 +77,12 @@ function deriveException(row: any): ExceptionItem {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: true, data: [] as ExceptionItem[] })
+  }
 
   const url = request.nextUrl
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "25")))
@@ -87,7 +93,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await client
     .from("system_events")
     .select("id,event_type,source,message,metadata,created_at")
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
     .limit(limit)
 

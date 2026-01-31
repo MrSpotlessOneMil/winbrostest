@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Lead, ApiResponse, PaginatedResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth } from "@/lib/auth"
+import { getDefaultTenant } from "@/lib/tenant"
 
 function mapLead(row: any): Lead {
   const name =
@@ -49,7 +50,12 @@ function mapLead(row: any): Lead {
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ data: [], total: 0, page: 1, per_page: 20, total_pages: 0 })
+  }
 
   const searchParams = request.nextUrl.searchParams
   const source = searchParams.get("source")
@@ -57,14 +63,14 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1")
   const per_page = parseInt(searchParams.get("per_page") || "20")
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
   let query = client
     .from("leads")
     .select("*", { count: "exact" })
-    .eq("user_id", user.id)
+    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
 
   if (source) query = query.eq("source", source)
@@ -93,12 +99,17 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getDefaultTenant()
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
 
   try {
     const body = await request.json()
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
 
     const name = String(body.name || "").trim()
     const parts = name ? name.split(" ") : []
@@ -108,7 +119,7 @@ export async function POST(request: NextRequest) {
     const inserted = await client
       .from("leads")
       .insert({
-        user_id: user.id,
+        tenant_id: tenant.id,
         source_id: body.source_id || `manual-${Date.now()}`,
         ghl_location_id: body.ghl_location_id || null,
         phone_number: body.phone || body.phone_number || "",
