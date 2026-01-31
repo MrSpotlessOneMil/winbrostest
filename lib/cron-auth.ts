@@ -29,15 +29,6 @@ export function verifyCronAuth(request: NextRequest): boolean {
     return true
   }
 
-  // Legacy: Check QStash signature header (for backwards compatibility during transition)
-  const qstashSignature = request.headers.get('upstash-signature')
-  if (qstashSignature) {
-    // Allow QStash requests during transition period
-    // TODO: Remove this after full migration to Vercel Cron
-    console.log('[cron-auth] Legacy QStash request detected')
-    return true
-  }
-
   // In development without CRON_SECRET, allow all requests
   if (!cronSecret && process.env.NODE_ENV !== 'production') {
     console.warn('[cron-auth] No CRON_SECRET configured, allowing request in development')

@@ -1,7 +1,17 @@
-import { Job } from "./google-sheets";
+// Local Job type for cascade scheduling
+// This represents the minimal job interface needed for cascade calculations
+export interface CascadeJob {
+  id: string;
+  date: string;
+  scheduledAt?: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  client: string;
+  cleaningTeam: string[];
+  hours?: number;
+}
 
 export type CascadeChange = {
-  job: Job;
+  job: CascadeJob;
   originalStart: Date;
   originalDuration: number;
   newStart: Date;
@@ -11,8 +21,8 @@ export type CascadeChange = {
 };
 
 export type CascadeConflict = {
-  job: Job;
-  conflictingJob: Job;
+  job: CascadeJob;
+  conflictingJob: CascadeJob;
   reason: string;
   severity: "warning" | "error";
 };
@@ -24,7 +34,7 @@ export type CascadeResult = {
   summary: string;
 };
 
-function parseJobDate(job: Job): Date {
+function parseJobDate(job: CascadeJob): Date {
   const value = job.scheduledAt || job.date;
   if (!value) return new Date();
 
@@ -42,7 +52,7 @@ function parseJobDate(job: Job): Date {
   return new Date(`${raw}T09:00:00`);
 }
 
-function getDurationHours(job: Job): number {
+function getDurationHours(job: CascadeJob): number {
   return job.hours ? Number(job.hours) : 3;
 }
 
@@ -76,10 +86,10 @@ export function calculateDurationForTeamChange(
  * 4. Shifts all subsequent jobs by the same delta
  */
 export function calculateCascade(
-  modifiedJob: Job,
+  modifiedJob: CascadeJob,
   newStartTime: Date,
   newDuration: number,
-  allJobs: Job[]
+  allJobs: CascadeJob[]
 ): CascadeResult {
   const changes: CascadeChange[] = [];
   const conflicts: CascadeConflict[] = [];

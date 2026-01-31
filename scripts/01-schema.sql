@@ -17,6 +17,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 DROP TABLE IF EXISTS scheduled_tasks CASCADE;
 DROP TABLE IF EXISTS system_events CASCADE;
 DROP TABLE IF EXISTS cleaner_assignments CASCADE;
+DROP TABLE IF EXISTS reviews CASCADE;
 DROP TABLE IF EXISTS upsells CASCADE;
 DROP TABLE IF EXISTS tips CASCADE;
 DROP TABLE IF EXISTS team_members CASCADE;
@@ -554,6 +555,49 @@ CREATE TABLE upsells (
 CREATE INDEX idx_upsells_tenant ON upsells(tenant_id);
 CREATE INDEX idx_upsells_job ON upsells(job_id);
 CREATE INDEX idx_upsells_created ON upsells(tenant_id, created_at DESC);
+
+-- ============================================================================
+-- REVIEWS TABLE
+-- ============================================================================
+-- Tracks customer reviews from various sources (Google, SMS, Telegram, etc.)
+-- Used for team leaderboards and post-cleaning follow-up tracking.
+-- ============================================================================
+
+CREATE TABLE reviews (
+  id SERIAL PRIMARY KEY,
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+
+  -- Links
+  job_id INTEGER REFERENCES jobs(id),
+  customer_id INTEGER REFERENCES customers(id),
+  team_id INTEGER REFERENCES teams(id),
+  cleaner_id INTEGER REFERENCES cleaners(id),
+
+  -- Review content
+  rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+  review_text TEXT,
+
+  -- Source tracking
+  source TEXT CHECK (source IN ('google', 'telegram', 'sms', 'openphone', 'manual', 'website')),
+  external_review_url TEXT,                          -- Link to Google review if applicable
+
+  -- Incentive tracking
+  incentive_amount DECIMAL(10, 2) DEFAULT 0,         -- Amount paid for review (e.g., $10)
+  incentive_paid BOOLEAN DEFAULT FALSE,
+  incentive_paid_at TIMESTAMPTZ,
+
+  -- Metadata
+  reported_via TEXT CHECK (reported_via IN ('telegram', 'dashboard', 'api', 'webhook', 'manual')),
+  verified BOOLEAN DEFAULT FALSE,                    -- Whether review was verified as real
+
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_reviews_tenant ON reviews(tenant_id);
+CREATE INDEX idx_reviews_job ON reviews(job_id);
+CREATE INDEX idx_reviews_team ON reviews(team_id);
+CREATE INDEX idx_reviews_created ON reviews(tenant_id, created_at DESC);
+CREATE INDEX idx_reviews_rating ON reviews(tenant_id, rating) WHERE rating IS NOT NULL;
 
 -- ============================================================================
 -- CLEANER ASSIGNMENTS TABLE

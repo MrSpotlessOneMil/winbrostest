@@ -1,6 +1,61 @@
 import { Pool } from 'pg';
-import { DashboardData, Job, Call, CallerProfile } from './google-sheets';
 import { getSupabaseClient } from './supabase';
+
+// Dashboard data types (previously from google-sheets.ts)
+export interface DashboardJob {
+  id: string;
+  title: string;
+  date: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  client: string;
+  cleaningTeam: string[];
+  callDurationSeconds: number;
+  booked: boolean;
+  paid: boolean;
+  price: number;
+  phoneNumber: string;
+  email?: string;
+  hours?: number;
+  createdAt?: string;
+  scheduledAt?: string;
+}
+
+export interface Message {
+  role: 'client' | 'business' | 'bot';
+  content: string;
+  timestamp: string;
+}
+
+export interface DashboardCall {
+  id: string;
+  phoneNumber: string;
+  callerName: string;
+  date: string;
+  durationSeconds: number;
+  audioUrl?: string;
+  transcript?: string;
+  outcome?: 'booked' | 'not_booked' | 'voicemail';
+}
+
+export interface CallerProfile {
+  phoneNumber: string;
+  callerName: string;
+  totalCalls: number;
+  messages: Message[];
+  lastCallDate: string;
+  calls?: DashboardCall[];
+}
+
+export interface DashboardData {
+  jobsBooked: number;
+  quotesSent: number;
+  cleanersScheduled: number;
+  callsAnswered: number;
+  jobs: DashboardJob[];
+  calls: DashboardCall[];
+  profiles: CallerProfile[];
+  isLiveData: boolean;
+}
 
 // Connection pool - only created if DATABASE_URL exists
 let pool: Pool | null = null;
@@ -18,7 +73,7 @@ function resolveCustomerName(customer: any): string {
   return combined || 'Unknown';
 }
 
-function normalizeStatus(value: unknown): Job['status'] {
+function normalizeStatus(value: unknown): DashboardJob['status'] {
   const raw = typeof value === 'string' ? value.toLowerCase() : '';
   if (raw === 'completed') {
     return 'completed';
@@ -91,7 +146,7 @@ async function getSupabaseDashboardData(brand?: string): Promise<DashboardData |
       console.warn('Supabase messages fetch error:', messagesResult.error);
     }
 
-    const jobs: Job[] = (jobsResult.data || []).map((row: any) => {
+    const jobs: DashboardJob[] = (jobsResult.data || []).map((row: any) => {
       const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
       const dateValue = row.scheduled_at ?? row.date ?? row.created_at;
       const dateString = dateValue ? String(dateValue) : new Date().toISOString();
@@ -119,7 +174,7 @@ async function getSupabaseDashboardData(brand?: string): Promise<DashboardData |
       };
     });
 
-    const calls: Call[] = (callsResult.data || []).map((row: any) => {
+    const calls: DashboardCall[] = (callsResult.data || []).map((row: any) => {
       const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
       const phoneNumber =
         customer?.phone_number || row.phone_number || row.from_number || '';
@@ -302,7 +357,7 @@ export async function getLiveDashboardData(brand?: string): Promise<DashboardDat
     `);
 
     // Transform jobs to app format
-    const jobs: Job[] = jobsResult.rows.map(row => {
+    const jobs: DashboardJob[] = jobsResult.rows.map(row => {
       const dateValue = row.scheduled_at ?? row.date ?? row.created_at;
       const dateString = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue);
       const createdValue = row.created_at;
@@ -330,7 +385,7 @@ export async function getLiveDashboardData(brand?: string): Promise<DashboardDat
     });
 
     // Transform calls to app format
-    const calls: Call[] = callsResult.rows.map(row => ({
+    const calls: DashboardCall[] = callsResult.rows.map(row => ({
       id: row.id.toString(),
       phoneNumber: row.phone_number,
       callerName: row.caller_name,

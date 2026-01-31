@@ -27,28 +27,30 @@ export async function GET(request: NextRequest) {
 
   const startIso = start.toISOString()
 
-  const [tipsRes, upsellsRes, jobsRes, teamsRes] = await Promise.all([
+  const [tipsRes, upsellsRes, jobsRes, teamsRes, reviewsRes] = await Promise.all([
     client.from("tips").select("amount,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
     client.from("upsells").select("value,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
     client.from("jobs").select("id,team_id,status,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
     client.from("teams").select("id,name").eq("tenant_id", tenant.id).eq("active", true),
+    client.from("reviews").select("id,team_id,rating,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
   ])
 
   if (tipsRes.error) return NextResponse.json({ success: false, error: tipsRes.error.message }, { status: 500 })
   if (upsellsRes.error) return NextResponse.json({ success: false, error: upsellsRes.error.message }, { status: 500 })
   if (jobsRes.error) return NextResponse.json({ success: false, error: jobsRes.error.message }, { status: 500 })
+  if (reviewsRes.error) return NextResponse.json({ success: false, error: reviewsRes.error.message }, { status: 500 })
 
   const teamName = new Map<number, string>()
   for (const t of teamsRes.data || []) teamName.set(Number((t as any).id), String((t as any).name))
 
   function ensure(teamId: number) {
     if (!agg.has(teamId)) {
-      agg.set(teamId, { teamId, team: teamName.get(teamId) || `Team ${teamId}`, tips: 0, upsells: 0, jobs: 0 })
+      agg.set(teamId, { teamId, team: teamName.get(teamId) || `Team ${teamId}`, tips: 0, upsells: 0, jobs: 0, reviews: 0 })
     }
     return agg.get(teamId)!
   }
 
-  const agg = new Map<number, { teamId: number; team: string; tips: number; upsells: number; jobs: number }>()
+  const agg = new Map<number, { teamId: number; team: string; tips: number; upsells: number; jobs: number; reviews: number }>()
 
   for (const t of tipsRes.data as any[]) {
     const teamId = t.team_id != null ? Number(t.team_id) : NaN
@@ -65,10 +67,15 @@ export async function GET(request: NextRequest) {
     if (!Number.isFinite(teamId)) continue
     ensure(teamId).jobs += 1
   }
+  for (const r of reviewsRes.data as any[]) {
+    const teamId = r.team_id != null ? Number(r.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    ensure(teamId).reviews += 1
+  }
 
   const rows = Array.from(agg.values())
 
-  function topBy(key: "tips" | "upsells" | "jobs") {
+  function topBy(key: "tips" | "upsells" | "jobs" | "reviews") {
     return rows
       .slice()
       .sort((a, b) => (b[key] as number) - (a[key] as number))
@@ -77,7 +84,7 @@ export async function GET(request: NextRequest) {
         rank: idx + 1,
         name: r.team,
         team: r.team,
-        value: key === "jobs" ? r.jobs : key === "tips" ? Math.round(r.tips) : Math.round(r.upsells),
+        value: key === "jobs" ? r.jobs : key === "reviews" ? r.reviews : key === "tips" ? Math.round(r.tips) : Math.round(r.upsells),
         change: "—",
       }))
   }
@@ -89,7 +96,7 @@ export async function GET(request: NextRequest) {
       tips: topBy("tips"),
       upsells: topBy("upsells"),
       jobs: topBy("jobs"),
-      reviews: [], // placeholder until review table exists
+      reviews: topBy("reviews"),
     },
   })
 }

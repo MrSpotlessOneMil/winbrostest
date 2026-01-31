@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       first_name: parts[0],
       last_name: parts.slice(1).join(" "),
       address: `${Math.floor(100 + Math.random() * 900)} ${rand(streets)}, Los Angeles, CA`,
-      email: `${parts[0].toLowerCase()}@example.com`,
+      email: `${parts[0].toLowerCase()}${Math.floor(Math.random() * 100)}@gmail.com`,
     }, { onConflict: "phone_number" }).select("*").single()
     if (error) throw error
     return data
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       phone_number: phone,
       first_name: parts[0],
       last_name: parts.slice(1).join(" "),
-      email: `${parts[0].toLowerCase()}@example.com`,
+      email: `${parts[0].toLowerCase()}${Math.floor(Math.random() * 100)}@gmail.com`,
       source: rand(["phone", "sms", "website", "meta"]),
       status: "new",
       form_data: { demo: true },
