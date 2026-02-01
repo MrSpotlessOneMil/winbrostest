@@ -34,16 +34,14 @@ export async function POST(request: NextRequest) {
 
   // Determine direction from extracted data OR from webhook event type
   // OpenPhone event types: "message.received" (inbound), "message.sent" (outbound)
-  const eventType = payload?.type || payload?.event
   const isInbound =
     extracted.direction === "inbound" ||
     extracted.direction === "incoming" ||
-    eventType === "message.received" ||
-    eventType === "message.created" // Some versions use this
+    extracted.eventType === "message.received"
 
   // Only process inbound messages
   if (!isInbound) {
-    return NextResponse.json({ success: true, ignored: true, reason: `outbound message (direction: ${extracted.direction}, event: ${eventType})` })
+    return NextResponse.json({ success: true, ignored: true, reason: `outbound message (direction: ${extracted.direction}, event: ${extracted.eventType})` })
   }
 
   const fromE164 = normalizePhoneNumber(extracted.from) || extracted.from

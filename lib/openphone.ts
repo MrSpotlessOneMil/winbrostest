@@ -200,13 +200,29 @@ export async function validateOpenPhoneWebhook(
 
 /**
  * Extract message content from OpenPhone webhook payload
+ *
+ * OpenPhone v3 webhook structure:
+ * {
+ *   "object": {
+ *     "type": "message.received",
+ *     "data": {
+ *       "object": {
+ *         "from": "+1...",
+ *         "body": "message text",
+ *         "direction": "incoming"
+ *       }
+ *     }
+ *   }
+ * }
  */
 export function extractMessageFromOpenPhonePayload(
   body: Record<string, unknown>
-): { from: string; content: string; createdAt: string; direction?: string } | null {
-  // OpenPhone webhook structure varies, try common patterns
-  const data = (body.data as Record<string, unknown>) || body
-  const message = (data.object as Record<string, unknown>) || data
+): { from: string; content: string; createdAt: string; direction?: string; eventType?: string } | null {
+  // Handle OpenPhone v3 nested structure: body.object.data.object
+  const rootObject = (body.object as Record<string, unknown>) || body
+  const eventType = (rootObject.type as string) || (body.type as string)
+  const dataWrapper = (rootObject.data as Record<string, unknown>) || (body.data as Record<string, unknown>) || body
+  const message = (dataWrapper.object as Record<string, unknown>) || dataWrapper
 
   const content = firstString(
     message.content,
@@ -260,6 +276,7 @@ export function extractMessageFromOpenPhonePayload(
     content,
     createdAt,
     direction,
+    eventType,
   }
 }
 
