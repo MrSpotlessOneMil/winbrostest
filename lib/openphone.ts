@@ -237,7 +237,17 @@ export function extractMessageFromOpenPhonePayload(
     data.timestamp
   ) || new Date().toISOString()
 
-  const direction = firstString(message.direction, data.direction, body.direction)
+  const rawDirection = firstString(message.direction, data.direction, body.direction)
+
+  // Normalize direction: OpenPhone uses "incoming"/"outgoing", we use "inbound"/"outbound"
+  let direction: string | undefined
+  if (rawDirection === 'incoming' || rawDirection === 'inbound') {
+    direction = 'inbound'
+  } else if (rawDirection === 'outgoing' || rawDirection === 'outbound') {
+    direction = 'outbound'
+  } else {
+    direction = rawDirection
+  }
 
   // Try to find the message content
   if (!from || !content) {
