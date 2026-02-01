@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifySignature } from "@/lib/qstash"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getDefaultTenant } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
@@ -14,19 +13,22 @@ interface ReminderPayload {
 /**
  * POST /api/automation/send-reminder
  *
- * Handles reminder automation triggered by QStash cron:
+ * Handles reminder automation triggered by internal scheduler:
  * - day_before: Send reminder SMS to customers for tomorrow's jobs
  * - one_hour_before: Send reminder to cleaners 1 hour before job
  * - job_start: Send "starting now" notification to cleaners
  */
 export async function POST(request: NextRequest) {
-  const signature = request.headers.get("upstash-signature")
-  const body = await request.text()
+  // Verify internal cron authorization
+  const authHeader = request.headers.get("authorization")
+  const cronSecret = process.env.CRON_SECRET
 
-  // Verify QStash signature if present
-  if (signature && !(await verifySignature(signature, body))) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+  // Allow calls from cron job or internal services
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const body = await request.text()
 
   const tenant = await getDefaultTenant()
   if (!tenant) {

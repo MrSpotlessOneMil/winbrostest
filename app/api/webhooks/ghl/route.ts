@@ -3,8 +3,9 @@ import { createHmac, timingSafeEqual } from "crypto"
 import { getSupabaseClient } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
-import { scheduleLeadFollowUp } from "@/lib/qstash"
+import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
+import { getDefaultTenant } from "@/lib/tenant"
 
 // Minimal GoHighLevel webhook handler:
 // stores incoming leads into `public.leads`.
@@ -134,10 +135,11 @@ export async function POST(request: NextRequest) {
   })
 
   // Schedule the lead follow-up sequence
+  const tenant = await getDefaultTenant()
   if (lead?.id) {
     try {
       const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
-      await scheduleLeadFollowUp(String(lead.id), phone, leadName)
+      await scheduleLeadFollowUp(tenant?.id || '', String(lead.id), phone, leadName)
       console.log(`[OSIRIS] GHL Webhook: Scheduled follow-up sequence for lead ${lead.id}`)
     } catch (scheduleError) {
       console.error("[OSIRIS] GHL Webhook: Error scheduling follow-up:", scheduleError)

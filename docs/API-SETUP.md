@@ -25,7 +25,6 @@ Complete guide for configuring all APIs, webhooks, and integrations for the WinB
 | Stripe | **Yes** | Payments |
 | Telegram | **Yes** | Cleaner notifications |
 | Anthropic AI | **Yes** | Intent analysis |
-| QStash | Optional | Delayed task scheduling (lead follow-up timing) |
 | Gmail | Optional | Email confirmations to customers |
 | GoHighLevel | Optional | CRM integration |
 | Wave | Optional | Professional invoicing |
@@ -60,19 +59,6 @@ These are configured in `.env.local` (local) or Vercel Environment Variables (pr
 
 ---
 
-### QStash (Upstash) - Task Scheduling
-
-| Variable | Description | Where to Get |
-|----------|-------------|--------------|
-| `QSTASH_URL` | QStash endpoint | Always `https://qstash.upstash.io` |
-| `QSTASH_TOKEN` | QStash authentication token | [console.upstash.com](https://console.upstash.com) → QStash → Token |
-| `QSTASH_CURRENT_SIGNING_KEY` | Webhook signature verification | QStash Dashboard → Signing Keys |
-| `QSTASH_NEXT_SIGNING_KEY` | Next rotation signing key | QStash Dashboard → Signing Keys |
-
-**Usage:** Schedules delayed tasks like follow-up sequences and reminders.
-
----
-
 ### Gmail (Email Notifications)
 
 | Variable | Description | Where to Get |
@@ -93,7 +79,26 @@ These are configured in `.env.local` (local) or Vercel Environment Variables (pr
 |----------|-------------|--------------|
 | `CRON_SECRET` | Secret for cron job authentication | Generate: `openssl rand -hex 32` |
 
-**Usage:** Vercel cron jobs include this in the Authorization header.
+**Usage:** Vercel cron jobs and internal automation endpoints use this for authentication.
+
+---
+
+### Internal Task Scheduler
+
+The system uses a **database-backed task scheduler** instead of external services like QStash:
+
+- Tasks are stored in the `scheduled_tasks` table
+- A Vercel cron job (`/api/cron/process-scheduled-tasks`) runs every minute
+- Processes due tasks and dispatches them to automation endpoints
+
+**Scheduled Task Types:**
+- `lead_followup` - Multi-stage lead follow-up sequence
+- `job_broadcast` - Cleaner assignment notifications
+- `day_before_reminder` - Customer reminders
+- `post_cleaning_followup` - Review requests
+- `job_reminder` - Cleaner job reminders
+
+**No additional configuration required** - the scheduler uses Supabase and Vercel cron.
 
 ---
 

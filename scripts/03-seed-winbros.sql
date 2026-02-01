@@ -68,7 +68,7 @@ INSERT INTO tenants (
   -- Basic Info
   'WinBros Cleaning',
   'winbros',
-  '{{TENANT_EMAIL}}',
+  'jaspergrenager@gmail.com',
   crypt('test', gen_salt('bf')),
 
   -- Business Info
@@ -136,8 +136,8 @@ INSERT INTO tenants (
   }'::jsonb,
 
   -- Owner Contact
-  '{{OWNER_PHONE}}',
-  '{{OWNER_EMAIL}}',
+  '+14242755847',
+  'jaspergrenager@gmail.com',
   NULL
 );
 
@@ -152,7 +152,7 @@ SELECT
   'winbros',
   crypt('test', gen_salt('bf')),
   'WinBros Admin',
-  '{{TENANT_EMAIL}}'
+  'jaspergrenager@gmail.com'
 FROM tenants
 WHERE slug = 'winbros';
 

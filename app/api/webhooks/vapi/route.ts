@@ -3,7 +3,7 @@ import { extractVapiCallData, parseTranscript } from "@/lib/vapi"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getSupabaseClient } from "@/lib/supabase"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
-import { scheduleLeadFollowUp } from "@/lib/qstash"
+import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
 
@@ -186,6 +186,7 @@ export async function POST(request: NextRequest) {
             if (data.outcome !== "booked") {
               try {
                 await scheduleLeadFollowUp(
+                  tenant?.id || '',
                   String(lead.id),
                   phone,
                   fullName || "there"

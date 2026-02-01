@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { verifySignature } from "@/lib/qstash"
 import { sendSMS } from "@/lib/openphone"
 import { triggerVAPIOutboundCall } from "@/integrations/ghl/follow-up-scheduler"
 import { leadFollowupInitial, leadFollowupSecond, paymentLink } from "@/lib/sms-templates"
@@ -19,7 +18,7 @@ interface LeadFollowupPayload {
 /**
  * Lead Follow-up Automation Endpoint
  *
- * Receives QStash-scheduled messages for automated lead follow-up sequences:
+ * Receives internally scheduled messages for automated lead follow-up sequences:
  * - Stage 1 (text): Send initial follow-up SMS
  * - Stage 2 (call): Initiate VAPI call
  * - Stage 3 (double_call): Call twice with 30 second gap
@@ -27,14 +26,17 @@ interface LeadFollowupPayload {
  * - Stage 5 (call + payment link): Call, then create and send payment link
  */
 export async function POST(request: NextRequest) {
-  // 1. Verify QStash signature
-  const signature = request.headers.get("upstash-signature")
-  const body = await request.text()
+  // 1. Verify internal cron authorization
+  const authHeader = request.headers.get("authorization")
+  const cronSecret = process.env.CRON_SECRET
 
-  if (signature && !(await verifySignature(signature, body))) {
-    console.error("[lead-followup] Invalid QStash signature")
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 })
+  // Allow calls from cron job or internal services
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    console.error("[lead-followup] Unauthorized request")
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const body = await request.text()
 
   // 2. Parse the body and extract payload
   let payload: LeadFollowupPayload

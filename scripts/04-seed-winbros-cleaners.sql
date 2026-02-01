@@ -17,7 +17,7 @@ WHERE slug = 'winbros';
 -- ADD CLEANERS
 -- ============================================================================
 
--- Team Lead
+-- Delbert Tran (Team Lead)
 INSERT INTO cleaners (
   tenant_id,
   name,
@@ -28,9 +28,9 @@ INSERT INTO cleaners (
 )
 SELECT
   id,
-  '{{TEAM_LEAD_NAME}}',
-  '{{TEAM_LEAD_PHONE}}',
-  '{{TEAM_LEAD_TELEGRAM_ID}}',
+  'Delbert Tran',
+  '{{DELBERT_PHONE}}',
+  '{{DELBERT_TELEGRAM_ID}}',
   true,  -- Team lead
   true
 FROM tenants
@@ -40,7 +40,7 @@ WHERE slug = 'winbros';
 -- ASSIGN CLEANERS TO TEAM
 -- ============================================================================
 
--- Assign team lead
+-- Assign Delbert as team lead
 INSERT INTO team_members (tenant_id, team_id, cleaner_id, role, is_active)
 SELECT
   t.id as tenant_id,
@@ -50,7 +50,7 @@ SELECT
   true as is_active
 FROM tenants t
 JOIN teams tm ON tm.tenant_id = t.id AND tm.name = 'Main Team'
-JOIN cleaners c ON c.tenant_id = t.id AND c.name = '{{TEAM_LEAD_NAME}}'
+JOIN cleaners c ON c.tenant_id = t.id AND c.name = 'Delbert Tran'
 WHERE t.slug = 'winbros';
 
 -- ============================================================================
