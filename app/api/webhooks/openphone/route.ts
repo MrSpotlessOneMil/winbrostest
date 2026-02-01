@@ -54,10 +54,10 @@ export async function POST(request: NextRequest) {
   const client = getSupabaseClient()
   const tenant = await getDefaultTenant()
 
-  // Upsert customer by phone_number
+  // Upsert customer by phone_number (composite unique: tenant_id, phone_number)
   const { data: customer, error: custErr } = await client
     .from("customers")
-    .upsert({ phone_number: phone, tenant_id: tenant?.id }, { onConflict: "phone_number" })
+    .upsert({ phone_number: phone, tenant_id: tenant?.id }, { onConflict: "tenant_id,phone_number" })
     .select("*")
     .single()
 

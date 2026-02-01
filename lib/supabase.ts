@@ -251,7 +251,7 @@ export async function upsertCustomer(
     .from('customers')
     .upsert(
       { ...data, phone_number: dbPhone, updated_at: new Date().toISOString() },
-      { onConflict: 'phone_number' }
+      { onConflict: 'tenant_id,phone_number' }
     )
     .select()
     .single()

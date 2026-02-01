@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       last_name: parts.slice(1).join(" "),
       address: `${Math.floor(100 + Math.random() * 900)} ${rand(streets)}, Los Angeles, CA`,
       email: `${parts[0].toLowerCase()}${Math.floor(Math.random() * 100)}@gmail.com`,
-    }, { onConflict: "phone_number" }).select("*").single()
+    }, { onConflict: "tenant_id,phone_number" }).select("*").single()
     if (error) throw error
     return data
   }

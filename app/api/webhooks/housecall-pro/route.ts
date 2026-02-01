@@ -65,6 +65,7 @@ export async function POST(request: NextRequest) {
     console.log(`[OSIRIS] HCP Webhook received: ${event}`, { timestamp })
 
     const client = getSupabaseClient()
+    const tenant = await getDefaultTenant()
 
     // Best-effort field extraction (HCP payload shapes vary by event)
     const phoneRaw =
@@ -107,8 +108,8 @@ export async function POST(request: NextRequest) {
           const { data: customer } = await client
             .from("customers")
             .upsert(
-              { phone_number: phone, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "phone_number" }
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { onConflict: "tenant_id,phone_number" }
             )
             .select("id")
             .single()
@@ -214,8 +215,8 @@ export async function POST(request: NextRequest) {
         console.log("[OSIRIS] New customer created in HCP")
         if (phone) {
           await client.from("customers").upsert(
-            { phone_number: phone, first_name: firstName, last_name: lastName, email, address },
-            { onConflict: "phone_number" }
+            { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+            { onConflict: "tenant_id,phone_number" }
           )
         }
         break
@@ -224,8 +225,8 @@ export async function POST(request: NextRequest) {
         console.log("[OSIRIS] Customer updated in HCP")
         if (phone) {
           await client.from("customers").upsert(
-            { phone_number: phone, first_name: firstName, last_name: lastName, email, address },
-            { onConflict: "phone_number" }
+            { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+            { onConflict: "tenant_id,phone_number" }
           )
         }
         break
@@ -251,8 +252,8 @@ export async function POST(request: NextRequest) {
           const { data: customer } = await client
             .from("customers")
             .upsert(
-              { phone_number: phone, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "phone_number" }
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { onConflict: "tenant_id,phone_number" }
             )
             .select("id")
             .single()
@@ -283,7 +284,6 @@ export async function POST(request: NextRequest) {
           })
 
           // Schedule the lead follow-up sequence
-          const tenant = await getDefaultTenant()
           if (lead?.id) {
             try {
               const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'

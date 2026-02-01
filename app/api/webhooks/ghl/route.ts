@@ -93,15 +93,17 @@ export async function POST(request: NextRequest) {
     null
 
   const client = getSupabaseClient()
+  const tenant = await getDefaultTenant()
 
-  // Upsert customer for linking later
+  // Upsert customer for linking later (composite unique: tenant_id, phone_number)
   const { data: customer } = await client
     .from("customers")
-    .upsert({ phone_number: phone, first_name: firstName || null, last_name: lastName || null, email: email || null }, { onConflict: "phone_number" })
+    .upsert({ phone_number: phone, tenant_id: tenant?.id, first_name: firstName || null, last_name: lastName || null, email: email || null }, { onConflict: "tenant_id,phone_number" })
     .select("id")
     .single()
 
   const { data: lead, error: leadError } = await client.from("leads").insert({
+    tenant_id: tenant?.id,
     source_id: String(sourceId),
     ghl_location_id: locationId ? String(locationId) : null,
     phone_number: phone,
@@ -135,7 +137,6 @@ export async function POST(request: NextRequest) {
   })
 
   // Schedule the lead follow-up sequence
-  const tenant = await getDefaultTenant()
   if (lead?.id) {
     try {
       const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'

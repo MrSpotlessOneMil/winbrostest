@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (phone) {
     const { data: customer, error } = await client
       .from("customers")
-      .upsert({ phone_number: phone }, { onConflict: "phone_number" })
+      .upsert({ phone_number: phone, tenant_id: tenant?.id }, { onConflict: "tenant_id,phone_number" })
       .select("id")
       .single()
     if (!error && customer?.id != null) customerId = Number(customer.id)
