@@ -8,6 +8,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Bar,
   BarChart,
   CartesianGrid,
@@ -31,6 +38,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   TrendingUp,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -111,8 +119,11 @@ const chartConfig = {
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<UiLead[]>([])
+  const [rawLeads, setRawLeads] = useState<ApiLead[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [selectedLead, setSelectedLead] = useState<ApiLead | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -124,7 +135,10 @@ export default function LeadsPage() {
         const raw = (json as any)?.data
         const rows = Array.isArray(raw) ? raw : (json as PaginatedResponse<ApiLead>).data
         const mapped = (rows || []).map(mapLead)
-        if (!cancelled) setLeads(mapped)
+        if (!cancelled) {
+          setLeads(mapped)
+          setRawLeads(rows || [])
+        }
       } catch {
         if (!cancelled) setLeads([])
       } finally {
@@ -403,7 +417,17 @@ export default function LeadsPage() {
                     <p className="text-xs text-muted-foreground">{lead.createdAt}</p>
                   </div>
 
-                  <Button variant="ghost" size="sm">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const rawLead = rawLeads.find((r) => String(r.id) === lead.id)
+                      if (rawLead) {
+                        setSelectedLead(rawLead)
+                        setDialogOpen(true)
+                      }
+                    }}
+                  >
                     View
                   </Button>
                 </div>
@@ -416,6 +440,81 @@ export default function LeadsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Lead Detail Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Lead Details</DialogTitle>
+            <DialogDescription>
+              {selectedLead?.name || "Unknown"} - {selectedLead?.phone || "No phone"}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedLead && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <Badge
+                    variant="outline"
+                    className={statusConfig[selectedLead.status as keyof typeof statusConfig]?.className || ""}
+                  >
+                    {statusConfig[selectedLead.status as keyof typeof statusConfig]?.label || selectedLead.status}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Source</p>
+                  <p className="font-medium">{titleSource(selectedLead.source || "")}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Phone</p>
+                  <p className="font-medium">{selectedLead.phone || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Email</p>
+                  <p className="font-medium">{selectedLead.email || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Service Interest</p>
+                  <p className="font-medium">{selectedLead.service_interest || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Estimated Value</p>
+                  <p className="font-medium">${selectedLead.estimated_value || 0}</p>
+                </div>
+              </div>
+              {(selectedLead as any).form_data && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Additional Details</p>
+                  <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto max-h-48">
+                    {JSON.stringify((selectedLead as any).form_data, null, 2)}
+                  </pre>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(`tel:${selectedLead.phone}`, "_self")}
+                  disabled={!selectedLead.phone}
+                >
+                  <Phone className="h-4 w-4 mr-2" />
+                  Call
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(`sms:${selectedLead.phone}`, "_self")}
+                  disabled={!selectedLead.phone}
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Text
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

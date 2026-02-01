@@ -54,6 +54,14 @@ export async function POST(request: NextRequest) {
   const client = getSupabaseClient()
   const tenant = await getDefaultTenant()
 
+  // CRITICAL: Filter out messages from our own phone number to prevent auto-response loops
+  // When we send an SMS, OpenPhone may send a webhook for our outbound message
+  const ourPhoneNumber = normalizePhoneNumber(tenant?.openphone_phone_number || "")
+  if (ourPhoneNumber && phone === ourPhoneNumber) {
+    console.log(`[OpenPhone] Ignoring message from our own phone number: ${phone}`)
+    return NextResponse.json({ success: true, ignored: true, reason: "Message from our own phone number" })
+  }
+
   // Upsert customer by phone_number (composite unique: tenant_id, phone_number)
   const { data: customer, error: custErr } = await client
     .from("customers")
