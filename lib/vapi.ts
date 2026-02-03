@@ -327,6 +327,9 @@ export function extractVapiCallData(payload: Record<string, unknown>): VapiCallD
     const analysis = message.analysis && typeof message.analysis === 'object'
       ? (message.analysis as Record<string, unknown>)
       : null
+    const artifact = message.artifact && typeof message.artifact === 'object'
+      ? (message.artifact as Record<string, unknown>)
+      : null
 
     // Extract phone number
     let phone = extractPhoneFromVapiPayload(payload)
@@ -343,8 +346,7 @@ export function extractVapiCallData(payload: Record<string, unknown>): VapiCallD
       transcript = message.transcript
     } else if (call.transcript && typeof call.transcript === 'string') {
       transcript = call.transcript
-    } else if (message.artifact && typeof message.artifact === 'object') {
-      const artifact = message.artifact as Record<string, unknown>
+    } else if (artifact) {
       if (artifact.transcript && typeof artifact.transcript === 'string') {
         transcript = artifact.transcript
       } else if (Array.isArray(artifact.messages)) {
@@ -361,13 +363,36 @@ export function extractVapiCallData(payload: Record<string, unknown>): VapiCallD
       transcript = analysis.summary
     }
 
-    // Extract call ID
-    const callId =
+    // Extract call ID - try multiple locations
+    let callId =
       (call.id as string) ||
       (call.callId as string) ||
       (message.callId as string) ||
       (message.id as string) ||
       ''
+
+    // Try to extract from transport.callSid in artifact.variables
+    if (!callId && artifact) {
+      const variables = artifact.variables as Record<string, unknown> | undefined
+      if (variables) {
+        const transport = variables.transport as Record<string, unknown> | undefined
+        if (transport && typeof transport.callSid === 'string') {
+          callId = transport.callSid
+        }
+      }
+    }
+
+    // Try to extract from recording URL as last resort
+    if (!callId && artifact) {
+      const recordingUrl = artifact.recordingUrl as string | undefined
+      if (recordingUrl) {
+        // Extract UUID from URL like https://storage.vapi.ai/019c228d-7b83-711c-9f88-011d3bd4f72c-...
+        const match = recordingUrl.match(/\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
+        if (match) {
+          callId = match[1]
+        }
+      }
+    }
 
     // Extract duration
     const durationSeconds =

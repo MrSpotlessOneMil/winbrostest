@@ -112,6 +112,20 @@ export function extractPhoneFromVapiPayload(body: Record<string, unknown>): stri
         }
       }
     }
+
+    // Try artifact.variables.customer (VAPI end-of-call-report format)
+    if (message.artifact && typeof message.artifact === 'object') {
+      const artifact = message.artifact as Record<string, unknown>
+      if (artifact.variables && typeof artifact.variables === 'object') {
+        const variables = artifact.variables as Record<string, unknown>
+        if (variables.customer && typeof variables.customer === 'object') {
+          const customer = variables.customer as Record<string, unknown>
+          if (customer.number && typeof customer.number === 'string') {
+            return normalizePhone(customer.number)
+          }
+        }
+      }
+    }
   }
 
   // Try top-level phone field
