@@ -32,10 +32,12 @@ interface LeadFlowProgressProps {
   lead: Lead | null
   customerName: string
   scheduledTasks: ScheduledTask[]
+  followupPaused: boolean
   onSkipForward: () => void
   onSkipBack: () => void
   onStop: () => void
   onMoveToStage?: (stageNum: number) => void
+  onToggleFollowup?: (paused: boolean) => void
 }
 
 // Map internal stage numbers to display stages
@@ -92,10 +94,12 @@ export function LeadFlowProgress({
   lead,
   customerName,
   scheduledTasks,
+  followupPaused,
   onSkipForward,
   onSkipBack,
   onStop,
   onMoveToStage,
+  onToggleFollowup,
 }: LeadFlowProgressProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("")
   const [dragOverStage, setDragOverStage] = useState<number | null>(null)
@@ -203,7 +207,9 @@ export function LeadFlowProgress({
   }
 
   return (
-    <div className="flex gap-1.5 overflow-x-auto pb-2">
+    <div className="flex items-start gap-4">
+      {/* Stages */}
+      <div className="flex gap-1.5 overflow-x-auto pb-2 flex-1">
       {STAGES.map((stage) => {
         const isCurrentStage = stage.stageNum === currentStage
         const isPastStage = currentStage !== -1 && stage.stageNum > 0 && stage.stageNum < currentStage
@@ -251,7 +257,11 @@ export function LeadFlowProgress({
                       {customerName}
                     </div>
                   </div>
-                  {showTimer ? (
+                  {followupPaused ? (
+                    <div className="text-[10px] text-yellow-500 mb-1.5 ml-4">
+                      ⏸ Paused
+                    </div>
+                  ) : showTimer ? (
                     <div className="text-[10px] text-amber-400 mb-1.5 ml-4">
                       Next: {timeRemaining}
                     </div>
@@ -310,6 +320,28 @@ export function LeadFlowProgress({
           </div>
         )
       })}
+      </div>
+
+      {/* Auto-Response Toggle */}
+      <div className="flex-shrink-0 flex flex-col items-center gap-1.5 p-2 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+        <span className="text-[10px] font-medium text-zinc-400 whitespace-nowrap">Auto-response</span>
+        <button
+          onClick={() => onToggleFollowup?.(!followupPaused)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            followupPaused ? "bg-zinc-600" : "bg-emerald-500"
+          }`}
+          title={followupPaused ? "Enable auto-response" : "Pause auto-response"}
+        >
+          <span
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+              followupPaused ? "translate-x-1" : "translate-x-[18px]"
+            }`}
+          />
+        </button>
+        <span className={`text-[9px] font-medium ${followupPaused ? "text-yellow-500" : "text-emerald-400"}`}>
+          {followupPaused ? "OFF" : "ON"}
+        </span>
+      </div>
     </div>
   )
 }

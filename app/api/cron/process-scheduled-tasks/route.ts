@@ -199,6 +199,13 @@ async function processLeadFollowup(
     return
   }
 
+  // Skip if auto-followup is paused for this lead
+  const formData = lead.form_data as Record<string, unknown> | null
+  if (formData?.followup_paused === true) {
+    console.log(`[lead-followup] Lead ${leadId} has auto-followup paused, skipping`)
+    return
+  }
+
   if (action === 'text') {
     let message: string
 

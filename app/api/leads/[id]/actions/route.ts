@@ -120,6 +120,11 @@ export async function POST(
         // Reset status from "lost" to "new" if needed
         const newStatus = lead.status === "lost" ? "new" : lead.status
 
+        // Get current form_data and clear paused flag (moving to a stage resumes followup)
+        const currentFormData = typeof lead.form_data === 'object' && lead.form_data !== null
+          ? lead.form_data
+          : {}
+
         // Update the lead
         const { error: updateError } = await client
           .from("leads")
@@ -127,6 +132,10 @@ export async function POST(
             followup_stage: stage,
             status: newStatus,
             followup_started_at: new Date().toISOString(),
+            form_data: {
+              ...currentFormData,
+              followup_paused: false, // Clear paused flag when moving to a stage
+            },
           })
           .eq("id", leadId)
 
@@ -214,14 +223,37 @@ export async function POST(
         }
 
         // Schedule subsequent stages (only for stages 1-4)
+        // Delays are relative to NOW after executing the current stage
         if (stage >= 1 && stage < 5) {
           const now = new Date()
-          const subsequentStages = [
-            { stage: 2, action: 'text', delayMinutes: 10 },
-            { stage: 3, action: 'call', delayMinutes: 15 },
-            { stage: 4, action: 'call', delayMinutes: 17 },
-            { stage: 5, action: 'text', delayMinutes: 30 },
-          ].filter(s => s.stage > stage)
+
+          // Define delays for NEXT stage relative to current stage completion
+          // Stage 1 -> Stage 2: 15 minutes
+          // Stage 2 -> Stage 3: 30 minutes
+          // Stage 3 -> Stage 4: 5 minutes (quick double dial)
+          // Stage 4 -> Stage 5: 15 minutes
+          const delaysByCurrentStage: Record<number, { stage: number; action: string; delayMinutes: number }[]> = {
+            1: [
+              { stage: 2, action: 'text', delayMinutes: 15 },
+              { stage: 3, action: 'call', delayMinutes: 45 },
+              { stage: 4, action: 'call', delayMinutes: 50 },
+              { stage: 5, action: 'text', delayMinutes: 65 },
+            ],
+            2: [
+              { stage: 3, action: 'call', delayMinutes: 30 },
+              { stage: 4, action: 'call', delayMinutes: 35 },
+              { stage: 5, action: 'text', delayMinutes: 50 },
+            ],
+            3: [
+              { stage: 4, action: 'call', delayMinutes: 5 },
+              { stage: 5, action: 'text', delayMinutes: 20 },
+            ],
+            4: [
+              { stage: 5, action: 'text', delayMinutes: 15 },
+            ],
+          }
+
+          const subsequentStages = delaysByCurrentStage[stage] || []
 
           for (const { stage: stageNum, action: actionType, delayMinutes } of subsequentStages) {
             try {
@@ -263,6 +295,51 @@ export async function POST(
             actionExecuted: stageAction?.type || null,
             actionResult,
           },
+        })
+      }
+
+      case "toggle_followup": {
+        // Toggle auto-followup on/off for this lead
+        const paused = body.paused === true
+
+        // Get current form_data
+        const currentFormData = typeof lead.form_data === 'object' && lead.form_data !== null
+          ? lead.form_data
+          : {}
+
+        const { error: updateError } = await client
+          .from("leads")
+          .update({
+            form_data: {
+              ...currentFormData,
+              followup_paused: paused,
+            },
+          })
+          .eq("id", leadId)
+
+        if (updateError) {
+          throw updateError
+        }
+
+        // If pausing, cancel all pending tasks
+        if (paused) {
+          for (let s = 1; s <= 5; s++) {
+            const taskKey = `lead-${leadId}-stage-${s}`
+            await cancelTask(taskKey)
+          }
+        }
+
+        await logSystemEvent({
+          source: "lead_actions",
+          event_type: paused ? "LEAD_FOLLOWUP_PAUSED" : "LEAD_FOLLOWUP_RESUMED",
+          message: `Lead follow-up ${paused ? 'paused' : 'resumed'}`,
+          phone_number: lead.phone_number,
+          metadata: { leadId, paused },
+        })
+
+        return NextResponse.json({
+          success: true,
+          data: { leadId, followupPaused: paused },
         })
       }
 

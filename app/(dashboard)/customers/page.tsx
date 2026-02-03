@@ -74,6 +74,10 @@ interface Lead {
   followup_started_at?: string
   stripe_payment_link?: string
   created_at: string
+  form_data?: {
+    followup_paused?: boolean
+    [key: string]: unknown
+  }
 }
 
 interface ScheduledTask {
@@ -322,6 +326,50 @@ export default function CustomersPage() {
     }
   }
 
+  // Handle toggle auto-response on/off
+  const handleToggleFollowup = async (paused: boolean) => {
+    if (!selectedCustomer) return
+    const lead = getCustomerLead(selectedCustomer.phone_number)
+    if (!lead) return
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_followup", paused }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local lead state with paused status
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id
+              ? { ...l, form_data: { ...l.form_data, followup_paused: paused } }
+              : l
+          )
+        )
+        // If paused, clear scheduled tasks from UI
+        if (paused) {
+          setScheduledTasks((prev) =>
+            prev.filter((t) => t.payload?.leadId !== String(lead.id))
+          )
+        } else {
+          // Refresh to get any new scheduled tasks
+          const dataRes = await fetch("/api/customers")
+          const dataJson = await dataRes.json()
+          if (dataJson.success) {
+            setScheduledTasks(dataJson.data.scheduledTasks || [])
+          }
+        }
+      } else {
+        alert(json.error || "Failed to toggle auto-response")
+      }
+    } catch (error) {
+      console.error("Failed to toggle auto-response:", error)
+      alert("Failed to toggle auto-response")
+    }
+  }
+
   const getCustomerTimeline = (customer: Customer): TimelineItem[] => {
     const items: TimelineItem[] = []
 
@@ -513,10 +561,12 @@ export default function CustomersPage() {
                   lead={getCustomerLead(selectedCustomer.phone_number)}
                   customerName={getCustomerName(selectedCustomer)}
                   scheduledTasks={scheduledTasks}
+                  followupPaused={getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ?? false}
                   onSkipForward={handleSkipForward}
                   onSkipBack={handleSkipBack}
                   onStop={handleStop}
                   onMoveToStage={handleMoveToStage}
+                  onToggleFollowup={handleToggleFollowup}
                 />
 
                 {/* Customer Info + Tabs */}
