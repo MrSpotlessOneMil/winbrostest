@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
+import { parseFormData } from "@/lib/utils"
 import { Send, Loader2 } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
@@ -74,10 +75,15 @@ interface Lead {
   followup_started_at?: string
   stripe_payment_link?: string
   created_at: string
-  form_data?: {
-    followup_paused?: boolean
-    [key: string]: unknown
-  }
+  // form_data can be an object OR a JSON string (database inconsistency)
+  form_data?: string | Record<string, unknown>
+}
+
+// Helper to safely get followup_paused from a lead's form_data
+function isFollowupPaused(lead: Lead | null): boolean {
+  if (!lead) return false
+  const formData = parseFormData(lead.form_data)
+  return formData.followup_paused === true
 }
 
 interface ScheduledTask {
@@ -371,11 +377,15 @@ export default function CustomersPage() {
     // Save previous state for rollback
     const previousFormData = lead.form_data
 
-    // Optimistic update - update UI immediately
+    // Parse existing form_data (handles both string and object)
+    const parsedFormData = parseFormData(lead.form_data)
+    const newFormData = { ...parsedFormData, followup_paused: paused }
+
+    // Optimistic update - update UI immediately with parsed object
     setLeads((prev) =>
       prev.map((l) =>
         l.id === lead.id
-          ? { ...l, form_data: { ...l.form_data, followup_paused: paused } }
+          ? { ...l, form_data: newFormData }
           : l
       )
     )
@@ -617,7 +627,7 @@ export default function CustomersPage() {
                   lead={getCustomerLead(selectedCustomer.phone_number)}
                   customerName={getCustomerName(selectedCustomer)}
                   scheduledTasks={scheduledTasks}
-                  followupPaused={getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ?? false}
+                  followupPaused={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))}
                   onSkipForward={handleSkipForward}
                   onSkipBack={handleSkipBack}
                   onStop={handleStop}
@@ -645,17 +655,17 @@ export default function CustomersPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-zinc-400">Auto-response</span>
                           <button
-                            onClick={() => handleToggleFollowup(!(getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ?? false))}
+                            onClick={() => handleToggleFollowup(!isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)))}
                             className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                              getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused
+                              isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
                                 ? "bg-zinc-600"
                                 : "bg-emerald-500"
                             }`}
-                            title={getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ? "Enable auto-response" : "Pause auto-response"}
+                            title={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)) ? "Enable auto-response" : "Pause auto-response"}
                           >
                             <span
                               className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                                getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused
+                                isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
                                   ? "translate-x-1"
                                   : "translate-x-[18px]"
                               }`}

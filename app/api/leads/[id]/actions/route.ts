@@ -5,6 +5,7 @@ import { cancelTask, scheduleTask } from "@/lib/scheduler"
 import { sendSMS } from "@/lib/openphone"
 import { initiateOutboundCall } from "@/lib/vapi"
 import { logSystemEvent } from "@/lib/system-events"
+import { parseFormData } from "@/lib/utils"
 
 /**
  * Lead Actions API
@@ -121,9 +122,8 @@ export async function POST(
         const newStatus = lead.status === "lost" ? "new" : lead.status
 
         // Get current form_data and clear paused flag (moving to a stage resumes followup)
-        const currentFormData = typeof lead.form_data === 'object' && lead.form_data !== null
-          ? lead.form_data
-          : {}
+        // Use parseFormData to handle both string and object form_data
+        const currentFormData = parseFormData(lead.form_data)
 
         // Update the lead
         const { error: updateError } = await client
@@ -302,10 +302,8 @@ export async function POST(
         // Toggle auto-followup on/off for this lead
         const paused = body.paused === true
 
-        // Get current form_data - ensure it's a proper object
-        const currentFormData = (typeof lead.form_data === 'object' && lead.form_data !== null)
-          ? (lead.form_data as Record<string, unknown>)
-          : {}
+        // Get current form_data - use parseFormData to handle both string and object
+        const currentFormData = parseFormData(lead.form_data)
 
         // Build the new form_data with followup_paused
         const newFormData = {
@@ -315,6 +313,7 @@ export async function POST(
 
         console.log(`[toggle_followup] Lead ${leadId}: Setting followup_paused=${paused}`)
         console.log(`[toggle_followup] Previous form_data:`, lead.form_data)
+        console.log(`[toggle_followup] Parsed form_data:`, currentFormData)
         console.log(`[toggle_followup] New form_data:`, newFormData)
 
         const { data: updatedLead, error: updateError } = await client

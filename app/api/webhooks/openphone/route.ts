@@ -7,6 +7,7 @@ import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
+import { parseFormData } from "@/lib/utils"
 
 export async function POST(request: NextRequest) {
   const signature =
@@ -243,10 +244,11 @@ export async function POST(request: NextRequest) {
     console.log(`[OpenPhone] Lead already exists for ${phone}, updated last_contact_at`)
 
     // Check if auto-response is paused for this lead
-    const leadFormData = existingLead.form_data as Record<string, unknown> | null
-    const followupPaused = leadFormData?.followup_paused === true
+    // Use parseFormData to handle both string and object form_data
+    const leadFormData = parseFormData(existingLead.form_data)
+    const followupPaused = leadFormData.followup_paused === true
     if (followupPaused) {
-      console.log(`[OpenPhone] Auto-response paused for lead ${existingLead.id}, skipping`)
+      console.log(`[OpenPhone] Auto-response paused for lead ${existingLead.id}, skipping auto-response`)
       return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponsePaused: true })
     }
 

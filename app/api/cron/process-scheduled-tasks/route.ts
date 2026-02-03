@@ -23,6 +23,7 @@ import { initiateOutboundCall } from '@/lib/vapi'
 import { logSystemEvent } from '@/lib/system-events'
 import { getSupabaseClient } from '@/lib/supabase'
 import { createDepositPaymentLink, calculateJobEstimate } from '@/lib/stripe-client'
+import { parseFormData } from '@/lib/utils'
 
 // Verify cron authorization
 function verifyCronAuth(request: NextRequest): boolean {
@@ -200,9 +201,10 @@ async function processLeadFollowup(
   }
 
   // Skip if auto-followup is paused for this lead
-  const formData = lead.form_data as Record<string, unknown> | null
-  if (formData?.followup_paused === true) {
-    console.log(`[lead-followup] Lead ${leadId} has auto-followup paused, skipping`)
+  // Use parseFormData to handle both string and object form_data
+  const formData = parseFormData(lead.form_data)
+  if (formData.followup_paused === true) {
+    console.log(`[lead-followup] Lead ${leadId} has auto-followup paused, skipping scheduled task`)
     return
   }
 
@@ -217,9 +219,9 @@ async function processLeadFollowup(
       message = `Hi ${leadName}, just checking in! We have openings this week for cleaning services. Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
     } else if (stage === 5) {
       // Final stage - try to create a quote and send payment link
-      const formData = lead.form_data as Record<string, unknown> | null
-      const extractedInfo = formData?.extracted_info as Record<string, unknown> | null
-      const intentAnalysis = formData?.intent_analysis as Record<string, unknown> | null
+      // formData is already parsed above, reuse it
+      const extractedInfo = formData.extracted_info as Record<string, unknown> | null
+      const intentAnalysis = formData.intent_analysis as Record<string, unknown> | null
 
       // Try to get property details from form data
       const intentExtractedInfo = intentAnalysis?.extractedInfo as Record<string, unknown> | null
