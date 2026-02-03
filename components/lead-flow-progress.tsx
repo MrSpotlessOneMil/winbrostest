@@ -39,16 +39,17 @@ interface LeadFlowProgressProps {
 
 // Map internal stage numbers to display stages
 const STAGES = [
-  { id: "first_text", label: "First Text", stageNum: 1 },
-  { id: "call_one", label: "Call One", stageNum: 2 },
-  { id: "call_two", label: "Call Two", stageNum: 3 },
-  { id: "second_text", label: "Second Text", stageNum: 4 },
-  { id: "call_three", label: "Call Three", stageNum: 5 },
-  { id: "price_sent", label: "Price Sent", stageNum: 6 },
-  { id: "payment_received", label: "Payment Received", stageNum: 7 },
-  { id: "job_assigned", label: "Job Assigned", stageNum: 8 },
-  { id: "job_fulfilled", label: "Job Fulfilled", stageNum: 9 },
-  { id: "lead_lost", label: "Lead Lost", stageNum: -1 },
+  { id: "text_1", label: "Text 1", stageNum: 1 },
+  { id: "text_2", label: "Text 2", stageNum: 2 },
+  { id: "call_1", label: "Call 1", stageNum: 3 },
+  { id: "call_2", label: "Call 2", stageNum: 4 },  // Double dial - happens immediately after Call 1
+  { id: "text_3", label: "Text 3", stageNum: 5 },
+  { id: "customer_response", label: "Response", stageNum: 6 },
+  { id: "price_sent", label: "Price Sent", stageNum: 7 },
+  { id: "payment_received", label: "Payment", stageNum: 8 },
+  { id: "job_assigned", label: "Assigned", stageNum: 9 },
+  { id: "job_fulfilled", label: "Fulfilled", stageNum: 10 },
+  { id: "lead_lost", label: "Lost", stageNum: -1 },
 ]
 
 function getStageFromLead(lead: Lead | null): number {
@@ -61,10 +62,11 @@ function getStageFromLead(lead: Lead | null): number {
   const followupStage = lead.followup_stage || 1
 
   // Check for later stages based on status
-  if (lead.status === "completed" || lead.status === "fulfilled") return 9 // Job Fulfilled
-  if (lead.status === "assigned" || lead.status === "scheduled") return 8 // Job Assigned
-  if (lead.status === "booked" || lead.status === "paid") return 7 // Payment Received
-  if (lead.status === "quoted" || lead.stripe_payment_link) return 6 // Price Sent
+  if (lead.status === "completed" || lead.status === "fulfilled") return 10 // Job Fulfilled
+  if (lead.status === "assigned" || lead.status === "scheduled") return 9 // Job Assigned
+  if (lead.status === "booked" || lead.status === "paid") return 8 // Payment Received
+  if (lead.status === "quoted" || lead.stripe_payment_link) return 7 // Price Sent
+  if (lead.status === "responded" || lead.status === "engaged") return 6 // Customer Response
 
   // Otherwise use followup_stage directly (1-5 map to our first 5 stages)
   // If followup_stage is 0, we already defaulted to 1 above
@@ -125,8 +127,8 @@ export function LeadFlowProgress({
     return () => clearInterval(interval)
   }, [nextTask])
 
-  // Check if timer should be shown (not on terminal states)
-  const showTimer = currentStage > 0 && currentStage < 7 && timeRemaining
+  // Check if timer should be shown (only during automated followup stages 1-5)
+  const showTimer = currentStage > 0 && currentStage <= 5 && timeRemaining
 
   // If no lead exists for this customer, show a minimal state
   if (!lead) {
@@ -193,7 +195,7 @@ export function LeadFlowProgress({
                     </button>
                     <button
                       onClick={onSkipForward}
-                      disabled={currentStage >= 9 || currentStage === -1}
+                      disabled={currentStage >= 10 || currentStage === -1}
                       className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                       title="Skip forward"
                     >

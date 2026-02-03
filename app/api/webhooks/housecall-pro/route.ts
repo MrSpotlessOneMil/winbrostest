@@ -354,14 +354,19 @@ export async function POST(request: NextRequest) {
             console.error("[OSIRIS] HCP Webhook: Error sending first text:", smsError)
           }
 
-          // Schedule stages 2-5 for the follow-up sequence (starting from 10 min)
+          // Schedule stages 2-5 for the follow-up sequence
+          // Stage 1: Text 1 (sent immediately above)
+          // Stage 2: Text 2 (10 min)
+          // Stage 3: Call 1 (15 min)
+          // Stage 4: Call 2 - double dial (17 min, shortly after Call 1)
+          // Stage 5: Text 3 (30 min)
           if (leadRecord?.id) {
             const now = new Date()
             const stages = [
-              { stage: 2, action: 'call', delayMinutes: 10 },
-              { stage: 3, action: 'double_call', delayMinutes: 15 },
-              { stage: 4, action: 'text', delayMinutes: 20 },
-              { stage: 5, action: 'call', delayMinutes: 30 },
+              { stage: 2, action: 'text', delayMinutes: 10 },
+              { stage: 3, action: 'call', delayMinutes: 15 },
+              { stage: 4, action: 'call', delayMinutes: 17 },  // Double dial - shortly after Call 1
+              { stage: 5, action: 'text', delayMinutes: 30 },
             ]
 
             for (const { stage, action, delayMinutes } of stages) {

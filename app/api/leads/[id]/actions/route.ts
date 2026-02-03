@@ -47,7 +47,7 @@ export async function POST(
   try {
     switch (action) {
       case "skip_to_stage": {
-        if (typeof stage !== "number" || stage < 1 || stage > 6) {
+        if (typeof stage !== "number" || stage < 1 || stage > 10) {
           return NextResponse.json({ success: false, error: "Invalid stage" }, { status: 400 })
         }
 
