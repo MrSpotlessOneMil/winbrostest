@@ -20,6 +20,12 @@ import {
   PowerOff,
   AlertTriangle,
   CheckCircle2,
+  Key,
+  Plus,
+  Eye,
+  EyeOff,
+  Save,
+  X,
 } from "lucide-react"
 
 interface WorkflowConfig {
@@ -48,15 +54,51 @@ interface Tenant {
   id: string
   name: string
   slug: string
+  email: string | null
   business_name: string | null
   business_name_short: string | null
-  openphone_phone_number: string | null
   service_area: string | null
   sdr_persona: string | null
+  owner_phone: string | null
+  owner_email: string | null
+  google_review_link: string | null
+  // OpenPhone
+  openphone_api_key: string | null
+  openphone_phone_id: string | null
+  openphone_phone_number: string | null
+  // VAPI
+  vapi_api_key: string | null
+  vapi_assistant_id: string | null
+  vapi_phone_id: string | null
+  // Stripe
+  stripe_secret_key: string | null
+  stripe_webhook_secret: string | null
+  // HousecallPro
+  housecall_pro_api_key: string | null
+  housecall_pro_company_id: string | null
+  housecall_pro_webhook_secret: string | null
+  // GHL
+  ghl_location_id: string | null
+  ghl_webhook_secret: string | null
+  // Telegram
+  telegram_bot_token: string | null
+  owner_telegram_chat_id: string | null
+  // Wave
+  wave_api_token: string | null
+  wave_business_id: string | null
+  wave_income_account_id: string | null
+  // Status
   workflow_config: WorkflowConfig
   active: boolean
   created_at: string
   updated_at: string
+}
+
+// Helper to mask API keys for display
+function maskKey(key: string | null): string {
+  if (!key) return ""
+  if (key.length <= 8) return "••••••••"
+  return "••••••••" + key.slice(-4)
 }
 
 export default function AdminPage() {
@@ -65,6 +107,16 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null)
+
+  // Add New Business modal state
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [newBusiness, setNewBusiness] = useState({ name: "", slug: "", email: "", password: "" })
+  const [creating, setCreating] = useState(false)
+
+  // Credentials editing state
+  const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
+  const [savingCredentials, setSavingCredentials] = useState(false)
+  const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set())
 
   async function fetchTenants() {
     setLoading(true)
@@ -130,6 +182,75 @@ export default function AdminPage() {
     await updateTenant(tenant.id, { active: !tenant.active })
   }
 
+  async function createBusiness() {
+    if (!newBusiness.name || !newBusiness.slug) {
+      setError("Name and slug are required")
+      return
+    }
+    setCreating(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/admin/tenants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newBusiness),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to create business")
+      }
+      setShowAddModal(false)
+      setNewBusiness({ name: "", slug: "", email: "", password: "" })
+      await fetchTenants()
+      // Select the newly created tenant
+      if (json.data?.id) {
+        setSelectedTenant(json.data.id)
+      }
+    } catch (e: any) {
+      setError(e.message || "Failed to create business")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  async function saveCredentials() {
+    if (!selectedTenant || Object.keys(editingCredentials).length === 0) return
+    setSavingCredentials(true)
+    try {
+      await updateTenant(selectedTenant, editingCredentials)
+      setEditingCredentials({})
+      setRevealedFields(new Set())
+    } catch (e: any) {
+      setError(e.message || "Failed to save credentials")
+    } finally {
+      setSavingCredentials(false)
+    }
+  }
+
+  function toggleReveal(fieldName: string) {
+    setRevealedFields((prev) => {
+      const next = new Set(prev)
+      if (next.has(fieldName)) {
+        next.delete(fieldName)
+      } else {
+        next.add(fieldName)
+      }
+      return next
+    })
+  }
+
+  function getFieldValue(tenant: Tenant, field: keyof Tenant): string {
+    // Check if we have a pending edit
+    if (field in editingCredentials) {
+      return (editingCredentials as any)[field] || ""
+    }
+    return (tenant as any)[field] || ""
+  }
+
+  function setFieldValue(field: keyof Tenant, value: string) {
+    setEditingCredentials((prev) => ({ ...prev, [field]: value }))
+  }
+
   const currentTenant = tenants.find((t) => t.id === selectedTenant)
 
   return (
@@ -164,9 +285,14 @@ export default function AdminPage() {
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Businesses</CardTitle>
-                <Button variant="ghost" size="icon" onClick={fetchTenants} disabled={loading}>
-                  <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-                </Button>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="icon" onClick={() => setShowAddModal(true)} title="Add Business">
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={fetchTenants} disabled={loading}>
+                    <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                  </Button>
+                </div>
               </div>
               <CardDescription>{tenants.length} business(es)</CardDescription>
             </CardHeader>
@@ -252,6 +378,10 @@ export default function AdminPage() {
                     <TabsTrigger value="booking" className="gap-2">
                       <Settings2 className="h-4 w-4" />
                       Booking Flow
+                    </TabsTrigger>
+                    <TabsTrigger value="credentials" className="gap-2">
+                      <Key className="h-4 w-4" />
+                      Credentials
                     </TabsTrigger>
                     <TabsTrigger value="info" className="gap-2">
                       <Building2 className="h-4 w-4" />
@@ -501,6 +631,389 @@ export default function AdminPage() {
                     </div>
                   </TabsContent>
 
+                  {/* Credentials Tab */}
+                  <TabsContent value="credentials" className="space-y-6">
+                    {/* Save button */}
+                    {Object.keys(editingCredentials).length > 0 && (
+                      <div className="flex justify-end">
+                        <Button onClick={saveCredentials} disabled={savingCredentials}>
+                          <Save className="h-4 w-4 mr-2" />
+                          {savingCredentials ? "Saving..." : "Save Changes"}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Business Info */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Building2 className="h-4 w-4" />
+                        Business Info
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Business Name</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "business_name")}
+                            onChange={(e) => setFieldValue("business_name", e.target.value)}
+                            placeholder="WinBros Cleaning"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Short Name</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "business_name_short")}
+                            onChange={(e) => setFieldValue("business_name_short", e.target.value)}
+                            placeholder="WinBros"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Service Area</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "service_area")}
+                            onChange={(e) => setFieldValue("service_area", e.target.value)}
+                            placeholder="Los Angeles"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">SDR Persona</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "sdr_persona")}
+                            onChange={(e) => setFieldValue("sdr_persona", e.target.value)}
+                            placeholder="Mary"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Owner Phone</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "owner_phone")}
+                            onChange={(e) => setFieldValue("owner_phone", e.target.value)}
+                            placeholder="+1..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Owner Email</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "owner_email")}
+                            onChange={(e) => setFieldValue("owner_email", e.target.value)}
+                            placeholder="owner@example.com"
+                          />
+                        </div>
+                        <div className="space-y-2 md:col-span-2">
+                          <Label className="text-sm">Google Review Link</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "google_review_link")}
+                            onChange={(e) => setFieldValue("google_review_link", e.target.value)}
+                            placeholder="https://g.page/r/..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OpenPhone */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Phone className="h-4 w-4" />
+                        OpenPhone
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">API Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("openphone_api_key") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "openphone_api_key")}
+                              onChange={(e) => setFieldValue("openphone_api_key", e.target.value)}
+                              placeholder={currentTenant.openphone_api_key ? maskKey(currentTenant.openphone_api_key) : "Enter API key"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("openphone_api_key")}
+                            >
+                              {revealedFields.has("openphone_api_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Phone ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "openphone_phone_id")}
+                            onChange={(e) => setFieldValue("openphone_phone_id", e.target.value)}
+                            placeholder="Enter Phone ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Phone Number</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "openphone_phone_number")}
+                            onChange={(e) => setFieldValue("openphone_phone_number", e.target.value)}
+                            placeholder="+1..."
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* VAPI */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4" />
+                        VAPI (Voice AI)
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">API Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("vapi_api_key") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "vapi_api_key")}
+                              onChange={(e) => setFieldValue("vapi_api_key", e.target.value)}
+                              placeholder={currentTenant.vapi_api_key ? maskKey(currentTenant.vapi_api_key) : "Enter API key"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("vapi_api_key")}
+                            >
+                              {revealedFields.has("vapi_api_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Assistant ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "vapi_assistant_id")}
+                            onChange={(e) => setFieldValue("vapi_assistant_id", e.target.value)}
+                            placeholder="Enter Assistant ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Phone ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "vapi_phone_id")}
+                            onChange={(e) => setFieldValue("vapi_phone_id", e.target.value)}
+                            placeholder="Enter Phone ID"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stripe */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Key className="h-4 w-4" />
+                        Stripe
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Secret Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("stripe_secret_key") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "stripe_secret_key")}
+                              onChange={(e) => setFieldValue("stripe_secret_key", e.target.value)}
+                              placeholder={currentTenant.stripe_secret_key ? maskKey(currentTenant.stripe_secret_key) : "sk_..."}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("stripe_secret_key")}
+                            >
+                              {revealedFields.has("stripe_secret_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Webhook Secret</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("stripe_webhook_secret") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "stripe_webhook_secret")}
+                              onChange={(e) => setFieldValue("stripe_webhook_secret", e.target.value)}
+                              placeholder={currentTenant.stripe_webhook_secret ? maskKey(currentTenant.stripe_webhook_secret) : "whsec_..."}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("stripe_webhook_secret")}
+                            >
+                              {revealedFields.has("stripe_webhook_secret") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* HousecallPro */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Settings2 className="h-4 w-4" />
+                        HousecallPro
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">API Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("housecall_pro_api_key") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "housecall_pro_api_key")}
+                              onChange={(e) => setFieldValue("housecall_pro_api_key", e.target.value)}
+                              placeholder={currentTenant.housecall_pro_api_key ? maskKey(currentTenant.housecall_pro_api_key) : "Enter API key"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("housecall_pro_api_key")}
+                            >
+                              {revealedFields.has("housecall_pro_api_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Company ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "housecall_pro_company_id")}
+                            onChange={(e) => setFieldValue("housecall_pro_company_id", e.target.value)}
+                            placeholder="Enter Company ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Webhook Secret</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("housecall_pro_webhook_secret") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "housecall_pro_webhook_secret")}
+                              onChange={(e) => setFieldValue("housecall_pro_webhook_secret", e.target.value)}
+                              placeholder={currentTenant.housecall_pro_webhook_secret ? maskKey(currentTenant.housecall_pro_webhook_secret) : "Enter webhook secret"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("housecall_pro_webhook_secret")}
+                            >
+                              {revealedFields.has("housecall_pro_webhook_secret") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* GoHighLevel */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Settings2 className="h-4 w-4" />
+                        GoHighLevel
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Location ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "ghl_location_id")}
+                            onChange={(e) => setFieldValue("ghl_location_id", e.target.value)}
+                            placeholder="Enter Location ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Webhook Secret</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("ghl_webhook_secret") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "ghl_webhook_secret")}
+                              onChange={(e) => setFieldValue("ghl_webhook_secret", e.target.value)}
+                              placeholder={currentTenant.ghl_webhook_secret ? maskKey(currentTenant.ghl_webhook_secret) : "Enter webhook secret"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("ghl_webhook_secret")}
+                            >
+                              {revealedFields.has("ghl_webhook_secret") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Telegram */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4" />
+                        Telegram
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Bot Token</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("telegram_bot_token") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "telegram_bot_token")}
+                              onChange={(e) => setFieldValue("telegram_bot_token", e.target.value)}
+                              placeholder={currentTenant.telegram_bot_token ? maskKey(currentTenant.telegram_bot_token) : "Enter bot token"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("telegram_bot_token")}
+                            >
+                              {revealedFields.has("telegram_bot_token") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Owner Chat ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "owner_telegram_chat_id")}
+                            onChange={(e) => setFieldValue("owner_telegram_chat_id", e.target.value)}
+                            placeholder="Enter Chat ID"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Wave */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <Settings2 className="h-4 w-4" />
+                        Wave Accounting
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">API Token</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("wave_api_token") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "wave_api_token")}
+                              onChange={(e) => setFieldValue("wave_api_token", e.target.value)}
+                              placeholder={currentTenant.wave_api_token ? maskKey(currentTenant.wave_api_token) : "Enter API token"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("wave_api_token")}
+                            >
+                              {revealedFields.has("wave_api_token") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Business ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "wave_business_id")}
+                            onChange={(e) => setFieldValue("wave_business_id", e.target.value)}
+                            placeholder="Enter Business ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Income Account ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "wave_income_account_id")}
+                            onChange={(e) => setFieldValue("wave_income_account_id", e.target.value)}
+                            placeholder="Enter Income Account ID"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
                   {/* Info Tab */}
                   <TabsContent value="info" className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -550,6 +1063,68 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Add New Business Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Add New Business</CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => setShowAddModal(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription>Create a new business/tenant</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Business Name *</Label>
+                <Input
+                  value={newBusiness.name}
+                  onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
+                  placeholder="WinBros Cleaning"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Slug *</Label>
+                <Input
+                  value={newBusiness.slug}
+                  onChange={(e) => setNewBusiness({ ...newBusiness, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                  placeholder="winbros"
+                />
+                <p className="text-xs text-muted-foreground">URL-safe identifier (lowercase, no spaces)</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Admin Email</Label>
+                <Input
+                  type="email"
+                  value={newBusiness.email}
+                  onChange={(e) => setNewBusiness({ ...newBusiness, email: e.target.value })}
+                  placeholder="admin@example.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Admin Password</Label>
+                <Input
+                  type="password"
+                  value={newBusiness.password}
+                  onChange={(e) => setNewBusiness({ ...newBusiness, password: e.target.value })}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button variant="outline" className="flex-1" onClick={() => setShowAddModal(false)}>
+                  Cancel
+                </Button>
+                <Button className="flex-1" onClick={createBusiness} disabled={creating || !newBusiness.name || !newBusiness.slug}>
+                  {creating ? "Creating..." : "Create Business"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

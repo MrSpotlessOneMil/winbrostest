@@ -531,28 +531,33 @@ export async function checkAndTriggerSilenceFollowups(): Promise<number> {
 /**
  * Trigger VAPI outbound call
  * This integrates with VAPI's outbound call API
+ * Supports tenant-based config with env var fallback
  */
 export async function triggerVAPIOutboundCall(
-  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; brand?: string }
+  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; brand?: string },
+  tenant?: { vapi_api_key?: string | null; vapi_phone_id?: string | null; vapi_assistant_id?: string | null; slug?: string }
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
-  // Get brand-specific configuration
+  // Get brand-specific configuration as fallback
   const config = getClientConfig(lead.brand)
-  const vapiApiKey = process.env.VAPI_API_KEY
-  const phoneId = config.vapiPhoneId
-  const assistantId = config.vapiAssistantId
+
+  // Prefer tenant config, fall back to env vars
+  const vapiApiKey = tenant?.vapi_api_key || process.env.VAPI_API_KEY
+  const phoneId = tenant?.vapi_phone_id || config.vapiPhoneId
+  const assistantId = tenant?.vapi_assistant_id || config.vapiAssistantId
+  const tenantSlug = tenant?.slug || config.brandMode
 
   if (!vapiApiKey) {
-    console.error('VAPI_API_KEY not configured')
+    console.error(`[${tenantSlug}] VAPI_API_KEY not configured`)
     return { success: false, error: 'VAPI not configured' }
   }
 
   if (!phoneId) {
-    console.error(`VAPI_OUTBOUND_PHONE_ID not configured for brand: ${config.brandMode}`)
+    console.error(`[${tenantSlug}] VAPI phone ID not configured`)
     return { success: false, error: 'VAPI outbound phone not configured' }
   }
 
   if (!assistantId) {
-    console.error(`VAPI assistant ID not configured for brand: ${config.brandMode}`)
+    console.error(`[${tenantSlug}] VAPI assistant ID not configured`)
     return { success: false, error: 'VAPI assistant not configured' }
   }
 
@@ -579,21 +584,21 @@ export async function triggerVAPIOutboundCall(
           job_id: lead.job_id,
           customer_id: lead.customer_id,
           source: 'ghl_followup',
-          brand: config.brandMode,
+          tenantSlug: tenantSlug,
         },
       }),
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('VAPI call API error:', errorText)
+      console.error(`[${tenantSlug}] VAPI call API error:`, errorText)
       return { success: false, error: `VAPI API error: ${response.status}` }
     }
 
     const data = await response.json()
     return { success: true, callId: data.id }
   } catch (error) {
-    console.error('Error triggering VAPI call:', error)
+    console.error(`[${tenantSlug}] Error triggering VAPI call:`, error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
