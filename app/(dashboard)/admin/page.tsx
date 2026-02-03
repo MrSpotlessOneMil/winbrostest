@@ -314,18 +314,7 @@ export default function AdminPage() {
     console.log("[ADMIN] resetTestCustomers called")
     const testPhones = ["4242755847", "4157204580"]
 
-    try {
-      const confirmed = window.confirm(`Are you sure you want to delete ALL data for test numbers (424) 275-5847 and (415) 720-4580? This cannot be undone.`)
-      console.log("[ADMIN] User confirmed:", confirmed)
-
-      if (!confirmed) {
-        return
-      }
-    } catch (e) {
-      console.error("[ADMIN] Confirm error:", e)
-      return
-    }
-
+    // No confirmation - just do it immediately
     setResetting(true)
     setResetResult(null)
     console.log("[ADMIN] Starting reset...")
