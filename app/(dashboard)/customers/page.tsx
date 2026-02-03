@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
+import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { Send, Loader2 } from "lucide-react"
 
 type TabType = "messages" | "jobs" | "invoices"
@@ -55,6 +56,29 @@ interface Call {
   created_at: string
 }
 
+interface Lead {
+  id: number
+  phone_number: string
+  status: string
+  followup_stage: number
+  followup_started_at?: string
+  stripe_payment_link?: string
+  created_at: string
+}
+
+interface ScheduledTask {
+  id: string
+  task_type: string
+  task_key: string
+  scheduled_for: string
+  status: string
+  payload: {
+    stage: number
+    action: string
+    leadId: string
+  }
+}
+
 interface TimelineItem {
   type: "message" | "call"
   timestamp: string
@@ -66,6 +90,8 @@ export default function CustomersPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [calls, setCalls] = useState<Call[]>([])
+  const [leads, setLeads] = useState<Lead[]>([])
+  const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const [activeTab, setActiveTab] = useState<TabType>("messages")
   const [loading, setLoading] = useState(true)
@@ -84,6 +110,8 @@ export default function CustomersPage() {
           setMessages(json.data.messages)
           setJobs(json.data.jobs)
           setCalls(json.data.calls)
+          setLeads(json.data.leads || [])
+          setScheduledTasks(json.data.scheduledTasks || [])
           if (json.data.customers.length > 0) {
             setSelectedCustomer(json.data.customers[0])
           }
@@ -120,6 +148,74 @@ export default function CustomersPage() {
     getCustomerJobs(phoneNumber)
       .filter((j) => j.paid)
       .reduce((sum, j) => sum + (j.price || 0), 0)
+
+  // Get the most recent lead for a customer (by phone number)
+  const getCustomerLead = (phoneNumber: string): Lead | null => {
+    const customerLeads = leads.filter((l) => l.phone_number === phoneNumber)
+    if (customerLeads.length === 0) return null
+    // Return the most recent lead
+    return customerLeads.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )[0]
+  }
+
+  // Handle skip to stage action
+  const handleSkipToStage = async (stage: number) => {
+    if (!selectedCustomer) return
+    const lead = getCustomerLead(selectedCustomer.phone_number)
+    if (!lead) return
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "skip_to_stage", stage }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local state
+        setLeads((prev) =>
+          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: stage } : l))
+        )
+      } else {
+        alert(json.error || "Failed to skip stage")
+      }
+    } catch (error) {
+      console.error("Failed to skip stage:", error)
+      alert("Failed to skip stage")
+    }
+  }
+
+  // Handle mark status action
+  const handleMarkStatus = async (status: "booked" | "lost" | "review_sent") => {
+    if (!selectedCustomer) return
+    const lead = getCustomerLead(selectedCustomer.phone_number)
+    if (!lead) return
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_status", status }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local state
+        setLeads((prev) =>
+          prev.map((l) => (l.id === lead.id ? { ...l, status } : l))
+        )
+        // Also remove any pending scheduled tasks for this lead from local state
+        setScheduledTasks((prev) =>
+          prev.filter((t) => t.payload?.leadId !== String(lead.id))
+        )
+      } else {
+        alert(json.error || "Failed to update status")
+      }
+    } catch (error) {
+      console.error("Failed to update status:", error)
+      alert("Failed to update status")
+    }
+  }
 
   const getCustomerTimeline = (customer: Customer): TimelineItem[] => {
     const items: TimelineItem[] = []
@@ -307,39 +403,13 @@ export default function CustomersPage() {
           <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
             {selectedCustomer ? (
               <>
-                {/* Stats Cards */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                  <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-3">
-                    <div className="text-xs font-medium text-zinc-500 mb-1">Revenue</div>
-                    <div className="text-lg font-bold text-zinc-100">
-                      ${getCustomerRevenue(selectedCustomer.phone_number).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-3">
-                    <div className="text-xs font-medium text-zinc-500 mb-1">Paid</div>
-                    <div className="text-lg font-bold text-emerald-400">
-                      ${getCustomerPaid(selectedCustomer.phone_number).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-3">
-                    <div className="text-xs font-medium text-zinc-500 mb-1">Calls</div>
-                    <div className="text-lg font-bold text-zinc-100">
-                      {getCustomerCalls(selectedCustomer.phone_number).length}
-                    </div>
-                  </div>
-                  <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-3">
-                    <div className="text-xs font-medium text-zinc-500 mb-1">Messages</div>
-                    <div className="text-lg font-bold text-zinc-100">
-                      {getCustomerMessages(selectedCustomer.phone_number).length}
-                    </div>
-                  </div>
-                  <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-3">
-                    <div className="text-xs font-medium text-zinc-500 mb-1">Jobs</div>
-                    <div className="text-lg font-bold text-zinc-100">
-                      {getCustomerJobs(selectedCustomer.phone_number).length}
-                    </div>
-                  </div>
-                </div>
+                {/* Lead Flow Progress */}
+                <LeadFlowProgress
+                  lead={getCustomerLead(selectedCustomer.phone_number)}
+                  scheduledTasks={scheduledTasks}
+                  onSkipToStage={handleSkipToStage}
+                  onMarkStatus={handleMarkStatus}
+                />
 
                 {/* Customer Info + Tabs */}
                 <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col flex-1 min-h-0">

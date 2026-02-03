@@ -4,9 +4,10 @@ import type { HousecallProWebhookPayload, ApiResponse } from "@/lib/types"
 import { getSupabaseClient } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
-import { scheduleLeadFollowUp } from "@/lib/scheduler"
+import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
+import { sendSMS } from "@/lib/openphone"
 
 /**
  * Webhook handler for Housecall Pro events
@@ -320,15 +321,70 @@ export async function POST(request: NextRequest) {
             metadata: { hcp_lead_id: hcpSourceId, lead_id: leadRecord?.id }
           })
 
-          // Schedule the lead follow-up sequence
-          if (leadRecord?.id) {
-            try {
-              const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
-              await scheduleLeadFollowUp(tenant?.id || '', String(leadRecord.id), phone, leadName)
-              console.log(`[OSIRIS] HCP Webhook: Scheduled follow-up sequence for lead ${leadRecord.id}`)
-            } catch (scheduleError) {
-              console.error("[OSIRIS] HCP Webhook: Error scheduling follow-up:", scheduleError)
+          // Send the first text IMMEDIATELY (don't wait for cron)
+          const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
+          const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
+
+          try {
+            const initialMessage = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+
+            if (tenant) {
+              await sendSMS(tenant, phone, initialMessage)
+            } else {
+              await sendSMS(phone, initialMessage)
             }
+
+            console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
+
+            // Update lead to stage 1
+            await client
+              .from("leads")
+              .update({ followup_stage: 1 })
+              .eq("id", leadRecord?.id)
+
+            // Log the event
+            await logSystemEvent({
+              source: "housecall_pro",
+              event_type: "LEAD_FOLLOWUP_STAGE_1",
+              message: `First follow-up text sent immediately to ${phone}`,
+              phone_number: phone,
+              metadata: { leadId: leadRecord?.id, stage: 1, action: 'text' },
+            })
+          } catch (smsError) {
+            console.error("[OSIRIS] HCP Webhook: Error sending first text:", smsError)
+          }
+
+          // Schedule stages 2-5 for the follow-up sequence (starting from 10 min)
+          if (leadRecord?.id) {
+            const now = new Date()
+            const stages = [
+              { stage: 2, action: 'call', delayMinutes: 10 },
+              { stage: 3, action: 'double_call', delayMinutes: 15 },
+              { stage: 4, action: 'text', delayMinutes: 20 },
+              { stage: 5, action: 'call', delayMinutes: 30 },
+            ]
+
+            for (const { stage, action, delayMinutes } of stages) {
+              try {
+                const scheduledFor = new Date(now.getTime() + delayMinutes * 60 * 1000)
+                await scheduleTask({
+                  tenantId: tenant?.id,
+                  taskType: 'lead_followup',
+                  taskKey: `lead-${leadRecord.id}-stage-${stage}`,
+                  scheduledFor,
+                  payload: {
+                    leadId: String(leadRecord.id),
+                    leadPhone: phone,
+                    leadName,
+                    stage,
+                    action,
+                  },
+                })
+              } catch (scheduleError) {
+                console.error(`[OSIRIS] HCP Webhook: Error scheduling stage ${stage}:`, scheduleError)
+              }
+            }
+            console.log(`[OSIRIS] HCP Webhook: Scheduled follow-up stages 2-5 for lead ${leadRecord.id}`)
           }
         } else {
           console.error("[OSIRIS] HCP Webhook: No phone number found for lead, cannot process")

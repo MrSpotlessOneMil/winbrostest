@@ -55,6 +55,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: callsError.message }, { status: 500 })
   }
 
+  // Fetch leads for all customers
+  const { data: leads, error: leadsError } = await client
+    .from("leads")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .order("created_at", { ascending: false })
+
+  if (leadsError) {
+    return NextResponse.json({ success: false, error: leadsError.message }, { status: 500 })
+  }
+
+  // Fetch pending scheduled tasks for lead follow-ups
+  const { data: scheduledTasks, error: tasksError } = await client
+    .from("scheduled_tasks")
+    .select("*")
+    .eq("tenant_id", tenant.id)
+    .eq("task_type", "lead_followup")
+    .in("status", ["pending", "processing"])
+    .order("scheduled_for", { ascending: true })
+
+  if (tasksError) {
+    console.error("Error fetching scheduled tasks:", tasksError.message)
+    // Don't fail the whole request if tasks fail
+  }
+
   return NextResponse.json({
     success: true,
     data: {
@@ -62,6 +87,8 @@ export async function GET(request: NextRequest) {
       messages: messages || [],
       jobs: jobs || [],
       calls: calls || [],
+      leads: leads || [],
+      scheduledTasks: scheduledTasks || [],
     },
   })
 }
