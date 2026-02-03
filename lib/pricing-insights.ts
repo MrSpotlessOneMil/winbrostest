@@ -175,7 +175,7 @@ async function analyzeWithClaude(input: PricingInsightInput): Promise<PricingIns
   const prompt = buildPricingPrompt(input)
 
   const response = await client.messages.create({
-    model: 'claude-3-5-sonnet-20241022',
+    model: 'claude-sonnet-4-20250514',
     max_tokens: 600,
     messages: [{ role: 'user', content: prompt }],
   })
@@ -194,7 +194,7 @@ async function analyzeWithClaude(input: PricingInsightInput): Promise<PricingIns
     console.warn('Repaired invalid JSON from Claude pricing output')
   }
 
-  return { ...parsed.value, model: 'claude-3-5-sonnet-20241022' }
+  return { ...parsed.value, model: 'claude-sonnet-4-20250514' }
 }
 
 async function analyzeWithOpenAI(input: PricingInsightInput): Promise<PricingInsight> {

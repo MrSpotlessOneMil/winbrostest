@@ -84,7 +84,7 @@ async function parseWithClaude(transcript: string): Promise<BookingInfo> {
     const currentDate = new Date().toISOString().split('T')[0]
 
     const response = await client.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 1000,
       messages: [
         {
