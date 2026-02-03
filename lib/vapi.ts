@@ -558,9 +558,10 @@ export async function initiateOutboundCall(
       return { success: false, error: 'VAPI phone ID not configured' }
     }
 
-    const assistantId = tenant.vapi_assistant_id
+    // Use outbound assistant ID if available, fall back to inbound assistant ID
+    const assistantId = tenant.vapi_outbound_assistant_id || tenant.vapi_assistant_id
     if (!assistantId) {
-      console.error(`[${tenant.slug}] VAPI assistant ID not configured`)
+      console.error(`[${tenant.slug}] VAPI assistant ID not configured (neither outbound nor inbound)`)
       return { success: false, error: 'VAPI assistant ID not configured' }
     }
 

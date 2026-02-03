@@ -7,13 +7,32 @@ import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
 
+// GET handler for verification - VAPI or browser can ping this to verify endpoint is live
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    service: "VAPI Webhook",
+    timestamp: new Date().toISOString(),
+    message: "Webhook endpoint is active. POST your VAPI events here.",
+  })
+}
+
 export async function POST(request: NextRequest) {
+  // Log that we received a request (helps debug if VAPI is even calling us)
+  console.log(`[VAPI Webhook] ====== REQUEST RECEIVED ======`)
+  console.log(`[VAPI Webhook] Request URL: ${request.url}`)
+  console.log(`[VAPI Webhook] Request headers:`, Object.fromEntries(request.headers.entries()))
+
   let payload: any
   try {
     payload = await request.json()
-  } catch {
+  } catch (e) {
+    console.error(`[VAPI Webhook] Failed to parse JSON:`, e)
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
+
+  // Log FULL payload for debugging (temporarily)
+  console.log(`[VAPI Webhook] FULL PAYLOAD:`, JSON.stringify(payload, null, 2))
 
   // Log incoming webhook for debugging
   console.log(`[VAPI Webhook] Received webhook:`, JSON.stringify({

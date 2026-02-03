@@ -78,6 +78,7 @@ export interface Tenant {
 
   vapi_api_key: string | null
   vapi_assistant_id: string | null
+  vapi_outbound_assistant_id: string | null
   vapi_phone_id: string | null
 
   housecall_pro_api_key: string | null
