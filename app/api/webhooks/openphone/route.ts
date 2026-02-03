@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
   // Check if a lead already exists for this phone (that's still active)
   const { data: existingLead } = await client
     .from("leads")
-    .select("id, status")
+    .select("id, status, form_data")
     .eq("phone_number", phone)
     .in("status", ["new", "contacted", "qualified"])
     .maybeSingle()
@@ -241,6 +241,14 @@ export async function POST(request: NextRequest) {
       .eq("id", existingLead.id)
 
     console.log(`[OpenPhone] Lead already exists for ${phone}, updated last_contact_at`)
+
+    // Check if auto-response is paused for this lead
+    const leadFormData = existingLead.form_data as Record<string, unknown> | null
+    const followupPaused = leadFormData?.followup_paused === true
+    if (followupPaused) {
+      console.log(`[OpenPhone] Auto-response paused for lead ${existingLead.id}, skipping`)
+      return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponsePaused: true })
+    }
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {

@@ -566,7 +566,6 @@ export default function CustomersPage() {
                   onSkipBack={handleSkipBack}
                   onStop={handleStop}
                   onMoveToStage={handleMoveToStage}
-                  onToggleFollowup={handleToggleFollowup}
                 />
 
                 {/* Customer Info + Tabs */}
@@ -577,7 +576,7 @@ export default function CustomersPage() {
                       <div className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center text-sm font-semibold text-purple-300">
                         {getCustomerName(selectedCustomer).charAt(0).toUpperCase()}
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <h2 className="text-base font-semibold text-zinc-100">
                           {getCustomerName(selectedCustomer)}
                         </h2>
@@ -585,6 +584,29 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Auto-Response Toggle */}
+                      {getCustomerLead(selectedCustomer.phone_number) && (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-400">Auto-response</span>
+                          <button
+                            onClick={() => handleToggleFollowup(!(getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ?? false))}
+                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                              getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused
+                                ? "bg-zinc-600"
+                                : "bg-emerald-500"
+                            }`}
+                            title={getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused ? "Enable auto-response" : "Pause auto-response"}
+                          >
+                            <span
+                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                getCustomerLead(selectedCustomer.phone_number)?.form_data?.followup_paused
+                                  ? "translate-x-1"
+                                  : "translate-x-[18px]"
+                              }`}
+                            />
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* Tab navigation */}
