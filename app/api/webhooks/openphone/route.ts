@@ -226,13 +226,28 @@ export async function POST(request: NextRequest) {
     content: m.content
   })) || []
 
-  // Check if a lead already exists for this phone (that's still active)
-  const { data: existingLead } = await client
+  // Check if ANY lead exists for this phone with auto-response paused
+  // Query ALL leads for this phone to check pause status (not just one)
+  const { data: allLeadsForPhone } = await client
     .from("leads")
     .select("id, status, form_data")
     .eq("phone_number", phone)
     .in("status", ["new", "contacted", "qualified"])
-    .maybeSingle()
+    .order("created_at", { ascending: false })
+
+  // Check if ANY lead for this phone has auto-response paused
+  const anyLeadPaused = allLeadsForPhone?.some(lead => {
+    const formData = parseFormData(lead.form_data)
+    return formData.followup_paused === true
+  }) ?? false
+
+  if (anyLeadPaused) {
+    console.log(`[OpenPhone] Auto-response paused for phone ${phone}, skipping auto-response (${allLeadsForPhone?.length} leads found)`)
+    return NextResponse.json({ success: true, autoResponsePaused: true, leadsCount: allLeadsForPhone?.length })
+  }
+
+  // Get the most recent lead for other operations
+  const existingLead = allLeadsForPhone?.[0] ?? null
 
   if (existingLead) {
     // Lead already exists, update last contact time
@@ -242,15 +257,6 @@ export async function POST(request: NextRequest) {
       .eq("id", existingLead.id)
 
     console.log(`[OpenPhone] Lead already exists for ${phone}, updated last_contact_at`)
-
-    // Check if auto-response is paused for this lead
-    // Use parseFormData to handle both string and object form_data
-    const leadFormData = parseFormData(existingLead.form_data)
-    const followupPaused = leadFormData.followup_paused === true
-    if (followupPaused) {
-      console.log(`[OpenPhone] Auto-response paused for lead ${existingLead.id}, skipping auto-response`)
-      return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponsePaused: true })
-    }
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
