@@ -52,13 +52,25 @@ export async function POST(request: NextRequest) {
   }
 
   const data = extractVapiCallData(payload)
+  console.log(`[VAPI Webhook] Extracted data:`, JSON.stringify({
+    hasData: !!data,
+    phone: data?.phone,
+    callId: data?.callId,
+    hasTranscript: !!data?.transcript,
+    duration: data?.duration,
+    outcome: data?.outcome,
+  }))
+
   if (!data) {
+    console.warn(`[VAPI Webhook] extractVapiCallData returned null - call will be ignored`)
     return NextResponse.json({ success: true, ignored: true })
   }
 
   const phone = normalizePhoneNumber(data.phone || "") || data.phone || ""
+  console.log(`[VAPI Webhook] Normalized phone: ${phone} (from raw: ${data.phone})`)
   const client = getSupabaseClient()
   const tenant = await getDefaultTenant()
+  console.log(`[VAPI Webhook] Tenant lookup: ${tenant ? tenant.slug : 'NO TENANT FOUND'}`)
 
   // Upsert customer so calls can be linked for dashboard
   let customerId: number | null = null
@@ -68,7 +80,13 @@ export async function POST(request: NextRequest) {
       .upsert({ phone_number: phone, tenant_id: tenant?.id }, { onConflict: "tenant_id,phone_number" })
       .select("id")
       .single()
+    if (error) {
+      console.error(`[VAPI Webhook] Customer upsert error:`, error.message)
+    }
     if (!error && customer?.id != null) customerId = Number(customer.id)
+    console.log(`[VAPI Webhook] Customer ID: ${customerId}`)
+  } else {
+    console.warn(`[VAPI Webhook] No phone number - skipping customer upsert`)
   }
 
   const providerCallId = data.callId || null
@@ -114,6 +132,8 @@ export async function POST(request: NextRequest) {
     console.error("[VAPI Webhook] Failed to insert call:", callErr.message)
     return NextResponse.json({ success: false, error: `Failed to insert call: ${callErr.message}` }, { status: 500 })
   }
+
+  console.log(`[VAPI Webhook] ✓ Call inserted successfully for ${phone} (callId: ${providerCallId})`)
 
   // Log the call event
   await logSystemEvent({
