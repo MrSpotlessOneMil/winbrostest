@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { SkipForward, SkipBack, Square } from "lucide-react"
+import { useState, useEffect, DragEvent } from "react"
+import { SkipForward, SkipBack, Square, GripVertical } from "lucide-react"
 
 interface Lead {
   id: number
@@ -35,21 +35,22 @@ interface LeadFlowProgressProps {
   onSkipForward: () => void
   onSkipBack: () => void
   onStop: () => void
+  onMoveToStage?: (stageNum: number) => void
 }
 
 // Map internal stage numbers to display stages
 const STAGES = [
-  { id: "text_1", label: "Text 1", stageNum: 1 },
-  { id: "text_2", label: "Text 2", stageNum: 2 },
-  { id: "call_1", label: "Call 1", stageNum: 3 },
-  { id: "call_2", label: "Call 2", stageNum: 4 },  // Double dial - happens immediately after Call 1
-  { id: "text_3", label: "Text 3", stageNum: 5 },
-  { id: "customer_response", label: "Response", stageNum: 6 },
-  { id: "price_sent", label: "Price Sent", stageNum: 7 },
-  { id: "payment_received", label: "Payment", stageNum: 8 },
-  { id: "job_assigned", label: "Assigned", stageNum: 9 },
-  { id: "job_fulfilled", label: "Fulfilled", stageNum: 10 },
-  { id: "lead_lost", label: "Lost", stageNum: -1 },
+  { id: "text_1", label: "Text 1", stageNum: 1, action: "text" },
+  { id: "text_2", label: "Text 2", stageNum: 2, action: "text" },
+  { id: "call_1", label: "Call 1", stageNum: 3, action: "call" },
+  { id: "call_2", label: "Call 2", stageNum: 4, action: "call" },  // Double dial
+  { id: "text_3", label: "Text 3", stageNum: 5, action: "text" },
+  { id: "customer_response", label: "Response", stageNum: 6, action: null },
+  { id: "price_sent", label: "Price Sent", stageNum: 7, action: null },
+  { id: "payment_received", label: "Payment", stageNum: 8, action: null },
+  { id: "job_assigned", label: "Assigned", stageNum: 9, action: null },
+  { id: "job_fulfilled", label: "Fulfilled", stageNum: 10, action: null },
+  { id: "lead_lost", label: "Lost", stageNum: -1, action: null },
 ]
 
 function getStageFromLead(lead: Lead | null): number {
@@ -69,7 +70,6 @@ function getStageFromLead(lead: Lead | null): number {
   if (lead.status === "responded" || lead.status === "engaged") return 6 // Customer Response
 
   // Otherwise use followup_stage directly (1-5 map to our first 5 stages)
-  // If followup_stage is 0, we already defaulted to 1 above
   return followupStage
 }
 
@@ -95,8 +95,11 @@ export function LeadFlowProgress({
   onSkipForward,
   onSkipBack,
   onStop,
+  onMoveToStage,
 }: LeadFlowProgressProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("")
+  const [dragOverStage, setDragOverStage] = useState<number | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
 
   const currentStage = getStageFromLead(lead)
 
@@ -130,6 +133,41 @@ export function LeadFlowProgress({
   // Check if timer should be shown (only during automated followup stages 1-5)
   const showTimer = currentStage > 0 && currentStage <= 5 && timeRemaining
 
+  // Drag handlers
+  const handleDragStart = (e: DragEvent<HTMLDivElement>) => {
+    if (!lead) return
+    e.dataTransfer.setData("text/plain", String(lead.id))
+    e.dataTransfer.effectAllowed = "move"
+    setIsDragging(true)
+  }
+
+  const handleDragEnd = () => {
+    setIsDragging(false)
+    setDragOverStage(null)
+  }
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>, stageNum: number) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    if (stageNum !== currentStage) {
+      setDragOverStage(stageNum)
+    }
+  }
+
+  const handleDragLeave = () => {
+    setDragOverStage(null)
+  }
+
+  const handleDrop = (e: DragEvent<HTMLDivElement>, stageNum: number) => {
+    e.preventDefault()
+    setDragOverStage(null)
+    setIsDragging(false)
+
+    if (stageNum !== currentStage && onMoveToStage) {
+      onMoveToStage(stageNum)
+    }
+  }
+
   // If no lead exists for this customer, show a minimal state
   if (!lead) {
     return (
@@ -149,35 +187,51 @@ export function LeadFlowProgress({
         const isCurrentStage = stage.stageNum === currentStage
         const isPastStage = currentStage !== -1 && stage.stageNum > 0 && stage.stageNum < currentStage
         const isLostStage = stage.id === "lead_lost"
+        const isDragOver = dragOverStage === stage.stageNum
 
         return (
           <div
             key={stage.id}
             className={`flex-shrink-0 rounded-lg border transition-all ${
-              isCurrentStage
+              isDragOver
+                ? "bg-blue-500/30 border-blue-500 ring-2 ring-blue-500/50"
+                : isCurrentStage
                 ? isLostStage
                   ? "bg-red-500/20 border-red-500/50"
                   : "bg-purple-500/20 border-purple-500/50"
                 : isPastStage
                 ? "bg-emerald-500/10 border-emerald-500/30"
                 : "bg-zinc-800/50 border-zinc-700/50"
-            }`}
+            } ${!isCurrentStage && isDragging ? "cursor-pointer" : ""}`}
             style={{ minWidth: isCurrentStage ? "160px" : "90px" }}
+            onDragOver={(e) => !isCurrentStage && handleDragOver(e, stage.stageNum)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => !isCurrentStage && handleDrop(e, stage.stageNum)}
           >
             {isCurrentStage ? (
-              // Current stage - show customer card
+              // Current stage - show customer card (draggable)
               <div className="p-2">
                 <div className="text-[10px] font-medium text-zinc-400 mb-1.5">{stage.label}</div>
-                <div className="bg-zinc-900/80 rounded-md p-2 border border-zinc-700/50">
-                  <div className="text-xs font-medium text-zinc-200 truncate mb-1">
-                    {customerName}
+                <div
+                  draggable
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                  className={`bg-zinc-900/80 rounded-md p-2 border border-zinc-700/50 cursor-grab active:cursor-grabbing ${
+                    isDragging ? "opacity-50" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-1 mb-1">
+                    <GripVertical className="w-3 h-3 text-zinc-600" />
+                    <div className="text-xs font-medium text-zinc-200 truncate flex-1">
+                      {customerName}
+                    </div>
                   </div>
                   {showTimer && (
-                    <div className="text-[10px] text-amber-400 mb-1.5">
+                    <div className="text-[10px] text-amber-400 mb-1.5 ml-4">
                       Next: {timeRemaining}
                     </div>
                   )}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 ml-3">
                     <button
                       onClick={onSkipBack}
                       disabled={currentStage <= 1}
@@ -205,14 +259,18 @@ export function LeadFlowProgress({
                 </div>
               </div>
             ) : (
-              // Other stages - just show label
-              <div className="p-2 h-full flex items-center justify-center">
+              // Other stages - drop target
+              <div className="p-2 h-full flex items-center justify-center min-h-[60px]">
                 <div
                   className={`text-[10px] font-medium text-center ${
-                    isPastStage ? "text-emerald-400/70" : "text-zinc-500"
+                    isDragOver
+                      ? "text-blue-300"
+                      : isPastStage
+                      ? "text-emerald-400/70"
+                      : "text-zinc-500"
                   }`}
                 >
-                  {stage.label}
+                  {isDragOver ? `Drop to ${stage.label}` : stage.label}
                 </div>
               </div>
             )}

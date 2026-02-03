@@ -330,28 +330,43 @@ export async function POST(request: NextRequest) {
           try {
             const initialMessage = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
 
+            let smsResult
             if (tenant) {
-              await sendSMS(tenant, phone, initialMessage)
+              smsResult = await sendSMS(tenant, phone, initialMessage)
             } else {
-              await sendSMS(phone, initialMessage)
+              smsResult = await sendSMS(phone, initialMessage)
             }
 
-            console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
+            if (smsResult.success) {
+              console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
 
-            // Update lead to stage 1
-            await client
-              .from("leads")
-              .update({ followup_stage: 1 })
-              .eq("id", leadRecord?.id)
+              // Save the outbound message to the messages table so it shows in the UI
+              await client.from("messages").insert({
+                tenant_id: tenant?.id,
+                customer_id: customerRecord?.id,
+                phone_number: phone,
+                role: "business",
+                content: initialMessage,
+                timestamp: new Date().toISOString(),
+              })
 
-            // Log the event
-            await logSystemEvent({
-              source: "housecall_pro",
-              event_type: "LEAD_FOLLOWUP_STAGE_1",
-              message: `First follow-up text sent immediately to ${phone}`,
-              phone_number: phone,
-              metadata: { leadId: leadRecord?.id, stage: 1, action: 'text' },
-            })
+              // Update lead to stage 1
+              await client
+                .from("leads")
+                .update({ followup_stage: 1 })
+                .eq("id", leadRecord?.id)
+
+              // Log the event
+              await logSystemEvent({
+                source: "housecall_pro",
+                event_type: "LEAD_FOLLOWUP_STAGE_1",
+                message: `First follow-up text sent immediately to ${phone}`,
+                phone_number: phone,
+                metadata: { leadId: leadRecord?.id, stage: 1, action: 'text' },
+              })
+            } else {
+              console.error("[OSIRIS] HCP Webhook: Failed to send first text:", smsResult.error)
+            }
           } catch (smsError) {
             console.error("[OSIRIS] HCP Webhook: Error sending first text:", smsError)
           }

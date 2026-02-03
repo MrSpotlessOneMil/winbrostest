@@ -14,6 +14,7 @@ export type SystemEventSource =
   | 'job_updates'
   | 'lead_followup'
   | 'scheduler'
+  | 'lead_actions'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -99,6 +100,10 @@ export type SystemEventType =
   // Post-job automation
   | 'POST_JOB_FOLLOWUP_SENT'
   | 'MONTHLY_REENGAGEMENT_SENT'
+  // Lead stage changes
+  | 'LEAD_STAGE_CHANGED'
+  | 'PAYMENT_LINK_SENT'
+  | 'SMS_ROUTING'
 
 export interface SystemEventInput {
   event_type: SystemEventType

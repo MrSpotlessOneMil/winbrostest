@@ -256,6 +256,45 @@ export default function CustomersPage() {
     }
   }
 
+  // Handle move to stage (drag & drop) - executes the action
+  const handleMoveToStage = async (targetStage: number) => {
+    if (!selectedCustomer) return
+    const lead = getCustomerLead(selectedCustomer.phone_number)
+    if (!lead) return
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "move_to_stage", stage: targetStage }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local lead state
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id
+              ? { ...l, followup_stage: targetStage, status: json.data.newStatus || l.status }
+              : l
+          )
+        )
+
+        // Refresh data to get the new message and scheduled tasks
+        const dataRes = await fetch("/api/customers")
+        const dataJson = await dataRes.json()
+        if (dataJson.success) {
+          setMessages(dataJson.data.messages)
+          setScheduledTasks(dataJson.data.scheduledTasks || [])
+        }
+      } else {
+        alert(json.error || "Failed to move to stage")
+      }
+    } catch (error) {
+      console.error("Failed to move to stage:", error)
+      alert("Failed to move to stage")
+    }
+  }
+
   const getCustomerTimeline = (customer: Customer): TimelineItem[] => {
     const items: TimelineItem[] = []
 
@@ -450,6 +489,7 @@ export default function CustomersPage() {
                   onSkipForward={handleSkipForward}
                   onSkipBack={handleSkipBack}
                   onStop={handleStop}
+                  onMoveToStage={handleMoveToStage}
                 />
 
                 {/* Customer Info + Tabs */}

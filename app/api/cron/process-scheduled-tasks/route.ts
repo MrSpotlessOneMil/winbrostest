@@ -293,7 +293,7 @@ async function processLeadFollowup(
 
                 await logSystemEvent({
                   source: 'scheduler',
-                  event_type: 'PAYMENT_LINK_SENT',
+                  event_type: 'PAYMENT_LINKS_SENT',
                   message: `Stripe payment link sent to ${leadPhone} for $${estimate.totalPrice}`,
                   phone_number: leadPhone,
                   metadata: { leadId, jobId: job.id, amount: estimate.totalPrice, paymentUrl: paymentResult.url },
@@ -317,10 +317,25 @@ async function processLeadFollowup(
       message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our cleaning services. We're here to help!`
     }
 
+    // Send the SMS
+    let smsResult
     if (tenant) {
-      await sendSMS(tenant, leadPhone, message)
+      smsResult = await sendSMS(tenant, leadPhone, message)
     } else {
-      await sendSMS(leadPhone, message)
+      smsResult = await sendSMS(leadPhone, message)
+    }
+
+    // Save the outbound message to the database so it shows in the UI
+    if (smsResult.success) {
+      await client.from('messages').insert({
+        tenant_id: tenant?.id,
+        customer_id: lead.customer_id,
+        phone_number: leadPhone,
+        role: 'business',
+        content: message,
+        timestamp: new Date().toISOString(),
+      })
+      console.log(`[lead-followup] Saved outbound message to database for ${leadPhone}`)
     }
   } else if (action === 'call' || action === 'double_call') {
     // Initiate VAPI call
@@ -409,10 +424,23 @@ async function processDayBeforeReminder(
 
   const message = `Hi ${customerName}! This is a reminder that your cleaning with ${businessName} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!`
 
+  let smsResult
   if (tenant) {
-    await sendSMS(tenant, customerPhone, message)
+    smsResult = await sendSMS(tenant, customerPhone, message)
   } else {
-    await sendSMS(customerPhone, message)
+    smsResult = await sendSMS(customerPhone, message)
+  }
+
+  // Save the outbound message to the database
+  if (smsResult.success) {
+    const client = getSupabaseClient()
+    await client.from('messages').insert({
+      tenant_id: tenant?.id,
+      phone_number: customerPhone,
+      role: 'business',
+      content: message,
+      timestamp: new Date().toISOString(),
+    })
   }
 }
 
