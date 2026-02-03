@@ -226,13 +226,13 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex flex-col flex-1 min-h-0">
+    <div className="h-[calc(100vh-8rem)] flex flex-col overflow-hidden">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Main Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
-          {/* Customer List Sidebar */}
-          <div className="lg:col-span-3 flex flex-col min-h-0">
-            <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col flex-1 min-h-0">
+        <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
+          {/* Customer List Sidebar - Fixed height, doesn't scroll with page */}
+          <div className="w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden">
+            <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col h-full overflow-hidden">
               <div className="p-3 border-b border-zinc-800">
                 <div className="relative">
                   <svg
@@ -303,8 +303,8 @@ export default function CustomersPage() {
             </div>
           </div>
 
-          {/* Customer Detail */}
-          <div className="lg:col-span-9 flex flex-col gap-4 min-h-0">
+          {/* Customer Detail - Scrollable content area */}
+          <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
             {selectedCustomer ? (
               <>
                 {/* Stats Cards */}

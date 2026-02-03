@@ -52,19 +52,25 @@ export async function sendSMS(
     return { success: false, error: 'No tenant configured' }
   }
 
-  const apiKey = tenant.openphone_api_key
+  // Try tenant config first, then fall back to env var
+  const apiKey = tenant.openphone_api_key || process.env.OPENPHONE_API_KEY
 
   if (!apiKey) {
-    console.error(`[${tenant.slug}] OpenPhone API key not configured`)
+    console.error(`[${tenant.slug}] OpenPhone API key not configured in tenant or env`)
     return { success: false, error: 'OpenPhone API key not configured' }
   }
 
-  const phoneNumberId = tenant.openphone_phone_id
+  console.log(`[${tenant.slug}] Using OpenPhone API key from: ${tenant.openphone_api_key ? 'tenant config' : 'env var'}`)
+
+  // Try tenant config first, then fall back to env var
+  const phoneNumberId = tenant.openphone_phone_id || process.env.OPENPHONE_PHONE_ID
 
   if (!phoneNumberId) {
-    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured`)
+    console.error(`[${tenant.slug}] OpenPhone phone number ID not configured in tenant or env`)
     return { success: false, error: 'OpenPhone phone number ID not configured' }
   }
+
+  console.log(`[${tenant.slug}] Using OpenPhone phone ID from: ${tenant.openphone_phone_id ? 'tenant config' : 'env var'}`)
 
   const toE164Format = toE164(to)
   if (!toE164Format) {
