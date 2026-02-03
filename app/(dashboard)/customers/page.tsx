@@ -6,6 +6,16 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { Send, Loader2 } from "lucide-react"
 
+// Normalize phone to 10 digits for comparison
+function normalizePhone(phone: string | null | undefined): string {
+  if (!phone) return ''
+  let digits = phone.replace(/\D/g, '')
+  if (digits.length === 11 && digits.startsWith('1')) {
+    digits = digits.slice(1)
+  }
+  return digits
+}
+
 type TabType = "messages" | "jobs" | "invoices"
 
 interface Customer {
@@ -151,7 +161,8 @@ export default function CustomersPage() {
 
   // Get the most recent lead for a customer (by phone number)
   const getCustomerLead = (phoneNumber: string): Lead | null => {
-    const customerLeads = leads.filter((l) => l.phone_number === phoneNumber)
+    const normalizedCustomerPhone = normalizePhone(phoneNumber)
+    const customerLeads = leads.filter((l) => normalizePhone(l.phone_number) === normalizedCustomerPhone)
     if (customerLeads.length === 0) return null
     // Return the most recent lead
     return customerLeads.sort(
