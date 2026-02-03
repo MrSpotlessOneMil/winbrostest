@@ -82,11 +82,17 @@ export function Sidebar({ collapsed }: SidebarProps) {
   // Filter navigation items based on admin status
   const filteredNavigation = navigation.filter(item => !item.adminOnly || isAdmin)
 
+  // Prevent scroll events on sidebar from scrolling the main content
+  const handleWheel = (e: React.WheelEvent) => {
+    e.stopPropagation()
+  }
+
   return (
     <aside
+      onWheel={handleWheel}
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
-      } bg-zinc-950 border-r border-zinc-800/60 h-full flex-shrink-0 flex flex-col transition-all duration-200`}
+      } bg-zinc-950 border-r border-zinc-800/60 h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-zinc-800/60">
@@ -105,7 +111,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
+      <nav className={`flex-1 overflow-y-auto overscroll-contain ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
         {filteredNavigation.map((item) => {
           const isActive = pathname === item.href
           const Icon = item.icon
