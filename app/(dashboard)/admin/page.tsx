@@ -130,8 +130,7 @@ export default function AdminPage() {
   // Copy all credentials state
   const [copied, setCopied] = useState(false)
 
-  // Reset customer state
-  const [resetPhoneNumber, setResetPhoneNumber] = useState("")
+  // Reset test customers state
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{ success: boolean; deletions?: string[]; error?: string } | null>(null)
 
@@ -311,37 +310,42 @@ export default function AdminPage() {
     })
   }
 
-  async function resetCustomerData() {
-    if (!resetPhoneNumber.trim()) {
-      setResetResult({ success: false, error: "Please enter a phone number" })
-      return
-    }
+  async function resetTestCustomers() {
+    const testPhones = ["4242755847", "4157204580"]
 
-    if (!confirm(`Are you sure you want to delete ALL data for phone number ${resetPhoneNumber}? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ALL data for test numbers (424) 275-5847 and (415) 720-4580? This cannot be undone.`)) {
       return
     }
 
     setResetting(true)
     setResetResult(null)
 
-    try {
-      const res = await fetch("/api/admin/reset-customer", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: resetPhoneNumber }),
-      })
-      const json = await res.json()
+    const allDeletions: string[] = []
+    let hasError = false
 
-      if (res.ok && json.success) {
-        setResetResult({ success: true, deletions: json.data.deletions })
-        setResetPhoneNumber("")
-      } else {
-        setResetResult({ success: false, error: json.error || "Failed to reset customer" })
+    for (const phone of testPhones) {
+      try {
+        const res = await fetch("/api/admin/reset-customer", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ phoneNumber: phone }),
+        })
+        const json = await res.json()
+
+        if (res.ok && json.success && json.data.deletions) {
+          allDeletions.push(`--- ${phone} ---`, ...json.data.deletions)
+        }
+      } catch (e: any) {
+        allDeletions.push(`--- ${phone} --- Error: ${e.message}`)
+        hasError = true
       }
-    } catch (e: any) {
-      setResetResult({ success: false, error: e.message || "Failed to reset customer" })
-    } finally {
-      setResetting(false)
+    }
+
+    setResetResult({
+      success: !hasError,
+      deletions: allDeletions.length > 0 ? allDeletions : ["No data found for test numbers"]
+    })
+    setResetting(false)
     }
   }
 
@@ -1176,29 +1180,22 @@ export default function AdminPage() {
 
                   {/* Tools Tab */}
                   <TabsContent value="tools" className="space-y-6">
-                    {/* Reset Customer Data */}
+                    {/* Reset Test Customers */}
                     <div className="p-4 rounded-lg border border-red-500/30 bg-red-500/5 space-y-4">
                       <div className="font-medium flex items-center gap-2 text-red-400">
                         <Trash2 className="h-4 w-4" />
-                        Reset Customer Data
+                        Reset Test Customers
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        Permanently delete all data associated with a phone number. This includes messages, calls, leads, jobs, scheduled tasks, and the customer record.
+                        Delete all data for test phone numbers: <code className="text-xs bg-zinc-800 px-1 rounded">(424) 275-5847</code> and <code className="text-xs bg-zinc-800 px-1 rounded">(415) 720-4580</code>
                         <br />
                         <strong className="text-red-400">This action cannot be undone.</strong>
                       </p>
-                      <div className="flex gap-2">
-                        <Input
-                          value={resetPhoneNumber}
-                          onChange={(e) => setResetPhoneNumber(e.target.value)}
-                          placeholder="Enter phone number (e.g., 4157204580)"
-                          className="max-w-xs"
-                        />
-                        <Button
-                          variant="destructive"
-                          onClick={resetCustomerData}
-                          disabled={resetting || !resetPhoneNumber.trim()}
-                        >
+                      <Button
+                        variant="destructive"
+                        onClick={resetTestCustomers}
+                        disabled={resetting}
+                      >
                           {resetting ? (
                             <>
                               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -1210,8 +1207,7 @@ export default function AdminPage() {
                               Reset Data
                             </>
                           )}
-                        </Button>
-                      </div>
+                      </Button>
 
                       {/* Result display */}
                       {resetResult && (

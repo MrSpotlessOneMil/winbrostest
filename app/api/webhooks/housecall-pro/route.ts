@@ -299,6 +299,7 @@ export async function POST(request: NextRequest) {
           // Create lead record - get ID from extracted lead object
           const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
           const { data: leadRecord } = await client.from("leads").insert({
+            tenant_id: tenant?.id,
             source_id: String(hcpSourceId),
             phone_number: phone,
             customer_id: customerRecord?.id ?? null,
@@ -314,6 +315,7 @@ export async function POST(request: NextRequest) {
 
           // Log system event
           await client.from("system_events").insert({
+            tenant_id: tenant?.id,
             source: "housecall_pro",
             event_type: "HCP_LEAD_RECEIVED",
             message: `New lead from HousecallPro: ${firstName || 'Unknown'} ${lastName || ''}`.trim(),
