@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
     transcript: data.transcript || null,
     duration_seconds: data.duration ? Math.round(Number(data.duration)) : null,
     outcome: data.outcome || null,
+    audio_url: data.audioUrl || null,
     status: "completed",
     started_at: nowIso,
     date: nowIso,
