@@ -17,16 +17,16 @@ import {
 } from "lucide-react"
 
 const navigation = [
-  { name: "Overview", href: "/", icon: LayoutDashboard },
-  { name: "Customers", href: "/customers", icon: UserCircle },
-  { name: "Jobs Calendar", href: "/jobs", icon: CalendarDays },
-  { name: "Lead Funnel", href: "/leads", icon: TrendingUp },
-  { name: "Teams", href: "/teams", icon: Users },
-  { name: "Tips & Upsells", href: "/earnings", icon: DollarSign },
-  { name: "Leaderboard", href: "/leaderboard", icon: Trophy },
-  { name: "Calls", href: "/calls", icon: Phone },
-  { name: "Debug", href: "/exceptions", icon: Bug },
-  { name: "Admin", href: "/admin", icon: ShieldCheck },
+  { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
+  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
+  { name: "Jobs Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
+  { name: "Lead Funnel", href: "/leads", icon: TrendingUp, adminOnly: false },
+  { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
+  { name: "Tips & Upsells", href: "/earnings", icon: DollarSign, adminOnly: false },
+  { name: "Leaderboard", href: "/leaderboard", icon: Trophy, adminOnly: false },
+  { name: "Calls", href: "/calls", icon: Phone, adminOnly: false },
+  { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
+  { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
 
 const bottomNav = [
@@ -35,10 +35,14 @@ const bottomNav = [
 
 interface SidebarProps {
   collapsed: boolean
+  isAdmin?: boolean
 }
 
-export function Sidebar({ collapsed }: SidebarProps) {
+export function Sidebar({ collapsed, isAdmin = false }: SidebarProps) {
   const pathname = usePathname()
+
+  // Filter navigation items based on admin status
+  const filteredNavigation = navigation.filter(item => !item.adminOnly || isAdmin)
 
   return (
     <aside
@@ -64,7 +68,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
 
       {/* Navigation */}
       <nav className={`flex-1 ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
-        {navigation.map((item) => {
+        {filteredNavigation.map((item) => {
           const isActive = pathname === item.href
           const Icon = item.icon
           return (

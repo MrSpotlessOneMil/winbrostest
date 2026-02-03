@@ -12,7 +12,8 @@ function getAdminClient() {
 // Check if user is admin
 async function isAdmin(request: NextRequest): Promise<boolean> {
   const cookieStore = await cookies()
-  const sessionToken = cookieStore.get("session_token")?.value
+  // Use the correct session cookie name from auth.ts
+  const sessionToken = cookieStore.get("winbros_session")?.value
 
   if (!sessionToken) return false
 
