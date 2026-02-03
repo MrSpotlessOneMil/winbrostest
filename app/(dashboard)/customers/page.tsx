@@ -50,6 +50,7 @@ interface Call {
   duration_seconds?: number
   outcome?: string
   transcript?: string
+  audio_url?: string
   created_at: string
 }
 

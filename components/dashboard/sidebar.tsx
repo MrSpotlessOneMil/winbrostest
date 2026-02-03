@@ -7,11 +7,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   Users,
-  TrendingUp,
-  DollarSign,
   Settings,
-  Phone,
-  Trophy,
   Bug,
   ShieldCheck,
   UserCircle,
@@ -24,11 +20,7 @@ const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
   { name: "Jobs Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
-  { name: "Lead Funnel", href: "/leads", icon: TrendingUp, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Tips & Upsells", href: "/earnings", icon: DollarSign, adminOnly: false },
-  { name: "Leaderboard", href: "/leaderboard", icon: Trophy, adminOnly: false },
-  { name: "Calls", href: "/calls", icon: Phone, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
@@ -60,7 +52,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
     <aside
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
-      } bg-zinc-950 border-r border-zinc-800/60 min-h-screen flex flex-col transition-all duration-200`}
+      } bg-zinc-950 border-r border-zinc-800/60 h-screen sticky top-0 flex flex-col transition-all duration-200`}
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-zinc-800/60">
@@ -79,7 +71,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className={`flex-1 ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
+      <nav className={`flex-1 overflow-y-auto ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
         {filteredNavigation.map((item) => {
           const isActive = pathname === item.href
           const Icon = item.icon
