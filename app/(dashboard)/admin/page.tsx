@@ -311,36 +311,56 @@ export default function AdminPage() {
   }
 
   async function resetTestCustomers() {
+    console.log("[ADMIN] resetTestCustomers called")
     const testPhones = ["4242755847", "4157204580"]
 
-    if (!confirm(`Are you sure you want to delete ALL data for test numbers (424) 275-5847 and (415) 720-4580? This cannot be undone.`)) {
+    try {
+      const confirmed = window.confirm(`Are you sure you want to delete ALL data for test numbers (424) 275-5847 and (415) 720-4580? This cannot be undone.`)
+      console.log("[ADMIN] User confirmed:", confirmed)
+
+      if (!confirmed) {
+        return
+      }
+    } catch (e) {
+      console.error("[ADMIN] Confirm error:", e)
       return
     }
 
     setResetting(true)
     setResetResult(null)
+    console.log("[ADMIN] Starting reset...")
 
     const allDeletions: string[] = []
     let hasError = false
 
     for (const phone of testPhones) {
       try {
+        console.log(`[ADMIN] Resetting phone: ${phone}`)
         const res = await fetch("/api/admin/reset-customer", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phoneNumber: phone }),
         })
+        console.log(`[ADMIN] Response status for ${phone}:`, res.status)
         const json = await res.json()
+        console.log(`[ADMIN] Response for ${phone}:`, json)
 
-        if (res.ok && json.success && json.data.deletions) {
+        if (res.ok && json.success && json.data?.deletions) {
           allDeletions.push(`--- ${phone} ---`, ...json.data.deletions)
+        } else if (!res.ok) {
+          allDeletions.push(`--- ${phone} --- Error: ${json.error || 'Unknown error'}`)
+          hasError = true
+        } else {
+          allDeletions.push(`--- ${phone} --- No data found`)
         }
       } catch (e: any) {
+        console.error(`[ADMIN] Error resetting ${phone}:`, e)
         allDeletions.push(`--- ${phone} --- Error: ${e.message}`)
         hasError = true
       }
     }
 
+    console.log("[ADMIN] Reset complete, deletions:", allDeletions)
     setResetResult({
       success: !hasError,
       deletions: allDeletions.length > 0 ? allDeletions : ["No data found for test numbers"]
@@ -1192,7 +1212,13 @@ export default function AdminPage() {
                       </p>
                       <Button
                         variant="destructive"
-                        onClick={resetTestCustomers}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          console.log("[ADMIN] Button clicked!")
+                          resetTestCustomers()
+                        }}
                         disabled={resetting}
                       >
                           {resetting ? (
