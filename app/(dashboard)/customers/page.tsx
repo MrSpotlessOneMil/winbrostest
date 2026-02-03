@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
+import { Send, Loader2 } from "lucide-react"
 
 type TabType = "messages" | "jobs" | "invoices"
 
@@ -69,6 +70,9 @@ export default function CustomersPage() {
   const [activeTab, setActiveTab] = useState<TabType>("messages")
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [smsMessage, setSmsMessage] = useState("")
+  const [sendingSms, setSendingSms] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     async function fetchData() {
@@ -142,6 +146,56 @@ export default function CustomersPage() {
       return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`
     }
     return phone
+  }
+
+  const sendSms = async () => {
+    if (!selectedCustomer || !smsMessage.trim() || sendingSms) return
+
+    setSendingSms(true)
+    try {
+      const res = await fetch("/api/actions/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: selectedCustomer.phone_number,
+          message: smsMessage.trim(),
+        }),
+      })
+
+      const json = await res.json()
+      if (res.ok && json.success) {
+        // Add the message to the local state immediately for UI feedback
+        const newMessage: Message = {
+          id: Date.now(),
+          phone_number: selectedCustomer.phone_number,
+          role: "business",
+          content: smsMessage.trim(),
+          direction: "outbound",
+          timestamp: new Date().toISOString(),
+          ai_generated: false,
+        }
+        setMessages((prev) => [...prev, newMessage])
+        setSmsMessage("")
+        // Scroll to bottom
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+        }, 100)
+      } else {
+        alert(json.error || "Failed to send message")
+      }
+    } catch (error) {
+      console.error("Failed to send SMS:", error)
+      alert("Failed to send message")
+    } finally {
+      setSendingSms(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      sendSms()
+    }
   }
 
   const tabs: { id: TabType; label: string; count?: number }[] = selectedCustomer
@@ -327,34 +381,64 @@ export default function CustomersPage() {
                   </div>
 
                   {/* Tab content */}
-                  <div className="p-5 flex-1 overflow-y-auto">
+                  <div className="p-5 flex-1 overflow-hidden flex flex-col">
                     {/* Messages + Calls Timeline */}
                     {activeTab === "messages" && (
-                      <div className="space-y-1">
-                        {getCustomerTimeline(selectedCustomer).length === 0 ? (
-                          <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
-                            No messages or calls
+                      <div className="flex flex-col flex-1 min-h-0">
+                        <div className="flex-1 overflow-y-auto">
+                          {getCustomerTimeline(selectedCustomer).length === 0 ? (
+                            <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
+                              No messages or calls
+                            </div>
+                          ) : (
+                            <div className="border border-zinc-800/50 rounded-lg p-4 space-y-1">
+                              {getCustomerTimeline(selectedCustomer).map((item, idx) => {
+                                if (item.type === "message") {
+                                  const msg = item.data as Message
+                                  return (
+                                    <MessageBubble
+                                      key={`msg-${idx}`}
+                                      role={msg.role as "client" | "business" | "assistant" | "system"}
+                                      content={msg.content}
+                                      timestamp={msg.timestamp}
+                                    />
+                                  )
+                                } else {
+                                  const call = item.data as Call
+                                  return <CallBubble key={`call-${idx}`} call={call} />
+                                }
+                              })}
+                              <div ref={messagesEndRef} />
+                            </div>
+                          )}
+                        </div>
+
+                        {/* SMS Input */}
+                        <div className="mt-4 pt-4 border-t border-zinc-800">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={smsMessage}
+                              onChange={(e) => setSmsMessage(e.target.value)}
+                              onKeyDown={handleKeyDown}
+                              placeholder="Type a message..."
+                              disabled={sendingSms}
+                              className="flex-1 px-4 py-2.5 rounded-lg bg-zinc-800/80 border border-zinc-700/50 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-purple-500/50 disabled:opacity-50"
+                            />
+                            <button
+                              onClick={sendSms}
+                              disabled={sendingSms || !smsMessage.trim()}
+                              className="px-4 py-2.5 rounded-lg bg-purple-500 hover:bg-purple-600 disabled:bg-zinc-700 disabled:cursor-not-allowed text-white text-sm font-medium flex items-center gap-2 transition-colors"
+                            >
+                              {sendingSms ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Send className="w-4 h-4" />
+                              )}
+                              Send
+                            </button>
                           </div>
-                        ) : (
-                          <div className="border border-zinc-800/50 rounded-lg p-4 max-h-[600px] overflow-y-auto space-y-1">
-                            {getCustomerTimeline(selectedCustomer).map((item, idx) => {
-                              if (item.type === "message") {
-                                const msg = item.data as Message
-                                return (
-                                  <MessageBubble
-                                    key={`msg-${idx}`}
-                                    role={msg.role as "client" | "business" | "assistant" | "system"}
-                                    content={msg.content}
-                                    timestamp={msg.timestamp}
-                                  />
-                                )
-                              } else {
-                                const call = item.data as Call
-                                return <CallBubble key={`call-${idx}`} call={call} />
-                              }
-                            })}
-                          </div>
-                        )}
+                        </div>
                       </div>
                     )}
 

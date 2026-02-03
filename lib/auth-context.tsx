@@ -9,13 +9,22 @@ interface User {
   email: string | null
 }
 
+interface StoredAccount {
+  user: User
+  sessionToken?: string
+}
+
 interface AuthState {
   authenticated: boolean
   loading: boolean
   isAdmin: boolean
   user: User | null
+  accounts: StoredAccount[]
   logout: () => Promise<void>
   refresh: () => Promise<void>
+  switchAccount: (userId: number) => Promise<void>
+  addAccount: (username: string, password: string) => Promise<{ success: boolean; error?: string }>
+  removeAccount: (userId: number) => void
 }
 
 const AuthContext = createContext<AuthState>({
@@ -23,15 +32,41 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   isAdmin: false,
   user: null,
+  accounts: [],
   logout: async () => {},
   refresh: async () => {},
+  switchAccount: async () => {},
+  addAccount: async () => ({ success: false }),
+  removeAccount: () => {},
 })
+
+const ACCOUNTS_STORAGE_KEY = 'winbros_accounts'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authenticated, setAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [accounts, setAccounts] = useState<StoredAccount[]>([])
+
+  // Load accounts from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY)
+    if (stored) {
+      try {
+        setAccounts(JSON.parse(stored))
+      } catch {
+        // Invalid JSON, ignore
+      }
+    }
+  }, [])
+
+  // Save accounts to localStorage when changed
+  useEffect(() => {
+    if (accounts.length > 0) {
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts))
+    }
+  }, [accounts])
 
   const refresh = useCallback(async () => {
     try {
@@ -42,6 +77,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthenticated(true)
         setUser(data.data.user)
         setIsAdmin(data.data.user.username === 'admin')
+
+        // Add to accounts list if not already there
+        setAccounts((prev) => {
+          const exists = prev.some((a) => a.user.id === data.data.user.id)
+          if (!exists) {
+            return [...prev, { user: data.data.user }]
+          }
+          // Update user info if it changed
+          return prev.map((a) =>
+            a.user.id === data.data.user.id ? { ...a, user: data.data.user } : a
+          )
+        })
       } else {
         setAuthenticated(false)
         setUser(null)
@@ -62,10 +109,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
+    // Remove current user from accounts
+    if (user) {
+      setAccounts((prev) => prev.filter((a) => a.user.id !== user.id))
+      localStorage.setItem(
+        ACCOUNTS_STORAGE_KEY,
+        JSON.stringify(accounts.filter((a) => a.user.id !== user.id))
+      )
+    }
     setAuthenticated(false)
     setUser(null)
     setIsAdmin(false)
     window.location.href = '/login'
+  }
+
+  const switchAccount = async (userId: number) => {
+    const account = accounts.find((a) => a.user.id === userId)
+    if (!account) return
+
+    // For now, we just redirect to login with the username pre-filled
+    // In a more sophisticated implementation, we'd store session tokens per account
+    window.location.href = `/login?switch=${account.user.username}`
+  }
+
+  const addAccount = async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      })
+
+      const data = await res.json()
+
+      if (data.success && data.data?.user) {
+        // Add to accounts list
+        const newUser = data.data.user
+        setAccounts((prev) => {
+          const exists = prev.some((a) => a.user.id === newUser.id)
+          if (!exists) {
+            return [...prev, { user: newUser }]
+          }
+          return prev
+        })
+
+        // Refresh to set as current user
+        await refresh()
+        return { success: true }
+      }
+
+      return { success: false, error: data.error || 'Login failed' }
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Login failed' }
+    }
+  }
+
+  const removeAccount = (userId: number) => {
+    setAccounts((prev) => prev.filter((a) => a.user.id !== userId))
   }
 
   return (
@@ -75,8 +175,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAdmin,
         user,
+        accounts,
         logout,
         refresh,
+        switchAccount,
+        addAccount,
+        removeAccount,
       }}
     >
       {children}

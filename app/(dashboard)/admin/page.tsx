@@ -26,6 +26,8 @@ import {
   EyeOff,
   Save,
   X,
+  Copy,
+  Check,
 } from "lucide-react"
 
 interface WorkflowConfig {
@@ -121,6 +123,9 @@ export default function AdminPage() {
 
   // Tab state - persists across saves
   const [activeTab, setActiveTab] = useState("controls")
+
+  // Copy all credentials state
+  const [copied, setCopied] = useState(false)
 
   async function fetchTenants() {
     setLoading(true)
@@ -253,6 +258,49 @@ export default function AdminPage() {
 
   function setFieldValue(field: keyof Tenant, value: string) {
     setEditingCredentials((prev) => ({ ...prev, [field]: value }))
+  }
+
+  function copyAllCredentials() {
+    if (!currentTenant) return
+
+    const credentialFields = [
+      { label: "Business Name", value: currentTenant.business_name },
+      { label: "Short Name", value: currentTenant.business_name_short },
+      { label: "Service Area", value: currentTenant.service_area },
+      { label: "SDR Persona", value: currentTenant.sdr_persona },
+      { label: "Owner Phone", value: currentTenant.owner_phone },
+      { label: "Owner Email", value: currentTenant.owner_email },
+      { label: "Google Review Link", value: currentTenant.google_review_link },
+      { label: "OpenPhone API Key", value: currentTenant.openphone_api_key },
+      { label: "OpenPhone Phone ID", value: currentTenant.openphone_phone_id },
+      { label: "OpenPhone Phone Number", value: currentTenant.openphone_phone_number },
+      { label: "VAPI API Key", value: currentTenant.vapi_api_key },
+      { label: "VAPI Inbound Assistant ID", value: currentTenant.vapi_assistant_id },
+      { label: "VAPI Outbound Assistant ID", value: currentTenant.vapi_outbound_assistant_id },
+      { label: "VAPI Phone ID", value: currentTenant.vapi_phone_id },
+      { label: "Stripe Secret Key", value: currentTenant.stripe_secret_key },
+      { label: "Stripe Webhook Secret", value: currentTenant.stripe_webhook_secret },
+      { label: "HousecallPro API Key", value: currentTenant.housecall_pro_api_key },
+      { label: "HousecallPro Company ID", value: currentTenant.housecall_pro_company_id },
+      { label: "HousecallPro Webhook Secret", value: currentTenant.housecall_pro_webhook_secret },
+      { label: "GHL Location ID", value: currentTenant.ghl_location_id },
+      { label: "GHL Webhook Secret", value: currentTenant.ghl_webhook_secret },
+      { label: "Telegram Bot Token", value: currentTenant.telegram_bot_token },
+      { label: "Telegram Owner Chat ID", value: currentTenant.owner_telegram_chat_id },
+      { label: "Wave API Token", value: currentTenant.wave_api_token },
+      { label: "Wave Business ID", value: currentTenant.wave_business_id },
+      { label: "Wave Income Account ID", value: currentTenant.wave_income_account_id },
+    ]
+
+    const text = credentialFields
+      .filter((f) => f.value)
+      .map((f) => `${f.label}: ${f.value}`)
+      .join("\n")
+
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const currentTenant = tenants.find((t) => t.id === selectedTenant)
@@ -637,15 +685,23 @@ export default function AdminPage() {
 
                   {/* Credentials Tab */}
                   <TabsContent value="credentials" className="space-y-6">
-                    {/* Save button */}
-                    {Object.keys(editingCredentials).length > 0 && (
-                      <div className="flex justify-end">
+                    {/* Action buttons */}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={copyAllCredentials}>
+                        {copied ? (
+                          <Check className="h-4 w-4 mr-2 text-green-500" />
+                        ) : (
+                          <Copy className="h-4 w-4 mr-2" />
+                        )}
+                        {copied ? "Copied!" : "Copy All"}
+                      </Button>
+                      {Object.keys(editingCredentials).length > 0 && (
                         <Button onClick={saveCredentials} disabled={savingCredentials}>
                           <Save className="h-4 w-4 mr-2" />
                           {savingCredentials ? "Saving..." : "Save Changes"}
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                     {/* Business Info */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
