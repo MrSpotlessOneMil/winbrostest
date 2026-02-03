@@ -6,7 +6,7 @@ import { generateAutoResponse } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, getTenantByPhoneNumber, isSmsAutoResponseEnabled } from "@/lib/tenant"
+import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
 
 export async function POST(request: NextRequest) {
   const signature =
@@ -53,21 +53,58 @@ export async function POST(request: NextRequest) {
 
   const client = getSupabaseClient()
 
+  // Log extracted data for debugging
+  console.log(`[OpenPhone] Extracted message data:`, JSON.stringify({
+    from: extracted.from,
+    to: extracted.to,
+    direction: extracted.direction,
+    eventType: extracted.eventType,
+    contentPreview: extracted.content?.slice(0, 50),
+  }))
+
   // Route to the correct tenant based on which phone number received the message
   // This ensures Spotless Scrubbers texts go to Spotless, WinBros to WinBros, etc.
   let tenant = null
+  let routingMethod = "default"
+
+  // Try 1: Look up by the "to" phone number
   if (extracted.to) {
+    // First try as a phone number
     tenant = await getTenantByPhoneNumber(extracted.to)
     if (tenant) {
-      console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' based on receiving number: ${extracted.to}`)
+      routingMethod = "phone_number"
+      console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by phone number: ${extracted.to}`)
+    } else {
+      // If that failed, try as an OpenPhone phone ID
+      tenant = await getTenantByOpenPhoneId(extracted.to)
+      if (tenant) {
+        routingMethod = "openphone_id"
+        console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by OpenPhone ID: ${extracted.to}`)
+      }
     }
   }
 
-  // Fall back to default tenant if we couldn't route by phone number
+  // Fall back to default tenant if we couldn't route
   if (!tenant) {
     tenant = await getDefaultTenant()
-    console.log(`[OpenPhone] Using default tenant '${tenant?.slug}' (could not route by phone number)`)
+    console.log(`[OpenPhone] Using default tenant '${tenant?.slug}' (to: ${extracted.to || 'not provided'})`)
   }
+
+  // Log routing decision as system event for debugging
+  await logSystemEvent({
+    source: "openphone",
+    event_type: "SMS_ROUTING",
+    message: `SMS from ${phone} routed to ${tenant?.slug || 'unknown'} via ${routingMethod}`,
+    phone_number: phone,
+    metadata: {
+      from: extracted.from,
+      to: extracted.to,
+      routing_method: routingMethod,
+      tenant_slug: tenant?.slug,
+      tenant_phone: tenant?.openphone_phone_number,
+      tenant_phone_id: tenant?.openphone_phone_id,
+    },
+  })
 
   // CRITICAL: Filter out messages from our own phone number to prevent auto-response loops
   // When we send an SMS, OpenPhone may send a webhook for our outbound message

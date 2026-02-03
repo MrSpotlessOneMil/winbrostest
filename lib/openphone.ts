@@ -218,11 +218,19 @@ export async function validateOpenPhoneWebhook(
 export function extractMessageFromOpenPhonePayload(
   body: Record<string, unknown>
 ): { from: string; to?: string; content: string; createdAt: string; direction?: string; eventType?: string } | null {
+  // Log full payload for debugging (truncated)
+  console.log('[OpenPhone] Raw payload structure:', JSON.stringify(body).slice(0, 1000))
+
   // Handle OpenPhone v3 nested structure: body.object.data.object
   const rootObject = (body.object as Record<string, unknown>) || body
   const eventType = (rootObject.type as string) || (body.type as string)
   const dataWrapper = (rootObject.data as Record<string, unknown>) || (body.data as Record<string, unknown>) || body
   const message = (dataWrapper.object as Record<string, unknown>) || dataWrapper
+
+  // Also try to get conversation info which may contain the phone number
+  const conversation = (message.conversation as Record<string, unknown>) ||
+                       (dataWrapper.conversation as Record<string, unknown>) || {}
+  const conversationParticipants = (conversation.participants as Array<Record<string, unknown>>) || []
 
   const content = firstString(
     message.content,
@@ -246,7 +254,16 @@ export function extractMessageFromOpenPhonePayload(
   )
 
   // Extract the "to" phone number - this is the business phone that received the message
+  // OpenPhone may send this in different ways:
+  // 1. Direct "to" field with phone number
+  // 2. phoneNumberId (OpenPhone internal ID)
+  // 3. In the conversation participants
+  // 4. In a nested phoneNumber object
+  const phoneNumberObj = (message.phoneNumber as Record<string, unknown>) ||
+                         (dataWrapper.phoneNumber as Record<string, unknown>) || {}
+
   const to = firstPhone(
+    // Direct to fields
     message.to,
     message.recipient,
     message.toPhoneNumber,
@@ -255,10 +272,29 @@ export function extractMessageFromOpenPhonePayload(
     dataWrapper.recipient,
     dataWrapper.toPhoneNumber,
     dataWrapper.to_phone_number,
-    // OpenPhone may also have it in phoneNumberId or conversationId context
+    // Phone number from nested object
+    phoneNumberObj.number,
+    phoneNumberObj.phoneNumber,
+    // OpenPhone phone ID (fallback)
     message.phoneNumberId,
-    dataWrapper.phoneNumberId
+    dataWrapper.phoneNumberId,
+    // Conversation phone number (for incoming, the "to" is the conversation phone)
+    conversation.phoneNumber,
+    conversation.phoneNumberId,
+    // Try participants (business phone is usually the one that's not the "from" number)
+    ...conversationParticipants
+      .filter((p: Record<string, unknown>) => p.phoneNumber !== from && p.number !== from)
+      .map((p: Record<string, unknown>) => p.phoneNumber || p.number)
   )
+
+  // Log what we found for debugging
+  console.log('[OpenPhone] Extracted to field:', to, 'from fields:', {
+    'message.to': message.to,
+    'message.phoneNumberId': message.phoneNumberId,
+    'dataWrapper.phoneNumberId': dataWrapper.phoneNumberId,
+    'phoneNumberObj': phoneNumberObj,
+    'conversation.phoneNumber': conversation.phoneNumber,
+  })
 
   const createdAt = firstString(
     message.createdAt,

@@ -222,6 +222,28 @@ export async function getTenantByPhoneNumber(phoneNumber: string): Promise<Tenan
 }
 
 /**
+ * Get tenant by OpenPhone phone ID (the internal ID OpenPhone uses)
+ * This is needed because OpenPhone webhooks may send phoneNumberId instead of the actual phone number
+ */
+export async function getTenantByOpenPhoneId(phoneId: string): Promise<Tenant | null> {
+  const client = getAdminClient()
+
+  const { data, error } = await client
+    .from("tenants")
+    .select("*")
+    .eq("openphone_phone_id", phoneId)
+    .eq("active", true)
+    .single()
+
+  if (error || !data) {
+    // Not found is expected, don't log as error
+    return null
+  }
+
+  return data as Tenant
+}
+
+/**
  * Get all active tenants (for cron jobs)
  */
 export async function getAllActiveTenants(): Promise<Tenant[]> {
