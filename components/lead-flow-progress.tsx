@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ChevronRight, Phone, MessageSquare, Check, X, Clock, DollarSign, Star, SkipForward } from "lucide-react"
+import { SkipForward, SkipBack, Square } from "lucide-react"
 
 interface Lead {
   id: number
   phone_number: string
+  first_name?: string
+  last_name?: string
   status: string
   followup_stage: number
   followup_started_at?: string
@@ -28,24 +30,51 @@ interface ScheduledTask {
 
 interface LeadFlowProgressProps {
   lead: Lead | null
+  customerName: string
   scheduledTasks: ScheduledTask[]
-  onSkipToStage: (stage: number) => void
-  onMarkStatus: (status: "booked" | "lost" | "review_sent") => void
+  onSkipForward: () => void
+  onSkipBack: () => void
+  onStop: () => void
 }
 
+// Map internal stage numbers to display stages
 const STAGES = [
-  { stage: 1, label: "Text 1", icon: MessageSquare, action: "text" },
-  { stage: 2, label: "Call 1", icon: Phone, action: "call" },
-  { stage: 3, label: "Call 2", icon: Phone, action: "double_call" },
-  { stage: 4, label: "Text 2", icon: MessageSquare, action: "text" },
-  { stage: 5, label: "Call 3", icon: Phone, action: "call" },
+  { id: "first_text", label: "First Text", stageNum: 1 },
+  { id: "call_one", label: "Call One", stageNum: 2 },
+  { id: "call_two", label: "Call Two", stageNum: 3 },
+  { id: "second_text", label: "Second Text", stageNum: 4 },
+  { id: "call_three", label: "Call Three", stageNum: 5 },
+  { id: "price_sent", label: "Price Sent", stageNum: 6 },
+  { id: "payment_received", label: "Payment Received", stageNum: 7 },
+  { id: "job_assigned", label: "Job Assigned", stageNum: 8 },
+  { id: "job_fulfilled", label: "Job Fulfilled", stageNum: 9 },
+  { id: "lead_lost", label: "Lead Lost", stageNum: -1 },
 ]
+
+function getStageFromLead(lead: Lead | null): number {
+  if (!lead) return 0
+
+  // Check status first for terminal states
+  if (lead.status === "lost") return -1 // Lead Lost
+
+  // Map followup_stage to our stages
+  const followupStage = lead.followup_stage || 0
+
+  // Check for later stages based on status
+  if (lead.status === "completed" || lead.status === "fulfilled") return 9 // Job Fulfilled
+  if (lead.status === "assigned" || lead.status === "scheduled") return 8 // Job Assigned
+  if (lead.status === "booked" || lead.status === "paid") return 7 // Payment Received
+  if (lead.status === "quoted" || lead.stripe_payment_link) return 6 // Price Sent
+
+  // Otherwise use followup_stage directly (1-5 map to our first 5 stages)
+  return followupStage
+}
 
 function formatTimeRemaining(targetDate: Date): string {
   const now = new Date()
   const diffMs = targetDate.getTime() - now.getTime()
 
-  if (diffMs <= 0) return "Due now"
+  if (diffMs <= 0) return "now"
 
   const minutes = Math.floor(diffMs / 60000)
   const seconds = Math.floor((diffMs % 60000) / 1000)
@@ -58,11 +87,15 @@ function formatTimeRemaining(targetDate: Date): string {
 
 export function LeadFlowProgress({
   lead,
+  customerName,
   scheduledTasks,
-  onSkipToStage,
-  onMarkStatus,
+  onSkipForward,
+  onSkipBack,
+  onStop,
 }: LeadFlowProgressProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("")
+
+  const currentStage = getStageFromLead(lead)
 
   // Find the next pending task for this lead
   const nextTask = scheduledTasks
@@ -91,152 +124,85 @@ export function LeadFlowProgress({
     return () => clearInterval(interval)
   }, [nextTask])
 
-  if (!lead) {
-    return (
-      <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-4">
-        <div className="text-sm text-zinc-500 text-center">No active lead for this customer</div>
-      </div>
-    )
-  }
-
-  const currentStage = lead.followup_stage || 0
-  const isCompleted = lead.status === "booked" || lead.status === "lost" || lead.status === "review_sent"
+  // Check if timer should be shown (not on terminal states)
+  const showTimer = currentStage > 0 && currentStage < 7 && timeRemaining
 
   return (
-    <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-zinc-300">Lead Follow-up Progress</h3>
-        {nextTask && timeRemaining && (
-          <div className="flex items-center gap-1.5 text-xs text-amber-400">
-            <Clock className="w-3.5 h-3.5" />
-            <span>Next: {timeRemaining}</span>
-          </div>
-        )}
-      </div>
+    <div className="flex gap-1.5 overflow-x-auto pb-2">
+      {STAGES.map((stage) => {
+        const isCurrentStage = stage.stageNum === currentStage
+        const isPastStage = currentStage !== -1 && stage.stageNum > 0 && stage.stageNum < currentStage
+        const isLostStage = stage.id === "lead_lost"
 
-      {/* Stage Progress */}
-      <div className="flex items-center gap-1 mb-4">
-        {STAGES.map((stage, idx) => {
-          const Icon = stage.icon
-          const isActive = currentStage === stage.stage
-          const isCompleted = currentStage > stage.stage
-          const isPending = currentStage < stage.stage
-
-          return (
-            <div key={stage.stage} className="flex items-center">
-              {/* Stage Box */}
-              <div
-                className={`flex flex-col items-center justify-center w-14 h-14 rounded-lg border transition-all ${
-                  isCompleted
-                    ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-400"
-                    : isActive
-                    ? "bg-purple-500/20 border-purple-500/50 text-purple-400 ring-2 ring-purple-500/30"
-                    : "bg-zinc-800/50 border-zinc-700/50 text-zinc-500"
-                }`}
-              >
-                <Icon className="w-4 h-4 mb-0.5" />
-                <span className="text-[10px] font-medium">{stage.label}</span>
-              </div>
-
-              {/* Arrow to next stage */}
-              {idx < STAGES.length - 1 && (
-                <button
-                  onClick={() => onSkipToStage(stage.stage + 1)}
-                  disabled={currentStage >= stage.stage + 1 || isCompleted}
-                  className={`mx-0.5 p-1 rounded transition-colors ${
-                    currentStage >= stage.stage + 1 || isCompleted
-                      ? "text-zinc-700 cursor-not-allowed"
-                      : "text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10"
-                  }`}
-                  title={`Skip to ${STAGES[idx + 1].label}`}
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          )
-        })}
-
-        {/* Final skip arrow */}
-        <button
-          onClick={() => onSkipToStage(6)}
-          disabled={currentStage >= 6 || isCompleted}
-          className={`mx-0.5 p-1 rounded transition-colors ${
-            currentStage >= 6 || isCompleted
-              ? "text-zinc-700 cursor-not-allowed"
-              : "text-zinc-500 hover:text-purple-400 hover:bg-purple-500/10"
-          }`}
-          title="Skip to end"
-        >
-          <SkipForward className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Status Actions */}
-      <div className="flex items-center gap-2 pt-3 border-t border-zinc-800">
-        <span className="text-xs text-zinc-500 mr-2">Mark as:</span>
-
-        <button
-          onClick={() => onMarkStatus("booked")}
-          disabled={lead.status === "booked"}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            lead.status === "booked"
-              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/50"
-              : "bg-zinc-800 text-zinc-400 hover:bg-emerald-500/10 hover:text-emerald-400 border border-zinc-700"
-          }`}
-        >
-          <DollarSign className="w-3.5 h-3.5" />
-          Payment Received
-        </button>
-
-        <button
-          onClick={() => onMarkStatus("review_sent")}
-          disabled={lead.status === "review_sent"}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            lead.status === "review_sent"
-              ? "bg-blue-500/20 text-blue-400 border border-blue-500/50"
-              : "bg-zinc-800 text-zinc-400 hover:bg-blue-500/10 hover:text-blue-400 border border-zinc-700"
-          }`}
-        >
-          <Star className="w-3.5 h-3.5" />
-          Review Sent
-        </button>
-
-        <button
-          onClick={() => onMarkStatus("lost")}
-          disabled={lead.status === "lost"}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            lead.status === "lost"
-              ? "bg-red-500/20 text-red-400 border border-red-500/50"
-              : "bg-zinc-800 text-zinc-400 hover:bg-red-500/10 hover:text-red-400 border border-zinc-700"
-          }`}
-        >
-          <X className="w-3.5 h-3.5" />
-          Lead Lost
-        </button>
-      </div>
-
-      {/* Current Status Display */}
-      {isCompleted && (
-        <div className="mt-3 pt-3 border-t border-zinc-800">
+        return (
           <div
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${
-              lead.status === "booked"
-                ? "bg-emerald-500/20 text-emerald-400"
-                : lead.status === "review_sent"
-                ? "bg-blue-500/20 text-blue-400"
-                : "bg-red-500/20 text-red-400"
+            key={stage.id}
+            className={`flex-shrink-0 rounded-lg border transition-all ${
+              isCurrentStage
+                ? isLostStage
+                  ? "bg-red-500/20 border-red-500/50"
+                  : "bg-purple-500/20 border-purple-500/50"
+                : isPastStage
+                ? "bg-emerald-500/10 border-emerald-500/30"
+                : "bg-zinc-800/50 border-zinc-700/50"
             }`}
+            style={{ minWidth: isCurrentStage ? "160px" : "90px" }}
           >
-            <Check className="w-3.5 h-3.5" />
-            {lead.status === "booked"
-              ? "Booked & Paid"
-              : lead.status === "review_sent"
-              ? "Review Request Sent"
-              : "Lead Lost"}
+            {isCurrentStage ? (
+              // Current stage - show customer card
+              <div className="p-2">
+                <div className="text-[10px] font-medium text-zinc-400 mb-1.5">{stage.label}</div>
+                <div className="bg-zinc-900/80 rounded-md p-2 border border-zinc-700/50">
+                  <div className="text-xs font-medium text-zinc-200 truncate mb-1">
+                    {customerName}
+                  </div>
+                  {showTimer && (
+                    <div className="text-[10px] text-amber-400 mb-1.5">
+                      Next: {timeRemaining}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={onSkipBack}
+                      disabled={currentStage <= 1}
+                      className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      title="Go back"
+                    >
+                      <SkipBack className="w-3 h-3 text-zinc-400" />
+                    </button>
+                    <button
+                      onClick={onStop}
+                      className="p-1 rounded bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 transition-colors"
+                      title="Stop sequence"
+                    >
+                      <Square className="w-3 h-3 text-zinc-400" />
+                    </button>
+                    <button
+                      onClick={onSkipForward}
+                      disabled={currentStage >= 9 || currentStage === -1}
+                      className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      title="Skip forward"
+                    >
+                      <SkipForward className="w-3 h-3 text-zinc-400" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Other stages - just show label
+              <div className="p-2 h-full flex items-center justify-center">
+                <div
+                  className={`text-[10px] font-medium text-center ${
+                    isPastStage ? "text-emerald-400/70" : "text-zinc-500"
+                  }`}
+                >
+                  {stage.label}
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })}
     </div>
   )
 }

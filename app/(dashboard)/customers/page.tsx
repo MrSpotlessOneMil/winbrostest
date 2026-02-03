@@ -159,35 +159,65 @@ export default function CustomersPage() {
     )[0]
   }
 
-  // Handle skip to stage action
-  const handleSkipToStage = async (stage: number) => {
+  // Handle skip forward action
+  const handleSkipForward = async () => {
     if (!selectedCustomer) return
     const lead = getCustomerLead(selectedCustomer.phone_number)
     if (!lead) return
+
+    const nextStage = (lead.followup_stage || 0) + 1
+    if (nextStage > 10) return
 
     try {
       const res = await fetch(`/api/leads/${lead.id}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "skip_to_stage", stage }),
+        body: JSON.stringify({ action: "skip_to_stage", stage: nextStage }),
       })
       const json = await res.json()
       if (json.success) {
-        // Update local state
         setLeads((prev) =>
-          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: stage } : l))
+          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: nextStage } : l))
         )
       } else {
-        alert(json.error || "Failed to skip stage")
+        alert(json.error || "Failed to skip forward")
       }
     } catch (error) {
-      console.error("Failed to skip stage:", error)
-      alert("Failed to skip stage")
+      console.error("Failed to skip forward:", error)
+      alert("Failed to skip forward")
     }
   }
 
-  // Handle mark status action
-  const handleMarkStatus = async (status: "booked" | "lost" | "review_sent") => {
+  // Handle skip back action
+  const handleSkipBack = async () => {
+    if (!selectedCustomer) return
+    const lead = getCustomerLead(selectedCustomer.phone_number)
+    if (!lead) return
+
+    const prevStage = Math.max(1, (lead.followup_stage || 1) - 1)
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "skip_to_stage", stage: prevStage }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setLeads((prev) =>
+          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: prevStage } : l))
+        )
+      } else {
+        alert(json.error || "Failed to go back")
+      }
+    } catch (error) {
+      console.error("Failed to go back:", error)
+      alert("Failed to go back")
+    }
+  }
+
+  // Handle stop action (mark as lost)
+  const handleStop = async () => {
     if (!selectedCustomer) return
     const lead = getCustomerLead(selectedCustomer.phone_number)
     if (!lead) return
@@ -196,15 +226,13 @@ export default function CustomersPage() {
       const res = await fetch(`/api/leads/${lead.id}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_status", status }),
+        body: JSON.stringify({ action: "mark_status", status: "lost" }),
       })
       const json = await res.json()
       if (json.success) {
-        // Update local state
         setLeads((prev) =>
-          prev.map((l) => (l.id === lead.id ? { ...l, status } : l))
+          prev.map((l) => (l.id === lead.id ? { ...l, status: "lost" } : l))
         )
-        // Also remove any pending scheduled tasks for this lead from local state
         setScheduledTasks((prev) =>
           prev.filter((t) => t.payload?.leadId !== String(lead.id))
         )
@@ -406,9 +434,11 @@ export default function CustomersPage() {
                 {/* Lead Flow Progress */}
                 <LeadFlowProgress
                   lead={getCustomerLead(selectedCustomer.phone_number)}
+                  customerName={getCustomerName(selectedCustomer)}
                   scheduledTasks={scheduledTasks}
-                  onSkipToStage={handleSkipToStage}
-                  onMarkStatus={handleMarkStatus}
+                  onSkipForward={handleSkipForward}
+                  onSkipBack={handleSkipBack}
+                  onStop={handleStop}
                 />
 
                 {/* Customer Info + Tabs */}
