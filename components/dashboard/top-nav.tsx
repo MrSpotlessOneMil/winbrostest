@@ -1,11 +1,9 @@
 "use client"
 
-import { Bell, Search, User, LogOut, Settings, Plug, UserCircle, PanelLeft } from "lucide-react"
+import { Bell, Search, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,38 +21,12 @@ type NotificationItem = {
   time: string
 }
 
-type CurrentUser = {
-  id: number
-  username: string
-  display_name: string | null
-  email: string | null
-}
-
 interface TopNavProps {
   onToggleSidebar?: () => void
 }
 
 export function TopNav({ onToggleSidebar }: TopNavProps) {
-  const router = useRouter()
   const [items, setItems] = useState<NotificationItem[]>([])
-  const [user, setUser] = useState<CurrentUser | null>(null)
-  const [isLoggingOut, setIsLoggingOut] = useState(false)
-
-  // Fetch current user session
-  useEffect(() => {
-    async function fetchUser() {
-      try {
-        const res = await fetch("/api/auth/session", { cache: "no-store" })
-        const json = await res.json()
-        if (json.success && json.user) {
-          setUser(json.user)
-        }
-      } catch {
-        setUser(null)
-      }
-    }
-    fetchUser()
-  }, [])
 
   // Fetch notifications
   useEffect(() => {
@@ -78,22 +50,6 @@ export function TopNav({ onToggleSidebar }: TopNavProps) {
   }, [])
 
   const count = useMemo(() => Math.min(99, items.length), [items.length])
-
-  const handleLogout = async () => {
-    if (isLoggingOut) return
-    setIsLoggingOut(true)
-
-    try {
-      await fetch("/api/auth/logout", { method: "POST" })
-      router.push("/login")
-    } catch (error) {
-      console.error("Logout failed:", error)
-      setIsLoggingOut(false)
-    }
-  }
-
-  const displayName = user?.username || user?.display_name || "User"
-  const initials = displayName.charAt(0).toUpperCase()
 
   return (
     <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-4">
@@ -159,65 +115,6 @@ export function TopNav({ onToggleSidebar }: TopNavProps) {
                 </DropdownMenuItem>
               ))
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        {/* User Menu */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary">
-                {user ? (
-                  <span className="text-sm font-medium text-primary-foreground">{initials}</span>
-                ) : (
-                  <User className="h-4 w-4 text-primary-foreground" />
-                )}
-              </div>
-              <div className="hidden flex-col items-start md:flex">
-                <span className="text-sm font-medium">{displayName}</span>
-                <span className="text-xs text-muted-foreground">Owner</span>
-              </div>
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>
-              {user?.email ? (
-                <div className="flex flex-col">
-                  <span>{displayName}</span>
-                  <span className="text-xs font-normal text-muted-foreground">{user.email}</span>
-                </div>
-              ) : (
-                "My Account"
-              )}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link href="/settings?tab=business" className="flex items-center gap-2 cursor-pointer">
-                <UserCircle className="h-4 w-4" />
-                Profile
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/settings" className="flex items-center gap-2 cursor-pointer">
-                <Settings className="h-4 w-4" />
-                Settings
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/settings?tab=integrations" className="flex items-center gap-2 cursor-pointer">
-                <Plug className="h-4 w-4" />
-                Integrations
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="text-destructive focus:text-destructive"
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              {isLoggingOut ? "Signing out..." : "Sign out"}
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
