@@ -346,7 +346,6 @@ export default function AdminPage() {
       deletions: allDeletions.length > 0 ? allDeletions : ["No data found for test numbers"]
     })
     setResetting(false)
-    }
   }
 
   const currentTenant = tenants.find((t) => t.id === selectedTenant)
