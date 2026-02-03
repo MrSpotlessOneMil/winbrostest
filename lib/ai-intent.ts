@@ -24,7 +24,7 @@ export interface IntentAnalysis {
  */
 export async function analyzeBookingIntent(
   message: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): Promise<IntentAnalysis> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   const openaiKey = process.env.OPENAI_API_KEY
@@ -54,7 +54,7 @@ export async function analyzeBookingIntent(
  */
 async function analyzeWithClaude(
   message: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): Promise<IntentAnalysis> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -127,7 +127,7 @@ Return ONLY the JSON object.`
  */
 async function analyzeWithOpenAI(
   message: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): Promise<IntentAnalysis> {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 

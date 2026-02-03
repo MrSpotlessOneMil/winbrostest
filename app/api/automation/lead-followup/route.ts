@@ -437,7 +437,7 @@ async function saveOutboundMessage(
       tenant_id: tenant?.id,
       customer_id: customerId || null,
       phone_number: e164Phone,
-      role: "business",
+      role: "assistant",
       content,
       direction: "outbound",
       message_type: "sms",

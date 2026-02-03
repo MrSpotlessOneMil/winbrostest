@@ -347,7 +347,7 @@ export async function POST(request: NextRequest) {
                 tenant_id: tenant?.id,
                 customer_id: customerRecord?.id,
                 phone_number: phone,
-                role: "business",
+                role: "assistant",
                 content: initialMessage,
                 direction: "outbound",
                 message_type: "sms",

@@ -21,7 +21,7 @@ export interface DashboardJob {
 }
 
 export interface Message {
-  role: 'client' | 'business' | 'bot';
+  role: 'client' | 'assistant' | 'system';
   content: string;
   timestamp: string;
 }
@@ -423,7 +423,7 @@ export async function getLiveDashboardData(brand?: string): Promise<DashboardDat
       const profile = profileMap.get(msg.phone_number);
       if (profile) {
         profile.messages.push({
-          role: msg.role as 'client' | 'business' | 'bot',
+          role: msg.role as 'client' | 'assistant' | 'system',
           content: msg.content,
           timestamp: msg.timestamp
         });

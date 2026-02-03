@@ -21,7 +21,7 @@ export async function generateAutoResponse(
   incomingMessage: string,
   intentAnalysis: IntentAnalysis,
   tenant: Tenant | null,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): Promise<AutoResponseResult> {
   // Don't respond to obvious opt-outs
   const lowerMessage = incomingMessage.toLowerCase().trim()
@@ -115,7 +115,7 @@ async function generateWithClaude(
   businessName: string,
   sdrName: string,
   serviceArea: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): Promise<AutoResponseResult> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -188,7 +188,7 @@ async function generateWithOpenAI(
   businessName: string,
   sdrName: string,
   serviceArea: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): Promise<AutoResponseResult> {
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
@@ -245,7 +245,7 @@ function generateFallbackResponse(
   intent: IntentAnalysis,
   businessName: string,
   sdrName: string,
-  conversationHistory?: Array<{ role: 'client' | 'business'; content: string }>,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): AutoResponseResult {
   const hasHistory = conversationHistory && conversationHistory.length > 0

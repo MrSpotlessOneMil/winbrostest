@@ -126,7 +126,7 @@ export interface Message {
   customer_id: number
   call_id?: number
   openphone_id?: string
-  role: 'client' | 'business' | 'bot'
+  role: 'client' | 'assistant' | 'system'
   content: string
   timestamp: string
   direction?: 'inbound' | 'outbound' | null

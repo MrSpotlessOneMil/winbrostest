@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         tenant_id: tenant?.id,
         customer_id: customer?.id || null,
         phone_number: toE164,
-        role: "business",
+        role: "assistant",
         content: extracted.content,
         direction: "outbound",
         message_type: "sms",
@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
     .limit(5)
 
   const conversationHistory = recentMessages?.reverse().map(m => ({
-    role: m.role as 'client' | 'business',
+    role: m.role as 'client' | 'assistant',
     content: m.content
   })) || []
 
@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
               tenant_id: tenant?.id,
               customer_id: customer.id,
               phone_number: phone,
-              role: "business",
+              role: "assistant",
               content: autoResponse.response,
               direction: "outbound",
               message_type: "sms",
@@ -333,7 +333,7 @@ export async function POST(request: NextRequest) {
             tenant_id: tenant?.id,
             customer_id: customer.id,
             phone_number: phone,
-            role: "business",
+            role: "assistant",
             content: autoResponse.response,
             direction: "outbound",
             message_type: "sms",

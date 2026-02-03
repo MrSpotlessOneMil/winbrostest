@@ -173,7 +173,7 @@ export async function POST(
                 tenant_id: tenant.id,
                 customer_id: lead.customer_id,
                 phone_number: leadPhone,
-                role: "business",
+                role: "assistant",
                 content: message,
                 direction: "outbound",
                 message_type: "sms",
