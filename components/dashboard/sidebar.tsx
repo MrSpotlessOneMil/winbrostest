@@ -86,7 +86,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
     <aside
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
-      } bg-zinc-950 border-r border-zinc-800/60 h-screen sticky top-0 flex flex-col transition-all duration-200`}
+      } bg-zinc-950 border-r border-zinc-800/60 h-full flex-shrink-0 flex flex-col transition-all duration-200`}
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-zinc-800/60">

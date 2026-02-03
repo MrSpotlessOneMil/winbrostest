@@ -10,7 +10,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   return (
     <AuthProvider>
-      <div className="flex min-h-screen bg-zinc-950">
+      <div className="flex h-screen overflow-hidden bg-zinc-950">
         <Sidebar collapsed={sidebarCollapsed} />
         <div className="flex-1 flex flex-col min-w-0 m-2 ml-0 rounded-xl bg-zinc-900/80 border border-zinc-800/60 overflow-hidden">
           <TopNav onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
