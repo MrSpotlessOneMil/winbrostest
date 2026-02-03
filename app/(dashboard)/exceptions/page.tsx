@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertTriangle, Beaker, RefreshCcw, Activity, Search, Filter } from "lucide-react"
+import { AlertTriangle, Beaker, RefreshCcw, Activity, Search, Filter, Check } from "lucide-react"
 
 interface SystemEvent {
   id: number
@@ -85,6 +85,7 @@ export default function ExceptionsPage() {
   const [sourceFilter, setSourceFilter] = useState<string>("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null)
+  const [copiedEventId, setCopiedEventId] = useState<number | null>(null)
 
   async function refreshExceptions() {
     setExceptionsError(null)
@@ -279,11 +280,29 @@ export default function ExceptionsPage() {
 
                       {/* Expanded metadata */}
                       {expandedEvent === event.id && event.metadata && (
-                        <div className="mt-3 pt-3 border-t border-border">
+                        <div
+                          className="mt-3 pt-3 border-t border-border"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <div className="text-xs font-medium text-muted-foreground mb-1">Metadata:</div>
-                          <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto">
-                            {JSON.stringify(event.metadata, null, 2)}
-                          </pre>
+                          <div
+                            className="relative cursor-pointer group"
+                            onClick={() => {
+                              navigator.clipboard.writeText(JSON.stringify(event.metadata, null, 2))
+                              setCopiedEventId(event.id)
+                              setTimeout(() => setCopiedEventId(null), 1000)
+                            }}
+                          >
+                            {copiedEventId === event.id && (
+                              <div className="absolute top-2 right-2 flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-900/30 dark:text-green-400 px-2 py-1 rounded animate-in fade-in zoom-in duration-200">
+                                <Check className="h-3 w-3" />
+                                copied
+                              </div>
+                            )}
+                            <pre className="text-xs bg-muted/50 rounded p-2 overflow-x-auto hover:bg-muted/70 transition-colors">
+                              {JSON.stringify(event.metadata, null, 2)}
+                            </pre>
+                          </div>
                           {(event.job_id || event.lead_id || event.cleaner_id) && (
                             <div className="flex gap-2 mt-2">
                               {event.job_id && (
