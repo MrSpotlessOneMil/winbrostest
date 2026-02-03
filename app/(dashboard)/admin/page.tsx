@@ -69,6 +69,7 @@ interface Tenant {
   // VAPI
   vapi_api_key: string | null
   vapi_assistant_id: string | null
+  vapi_outbound_assistant_id: string | null
   vapi_phone_id: string | null
   // Stripe
   stripe_secret_key: string | null
@@ -117,6 +118,9 @@ export default function AdminPage() {
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
   const [savingCredentials, setSavingCredentials] = useState(false)
   const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set())
+
+  // Tab state - persists across saves
+  const [activeTab, setActiveTab] = useState("controls")
 
   async function fetchTenants() {
     setLoading(true)
@@ -369,7 +373,7 @@ export default function AdminPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <Tabs defaultValue="controls" className="space-y-4">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                   <TabsList>
                     <TabsTrigger value="controls" className="gap-2">
                       <Power className="h-4 w-4" />
@@ -779,19 +783,27 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-sm">Assistant ID</Label>
-                          <Input
-                            value={getFieldValue(currentTenant, "vapi_assistant_id")}
-                            onChange={(e) => setFieldValue("vapi_assistant_id", e.target.value)}
-                            placeholder="Enter Assistant ID"
-                          />
-                        </div>
-                        <div className="space-y-2">
                           <Label className="text-sm">Phone ID</Label>
                           <Input
                             value={getFieldValue(currentTenant, "vapi_phone_id")}
                             onChange={(e) => setFieldValue("vapi_phone_id", e.target.value)}
                             placeholder="Enter Phone ID"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Inbound Assistant ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "vapi_assistant_id")}
+                            onChange={(e) => setFieldValue("vapi_assistant_id", e.target.value)}
+                            placeholder="For receiving calls"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Outbound Assistant ID</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "vapi_outbound_assistant_id")}
+                            onChange={(e) => setFieldValue("vapi_outbound_assistant_id", e.target.value)}
+                            placeholder="For making calls"
                           />
                         </div>
                       </div>

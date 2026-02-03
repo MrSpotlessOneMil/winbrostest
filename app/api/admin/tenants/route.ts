@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
       openphone_phone_number,
       vapi_api_key,
       vapi_assistant_id,
+      vapi_outbound_assistant_id,
       vapi_phone_id,
       stripe_secret_key,
       stripe_webhook_secret,
