@@ -57,8 +57,8 @@ function getStageFromLead(lead: Lead | null): number {
   // Check status first for terminal states
   if (lead.status === "lost") return -1 // Lead Lost
 
-  // Map followup_stage to our stages
-  const followupStage = lead.followup_stage || 0
+  // Map followup_stage to our stages (default to 1 if 0 or null - lead exists but sequence not started)
+  const followupStage = lead.followup_stage || 1
 
   // Check for later stages based on status
   if (lead.status === "completed" || lead.status === "fulfilled") return 9 // Job Fulfilled
@@ -67,6 +67,7 @@ function getStageFromLead(lead: Lead | null): number {
   if (lead.status === "quoted" || lead.stripe_payment_link) return 6 // Price Sent
 
   // Otherwise use followup_stage directly (1-5 map to our first 5 stages)
+  // If followup_stage is 0, we already defaulted to 1 above
   return followupStage
 }
 
@@ -126,6 +127,19 @@ export function LeadFlowProgress({
 
   // Check if timer should be shown (not on terminal states)
   const showTimer = currentStage > 0 && currentStage < 7 && timeRemaining
+
+  // If no lead exists for this customer, show a minimal state
+  if (!lead) {
+    return (
+      <div className="flex gap-1.5 overflow-x-auto pb-2">
+        <div className="flex-shrink-0 rounded-lg border bg-zinc-800/30 border-zinc-700/30 p-2">
+          <div className="text-[10px] font-medium text-zinc-500 text-center">
+            No active lead
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex gap-1.5 overflow-x-auto pb-2">
