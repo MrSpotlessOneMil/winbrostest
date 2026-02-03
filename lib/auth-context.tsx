@@ -78,15 +78,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(data.data.user)
         setIsAdmin(data.data.user.username === 'admin')
 
-        // Add to accounts list if not already there
+        const sessionToken = data.data.sessionToken
+
+        // Add to accounts list if not already there, including session token
         setAccounts((prev) => {
           const exists = prev.some((a) => a.user.id === data.data.user.id)
           if (!exists) {
-            return [...prev, { user: data.data.user }]
+            return [...prev, { user: data.data.user, sessionToken }]
           }
-          // Update user info if it changed
+          // Update user info and token if it changed
           return prev.map((a) =>
-            a.user.id === data.data.user.id ? { ...a, user: data.data.user } : a
+            a.user.id === data.data.user.id
+              ? { ...a, user: data.data.user, sessionToken: sessionToken || a.sessionToken }
+              : a
           )
         })
       } else {
@@ -127,8 +131,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const account = accounts.find((a) => a.user.id === userId)
     if (!account) return
 
-    // For now, we just redirect to login with the username pre-filled
-    // In a more sophisticated implementation, we'd store session tokens per account
+    // If we have a session token for this account, use it to switch seamlessly
+    if (account.sessionToken) {
+      try {
+        const res = await fetch('/api/auth/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionToken: account.sessionToken }),
+        })
+
+        const data = await res.json()
+
+        if (data.success && data.data?.user) {
+          // Update current user state
+          setUser(data.data.user)
+          setIsAdmin(data.data.user.username === 'admin')
+          setAuthenticated(true)
+          return
+        }
+      } catch {
+        // If switch fails, fall through to login redirect
+      }
+    }
+
+    // Fallback: redirect to login if no token or switch failed
     window.location.href = `/login?switch=${account.user.username}`
   }
 
@@ -143,14 +169,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json()
 
       if (data.success && data.data?.user) {
-        // Add to accounts list
+        // Add to accounts list with session token
         const newUser = data.data.user
+        const sessionToken = data.data.sessionToken
         setAccounts((prev) => {
           const exists = prev.some((a) => a.user.id === newUser.id)
           if (!exists) {
-            return [...prev, { user: newUser }]
+            return [...prev, { user: newUser, sessionToken }]
           }
-          return prev
+          // Update existing account with new token
+          return prev.map((a) =>
+            a.user.id === newUser.id ? { ...a, user: newUser, sessionToken } : a
+          )
         })
 
         // Refresh to set as current user

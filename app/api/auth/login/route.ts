@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
           display_name: user.display_name,
           email: user.email,
         },
+        sessionToken: token, // Return token for multi-account support
       },
     })
 

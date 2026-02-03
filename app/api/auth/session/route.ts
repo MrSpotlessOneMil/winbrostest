@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth'
 
+const SESSION_COOKIE_NAME = 'winbros_session'
+
 export async function GET(request: NextRequest) {
   try {
     const user = await getAuthUser(request)
@@ -12,6 +14,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Get session token from cookie for multi-account support
+    const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
+
     return NextResponse.json({
       success: true,
       data: {
@@ -21,6 +26,7 @@ export async function GET(request: NextRequest) {
           display_name: user.display_name,
           email: user.email,
         },
+        sessionToken, // Return token for multi-account storage
       },
     })
   } catch (error) {
