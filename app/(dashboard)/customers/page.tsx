@@ -114,6 +114,7 @@ export default function CustomersPage() {
   const [sendingSms, setSendingSms] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Initial data fetch
   useEffect(() => {
     async function fetchData() {
       try {
@@ -138,6 +139,41 @@ export default function CustomersPage() {
     }
     fetchData()
   }, [])
+
+  // Poll for new messages and updates every 3 seconds
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/customers")
+        const json = await res.json()
+        if (json.success) {
+          // Check if there are new messages to trigger scroll
+          const prevCount = messages.length
+          const newMessages = json.data.messages || []
+
+          // Update messages - this shows new incoming/outgoing texts immediately
+          setMessages(newMessages)
+          // Update leads to get latest form_data (including followup_paused)
+          setLeads(json.data.leads || [])
+          // Update scheduled tasks
+          setScheduledTasks(json.data.scheduledTasks || [])
+          // Update calls
+          setCalls(json.data.calls)
+
+          // Auto-scroll if new messages arrived
+          if (newMessages.length > prevCount) {
+            setTimeout(() => {
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+            }, 100)
+          }
+        }
+      } catch (error) {
+        // Silently fail on polling errors - don't spam console
+      }
+    }, 3000)
+
+    return () => clearInterval(pollInterval)
+  }, [messages.length])
 
   const getCustomerName = (customer: Customer) => {
     if (customer.first_name || customer.last_name) {
@@ -326,11 +362,30 @@ export default function CustomersPage() {
     }
   }
 
-  // Handle toggle auto-response on/off
+  // Handle toggle auto-response on/off - with optimistic update
   const handleToggleFollowup = async (paused: boolean) => {
     if (!selectedCustomer) return
     const lead = getCustomerLead(selectedCustomer.phone_number)
     if (!lead) return
+
+    // Save previous state for rollback
+    const previousFormData = lead.form_data
+
+    // Optimistic update - update UI immediately
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === lead.id
+          ? { ...l, form_data: { ...l.form_data, followup_paused: paused } }
+          : l
+      )
+    )
+
+    // If pausing, optimistically clear scheduled tasks from UI
+    if (paused) {
+      setScheduledTasks((prev) =>
+        prev.filter((t) => t.payload?.leadId !== String(lead.id))
+      )
+    }
 
     try {
       const res = await fetch(`/api/leads/${lead.id}/actions`, {
@@ -339,32 +394,33 @@ export default function CustomersPage() {
         body: JSON.stringify({ action: "toggle_followup", paused }),
       })
       const json = await res.json()
-      if (json.success) {
-        // Update local lead state with paused status
+      if (!json.success) {
+        // Rollback on failure
         setLeads((prev) =>
           prev.map((l) =>
             l.id === lead.id
-              ? { ...l, form_data: { ...l.form_data, followup_paused: paused } }
+              ? { ...l, form_data: previousFormData }
               : l
           )
         )
-        // If paused, clear scheduled tasks from UI
-        if (paused) {
-          setScheduledTasks((prev) =>
-            prev.filter((t) => t.payload?.leadId !== String(lead.id))
-          )
-        } else {
-          // Refresh to get any new scheduled tasks
-          const dataRes = await fetch("/api/customers")
-          const dataJson = await dataRes.json()
-          if (dataJson.success) {
-            setScheduledTasks(dataJson.data.scheduledTasks || [])
-          }
-        }
-      } else {
         alert(json.error || "Failed to toggle auto-response")
+      } else if (!paused) {
+        // If resuming, refresh to get any new scheduled tasks
+        const dataRes = await fetch("/api/customers")
+        const dataJson = await dataRes.json()
+        if (dataJson.success) {
+          setScheduledTasks(dataJson.data.scheduledTasks || [])
+        }
       }
     } catch (error) {
+      // Rollback on error
+      setLeads((prev) =>
+        prev.map((l) =>
+          l.id === lead.id
+            ? { ...l, form_data: previousFormData }
+            : l
+        )
+      )
       console.error("Failed to toggle auto-response:", error)
       alert("Failed to toggle auto-response")
     }

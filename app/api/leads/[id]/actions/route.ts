@@ -302,24 +302,34 @@ export async function POST(
         // Toggle auto-followup on/off for this lead
         const paused = body.paused === true
 
-        // Get current form_data
-        const currentFormData = typeof lead.form_data === 'object' && lead.form_data !== null
-          ? lead.form_data
+        // Get current form_data - ensure it's a proper object
+        const currentFormData = (typeof lead.form_data === 'object' && lead.form_data !== null)
+          ? (lead.form_data as Record<string, unknown>)
           : {}
 
-        const { error: updateError } = await client
+        // Build the new form_data with followup_paused
+        const newFormData = {
+          ...currentFormData,
+          followup_paused: paused,
+        }
+
+        console.log(`[toggle_followup] Lead ${leadId}: Setting followup_paused=${paused}`)
+        console.log(`[toggle_followup] Previous form_data:`, lead.form_data)
+        console.log(`[toggle_followup] New form_data:`, newFormData)
+
+        const { data: updatedLead, error: updateError } = await client
           .from("leads")
-          .update({
-            form_data: {
-              ...currentFormData,
-              followup_paused: paused,
-            },
-          })
+          .update({ form_data: newFormData })
           .eq("id", leadId)
+          .select("id, form_data")
+          .single()
 
         if (updateError) {
+          console.error(`[toggle_followup] Update error:`, updateError)
           throw updateError
         }
+
+        console.log(`[toggle_followup] Updated lead form_data:`, updatedLead?.form_data)
 
         // If pausing, cancel all pending tasks
         if (paused) {
