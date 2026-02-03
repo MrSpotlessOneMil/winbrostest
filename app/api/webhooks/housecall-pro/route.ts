@@ -341,6 +341,7 @@ export async function POST(request: NextRequest) {
               console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
 
               // Save the outbound message to the messages table so it shows in the UI
+              // MUST include all required fields: direction, message_type, ai_generated, source
               console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${phone}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant?.id}`)
               const { error: msgError } = await client.from("messages").insert({
                 tenant_id: tenant?.id,
@@ -348,7 +349,11 @@ export async function POST(request: NextRequest) {
                 phone_number: phone,
                 role: "business",
                 content: initialMessage,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: false,
                 timestamp: new Date().toISOString(),
+                source: "hcp_webhook",
               })
               if (msgError) {
                 console.error(`[OSIRIS] HCP Webhook: Failed to save message to DB:`, msgError)

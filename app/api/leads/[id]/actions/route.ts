@@ -167,7 +167,7 @@ export async function POST(
             const smsResult = await sendSMS(tenant, leadPhone, message)
 
             if (smsResult.success) {
-              // Save to messages table
+              // Save to messages table - MUST include all required fields
               console.log(`[move_to_stage] Saving message to DB for phone ${leadPhone}, customer_id ${lead.customer_id}`)
               const { error: msgError } = await client.from("messages").insert({
                 tenant_id: tenant.id,
@@ -175,7 +175,11 @@ export async function POST(
                 phone_number: leadPhone,
                 role: "business",
                 content: message,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: false,
                 timestamp: new Date().toISOString(),
+                source: "lead_flow",
               })
               if (msgError) {
                 console.error(`[move_to_stage] Failed to save message:`, msgError)

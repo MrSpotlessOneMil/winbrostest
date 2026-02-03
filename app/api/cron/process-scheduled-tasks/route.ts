@@ -326,6 +326,7 @@ async function processLeadFollowup(
     }
 
     // Save the outbound message to the database so it shows in the UI
+    // MUST include all required fields: direction, message_type, ai_generated, source
     if (smsResult.success) {
       console.log(`[lead-followup] Attempting to save message to DB for phone ${leadPhone}, customer_id ${lead.customer_id}, tenant_id ${tenant?.id}`)
       const { error: msgError } = await client.from('messages').insert({
@@ -334,7 +335,11 @@ async function processLeadFollowup(
         phone_number: leadPhone,
         role: 'business',
         content: message,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: false,
         timestamp: new Date().toISOString(),
+        source: 'scheduled_followup',
       })
       if (msgError) {
         console.error(`[lead-followup] Failed to save message to DB:`, msgError)
