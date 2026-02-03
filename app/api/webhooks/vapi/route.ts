@@ -109,7 +109,6 @@ export async function POST(request: NextRequest) {
   console.log(`[VAPI Webhook] Call direction detected: ${direction} (callType: ${callType}, hasLeadId: ${!!metadata.leadId})`)
 
   // Insert call row
-  // Note: audio_url removed until column is added to database
   const { error: callErr } = await client.from("calls").insert({
     tenant_id: tenant?.id,
     customer_id: customerId,
@@ -121,6 +120,7 @@ export async function POST(request: NextRequest) {
     transcript: data.transcript || null,
     duration_seconds: data.duration ? Math.round(Number(data.duration)) : null,
     outcome: data.outcome || null,
+    audio_url: data.audioUrl || null,
     status: "completed",
     started_at: nowIso,
     date: nowIso,
