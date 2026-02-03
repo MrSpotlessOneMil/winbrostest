@@ -142,14 +142,20 @@ export default function CustomersPage() {
     return formatPhone(customer.phone_number)
   }
 
-  const getCustomerMessages = (phoneNumber: string) =>
-    messages.filter((m) => m.phone_number === phoneNumber)
+  const getCustomerMessages = (phoneNumber: string) => {
+    const normalizedCustomerPhone = normalizePhone(phoneNumber)
+    return messages.filter((m) => normalizePhone(m.phone_number) === normalizedCustomerPhone)
+  }
 
-  const getCustomerJobs = (phoneNumber: string) =>
-    jobs.filter((j) => j.phone_number === phoneNumber)
+  const getCustomerJobs = (phoneNumber: string) => {
+    const normalizedCustomerPhone = normalizePhone(phoneNumber)
+    return jobs.filter((j) => normalizePhone(j.phone_number) === normalizedCustomerPhone)
+  }
 
-  const getCustomerCalls = (phoneNumber: string) =>
-    calls.filter((c) => c.phone_number === phoneNumber)
+  const getCustomerCalls = (phoneNumber: string) => {
+    const normalizedCustomerPhone = normalizePhone(phoneNumber)
+    return calls.filter((c) => normalizePhone(c.phone_number) === normalizedCustomerPhone)
+  }
 
   const getCustomerRevenue = (phoneNumber: string) =>
     getCustomerJobs(phoneNumber).reduce((sum, j) => sum + (j.price || 0), 0)
@@ -263,6 +269,27 @@ export default function CustomersPage() {
     if (!lead) return
 
     try {
+      // If dragging to "Lost" stage (-1), use mark_status action instead
+      if (targetStage === -1) {
+        const res = await fetch(`/api/leads/${lead.id}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "mark_status", status: "lost" }),
+        })
+        const json = await res.json()
+        if (json.success) {
+          setLeads((prev) =>
+            prev.map((l) => (l.id === lead.id ? { ...l, status: "lost" } : l))
+          )
+          setScheduledTasks((prev) =>
+            prev.filter((t) => t.payload?.leadId !== String(lead.id))
+          )
+        } else {
+          alert(json.error || "Failed to mark as lost")
+        }
+        return
+      }
+
       const res = await fetch(`/api/leads/${lead.id}/actions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

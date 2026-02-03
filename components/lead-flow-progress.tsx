@@ -130,8 +130,9 @@ export function LeadFlowProgress({
     return () => clearInterval(interval)
   }, [nextTask])
 
-  // Check if timer should be shown (only during automated followup stages 1-5)
-  const showTimer = currentStage > 0 && currentStage <= 5 && timeRemaining
+  // Check if timer should be shown - show whenever there's a pending task for this lead
+  // This covers stages 1-5 and also when manually moved to a stage
+  const showTimer = Boolean(nextTask && timeRemaining)
 
   // Drag handlers
   const handleDragStart = (e: DragEvent<HTMLDivElement>) => {

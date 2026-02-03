@@ -168,7 +168,8 @@ export async function POST(
 
             if (smsResult.success) {
               // Save to messages table
-              await client.from("messages").insert({
+              console.log(`[move_to_stage] Saving message to DB for phone ${leadPhone}, customer_id ${lead.customer_id}`)
+              const { error: msgError } = await client.from("messages").insert({
                 tenant_id: tenant.id,
                 customer_id: lead.customer_id,
                 phone_number: leadPhone,
@@ -176,8 +177,14 @@ export async function POST(
                 content: message,
                 timestamp: new Date().toISOString(),
               })
+              if (msgError) {
+                console.error(`[move_to_stage] Failed to save message:`, msgError)
+              } else {
+                console.log(`[move_to_stage] Message saved successfully for ${leadPhone}`)
+              }
               actionResult.message = `Text sent for stage ${stage}`
             } else {
+              console.error(`[move_to_stage] SMS failed:`, smsResult.error)
               actionResult = { success: false, message: smsResult.error || 'Failed to send text' }
             }
           } else if (stageAction.type === 'call') {
