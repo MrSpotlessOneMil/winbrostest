@@ -40,9 +40,60 @@ export async function POST(request: NextRequest) {
     extracted.direction === "incoming" ||
     extracted.eventType === "message.received"
 
-  // Only process inbound messages
-  if (!isInbound) {
-    return NextResponse.json({ success: true, ignored: true, reason: `outbound message (direction: ${extracted.direction}, event: ${extracted.eventType})` })
+  const isOutbound =
+    extracted.direction === "outbound" ||
+    extracted.direction === "outgoing" ||
+    extracted.eventType === "message.sent"
+
+  // Handle outbound messages - log them so they appear in the UI
+  // This catches messages sent directly from the OpenPhone app
+  if (isOutbound) {
+    const toE164 = normalizePhoneNumber(extracted.to) || extracted.to
+    const toPhone = normalizePhoneNumber(toE164)
+
+    if (toPhone) {
+      const client = getSupabaseClient()
+
+      // Route to correct tenant
+      let tenant = await getTenantByPhoneNumber(extracted.from)
+      if (!tenant) {
+        tenant = await getTenantByOpenPhoneId(extracted.from)
+      }
+      if (!tenant) {
+        tenant = await getDefaultTenant()
+      }
+
+      // Find customer
+      const { data: customer } = await client
+        .from("customers")
+        .select("id")
+        .eq("phone_number", toE164)
+        .eq("tenant_id", tenant?.id)
+        .maybeSingle()
+
+      // Save the outbound message
+      const { error: msgErr } = await client.from("messages").insert({
+        tenant_id: tenant?.id,
+        customer_id: customer?.id || null,
+        phone_number: toE164,
+        role: "business",
+        content: extracted.content,
+        direction: "outbound",
+        message_type: "sms",
+        ai_generated: false,
+        timestamp: extracted.createdAt || new Date().toISOString(),
+        source: "openphone_app",
+        metadata: payload,
+      })
+
+      if (msgErr) {
+        console.error("[OpenPhone] Failed to save outbound message:", msgErr)
+      } else {
+        console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${toPhone}`)
+      }
+    }
+
+    return NextResponse.json({ success: true, logged: true, direction: "outbound" })
   }
 
   const fromE164 = normalizePhoneNumber(extracted.from) || extracted.from

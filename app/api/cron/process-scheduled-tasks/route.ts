@@ -203,10 +203,10 @@ async function processLeadFollowup(
     let message: string
 
     if (stage === 1) {
-      // Initial greeting
+      // Initial greeting (Text 1)
       message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
-    } else if (stage === 4) {
-      // Second follow-up text
+    } else if (stage === 2) {
+      // Second follow-up text (Text 2)
       message = `Hi ${leadName}, just checking in! We have openings this week for cleaning services. Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
     } else if (stage === 5) {
       // Final stage - try to create a quote and send payment link
@@ -327,7 +327,8 @@ async function processLeadFollowup(
 
     // Save the outbound message to the database so it shows in the UI
     if (smsResult.success) {
-      await client.from('messages').insert({
+      console.log(`[lead-followup] Attempting to save message to DB for phone ${leadPhone}, customer_id ${lead.customer_id}, tenant_id ${tenant?.id}`)
+      const { error: msgError } = await client.from('messages').insert({
         tenant_id: tenant?.id,
         customer_id: lead.customer_id,
         phone_number: leadPhone,
@@ -335,7 +336,13 @@ async function processLeadFollowup(
         content: message,
         timestamp: new Date().toISOString(),
       })
-      console.log(`[lead-followup] Saved outbound message to database for ${leadPhone}`)
+      if (msgError) {
+        console.error(`[lead-followup] Failed to save message to DB:`, msgError)
+      } else {
+        console.log(`[lead-followup] Successfully saved outbound message to database for ${leadPhone}`)
+      }
+    } else {
+      console.error(`[lead-followup] SMS send failed for ${leadPhone}:`, smsResult.error)
     }
   } else if (action === 'call' || action === 'double_call') {
     // Initiate VAPI call

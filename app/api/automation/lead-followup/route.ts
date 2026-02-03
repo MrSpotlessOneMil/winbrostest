@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { sendSMS } from "@/lib/openphone"
 import { triggerVAPIOutboundCall } from "@/integrations/ghl/follow-up-scheduler"
 import { leadFollowupInitial, leadFollowupSecond, paymentLink } from "@/lib/sms-templates"
-import { getGHLLeadById, updateGHLLead, getCustomerByPhone } from "@/lib/supabase"
+import { getGHLLeadById, updateGHLLead, getCustomerByPhone, getSupabaseClient } from "@/lib/supabase"
 import { createDepositPaymentLink } from "@/lib/stripe-client"
 import { getClientConfig } from "@/lib/client-config"
 import { logSystemEvent } from "@/lib/system-events"
+import { toE164 } from "@/lib/phone-utils"
+import { getDefaultTenant } from "@/lib/tenant"
 
 interface LeadFollowupPayload {
   leadId: string
@@ -82,7 +84,7 @@ export async function POST(request: NextRequest) {
     switch (stage) {
       case 1:
         // Stage 1: Send initial follow-up SMS
-        result = await executeStage1(leadPhone, firstName, config.businessName, lead.brand)
+        result = await executeStage1(leadPhone, firstName, config.businessName, lead.brand, lead.customer_id)
         await updateLeadAfterOutreach(leadId, lead, { smsIncrement: 1, stage: 1 })
         break
 
@@ -100,7 +102,7 @@ export async function POST(request: NextRequest) {
 
       case 4:
         // Stage 4: Send second follow-up SMS
-        result = await executeStage4(leadPhone, firstName, lead.brand)
+        result = await executeStage4(leadPhone, firstName, lead.brand, lead.customer_id)
         await updateLeadAfterOutreach(leadId, lead, { smsIncrement: 1, stage: 4 })
         break
 
@@ -177,10 +179,16 @@ async function executeStage1(
   phone: string,
   name: string,
   businessName: string,
-  brand?: string
+  brand?: string,
+  customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupInitial(name, businessName)
   const result = await sendSMS(phone, message, brand)
+
+  // Save to messages table
+  if (result.success) {
+    await saveOutboundMessage(phone, message, customerId)
+  }
 
   return {
     success: result.success,
@@ -269,10 +277,16 @@ async function executeStage3(
 async function executeStage4(
   phone: string,
   name: string,
-  brand?: string
+  brand?: string,
+  customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupSecond(name)
   const result = await sendSMS(phone, message, brand)
+
+  // Save to messages table
+  if (result.success) {
+    await saveOutboundMessage(phone, message, customerId)
+  }
 
   return {
     success: result.success,
@@ -324,7 +338,10 @@ async function executeStage5(
         )
         const smsResult = await sendSMS(phone, paymentMessage, lead.brand)
 
-        if (!smsResult.success) {
+        if (smsResult.success) {
+          // Save to messages table
+          await saveOutboundMessage(phone, paymentMessage, lead.customer_id)
+        } else {
           console.warn(`[lead-followup] Failed to send payment link SMS: ${smsResult.error}`)
         }
 
@@ -401,4 +418,40 @@ async function updateLeadAfterOutreach(
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Save outbound message to messages table for UI display
+ */
+async function saveOutboundMessage(
+  phone: string,
+  content: string,
+  customerId?: string
+): Promise<void> {
+  try {
+    const client = getSupabaseClient()
+    const tenant = await getDefaultTenant()
+    const e164Phone = toE164(phone)
+
+    const { error } = await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      customer_id: customerId || null,
+      phone_number: e164Phone,
+      role: "business",
+      content,
+      direction: "outbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "automation",
+    })
+
+    if (error) {
+      console.error("[lead-followup] Failed to save message to DB:", error)
+    } else {
+      console.log(`[lead-followup] Saved outbound message to DB for ${e164Phone}`)
+    }
+  } catch (err) {
+    console.error("[lead-followup] Error saving message:", err)
+  }
 }

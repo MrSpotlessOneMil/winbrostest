@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, DragEvent } from "react"
+import { useState, useEffect, useRef, DragEvent } from "react"
 import { SkipForward, SkipBack, Square, GripVertical } from "lucide-react"
 
 interface Lead {
@@ -50,7 +50,7 @@ const STAGES = [
   { id: "payment_received", label: "Payment", stageNum: 8, action: null },
   { id: "job_assigned", label: "Assigned", stageNum: 9, action: null },
   { id: "job_fulfilled", label: "Fulfilled", stageNum: 10, action: null },
-  { id: "lead_lost", label: "Lost", stageNum: -1, action: null },
+  { id: "lead_lost", label: "Inactive", stageNum: -1, action: null },
 ]
 
 function getStageFromLead(lead: Lead | null): number {
@@ -100,8 +100,24 @@ export function LeadFlowProgress({
   const [timeRemaining, setTimeRemaining] = useState<string>("")
   const [dragOverStage, setDragOverStage] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [optimisticStage, setOptimisticStage] = useState<number | null>(null)
+  const [isMoving, setIsMoving] = useState(false)
+  const prevLeadStageRef = useRef<number | null>(null)
 
-  const currentStage = getStageFromLead(lead)
+  const actualStage = getStageFromLead(lead)
+
+  // Use optimistic stage if set, otherwise use actual stage
+  const currentStage = optimisticStage !== null ? optimisticStage : actualStage
+
+  // Clear optimistic state when actual stage catches up
+  useEffect(() => {
+    if (prevLeadStageRef.current !== actualStage) {
+      // Stage has changed from prop update, clear optimistic state
+      setOptimisticStage(null)
+      setIsMoving(false)
+    }
+    prevLeadStageRef.current = actualStage
+  }, [actualStage])
 
   // Find the next pending task for this lead
   const nextTask = scheduledTasks
@@ -165,6 +181,10 @@ export function LeadFlowProgress({
     setIsDragging(false)
 
     if (stageNum !== currentStage && onMoveToStage) {
+      // Optimistically update the UI immediately
+      setOptimisticStage(stageNum)
+      setIsMoving(true)
+      // Then trigger the actual API call
       onMoveToStage(stageNum)
     }
   }
@@ -214,11 +234,15 @@ export function LeadFlowProgress({
               <div className="p-2">
                 <div className="text-[10px] font-medium text-zinc-400 mb-1.5">{stage.label}</div>
                 <div
-                  draggable
+                  draggable={!isMoving}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
-                  className={`bg-zinc-900/80 rounded-md p-2 border border-zinc-700/50 cursor-grab active:cursor-grabbing ${
-                    isDragging ? "opacity-50" : ""
+                  className={`bg-zinc-900/80 rounded-md p-2 border border-zinc-700/50 transition-all duration-200 ${
+                    isMoving
+                      ? "opacity-70 cursor-wait"
+                      : isDragging
+                        ? "opacity-50 cursor-grabbing"
+                        : "cursor-grab"
                   }`}
                 >
                   <div className="flex items-center gap-1 mb-1">
@@ -227,11 +251,19 @@ export function LeadFlowProgress({
                       {customerName}
                     </div>
                   </div>
-                  {showTimer && (
+                  {showTimer ? (
                     <div className="text-[10px] text-amber-400 mb-1.5 ml-4">
                       Next: {timeRemaining}
                     </div>
-                  )}
+                  ) : isMoving ? (
+                    <div className="text-[10px] text-blue-400 mb-1.5 ml-4 animate-pulse">
+                      Scheduling...
+                    </div>
+                  ) : currentStage >= 1 && currentStage <= 4 ? (
+                    <div className="text-[10px] text-zinc-500 mb-1.5 ml-4">
+                      Loading timer...
+                    </div>
+                  ) : null}
                   <div className="flex items-center gap-1 ml-3">
                     <button
                       onClick={onSkipBack}

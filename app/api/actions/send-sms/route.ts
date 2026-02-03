@@ -7,10 +7,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
-import { normalizePhone } from '@/lib/phone-utils'
-import { appendToTextingTranscript } from '@/lib/supabase'
+import { normalizePhone, toE164 } from '@/lib/phone-utils'
+import { appendToTextingTranscript, getSupabaseClient } from '@/lib/supabase'
 import { getClientConfig } from '@/lib/client-config'
 import { requireAuth } from '@/lib/auth'
+import { getDefaultTenant } from '@/lib/tenant'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
@@ -42,6 +43,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Get tenant for proper phone formatting
+    const tenant = await getDefaultTenant()
+
     // Send the SMS
     const result = await sendSMS(phoneNumber, message)
 
@@ -52,7 +56,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update texting transcript
+    // Save outbound message to messages table for UI display
+    const client = getSupabaseClient()
+    const e164Phone = toE164(phoneNumber)
+
+    // Find customer by phone number
+    const { data: customer } = await client
+      .from('customers')
+      .select('id')
+      .eq('phone_number', e164Phone)
+      .eq('tenant_id', tenant?.id)
+      .maybeSingle()
+
+    const { error: msgError } = await client.from('messages').insert({
+      tenant_id: tenant?.id,
+      customer_id: customer?.id || null,
+      phone_number: e164Phone,
+      role: 'business',
+      content: message,
+      direction: 'outbound',
+      message_type: 'sms',
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: 'dashboard',
+    })
+
+    if (msgError) {
+      console.error('[send-sms] Failed to save message to DB:', msgError)
+    } else {
+      console.log(`[send-sms] Saved outbound message to DB for ${e164Phone}`)
+    }
+
+    // Update texting transcript (legacy)
     const timestamp = new Date().toISOString()
     const config = getClientConfig()
     await appendToTextingTranscript(
