@@ -28,6 +28,9 @@ import {
   X,
   Copy,
   Check,
+  Trash2,
+  Wrench,
+  Loader2,
 } from "lucide-react"
 
 interface WorkflowConfig {
@@ -126,6 +129,11 @@ export default function AdminPage() {
 
   // Copy all credentials state
   const [copied, setCopied] = useState(false)
+
+  // Reset customer state
+  const [resetPhoneNumber, setResetPhoneNumber] = useState("")
+  const [resetting, setResetting] = useState(false)
+  const [resetResult, setResetResult] = useState<{ success: boolean; deletions?: string[]; error?: string } | null>(null)
 
   async function fetchTenants() {
     setLoading(true)
@@ -303,6 +311,40 @@ export default function AdminPage() {
     })
   }
 
+  async function resetCustomerData() {
+    if (!resetPhoneNumber.trim()) {
+      setResetResult({ success: false, error: "Please enter a phone number" })
+      return
+    }
+
+    if (!confirm(`Are you sure you want to delete ALL data for phone number ${resetPhoneNumber}? This cannot be undone.`)) {
+      return
+    }
+
+    setResetting(true)
+    setResetResult(null)
+
+    try {
+      const res = await fetch("/api/admin/reset-customer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: resetPhoneNumber }),
+      })
+      const json = await res.json()
+
+      if (res.ok && json.success) {
+        setResetResult({ success: true, deletions: json.data.deletions })
+        setResetPhoneNumber("")
+      } else {
+        setResetResult({ success: false, error: json.error || "Failed to reset customer" })
+      }
+    } catch (e: any) {
+      setResetResult({ success: false, error: e.message || "Failed to reset customer" })
+    } finally {
+      setResetting(false)
+    }
+  }
+
   const currentTenant = tenants.find((t) => t.id === selectedTenant)
 
   return (
@@ -438,6 +480,10 @@ export default function AdminPage() {
                     <TabsTrigger value="info" className="gap-2">
                       <Building2 className="h-4 w-4" />
                       Info
+                    </TabsTrigger>
+                    <TabsTrigger value="tools" className="gap-2">
+                      <Wrench className="h-4 w-4" />
+                      Tools
                     </TabsTrigger>
                   </TabsList>
 
@@ -1125,6 +1171,77 @@ export default function AdminPage() {
                     <div className="pt-4 text-xs text-muted-foreground">
                       <div>Created: {new Date(currentTenant.created_at).toLocaleString()}</div>
                       <div>Updated: {new Date(currentTenant.updated_at).toLocaleString()}</div>
+                    </div>
+                  </TabsContent>
+
+                  {/* Tools Tab */}
+                  <TabsContent value="tools" className="space-y-6">
+                    {/* Reset Customer Data */}
+                    <div className="p-4 rounded-lg border border-red-500/30 bg-red-500/5 space-y-4">
+                      <div className="font-medium flex items-center gap-2 text-red-400">
+                        <Trash2 className="h-4 w-4" />
+                        Reset Customer Data
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Permanently delete all data associated with a phone number. This includes messages, calls, leads, jobs, scheduled tasks, and the customer record.
+                        <br />
+                        <strong className="text-red-400">This action cannot be undone.</strong>
+                      </p>
+                      <div className="flex gap-2">
+                        <Input
+                          value={resetPhoneNumber}
+                          onChange={(e) => setResetPhoneNumber(e.target.value)}
+                          placeholder="Enter phone number (e.g., 4157204580)"
+                          className="max-w-xs"
+                        />
+                        <Button
+                          variant="destructive"
+                          onClick={resetCustomerData}
+                          disabled={resetting || !resetPhoneNumber.trim()}
+                        >
+                          {resetting ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Resetting...
+                            </>
+                          ) : (
+                            <>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Reset Data
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {/* Result display */}
+                      {resetResult && (
+                        <div className={`p-3 rounded-lg border ${
+                          resetResult.success
+                            ? "border-green-500/30 bg-green-500/10"
+                            : "border-red-500/30 bg-red-500/10"
+                        }`}>
+                          {resetResult.success ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-green-400 font-medium">
+                                <CheckCircle2 className="h-4 w-4" />
+                                Customer data reset successfully
+                              </div>
+                              {resetResult.deletions && resetResult.deletions.length > 0 && (
+                                <ul className="text-sm text-muted-foreground list-disc list-inside">
+                                  {resetResult.deletions.map((d, i) => (
+                                    <li key={i}>{d}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2 text-red-400">
+                              <AlertTriangle className="h-4 w-4" />
+                              {resetResult.error}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </TabsContent>
                 </Tabs>
