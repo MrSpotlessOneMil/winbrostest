@@ -53,6 +53,9 @@ export interface WorkflowConfig {
   cleaner_assignment_auto: boolean
   require_deposit: boolean
   deposit_percentage: number
+
+  // Kill switches
+  sms_auto_response_enabled: boolean
 }
 
 export interface Tenant {
@@ -183,6 +186,42 @@ export async function getTenantByEmail(email: string): Promise<Tenant | null> {
 }
 
 /**
+ * Get tenant by OpenPhone phone number (used for SMS routing)
+ * Normalizes the phone number to match various formats in the database
+ */
+export async function getTenantByPhoneNumber(phoneNumber: string): Promise<Tenant | null> {
+  const client = getAdminClient()
+
+  // Normalize the phone number - remove all non-digit characters
+  const digitsOnly = phoneNumber.replace(/\D/g, "")
+  // Get last 10 digits (the actual phone number without country code)
+  const last10 = digitsOnly.slice(-10)
+
+  // Try to find by exact match first, then by partial match
+  const { data, error } = await client
+    .from("tenants")
+    .select("*")
+    .eq("active", true)
+
+  if (error || !data) {
+    console.error("[Tenant] Error fetching tenants by phone:", error)
+    return null
+  }
+
+  // Find tenant whose openphone_phone_number matches
+  for (const tenant of data) {
+    if (!tenant.openphone_phone_number) continue
+    const tenantDigits = tenant.openphone_phone_number.replace(/\D/g, "")
+    const tenantLast10 = tenantDigits.slice(-10)
+    if (tenantLast10 === last10) {
+      return tenant as Tenant
+    }
+  }
+
+  return null
+}
+
+/**
  * Get all active tenants (for cron jobs)
  */
 export async function getAllActiveTenants(): Promise<Tenant[]> {
@@ -272,6 +311,14 @@ export function getTenantSdrName(tenant: Tenant): string {
  */
 export function getTenantDiscount(tenant: Tenant): string {
   return tenant.workflow_config.monthly_followup_discount || "15%"
+}
+
+/**
+ * Check if SMS auto-response is enabled for this tenant
+ */
+export function isSmsAutoResponseEnabled(tenant: Tenant): boolean {
+  // Default to true if not explicitly set to false
+  return tenant.workflow_config.sms_auto_response_enabled !== false
 }
 
 // ============================================================================

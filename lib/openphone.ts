@@ -217,7 +217,7 @@ export async function validateOpenPhoneWebhook(
  */
 export function extractMessageFromOpenPhonePayload(
   body: Record<string, unknown>
-): { from: string; content: string; createdAt: string; direction?: string; eventType?: string } | null {
+): { from: string; to?: string; content: string; createdAt: string; direction?: string; eventType?: string } | null {
   // Handle OpenPhone v3 nested structure: body.object.data.object
   const rootObject = (body.object as Record<string, unknown>) || body
   const eventType = (rootObject.type as string) || (body.type as string)
@@ -243,6 +243,21 @@ export function extractMessageFromOpenPhonePayload(
     dataWrapper.sender,
     dataWrapper.phoneNumber,
     dataWrapper.phone_number
+  )
+
+  // Extract the "to" phone number - this is the business phone that received the message
+  const to = firstPhone(
+    message.to,
+    message.recipient,
+    message.toPhoneNumber,
+    message.to_phone_number,
+    dataWrapper.to,
+    dataWrapper.recipient,
+    dataWrapper.toPhoneNumber,
+    dataWrapper.to_phone_number,
+    // OpenPhone may also have it in phoneNumberId or conversationId context
+    message.phoneNumberId,
+    dataWrapper.phoneNumberId
   )
 
   const createdAt = firstString(
@@ -273,6 +288,7 @@ export function extractMessageFromOpenPhonePayload(
 
   return {
     from,
+    to,
     content,
     createdAt,
     direction,

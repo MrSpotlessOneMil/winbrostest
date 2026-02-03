@@ -15,7 +15,8 @@ import {
   ChevronRight,
   Phone,
   Trophy,
-  AlertTriangle,
+  Bug,
+  ShieldCheck,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -28,7 +29,8 @@ const navigation = [
   { name: "Tips & Upsells", href: "/earnings", icon: DollarSign },
   { name: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { name: "Calls", href: "/calls", icon: Phone },
-  { name: "Exceptions", href: "/exceptions", icon: AlertTriangle },
+  { name: "Debug", href: "/exceptions", icon: Bug },
+  { name: "Admin", href: "/admin", icon: ShieldCheck },
 ]
 
 const bottomNav = [
