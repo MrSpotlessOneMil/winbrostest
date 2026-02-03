@@ -50,13 +50,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
 
   // Load accounts from localStorage on mount
+  // Filter out any accounts without session tokens (stale data from before multi-account update)
   useEffect(() => {
     const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY)
     if (stored) {
       try {
-        setAccounts(JSON.parse(stored))
+        const parsed = JSON.parse(stored) as StoredAccount[]
+        // Only keep accounts that have valid session tokens
+        const validAccounts = parsed.filter((a) => a.sessionToken)
+        setAccounts(validAccounts)
+        // Update localStorage if we filtered any out
+        if (validAccounts.length !== parsed.length) {
+          localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(validAccounts))
+        }
       } catch {
-        // Invalid JSON, ignore
+        // Invalid JSON, clear it
+        localStorage.removeItem(ACCOUNTS_STORAGE_KEY)
       }
     }
   }, [])
