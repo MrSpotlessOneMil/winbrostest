@@ -62,13 +62,36 @@ export async function POST(request: NextRequest) {
     const payload: HousecallProWebhookPayload = JSON.parse(rawBody)
     const { event, data, timestamp } = payload
 
-    console.log(`[OSIRIS] HCP Webhook received: ${event}`, { timestamp })
+    // HCP sends data at top level OR nested under data depending on event type
+    const lead = (payload as any).lead || (data as any)?.lead
+    const job = (payload as any).job || (data as any)?.job
+    const customer = (payload as any).customer || (data as any)?.customer
+
+    console.log(`[OSIRIS] HCP Webhook received: ${event}`, {
+      timestamp,
+      hasLead: !!lead,
+      hasJob: !!job,
+      hasCustomer: !!customer,
+      leadCustomer: lead?.customer ? 'present' : 'missing'
+    })
 
     const client = getSupabaseClient()
     const tenant = await getDefaultTenant()
 
     // Best-effort field extraction (HCP payload shapes vary by event)
+    // For leads, phone is often in lead.customer.mobile_number
     const phoneRaw =
+      // Lead customer fields (most common for lead.created)
+      lead?.customer?.mobile_number ||
+      lead?.customer?.phone_number ||
+      lead?.customer?.phone ||
+      lead?.phone_numbers?.[0]?.number ||
+      // Top-level customer fields
+      customer?.mobile_number ||
+      customer?.phone_number ||
+      customer?.phone ||
+      customer?.phone_numbers?.[0]?.number ||
+      // Nested data.customer fields
       (data as any)?.customer?.mobile_number ||
       (data as any)?.customer?.phone ||
       (data as any)?.customer?.phone_number ||
@@ -78,23 +101,37 @@ export async function POST(request: NextRequest) {
       ""
     const phone = normalizePhoneNumber(String(phoneRaw)) || String(phoneRaw)
 
+    console.log(`[OSIRIS] HCP Webhook phone extraction: raw="${phoneRaw}", normalized="${phone}"`)
+
     const firstName =
+      lead?.customer?.first_name ||
+      lead?.first_name ||
+      customer?.first_name ||
       (data as any)?.customer?.first_name ||
       (data as any)?.customer?.firstName ||
       (data as any)?.first_name ||
       (data as any)?.firstName ||
       null
     const lastName =
+      lead?.customer?.last_name ||
+      lead?.last_name ||
+      customer?.last_name ||
       (data as any)?.customer?.last_name ||
       (data as any)?.customer?.lastName ||
       (data as any)?.last_name ||
       (data as any)?.lastName ||
       null
     const email =
+      lead?.customer?.email ||
+      lead?.email ||
+      customer?.email ||
       (data as any)?.customer?.email ||
       (data as any)?.email ||
       null
     const address =
+      lead?.address ||
+      job?.address ||
+      customer?.address ||
       (data as any)?.job?.address ||
       (data as any)?.address ||
       (data as any)?.customer?.address ||
@@ -249,7 +286,7 @@ export async function POST(request: NextRequest) {
         console.log("[OSIRIS] New lead created in HCP")
         if (phone) {
           // Upsert customer
-          const { data: customer } = await client
+          const { data: customerRecord } = await client
             .from("customers")
             .upsert(
               { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
@@ -258,12 +295,12 @@ export async function POST(request: NextRequest) {
             .select("id")
             .single()
 
-          // Create lead record
-          const hcpSourceId = (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
-          const { data: lead } = await client.from("leads").insert({
+          // Create lead record - get ID from extracted lead object
+          const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
+          const { data: leadRecord } = await client.from("leads").insert({
             source_id: String(hcpSourceId),
             phone_number: phone,
-            customer_id: customer?.id ?? null,
+            customer_id: customerRecord?.id ?? null,
             first_name: firstName || null,
             last_name: lastName || null,
             email: email || null,
@@ -280,19 +317,21 @@ export async function POST(request: NextRequest) {
             event_type: "HCP_LEAD_RECEIVED",
             message: `New lead from HousecallPro: ${firstName || 'Unknown'} ${lastName || ''}`.trim(),
             phone_number: phone,
-            metadata: { hcp_lead_id: hcpSourceId, lead_id: lead?.id }
+            metadata: { hcp_lead_id: hcpSourceId, lead_id: leadRecord?.id }
           })
 
           // Schedule the lead follow-up sequence
-          if (lead?.id) {
+          if (leadRecord?.id) {
             try {
               const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
-              await scheduleLeadFollowUp(tenant?.id || '', String(lead.id), phone, leadName)
-              console.log(`[OSIRIS] HCP Webhook: Scheduled follow-up sequence for lead ${lead.id}`)
+              await scheduleLeadFollowUp(tenant?.id || '', String(leadRecord.id), phone, leadName)
+              console.log(`[OSIRIS] HCP Webhook: Scheduled follow-up sequence for lead ${leadRecord.id}`)
             } catch (scheduleError) {
               console.error("[OSIRIS] HCP Webhook: Error scheduling follow-up:", scheduleError)
             }
           }
+        } else {
+          console.error("[OSIRIS] HCP Webhook: No phone number found for lead, cannot process")
         }
         break
 
