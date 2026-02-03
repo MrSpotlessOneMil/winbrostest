@@ -2,27 +2,23 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
 import {
   LayoutDashboard,
   CalendarDays,
   Users,
   TrendingUp,
   DollarSign,
-  CloudRain,
   Settings,
-  ChevronLeft,
-  ChevronRight,
   Phone,
   Trophy,
   Bug,
   ShieldCheck,
+  UserCircle,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard },
+  { name: "Customers", href: "/customers", icon: UserCircle },
   { name: "Jobs Calendar", href: "/jobs", icon: CalendarDays },
   { name: "Lead Funnel", href: "/leads", icon: TrendingUp },
   { name: "Teams", href: "/teams", icon: Users },
@@ -39,135 +35,78 @@ const bottomNav = [
 
 interface SidebarProps {
   collapsed: boolean
-  onToggle: () => void
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed }: SidebarProps) {
   const pathname = usePathname()
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <aside
-        className={cn(
-          "relative flex flex-col border-r border-border bg-sidebar transition-all duration-300",
-          collapsed ? "w-16" : "w-64"
+    <aside
+      className={`${
+        collapsed ? "w-[3.5rem]" : "w-64"
+      } bg-zinc-950 border-r border-zinc-800/60 min-h-screen flex flex-col transition-all duration-200`}
+    >
+      {/* Logo */}
+      <div className="h-14 flex items-center px-4 border-b border-zinc-800/60">
+        {!collapsed && (
+          <Link href="/" className="font-semibold text-zinc-100 tracking-wide hover:text-purple-300 transition-colors text-sm">
+            OSIRIS
+          </Link>
         )}
-      >
-        {/* Logo */}
-        <div className="flex h-16 items-center border-b border-sidebar-border px-4">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <span className="text-sm font-bold text-primary-foreground">O</span>
+        {collapsed && (
+          <Link href="/" className="w-full flex justify-center">
+            <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300">
+              O
             </div>
-            {!collapsed && (
-              <div className="flex flex-col">
-                <span className="text-sm font-semibold text-sidebar-foreground">OSIRIS</span>
-                <span className="text-[10px] text-muted-foreground">WinBros Command</span>
-              </div>
-            )}
           </Link>
-        </div>
+        )}
+      </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 space-y-1 p-3">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href
-            const navItem = (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-primary"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                )}
-              >
-                <item.icon className={cn("h-5 w-5 shrink-0", isActive && "text-sidebar-primary")} />
-                {!collapsed && <span>{item.name}</span>}
-              </Link>
-            )
-
-            if (collapsed) {
-              return (
-                <Tooltip key={item.name}>
-                  <TooltipTrigger asChild>{navItem}</TooltipTrigger>
-                  <TooltipContent side="right" className="bg-popover text-popover-foreground">
-                    {item.name}
-                  </TooltipContent>
-                </Tooltip>
-              )
-            }
-
-            return navItem
-          })}
-        </nav>
-
-        {/* Rain Day Button */}
-        <div className="border-t border-sidebar-border p-3">
-          <Link href="/rain-day">
-            <Button
-              variant="outline"
-              className={cn(
-                "w-full justify-start gap-3 border-warning/50 bg-warning/10 text-warning hover:bg-warning/20 hover:text-warning",
-                collapsed && "justify-center px-0"
-              )}
+      {/* Navigation */}
+      <nav className={`flex-1 ${collapsed ? "px-2" : "px-3"} py-4 space-y-1`}>
+        {navigation.map((item) => {
+          const isActive = pathname === item.href
+          const Icon = item.icon
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={collapsed ? item.name : undefined}
+              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive
+                  ? "text-zinc-100 bg-purple-500/10"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
             >
-              <CloudRain className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>Rain Day Reschedule</span>}
-            </Button>
-          </Link>
-        </div>
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : ""}`} />
+              {!collapsed && <span>{item.name}</span>}
+            </Link>
+          )
+        })}
+      </nav>
 
-        {/* Bottom Navigation */}
-        <div className="border-t border-sidebar-border p-3">
-          {bottomNav.map((item) => {
-            const isActive = pathname === item.href
-            const navItem = (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-primary"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                )}
-              >
-                <item.icon className="h-5 w-5 shrink-0" />
-                {!collapsed && <span>{item.name}</span>}
-              </Link>
-            )
-
-            if (collapsed) {
-              return (
-                <Tooltip key={item.name}>
-                  <TooltipTrigger asChild>{navItem}</TooltipTrigger>
-                  <TooltipContent side="right" className="bg-popover text-popover-foreground">
-                    {item.name}
-                  </TooltipContent>
-                </Tooltip>
-              )
-            }
-
-            return navItem
-          })}
-        </div>
-
-        {/* Collapse Toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onToggle}
-          className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-border bg-background shadow-sm hover:bg-muted"
-        >
-          {collapsed ? (
-            <ChevronRight className="h-3 w-3" />
-          ) : (
-            <ChevronLeft className="h-3 w-3" />
-          )}
-        </Button>
-      </aside>
-    </TooltipProvider>
+      {/* Bottom Navigation */}
+      <div className={`${collapsed ? "px-2" : "px-3"} py-3 border-t border-zinc-800/60`}>
+        {bottomNav.map((item) => {
+          const isActive = pathname === item.href
+          const Icon = item.icon
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={collapsed ? item.name : undefined}
+              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-colors ${
+                isActive
+                  ? "text-zinc-100 bg-purple-500/10"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+              }`}
+            >
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : ""}`} />
+              {!collapsed && <span>{item.name}</span>}
+            </Link>
+          )
+        })}
+      </div>
+    </aside>
   )
 }

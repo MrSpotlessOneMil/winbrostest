@@ -1,6 +1,6 @@
 "use client"
 
-import { Bell, Search, User, LogOut, Settings, Plug, UserCircle } from "lucide-react"
+import { Bell, Search, User, LogOut, Settings, Plug, UserCircle, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useEffect, useMemo, useState } from "react"
@@ -30,7 +30,11 @@ type CurrentUser = {
   email: string | null
 }
 
-export function TopNav() {
+interface TopNavProps {
+  onToggleSidebar?: () => void
+}
+
+export function TopNav({ onToggleSidebar }: TopNavProps) {
   const router = useRouter()
   const [items, setItems] = useState<NotificationItem[]>([])
   const [user, setUser] = useState<CurrentUser | null>(null)
@@ -92,25 +96,38 @@ export function TopNav() {
   const initials = displayName.charAt(0).toUpperCase()
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-card px-6">
+    <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-4">
+      {/* Sidebar Toggle */}
+      {onToggleSidebar && (
+        <>
+          <button
+            onClick={onToggleSidebar}
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+          <div className="h-4 w-px bg-zinc-800" />
+        </>
+      )}
+
       {/* Search */}
-      <div className="relative w-full max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="relative flex-1 max-w-md">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
         <Input
           placeholder="Search jobs, leads, teams..."
-          className="pl-10 bg-muted/50 border-transparent focus:border-border"
+          className="pl-10 bg-zinc-800/80 border-zinc-700/50 text-zinc-300 placeholder-zinc-600 focus:border-zinc-600"
         />
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {/* Status Indicator */}
-        <div className="flex items-center gap-2 rounded-lg bg-success/10 px-3 py-1.5">
+        <div className="hidden sm:flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-1.5">
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
           </span>
-          <span className="text-xs font-medium text-success">System Online</span>
+          <span className="text-xs font-medium text-emerald-400">Online</span>
         </div>
 
         {/* Notifications */}

@@ -8,13 +8,12 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
-      <div className="flex flex-1 flex-col">
-        <TopNav />
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+    <div className="flex min-h-screen bg-zinc-950">
+      <Sidebar collapsed={sidebarCollapsed} />
+      <div className="flex-1 flex flex-col min-w-0 m-2 ml-0 rounded-xl bg-zinc-900/80 border border-zinc-800/60 overflow-hidden">
+        <TopNav onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)} />
+        <main className="flex-1 flex flex-col overflow-y-auto p-4">{children}</main>
       </div>
     </div>
   )
 }
-
