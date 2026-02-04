@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, DragEvent } from "react"
-import { SkipForward, SkipBack, Square, GripVertical } from "lucide-react"
+import { GripVertical } from "lucide-react"
 
 interface Lead {
   id: number
@@ -33,9 +33,6 @@ interface LeadFlowProgressProps {
   customerName: string
   scheduledTasks: ScheduledTask[]
   followupPaused: boolean
-  onSkipForward: () => void
-  onSkipBack: () => void
-  onStop: () => void
   onMoveToStage?: (stageNum: number) => void
 }
 
@@ -94,9 +91,6 @@ export function LeadFlowProgress({
   customerName,
   scheduledTasks,
   followupPaused,
-  onSkipForward,
-  onSkipBack,
-  onStop,
   onMoveToStage,
 }: LeadFlowProgressProps) {
   const [timeRemaining, setTimeRemaining] = useState<string>("")
@@ -254,47 +248,22 @@ export function LeadFlowProgress({
                     </div>
                   </div>
                   {followupPaused ? (
-                    <div className="text-[10px] text-yellow-500 mb-1.5 ml-4">
+                    <div className="text-[10px] text-yellow-500 ml-4">
                       ⏸ Paused
                     </div>
                   ) : showTimer ? (
-                    <div className="text-[10px] text-amber-400 mb-1.5 ml-4">
+                    <div className="text-[10px] text-amber-400 ml-4">
                       Next: {timeRemaining}
                     </div>
                   ) : isMoving ? (
-                    <div className="text-[10px] text-blue-400 mb-1.5 ml-4 animate-pulse">
+                    <div className="text-[10px] text-blue-400 ml-4 animate-pulse">
                       Scheduling...
                     </div>
                   ) : currentStage >= 1 && currentStage <= 4 ? (
-                    <div className="text-[10px] text-zinc-500 mb-1.5 ml-4">
+                    <div className="text-[10px] text-zinc-500 ml-4">
                       Loading timer...
                     </div>
                   ) : null}
-                  <div className="flex items-center gap-1 ml-3">
-                    <button
-                      onClick={onSkipBack}
-                      disabled={currentStage <= 1}
-                      className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Go back"
-                    >
-                      <SkipBack className="w-3 h-3 text-zinc-400" />
-                    </button>
-                    <button
-                      onClick={onStop}
-                      className="p-1 rounded bg-zinc-800 hover:bg-red-500/20 hover:text-red-400 transition-colors"
-                      title="Stop sequence"
-                    >
-                      <Square className="w-3 h-3 text-zinc-400" />
-                    </button>
-                    <button
-                      onClick={onSkipForward}
-                      disabled={currentStage >= 10 || currentStage === -1}
-                      className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Skip forward"
-                    >
-                      <SkipForward className="w-3 h-3 text-zinc-400" />
-                    </button>
-                  </div>
                 </div>
               </div>
             ) : (

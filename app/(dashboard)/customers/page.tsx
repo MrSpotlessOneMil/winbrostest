@@ -222,92 +222,6 @@ export default function CustomersPage() {
     )[0]
   }
 
-  // Handle skip forward action
-  const handleSkipForward = async () => {
-    if (!selectedCustomer) return
-    const lead = getCustomerLead(selectedCustomer.phone_number)
-    if (!lead) return
-
-    const nextStage = (lead.followup_stage || 0) + 1
-    if (nextStage > 10) return
-
-    try {
-      const res = await fetch(`/api/leads/${lead.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "skip_to_stage", stage: nextStage }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setLeads((prev) =>
-          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: nextStage } : l))
-        )
-      } else {
-        alert(json.error || "Failed to skip forward")
-      }
-    } catch (error) {
-      console.error("Failed to skip forward:", error)
-      alert("Failed to skip forward")
-    }
-  }
-
-  // Handle skip back action
-  const handleSkipBack = async () => {
-    if (!selectedCustomer) return
-    const lead = getCustomerLead(selectedCustomer.phone_number)
-    if (!lead) return
-
-    const prevStage = Math.max(1, (lead.followup_stage || 1) - 1)
-
-    try {
-      const res = await fetch(`/api/leads/${lead.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "skip_to_stage", stage: prevStage }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setLeads((prev) =>
-          prev.map((l) => (l.id === lead.id ? { ...l, followup_stage: prevStage } : l))
-        )
-      } else {
-        alert(json.error || "Failed to go back")
-      }
-    } catch (error) {
-      console.error("Failed to go back:", error)
-      alert("Failed to go back")
-    }
-  }
-
-  // Handle stop action (mark as lost)
-  const handleStop = async () => {
-    if (!selectedCustomer) return
-    const lead = getCustomerLead(selectedCustomer.phone_number)
-    if (!lead) return
-
-    try {
-      const res = await fetch(`/api/leads/${lead.id}/actions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "mark_status", status: "lost" }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setLeads((prev) =>
-          prev.map((l) => (l.id === lead.id ? { ...l, status: "lost" } : l))
-        )
-        setScheduledTasks((prev) =>
-          prev.filter((t) => t.payload?.leadId !== String(lead.id))
-        )
-      } else {
-        alert(json.error || "Failed to update status")
-      }
-    } catch (error) {
-      console.error("Failed to update status:", error)
-      alert("Failed to update status")
-    }
-  }
-
   // Handle move to stage (drag & drop) - executes the action
   const handleMoveToStage = async (targetStage: number) => {
     if (!selectedCustomer) return
@@ -638,9 +552,6 @@ export default function CustomersPage() {
                   customerName={getCustomerName(selectedCustomer)}
                   scheduledTasks={scheduledTasks}
                   followupPaused={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))}
-                  onSkipForward={handleSkipForward}
-                  onSkipBack={handleSkipBack}
-                  onStop={handleStop}
                   onMoveToStage={handleMoveToStage}
                 />
 

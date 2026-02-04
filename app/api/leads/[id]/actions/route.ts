@@ -250,23 +250,23 @@ export async function POST(
           // Define delays for NEXT stage relative to current stage completion
           // Stage 1 -> Stage 2: 15 minutes
           // Stage 2 -> Stage 3: 30 minutes
-          // Stage 3 -> Stage 4: 5 minutes (quick double dial)
+          // Stage 3 -> Stage 4: 1 minute (quick retry if not answered)
           // Stage 4 -> Stage 5: 15 minutes
           const delaysByCurrentStage: Record<number, { stage: number; action: string; delayMinutes: number }[]> = {
             1: [
               { stage: 2, action: 'text', delayMinutes: 15 },
               { stage: 3, action: 'call', delayMinutes: 45 },
-              { stage: 4, action: 'call', delayMinutes: 50 },
-              { stage: 5, action: 'text', delayMinutes: 65 },
+              { stage: 4, action: 'call', delayMinutes: 46 },  // 1 min after call 1
+              { stage: 5, action: 'text', delayMinutes: 61 },
             ],
             2: [
               { stage: 3, action: 'call', delayMinutes: 30 },
-              { stage: 4, action: 'call', delayMinutes: 35 },
-              { stage: 5, action: 'text', delayMinutes: 50 },
+              { stage: 4, action: 'call', delayMinutes: 31 },  // 1 min after call 1
+              { stage: 5, action: 'text', delayMinutes: 46 },
             ],
             3: [
-              { stage: 4, action: 'call', delayMinutes: 5 },
-              { stage: 5, action: 'text', delayMinutes: 20 },
+              { stage: 4, action: 'call', delayMinutes: 1 },   // 1 min retry
+              { stage: 5, action: 'text', delayMinutes: 16 },
             ],
             4: [
               { stage: 5, action: 'text', delayMinutes: 15 },

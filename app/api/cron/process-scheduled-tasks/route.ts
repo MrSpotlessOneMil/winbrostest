@@ -228,6 +228,33 @@ async function processLeadFollowup(
     return
   }
 
+  // For stage 4 (call 2), only proceed if the previous call (call 1) was NOT answered
+  // This prevents unnecessary repeat calls if the customer already spoke with the AI
+  if (stage === 4) {
+    // Look up the most recent call for this lead's phone number
+    const { data: recentCalls } = await client
+      .from('calls')
+      .select('outcome, created_at')
+      .eq('phone_number', leadPhone)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const lastCall = recentCalls?.[0]
+    if (lastCall) {
+      // Check if the call was answered (successful conversation)
+      const answeredOutcomes = ['answered', 'completed', 'human-answered', 'booked', 'interested']
+      const wasAnswered = answeredOutcomes.some(o =>
+        lastCall.outcome?.toLowerCase().includes(o.toLowerCase())
+      )
+
+      if (wasAnswered) {
+        console.log(`[lead-followup] Lead ${leadId} call 1 was answered (outcome: ${lastCall.outcome}), skipping call 2`)
+        return
+      }
+      console.log(`[lead-followup] Lead ${leadId} call 1 was not answered (outcome: ${lastCall.outcome}), proceeding with call 2`)
+    }
+  }
+
   if (action === 'text') {
     let message: string
 
