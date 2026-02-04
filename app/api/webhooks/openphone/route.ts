@@ -226,8 +226,8 @@ export async function POST(request: NextRequest) {
     content: m.content
   })) || []
 
-  // Check if ANY lead exists for this phone with auto-response paused
-  // Query ALL leads for this phone to check pause status (not just one)
+  // Get the MOST RECENT active lead for this phone number
+  // This is the lead the user controls via the UI toggle
   const { data: allLeadsForPhone } = await client
     .from("leads")
     .select("id, status, form_data")
@@ -235,19 +235,18 @@ export async function POST(request: NextRequest) {
     .in("status", ["new", "contacted", "qualified"])
     .order("created_at", { ascending: false })
 
-  // Check if ANY lead for this phone has auto-response paused
-  const anyLeadPaused = allLeadsForPhone?.some(lead => {
-    const formData = parseFormData(lead.form_data)
-    return formData.followup_paused === true
-  }) ?? false
-
-  if (anyLeadPaused) {
-    console.log(`[OpenPhone] Auto-response paused for phone ${phone}, skipping auto-response (${allLeadsForPhone?.length} leads found)`)
-    return NextResponse.json({ success: true, autoResponsePaused: true, leadsCount: allLeadsForPhone?.length })
-  }
-
-  // Get the most recent lead for other operations
+  // Get the most recent lead (first one due to descending order)
   const existingLead = allLeadsForPhone?.[0] ?? null
+
+  // Check if the MOST RECENT lead has auto-response paused
+  // Only check the most recent lead - that's the one the user controls in the UI
+  if (existingLead) {
+    const formData = parseFormData(existingLead.form_data)
+    if (formData.followup_paused === true) {
+      console.log(`[OpenPhone] Auto-response paused for phone ${phone} (most recent lead ${existingLead.id}), skipping auto-response`)
+      return NextResponse.json({ success: true, autoResponsePaused: true, leadId: existingLead.id })
+    }
+  }
 
   if (existingLead) {
     // Lead already exists, update last contact time
