@@ -56,28 +56,56 @@ export async function scheduleTask(
   const supabase = getSupabase()
 
   try {
+    // First, try to find an existing task with this key (might be cancelled)
+    if (options.taskKey) {
+      const { data: existing } = await supabase
+        .from('scheduled_tasks')
+        .select('id, status')
+        .eq('task_key', options.taskKey)
+        .maybeSingle()
+
+      if (existing) {
+        // If task exists (even if cancelled), update it to pending with new schedule
+        const { data: updated, error: updateError } = await supabase
+          .from('scheduled_tasks')
+          .update({
+            tenant_id: options.tenantId,
+            task_type: options.taskType,
+            scheduled_for: options.scheduledFor.toISOString(),
+            payload: options.payload,
+            max_attempts: options.maxAttempts || 3,
+            status: 'pending',
+            attempts: 0,
+            last_error: null,
+          })
+          .eq('id', existing.id)
+          .select('id')
+          .single()
+
+        if (updateError) throw updateError
+
+        console.log(`[scheduler] Re-scheduled task ${options.taskType}: ${updated.id} (was ${existing.status})`)
+        return { success: true, taskId: updated.id }
+      }
+    }
+
+    // No existing task, insert a new one
     const { data, error } = await supabase
       .from('scheduled_tasks')
-      .upsert(
-        {
-          tenant_id: options.tenantId,
-          task_type: options.taskType,
-          task_key: options.taskKey,
-          scheduled_for: options.scheduledFor.toISOString(),
-          payload: options.payload,
-          max_attempts: options.maxAttempts || 3,
-          status: 'pending',
-        },
-        {
-          onConflict: 'task_key',
-          ignoreDuplicates: true, // Don't update if exists
-        }
-      )
+      .insert({
+        tenant_id: options.tenantId,
+        task_type: options.taskType,
+        task_key: options.taskKey,
+        scheduled_for: options.scheduledFor.toISOString(),
+        payload: options.payload,
+        max_attempts: options.maxAttempts || 3,
+        status: 'pending',
+      })
       .select('id')
       .single()
 
     if (error) {
-      // Handle unique constraint violation (task already scheduled)
+      // Handle unique constraint violation (race condition)
       if (error.code === '23505') {
         console.log(`[scheduler] Task already scheduled: ${options.taskKey}`)
         return { success: true, taskId: 'existing' }
