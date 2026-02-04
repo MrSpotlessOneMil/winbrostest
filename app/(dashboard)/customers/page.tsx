@@ -343,21 +343,31 @@ export default function CustomersPage() {
       })
       const json = await res.json()
       if (json.success) {
-        // Update local lead state
-        setLeads((prev) =>
-          prev.map((l) =>
-            l.id === lead.id
-              ? { ...l, followup_stage: targetStage, status: json.data.newStatus || l.status }
-              : l
-          )
-        )
-
-        // Refresh data to get the new message and scheduled tasks
+        // Refresh data to get the new message and scheduled tasks FIRST
+        // This ensures scheduled tasks are available when the lead state updates
         const dataRes = await fetch("/api/customers")
         const dataJson = await dataRes.json()
         if (dataJson.success) {
+          // Update messages and scheduled tasks first
           setMessages(dataJson.data.messages)
           setScheduledTasks(dataJson.data.scheduledTasks || [])
+          // Then update the lead state (which triggers the LeadFlowProgress to clear isMoving)
+          setLeads((prev) =>
+            prev.map((l) =>
+              l.id === lead.id
+                ? { ...l, followup_stage: targetStage, status: json.data.newStatus || l.status }
+                : l
+            )
+          )
+        } else {
+          // Fallback: just update the lead state
+          setLeads((prev) =>
+            prev.map((l) =>
+              l.id === lead.id
+                ? { ...l, followup_stage: targetStage, status: json.data.newStatus || l.status }
+                : l
+            )
+          )
         }
       } else {
         alert(json.error || "Failed to move to stage")

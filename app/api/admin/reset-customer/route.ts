@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
 import { getDefaultTenant } from "@/lib/tenant"
-import { normalizePhoneNumber } from "@/lib/phone-utils"
+import { normalizePhone, toE164 } from "@/lib/phone-utils"
 
 /**
  * Reset all data for a customer by phone number
@@ -32,39 +32,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Phone number required" }, { status: 400 })
   }
 
-  // Normalize the phone number
-  const phone = normalizePhoneNumber(rawPhone) || rawPhone
+  // Create multiple phone formats to search for
+  // Database might have phone stored in different formats
+  const digits10 = normalizePhone(rawPhone) // 4157204580
+  const e164 = toE164(rawPhone) // +14157204580
+  const digits11 = digits10 ? `1${digits10}` : "" // 14157204580
 
-  console.log(`[admin] Resetting all data for phone: ${phone}`)
+  // Build array of all possible phone formats to search
+  const phoneFormats = [e164, digits10, digits11].filter(Boolean)
+  const phone = e164 // Primary format for logging
+
+  console.log(`[admin] Resetting all data for phone formats: ${phoneFormats.join(", ")}`)
 
   const deletionLog: string[] = []
 
   try {
-    // 1. Find the customer
-    const { data: customer } = await client
+    // 1. Find the customer (try all phone formats)
+    const { data: customers } = await client
       .from("customers")
-      .select("id")
+      .select("id, phone_number")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
-      .maybeSingle()
+      .in("phone_number", phoneFormats)
 
-    // 2. Find all leads for this phone number
+    const customer = customers?.[0] || null
+    console.log(`[admin] Found ${customers?.length || 0} customers with matching phone`)
+
+    // 2. Find all leads for this phone number (try all phone formats)
     const { data: leads } = await client
       .from("leads")
-      .select("id")
+      .select("id, phone_number")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     const leadIds = leads?.map((l) => l.id) || []
+    console.log(`[admin] Found ${leads?.length || 0} leads with matching phone`)
 
-    // 3. Find all jobs for this phone number
+    // 3. Find all jobs for this phone number (try all phone formats)
     const { data: jobs } = await client
       .from("jobs")
-      .select("id")
+      .select("id, phone_number")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     const jobIds = jobs?.map((j) => j.id) || []
+    console.log(`[admin] Found ${jobs?.length || 0} jobs with matching phone`)
 
     // 4. Delete scheduled_tasks for these leads
     if (leadIds.length > 0) {
@@ -80,51 +91,51 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 5. Count and delete system_events for this phone number
+    // 5. Count and delete system_events for this phone number (all formats)
     const { data: events } = await client
       .from("system_events")
       .select("id")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     if (events && events.length > 0) {
       await client
         .from("system_events")
         .delete()
         .eq("tenant_id", tenant.id)
-        .eq("phone_number", phone)
+        .in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${events.length} system events`)
     }
 
-    // 6. Count and delete messages for this phone number
+    // 6. Count and delete messages for this phone number (all formats)
     const { data: messages } = await client
       .from("messages")
       .select("id")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     if (messages && messages.length > 0) {
       await client
         .from("messages")
         .delete()
         .eq("tenant_id", tenant.id)
-        .eq("phone_number", phone)
+        .in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${messages.length} messages`)
     }
 
-    // 7. Count and delete calls for this phone number
+    // 7. Count and delete calls for this phone number (all formats)
     const { data: calls } = await client
       .from("calls")
       .select("id")
       .eq("tenant_id", tenant.id)
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     if (calls && calls.length > 0) {
       await client
         .from("calls")
         .delete()
         .eq("tenant_id", tenant.id)
-        .eq("phone_number", phone)
+        .in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${calls.length} calls`)
     }
 
@@ -147,37 +158,35 @@ export async function POST(request: NextRequest) {
         .in("converted_to_job_id", jobIds)
     }
 
-    // 10. Delete leads
+    // 10. Delete leads (use IDs we already found to ensure we delete all)
     if (leadIds.length > 0) {
       await client
         .from("leads")
         .delete()
-        .eq("tenant_id", tenant.id)
-        .eq("phone_number", phone)
+        .in("id", leadIds)
       deletionLog.push(`Deleted ${leadIds.length} leads`)
     }
 
-    // 11. Delete jobs
+    // 11. Delete jobs (use IDs we already found to ensure we delete all)
     if (jobIds.length > 0) {
       await client
         .from("jobs")
         .delete()
-        .eq("tenant_id", tenant.id)
-        .eq("phone_number", phone)
+        .in("id", jobIds)
       deletionLog.push(`Deleted ${jobIds.length} jobs`)
     }
 
-    // 12. Delete followup_queue entries
+    // 12. Delete followup_queue entries (all phone formats)
     const { data: followups } = await client
       .from("followup_queue")
       .select("id")
-      .eq("phone_number", phone)
+      .in("phone_number", phoneFormats)
 
     if (followups && followups.length > 0) {
       await client
         .from("followup_queue")
         .delete()
-        .eq("phone_number", phone)
+        .in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 
