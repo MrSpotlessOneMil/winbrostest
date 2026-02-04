@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getDefaultTenant, getTenantServiceDescription } from "@/lib/tenant"
 import { cancelTask, scheduleTask } from "@/lib/scheduler"
 import { sendSMS } from "@/lib/openphone"
 import { initiateOutboundCall } from "@/lib/vapi"
@@ -147,22 +147,42 @@ export async function POST(
         const leadName = `${lead.first_name || ''} ${lead.last_name || ''}`.trim() || 'Customer'
         const leadPhone = lead.phone_number
         const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
+        const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
 
-        // Define stage actions
+        // Build service-specific quote question
+        const quoteQuestion = serviceType === 'window cleaning'
+          ? `Can you share your address and the number of windows/stories?`
+          : serviceType === 'house cleaning'
+          ? `Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+          : `Can you share your address and some details about the job?`
+
+        const detailsRequest = serviceType === 'window cleaning'
+          ? `Reply with your address and number of windows or stories and we'll send you pricing right away!`
+          : serviceType === 'house cleaning'
+          ? `Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
+          : `Reply with your address and job details and we'll send you pricing right away!`
+
+        const lastChanceDetails = serviceType === 'window cleaning'
+          ? `Reply with your address and number of windows for an instant quote, or call us directly!`
+          : serviceType === 'house cleaning'
+          ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
+          : `Reply with your address and job details for an instant quote, or call us directly!`
+
+        // Define stage actions with service-specific messages
         const stageActions: Record<number, { type: 'text' | 'call'; getMessage?: () => string }> = {
           1: {
             type: 'text',
-            getMessage: () => `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+            getMessage: () => `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceType} needs. ${quoteQuestion}`
           },
           2: {
             type: 'text',
-            getMessage: () => `Hi ${leadName}, just checking in! We have openings this week for cleaning services. Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
+            getMessage: () => `Hi ${leadName}, just checking in! We have openings this week for ${serviceType} services. ${detailsRequest}`
           },
           3: { type: 'call' },
           4: { type: 'call' },  // Double dial
           5: {
             type: 'text',
-            getMessage: () => `Hi ${leadName}, last chance to book your cleaning with ${businessName}! We have limited availability this week. Reply with your address and beds/baths for an instant quote, or call us directly!`
+            getMessage: () => `Hi ${leadName}, last chance to book your ${serviceType} with ${businessName}! We have limited availability this week. ${lastChanceDetails}`
           },
         }
 

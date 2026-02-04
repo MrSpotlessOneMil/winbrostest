@@ -70,6 +70,7 @@ export interface Tenant {
   business_name_short: string | null
   service_area: string | null
   sdr_persona: string
+  service_description: string | null // e.g., "window cleaning", "house cleaning", "carpet cleaning"
 
   // API Keys
   openphone_api_key: string | null
@@ -327,6 +328,38 @@ export function getTenantBusinessName(tenant: Tenant, short = false): string {
  */
 export function getTenantSdrName(tenant: Tenant): string {
   return tenant.sdr_persona || "Mary"
+}
+
+/**
+ * Get the service type/description for this tenant
+ * Used in AI prompts and templates to customize messaging
+ */
+export function getTenantServiceDescription(tenant: Tenant): string {
+  // Use explicit service_description if set
+  if (tenant.service_description) {
+    return tenant.service_description
+  }
+
+  // Infer from business name as fallback
+  const name = (tenant.business_name || tenant.name || '').toLowerCase()
+  if (name.includes('window')) return 'window cleaning'
+  if (name.includes('carpet')) return 'carpet cleaning'
+  if (name.includes('pressure') || name.includes('power wash')) return 'pressure washing'
+  if (name.includes('maid') || name.includes('house')) return 'house cleaning'
+
+  // Default
+  return 'cleaning'
+}
+
+/**
+ * Get a prompt-friendly description of the business for AI
+ */
+export function getTenantBusinessContext(tenant: Tenant): string {
+  const serviceType = getTenantServiceDescription(tenant)
+  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  const area = tenant.service_area || 'the local area'
+
+  return `${businessName} is a professional ${serviceType} service in ${area}`
 }
 
 /**

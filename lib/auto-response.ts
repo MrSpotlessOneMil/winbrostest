@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
+import { getTenantServiceDescription, getTenantBusinessContext } from './tenant'
 
 export interface AutoResponseResult {
   response: string
@@ -52,6 +53,9 @@ export async function generateAutoResponse(
   const businessName = tenant?.business_name_short || tenant?.business_name || 'WinBros'
   const sdrName = tenant?.sdr_persona || 'Mary'
   const serviceArea = tenant?.service_area || 'your area'
+  // Get the service type from tenant - this differentiates window cleaning from house cleaning etc.
+  const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
+  const businessContext = tenant ? getTenantBusinessContext(tenant) : `${businessName} is a professional ${serviceType} service`
 
   // Try AI generation first
   const anthropicKey = process.env.ANTHROPIC_API_KEY
@@ -71,7 +75,8 @@ export async function generateAutoResponse(
         intentAnalysis,
         businessName,
         sdrName,
-        serviceArea,
+        serviceType,
+        businessContext,
         conversationHistory,
         messageContext
       )
@@ -87,7 +92,8 @@ export async function generateAutoResponse(
         intentAnalysis,
         businessName,
         sdrName,
-        serviceArea,
+        serviceType,
+        businessContext,
         conversationHistory,
         messageContext
       )
@@ -97,7 +103,7 @@ export async function generateAutoResponse(
   }
 
   // Fallback to template-based responses
-  return generateFallbackResponse(incomingMessage, intentAnalysis, businessName, sdrName, conversationHistory, messageContext)
+  return generateFallbackResponse(incomingMessage, intentAnalysis, businessName, sdrName, serviceType, conversationHistory, messageContext)
 }
 
 interface MessageContext {
@@ -114,7 +120,8 @@ async function generateWithClaude(
   intent: IntentAnalysis,
   businessName: string,
   sdrName: string,
-  serviceArea: string,
+  serviceType: string,
+  businessContext: string,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): Promise<AutoResponseResult> {
@@ -132,13 +139,20 @@ async function generateWithClaude(
     responseTypeHint = '\nIMPORTANT: Customer said "no" - acknowledge gracefully and try a different approach to keep them engaged.'
   }
 
+  // Build service-specific guidance
+  const serviceGuidance = serviceType === 'window cleaning'
+    ? 'Ask about number of windows, stories, or when they last had windows cleaned.'
+    : serviceType === 'house cleaning'
+    ? 'Ask about bedrooms, bathrooms, or square footage.'
+    : `Ask relevant questions for ${serviceType}.`
+
   const response = await client.messages.create({
     model: 'claude-3-5-haiku-20241022',
     max_tokens: 300,
     messages: [
       {
         role: 'user',
-        content: `You are ${sdrName}, a friendly sales rep for ${businessName}, a professional cleaning service in ${serviceArea}.
+        content: `You are ${sdrName}, a friendly sales rep for ${businessContext}.
 
 ${historyContext}
 Customer just texted: "${message}"
@@ -149,14 +163,15 @@ ${intent.extractedInfo.serviceType ? `Service mentioned: ${intent.extractedInfo.
 ${intent.extractedInfo.preferredDate ? `Date mentioned: ${intent.extractedInfo.preferredDate}` : ''}
 
 Write a SHORT, friendly SMS reply (under 160 chars if possible, max 300 chars).
-Your goal: Guide them toward booking a cleaning.
+Your goal: Guide them toward booking ${serviceType}.
 
 Rules:
 - Be warm but professional
 - Don't use emojis excessively (1-2 max)
+- ${serviceGuidance}
 - Ask a specific next question to move toward booking
 - If they mentioned details, acknowledge them
-- If unclear intent, ask if they need cleaning help
+- If unclear intent, ask if they need ${serviceType} help
 - Never be pushy or salesy
 - Sign off as ${sdrName} only on first contact (not if there's conversation history)
 
@@ -187,7 +202,8 @@ async function generateWithOpenAI(
   intent: IntentAnalysis,
   businessName: string,
   sdrName: string,
-  serviceArea: string,
+  serviceType: string,
+  businessContext: string,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): Promise<AutoResponseResult> {
@@ -211,7 +227,7 @@ async function generateWithOpenAI(
     messages: [
       {
         role: 'system',
-        content: `You are ${sdrName}, a friendly sales rep for ${businessName}, a professional cleaning service in ${serviceArea}. Write short, friendly SMS replies that guide customers toward booking. Keep under 160 chars when possible, max 300. Be warm but not pushy. Ask specific questions to move toward booking. ${conversationHistory?.length ? 'This is an ongoing conversation - don\'t re-introduce yourself.' : ''}`
+        content: `You are ${sdrName}, a friendly sales rep. ${businessContext}. Write short, friendly SMS replies that guide customers toward booking ${serviceType}. Keep under 160 chars when possible, max 300. Be warm but not pushy. Ask specific questions to move toward booking. ${conversationHistory?.length ? 'This is an ongoing conversation - don\'t re-introduce yourself.' : ''}`
       },
       {
         role: 'user',
@@ -245,16 +261,24 @@ function generateFallbackResponse(
   intent: IntentAnalysis,
   businessName: string,
   sdrName: string,
+  serviceType: string,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   messageContext?: MessageContext
 ): AutoResponseResult {
   const hasHistory = conversationHistory && conversationHistory.length > 0
   const signoff = hasHistory ? '' : ` -${sdrName}`
 
+  // Service-specific question based on service type
+  const quoteQuestion = serviceType === 'window cleaning'
+    ? `How many windows or stories does your home have?`
+    : serviceType === 'house cleaning'
+    ? `How many bedrooms and bathrooms?`
+    : `What details can you share about the job?`
+
   // Handle affirmative responses (yes, yeah, sure, etc.)
   if (messageContext?.isAffirmativeResponse && hasHistory) {
     return {
-      response: `Perfect! To get you a quote, I just need a few details. What's the address for the cleaning?`,
+      response: `Perfect! To get you a quote, I just need a few details. What's the address?`,
       shouldSend: true,
       reason: 'Template: affirmative response'
     }
@@ -263,7 +287,7 @@ function generateFallbackResponse(
   // Handle negative responses (no, nope, etc.)
   if (messageContext?.isNegativeResponse && hasHistory) {
     return {
-      response: `No problem! If you ever need cleaning help in the future, just text us. Have a great day!`,
+      response: `No problem! If you ever need ${serviceType} help in the future, just text us. Have a great day!`,
       shouldSend: true,
       reason: 'Template: negative response'
     }
@@ -273,7 +297,7 @@ function generateFallbackResponse(
     // High/medium confidence booking intent
     if (intent.extractedInfo.preferredDate) {
       return {
-        response: `Hi! Thanks for reaching out to ${businessName}! I see you're looking at ${intent.extractedInfo.preferredDate}. What's the address for the cleaning?${signoff}`,
+        response: `Hi! Thanks for reaching out to ${businessName}! I see you're looking at ${intent.extractedInfo.preferredDate}. What's the address?${signoff}`,
         shouldSend: true,
         reason: 'Template: booking intent with date'
       }
@@ -281,14 +305,14 @@ function generateFallbackResponse(
 
     if (intent.extractedInfo.serviceType) {
       return {
-        response: `Hi! Thanks for your interest in ${intent.extractedInfo.serviceType} cleaning! To get you a quick quote, how many bedrooms and bathrooms?${signoff}`,
+        response: `Hi! Thanks for your interest in ${intent.extractedInfo.serviceType}! To get you a quick quote, ${quoteQuestion}${signoff}`,
         shouldSend: true,
         reason: 'Template: booking intent with service type'
       }
     }
 
     return {
-      response: `Hi! Thanks for reaching out to ${businessName}! I'd love to help you get a sparkling clean home. What type of cleaning are you looking for?${signoff}`,
+      response: `Hi! Thanks for reaching out to ${businessName}! I'd love to help with your ${serviceType} needs. ${quoteQuestion}${signoff}`,
       shouldSend: true,
       reason: 'Template: general booking intent'
     }
@@ -298,8 +322,8 @@ function generateFallbackResponse(
   if (message.includes('?')) {
     return {
       response: hasHistory
-        ? `Happy to help! Are you looking for a cleaning service? I can get you a quick quote.`
-        : `Hi! This is ${sdrName} from ${businessName}. Happy to help! Are you looking for a cleaning service? I can get you a quick quote.`,
+        ? `Happy to help! Are you looking for ${serviceType} services? I can get you a quick quote.`
+        : `Hi! This is ${sdrName} from ${businessName}. Happy to help! Are you looking for ${serviceType} services? I can get you a quick quote.`,
       shouldSend: true,
       reason: 'Template: question response'
     }
@@ -308,8 +332,8 @@ function generateFallbackResponse(
   // Default engagement response
   return {
     response: hasHistory
-      ? `Thanks for texting! Are you looking for cleaning help? I'd be happy to get you a quote.`
-      : `Hi! This is ${sdrName} from ${businessName}. Thanks for texting! Are you looking for cleaning help? I'd be happy to get you a quote.`,
+      ? `Thanks for texting! Are you looking for ${serviceType} help? I'd be happy to get you a quote.`
+      : `Hi! This is ${sdrName} from ${businessName}. Thanks for texting! Are you looking for ${serviceType} help? I'd be happy to get you a quote.`,
     shouldSend: true,
     reason: 'Template: default engagement'
   }

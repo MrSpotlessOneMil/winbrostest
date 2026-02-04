@@ -15,7 +15,7 @@ import {
   failTask,
   type ScheduledTask,
 } from '@/lib/scheduler'
-import { getTenantById } from '@/lib/tenant'
+import { getTenantById, getTenantServiceDescription } from '@/lib/tenant'
 import { processFollowUp, getPendingFollowups } from '@/integrations/ghl/follow-up-scheduler'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { sendSMS } from '@/lib/openphone'
@@ -170,6 +170,26 @@ async function processLeadFollowup(
 
   const client = getSupabaseClient()
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
+  const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
+
+  // Build service-specific quote question
+  const quoteQuestion = serviceType === 'window cleaning'
+    ? `Can you share your address and the number of windows/stories?`
+    : serviceType === 'house cleaning'
+    ? `Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+    : `Can you share your address and some details about the job?`
+
+  const detailsRequest = serviceType === 'window cleaning'
+    ? `Reply with your address and number of windows or stories and we'll send you pricing right away!`
+    : serviceType === 'house cleaning'
+    ? `Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
+    : `Reply with your address and job details and we'll send you pricing right away!`
+
+  const lastChanceDetails = serviceType === 'window cleaning'
+    ? `Reply with your address and number of windows for an instant quote, or call us directly!`
+    : serviceType === 'house cleaning'
+    ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
+    : `Reply with your address and job details for an instant quote, or call us directly!`
 
   // Check if lead has already converted (responded, booked, etc.)
   const { data: lead } = await client
@@ -213,10 +233,10 @@ async function processLeadFollowup(
 
     if (stage === 1) {
       // Initial greeting (Text 1)
-      message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+      message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceType} needs. ${quoteQuestion}`
     } else if (stage === 2) {
       // Second follow-up text (Text 2)
-      message = `Hi ${leadName}, just checking in! We have openings this week for cleaning services. Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
+      message = `Hi ${leadName}, just checking in! We have openings this week for ${serviceType} services. ${detailsRequest}`
     } else if (stage === 5) {
       // Final stage - try to create a quote and send payment link
       // formData is already parsed above, reuse it
@@ -264,7 +284,7 @@ async function processLeadFollowup(
 
           if (jobErr || !job) {
             console.error(`[lead-followup] Failed to create job from lead:`, jobErr?.message)
-            message = `Hi ${leadName}, last chance to book your cleaning with ${businessName}! We have limited availability this week. Reply "BOOK" to secure your spot or call us to discuss your needs.`
+            message = `Hi ${leadName}, last chance to book your ${serviceType} with ${businessName}! We have limited availability this week. Reply "BOOK" to secure your spot or call us to discuss your needs.`
           } else {
             // Update lead with job reference
             await client
@@ -316,14 +336,14 @@ async function processLeadFollowup(
           }
         } catch (err) {
           console.error(`[lead-followup] Error creating quote:`, err)
-          message = `Hi ${leadName}, last chance to book your cleaning with ${businessName}! We have limited availability this week. Reply "BOOK" to secure your spot or call us to discuss your needs.`
+          message = `Hi ${leadName}, last chance to book your ${serviceType} with ${businessName}! We have limited availability this week. Reply "BOOK" to secure your spot or call us to discuss your needs.`
         }
       } else {
         // Don't have enough info for a quote, send generic final message
-        message = `Hi ${leadName}, last chance to book your cleaning with ${businessName}! We have limited availability this week. Reply with your address and beds/baths for an instant quote, or call us directly!`
+        message = `Hi ${leadName}, last chance to book your ${serviceType} with ${businessName}! We have limited availability this week. ${lastChanceDetails}`
       }
     } else {
-      message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our cleaning services. We're here to help!`
+      message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${serviceType} services. We're here to help!`
     }
 
     // Send the SMS
@@ -442,8 +462,9 @@ async function processDayBeforeReminder(
   console.log(`[day-before-reminder] Sending ${type} reminder for job ${jobId}`)
 
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
+  const serviceType = tenant ? getTenantServiceDescription(tenant) : 'service'
 
-  const message = `Hi ${customerName}! This is a reminder that your cleaning with ${businessName} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!`
+  const message = `Hi ${customerName}! This is a reminder that your ${serviceType} with ${businessName} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!`
 
   let smsResult
   if (tenant) {
