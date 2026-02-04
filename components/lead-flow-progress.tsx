@@ -43,7 +43,7 @@ const STAGES = [
   { id: "call_1", label: "Call 1", stageNum: 3, action: "call" },
   { id: "call_2", label: "Call 2", stageNum: 4, action: "call" },  // Double dial
   { id: "text_3", label: "Text 3", stageNum: 5, action: "text" },
-  { id: "customer_response", label: "Response", stageNum: 6, action: null },
+  { id: "customer_response", label: "Responded", stageNum: 6, action: null },
   { id: "price_sent", label: "Price Sent", stageNum: 7, action: null },
   { id: "payment_received", label: "Payment", stageNum: 8, action: null },
   { id: "job_assigned", label: "Assigned", stageNum: 9, action: null },

@@ -248,7 +248,23 @@ async function processLeadFollowup(
       )
 
       if (wasAnswered) {
-        console.log(`[lead-followup] Lead ${leadId} call 1 was answered (outcome: ${lastCall.outcome}), skipping call 2`)
+        console.log(`[lead-followup] Lead ${leadId} call 1 was answered (outcome: ${lastCall.outcome}), cancelling remaining follow-ups`)
+
+        // Cancel stage 5 task since customer already engaged
+        const { cancelTask } = await import('@/lib/scheduler')
+        await cancelTask(`lead-${leadId}-stage-5`)
+
+        // Move lead to "responded" stage (stage 6)
+        await client
+          .from('leads')
+          .update({
+            followup_stage: 6,
+            status: 'contacted',
+            last_contact_at: new Date().toISOString(),
+          })
+          .eq('id', leadId)
+
+        console.log(`[lead-followup] Lead ${leadId} moved to stage 6 (responded) after successful call`)
         return
       }
       console.log(`[lead-followup] Lead ${leadId} call 1 was not answered (outcome: ${lastCall.outcome}), proceeding with call 2`)
