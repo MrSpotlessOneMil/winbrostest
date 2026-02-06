@@ -296,16 +296,22 @@ export async function createCardOnFileLink(
     // Create checkout session in setup mode (card on file)
     // Redirect to business website (not the dashboard) after card is saved
     const cardOnFileRedirect = 'https://winbrosservices.com'
+    const sessionMetadata = {
+      job_id: jobId,
+      phone_number: customer.phone_number,
+      purpose: 'card_on_file',
+    }
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomer.id,
       mode: 'setup',
       payment_method_types: ['card'],
       success_url: cardOnFileRedirect,
       cancel_url: cardOnFileRedirect,
-      metadata: {
-        job_id: jobId,
-        phone_number: customer.phone_number,
-        purpose: 'card_on_file',
+      metadata: sessionMetadata,
+      // Propagate metadata to the setup_intent so the setup_intent.succeeded
+      // webhook event also has job_id, phone_number, and purpose
+      setup_intent_data: {
+        metadata: sessionMetadata,
       },
     })
 
