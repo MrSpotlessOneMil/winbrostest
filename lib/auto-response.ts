@@ -146,6 +146,18 @@ async function generateWithClaude(
     ? 'Ask about bedrooms, bathrooms, or square footage.'
     : `Ask relevant questions for ${serviceType}.`
 
+  // Detect if customer provided an email address
+  const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
+  const emailHint = emailMatch
+    ? `\nIMPORTANT: Customer provided their email address (${emailMatch[0]}). Acknowledge receipt and let them know you'll send the confirmed price/details to that email.`
+    : ''
+
+  // Detect if customer is confirming/responding to our previous message
+  const isConfirming = messageContext?.isAffirmativeResponse && messageContext?.hasConversationHistory
+  const confirmHint = isConfirming && !emailMatch
+    ? `\nIMPORTANT: Customer is confirming. If our last message asked for their email, ask for it. If it was a booking confirmation, acknowledge and ask for email to send pricing.`
+    : ''
+
   const response = await client.messages.create({
     model: 'claude-3-5-haiku-20241022',
     max_tokens: 300,
@@ -156,22 +168,23 @@ async function generateWithClaude(
 
 ${historyContext}
 Customer just texted: "${message}"
-${responseTypeHint}
+${responseTypeHint}${emailHint}${confirmHint}
 
 Intent analysis: ${intent.hasBookingIntent ? 'INTERESTED in booking' : 'Not clearly interested'} (${intent.confidence} confidence)
 ${intent.extractedInfo.serviceType ? `Service mentioned: ${intent.extractedInfo.serviceType}` : ''}
 ${intent.extractedInfo.preferredDate ? `Date mentioned: ${intent.extractedInfo.preferredDate}` : ''}
 
 Write a SHORT, friendly SMS reply (under 160 chars if possible, max 300 chars).
-Your goal: Guide them toward booking ${serviceType}.
 
 Rules:
 - Be warm but professional
 - Don't use emojis excessively (1-2 max)
-- ${serviceGuidance}
-- Ask a specific next question to move toward booking
-- If they mentioned details, acknowledge them
-- If unclear intent, ask if they need ${serviceType} help
+- CRITICAL: Read the conversation history carefully. Respond to what the customer is actually saying.
+- If they confirmed something (yes/yup/sure), acknowledge and move to the next step (usually asking for email to send pricing).
+- If they provided an email, thank them and say you'll send details there.
+- If they already have a booking, do NOT ask generic questions about service needs. Continue the booking conversation.
+- Only ask about ${serviceType} details if this is a NEW inquiry with no prior conversation.
+- Never repeat information or questions that were already covered.
 - Never be pushy or salesy
 - Sign off as ${sdrName} only on first contact (not if there's conversation history)
 
@@ -221,13 +234,17 @@ async function generateWithOpenAI(
     responseTypeHint = 'Customer said NO - acknowledge gracefully, try different approach. '
   }
 
+  // Detect email in message
+  const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
+  const emailHint = emailMatch ? ` Customer provided email (${emailMatch[0]}) - acknowledge and say you'll send details.` : ''
+
   const response = await client.chat.completions.create({
     model: 'gpt-4o-mini',
     max_tokens: 200,
     messages: [
       {
         role: 'system',
-        content: `You are ${sdrName}, a friendly sales rep. ${businessContext}. Write short, friendly SMS replies that guide customers toward booking ${serviceType}. Keep under 160 chars when possible, max 300. Be warm but not pushy. Ask specific questions to move toward booking. ${conversationHistory?.length ? 'This is an ongoing conversation - don\'t re-introduce yourself.' : ''}`
+        content: `You are ${sdrName}, a friendly sales rep. ${businessContext}. Write short, friendly SMS replies. Keep under 160 chars when possible, max 300. Be warm but not pushy. ${conversationHistory?.length ? 'This is an ongoing conversation - read the history carefully and respond appropriately. Do NOT re-introduce yourself or ask questions that were already answered.' : ''} If customer is confirming (yes/yup), acknowledge and move to next step. If they provided an email, thank them and say you will send details.${emailHint}`
       },
       {
         role: 'user',

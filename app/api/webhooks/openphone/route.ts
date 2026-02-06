@@ -184,7 +184,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Store the inbound message for dashboard display
-  const { error: msgErr } = await client.from("messages").insert({
+  const receivedAt = new Date().toISOString()
+  const { data: insertedMsg, error: msgErr } = await client.from("messages").insert({
     tenant_id: tenant?.id,
     customer_id: customer.id,
     phone_number: phone,
@@ -193,33 +194,103 @@ export async function POST(request: NextRequest) {
     direction: extracted.direction || "inbound",
     message_type: "sms",
     ai_generated: false,
-    timestamp: extracted.createdAt,
+    timestamp: receivedAt,
     source: "openphone",
     metadata: payload,
-  })
+  }).select("id").single()
 
   if (msgErr) {
     return NextResponse.json({ success: false, error: `Failed to insert message: ${msgErr.message}` }, { status: 500 })
   }
+
+  const currentMsgId = insertedMsg?.id
 
   // ============================================
   // AI Intent Analysis for Lead Creation
   // ============================================
   const messageContent = extracted.content || ""
 
-  // Quick check - skip obvious non-booking messages
+  // Quick check - skip obvious non-booking messages (don't waste the debounce delay)
   if (isObviouslyNotBooking(messageContent)) {
     console.log(`[OpenPhone] Message is obviously not booking intent: "${messageContent}"`)
     return NextResponse.json({ success: true, intentAnalysis: "skipped" })
   }
 
-  // Get recent conversation history for context (needed for auto-response)
+  // ============================================
+  // DEBOUNCE: Wait for additional messages to arrive
+  // This prevents sending multiple responses when a customer
+  // sends several texts in quick succession (e.g. "Yup" then email)
+  // ============================================
+  const RESPONSE_DELAY_MS = Number(process.env.SMS_RESPONSE_DELAY_MS || '8000')
+  if (RESPONSE_DELAY_MS > 0) {
+    console.log(`[OpenPhone] Waiting ${RESPONSE_DELAY_MS}ms for additional messages from ${phone}...`)
+    await new Promise(resolve => setTimeout(resolve, RESPONSE_DELAY_MS))
+  }
+
+  // After delay, check if this is still the newest inbound message
+  // If a newer message arrived during the delay, let that webhook handle the response
+  const { data: newestInbound } = await client
+    .from("messages")
+    .select("id")
+    .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
+    .eq("role", "client")
+    .order("timestamp", { ascending: false })
+    .limit(1)
+    .single()
+
+  if (newestInbound && newestInbound.id !== currentMsgId) {
+    console.log(`[OpenPhone] Newer message arrived during debounce window, deferring to newer webhook`)
+    return NextResponse.json({ success: true, action: "debounced_newer_message" })
+  }
+
+  // Double-guard: check if another webhook already sent an AI response recently
+  const recentOutboundCutoff = new Date(Date.now() - 15000).toISOString()
+  const { data: recentOutbound } = await client
+    .from("messages")
+    .select("id")
+    .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
+    .eq("role", "assistant")
+    .eq("ai_generated", true)
+    .gte("timestamp", recentOutboundCutoff)
+    .limit(1)
+
+  if (recentOutbound && recentOutbound.length > 0) {
+    console.log(`[OpenPhone] AI response already sent in last 15s, skipping duplicate`)
+    return NextResponse.json({ success: true, action: "debounced_recent_outbound" })
+  }
+
+  // ============================================
+  // COMBINE: Batch all recent inbound messages into one context
+  // e.g. "Yup" + "jaspergrenager@gmail.com" → "Yup jaspergrenager@gmail.com"
+  // ============================================
+  const combineWindow = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+  const { data: recentInbound } = await client
+    .from("messages")
+    .select("content")
+    .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
+    .eq("role", "client")
+    .gte("timestamp", combineWindow)
+    .order("timestamp", { ascending: true })
+
+  const combinedMessage = recentInbound && recentInbound.length > 1
+    ? recentInbound.map(m => m.content).join(' ')
+    : messageContent
+
+  if (recentInbound && recentInbound.length > 1) {
+    console.log(`[OpenPhone] Combined ${recentInbound.length} messages: "${combinedMessage.slice(0, 100)}"`)
+  }
+
+  // Get recent conversation history for context (more messages for better AI context)
   const { data: recentMessages } = await client
     .from("messages")
     .select("role, content")
     .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
-    .limit(5)
+    .limit(10)
 
   const conversationHistory = recentMessages?.reverse().map(m => ({
     role: m.role as 'client' | 'assistant',
@@ -260,11 +331,11 @@ export async function POST(request: NextRequest) {
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
       try {
-        // Run quick intent analysis for context
-        const quickIntent = await analyzeBookingIntent(messageContent, conversationHistory)
+        // Run intent analysis on the COMBINED message for better context
+        const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
         const autoResponse = await generateAutoResponse(
-          messageContent,
+          combinedMessage,
           quickIntent,
           tenant,
           conversationHistory
@@ -291,6 +362,7 @@ export async function POST(request: NextRequest) {
                 auto_response: true,
                 existing_lead_id: existingLead.id,
                 reason: autoResponse.reason,
+                combined_message: combinedMessage,
                 openphone_message_id: sendResult.messageId,
               },
             })
@@ -304,9 +376,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponseSent: smsEnabled })
   }
 
-  // Run AI intent analysis
-  console.log(`[OpenPhone] Analyzing booking intent for: "${messageContent}"`)
-  const intentResult = await analyzeBookingIntent(messageContent, conversationHistory)
+  // Run AI intent analysis on the COMBINED message
+  console.log(`[OpenPhone] Analyzing booking intent for: "${combinedMessage}"`)
+  const intentResult = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
   console.log(`[OpenPhone] Intent analysis result:`, intentResult)
 
@@ -317,21 +389,21 @@ export async function POST(request: NextRequest) {
     message: `SMS intent: ${intentResult.hasBookingIntent ? 'BOOKING INTENT DETECTED' : 'No booking intent'} (${intentResult.confidence})`,
     phone_number: phone,
     metadata: {
-      message: messageContent,
+      message: combinedMessage,
       intent_result: intentResult,
     },
   })
 
   // ============================================
-  // Auto-Response: Send immediate AI-powered reply
+  // Auto-Response: Send ONE AI-powered reply for all combined messages
   // Only if SMS auto-response is enabled for this tenant
   // ============================================
   if (smsEnabled) {
     try {
-      console.log(`[OpenPhone] Generating auto-response for: "${messageContent}"`)
+      console.log(`[OpenPhone] Generating auto-response for: "${combinedMessage}"`)
 
       const autoResponse = await generateAutoResponse(
-        messageContent,
+        combinedMessage,
         intentResult,
         tenant,
         conversationHistory
@@ -359,6 +431,7 @@ export async function POST(request: NextRequest) {
               auto_response: true,
               reason: autoResponse.reason,
               intent_analysis: intentResult,
+              combined_message: combinedMessage,
               openphone_message_id: sendResult.messageId,
             },
           })
@@ -410,7 +483,7 @@ export async function POST(request: NextRequest) {
       source: "sms",
       status: "new",
       form_data: {
-        original_message: messageContent,
+        original_message: combinedMessage,
         intent_analysis: intentResult,
         extracted_info: intentResult.extractedInfo,
       },
@@ -429,7 +502,7 @@ export async function POST(request: NextRequest) {
         lastName: lastName || undefined,
         phone,
         address: intentResult.extractedInfo.address || customer.address || undefined,
-        notes: `SMS Inquiry: "${messageContent}"`,
+        notes: `SMS Inquiry: "${combinedMessage}"`,
         source: "sms",
       })
 
@@ -453,7 +526,7 @@ export async function POST(request: NextRequest) {
         metadata: {
           lead_id: lead.id,
           hcp_lead_id: hcpResult.leadId,
-          message: messageContent,
+          message: combinedMessage,
           intent: intentResult,
         },
       })

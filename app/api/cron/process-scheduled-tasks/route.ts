@@ -204,12 +204,13 @@ async function processLeadFollowup(
   }
 
   // Skip follow-up if lead has been contacted recently (within 5 minutes)
-  // This prevents follow-up if customer has already responded
+  // This prevents follow-up from firing when customer is actively texting
+  // Applies to ALL stages including stage 1 (the auto-response serves as initial contact)
   if (lead.last_contact_at) {
     const lastContact = new Date(lead.last_contact_at)
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
-    if (lastContact > fiveMinutesAgo && stage > 1) {
-      console.log(`[lead-followup] Lead ${leadId} contacted recently, skipping stage ${stage}`)
+    if (lastContact > fiveMinutesAgo) {
+      console.log(`[lead-followup] Lead ${leadId} contacted recently (${lead.last_contact_at}), skipping stage ${stage}`)
       return
     }
   }
