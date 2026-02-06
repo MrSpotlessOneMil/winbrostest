@@ -314,7 +314,48 @@ export async function POST(request: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(1)
 
-  const bookedLead = bookedLeads?.[0] ?? null
+  let bookedLead = bookedLeads?.[0] ?? null
+
+  // Fallback: if no "booked" lead found, check if there's a recent VAPI booking
+  // confirmation message - this handles the case where the lead status update
+  // didn't complete before the customer texted back
+  if (!bookedLead) {
+    const { data: vapiConfirmation } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .eq("source", "vapi_booking_confirmation")
+      .order("timestamp", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (vapiConfirmation) {
+      console.log(`[OpenPhone] Found VAPI booking confirmation for ${phone}, looking for phone-source lead`)
+      // Find the most recent lead for this phone (any status)
+      const { data: phoneLead } = await client
+        .from("leads")
+        .select("id, status, form_data, converted_to_job_id")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .eq("source", "phone")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (phoneLead) {
+        console.log(`[OpenPhone] Using phone-source lead ${phoneLead.id} (status: ${phoneLead.status}) as booked lead fallback`)
+        // Update lead to "booked" since the VAPI confirmation was sent
+        if (phoneLead.status !== "booked") {
+          await client
+            .from("leads")
+            .update({ status: "booked" })
+            .eq("id", phoneLead.id)
+        }
+        bookedLead = phoneLead
+      }
+    }
+  }
 
   if (bookedLead && smsEnabled) {
     console.log(`[OpenPhone] Phone-call flow: Lead ${bookedLead.id} is booked, handling post-booking response`)

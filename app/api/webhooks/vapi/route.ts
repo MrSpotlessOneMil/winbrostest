@@ -192,12 +192,15 @@ export async function POST(request: NextRequest) {
       if (shouldCreateLead && phone) {
         console.log("[VAPI Webhook] Creating lead from call...")
 
-        // Check if lead already exists for this phone
+        // Check if lead already exists for this phone (any active status)
         const { data: existingLead } = await client
           .from("leads")
-          .select("id")
+          .select("id, status")
           .eq("phone_number", phone)
-          .eq("status", "new")
+          .eq("tenant_id", tenant?.id)
+          .in("status", ["new", "contacted", "qualified", "booked"])
+          .order("created_at", { ascending: false })
+          .limit(1)
           .maybeSingle()
 
         if (!existingLead) {
@@ -306,15 +309,6 @@ export async function POST(request: NextRequest) {
               } else if (job?.id) {
                 console.log(`[VAPI Webhook] Job created from booked call: ${job.id}`)
 
-                // Update lead with job reference
-                await client
-                  .from("leads")
-                  .update({
-                    status: "booked",
-                    converted_to_job_id: job.id
-                  })
-                  .eq("id", lead.id)
-
                 await logSystemEvent({
                   source: "vapi",
                   event_type: "JOB_CREATED_FROM_CALL",
@@ -327,6 +321,17 @@ export async function POST(request: NextRequest) {
                   },
                 })
               }
+
+              // ALWAYS update lead to "booked" when call outcome is booked
+              // (even if job creation failed - the customer still booked on the call)
+              await client
+                .from("leads")
+                .update({
+                  status: "booked",
+                  converted_to_job_id: job?.id || null,
+                })
+                .eq("id", lead.id)
+              console.log(`[VAPI Webhook] Lead ${lead.id} status set to "booked"`)
 
               // Send booking confirmation text
               const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
