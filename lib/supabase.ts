@@ -395,7 +395,6 @@ export async function getCustomerByPhone(phoneNumber: string): Promise<Customer 
     .from('customers')
     .select('*')
     .eq('phone_number', dbPhone)
-    .is('deleted_at', null)
     .single()
 
   if (error) {
@@ -806,7 +805,6 @@ export async function getJobsByPhone(phoneNumber: string, userId?: number): Prom
     .from('jobs')
     .select('*')
     .eq('phone_number', dbPhone)
-    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   if (userId) {
@@ -829,7 +827,6 @@ export async function getJobById(jobId: string): Promise<Job | null> {
     .from('jobs')
     .select('*')
     .eq('id', jobId)
-    .is('deleted_at', null)
     .single()
 
   if (error) {
@@ -846,7 +843,6 @@ export async function getJobByStripeInvoiceId(invoiceId: string): Promise<Job | 
     .from('jobs')
     .select('*')
     .eq('stripe_invoice_id', invoiceId)
-    .is('deleted_at', null)
     .single()
 
   if (error) {
@@ -862,7 +858,6 @@ export async function getAllJobs(userId?: number): Promise<Job[]> {
   let query = client
     .from('jobs')
     .select('*')
-    .is('deleted_at', null)
     .order('created_at', { ascending: false })
 
   if (userId) {
@@ -1107,7 +1102,6 @@ export async function getCleanerAvailability(date: string, jobTime?: string): Pr
     .from('jobs')
     .select('*')
     .eq('date', date)
-    .is('deleted_at', null)
     .not('status', 'eq', 'cancelled')
 
   // Get cleaner assignments for those jobs
@@ -1209,7 +1203,6 @@ export async function getJobsByIds(jobIds: string[]): Promise<Job[]> {
     .from('jobs')
     .select('*')
     .in('id', jobIds)
-    .is('deleted_at', null)
 
   if (error) {
     console.error('Error fetching jobs by ids:', error)
@@ -1812,7 +1805,6 @@ export async function getCleanerJobsForDate(
     .eq('cleaner_id', cleanerId)
     .in('status', statuses)
     .eq('jobs.date', date)
-    .is('jobs.deleted_at', null)
 
   if (error) {
     console.error('Error fetching cleaner jobs for date:', error)
@@ -1874,7 +1866,6 @@ export async function getJobsStartingSoon(
     .from('jobs')
     .select('*')
     .eq('date', todayPST)
-    .is('deleted_at', null)
     .not('status', 'eq', 'cancelled')
 
   if (error) {
