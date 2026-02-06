@@ -1726,9 +1726,9 @@ export async function getGHLLeadsNeedingFollowUp(silenceThresholdMs: number): Pr
   const { data, error } = await client
     .from('leads')
     .select('*')
-    .in('status', ['sms_sent', 'in_conversation'])
-    .or(`last_customer_response_at.lt.${cutoffTime},last_customer_response_at.is.null`)
-    .order('last_outreach_at', { ascending: true })
+    .in('status', ['contacted', 'qualified'])
+    .or(`last_contact_at.lt.${cutoffTime},last_contact_at.is.null`)
+    .order('last_contact_at', { ascending: true })
 
   if (error) {
     console.error('Error fetching leads needing follow-up:', error)

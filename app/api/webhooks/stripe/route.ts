@@ -6,6 +6,7 @@ import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
 import { getDefaultTenant } from '@/lib/tenant'
+import { sendSMS } from '@/lib/openphone'
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,6 +31,10 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'checkout.session.completed':
         await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
+        break
+
+      case 'setup_intent.succeeded':
+        await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent)
         break
 
       case 'payment_intent.succeeded':
@@ -59,6 +64,12 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
   const { job_id, lead_id, payment_type } = metadata
 
   console.log(`[Stripe Webhook] Checkout completed - job_id: ${job_id}, payment_type: ${payment_type}`)
+
+  // Handle card-on-file setup sessions (mode: 'setup' or purpose: 'card_on_file')
+  if (session.mode === 'setup' || metadata.purpose === 'card_on_file') {
+    await handleCardOnFileSaved(session)
+    return
+  }
 
   // Handle TIP payments (may not have job verification requirement)
   if (payment_type === 'TIP') {
@@ -319,5 +330,162 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
         },
       })
     }
+  }
+}
+
+/**
+ * Handle card-on-file setup completion (checkout.session.completed with mode: 'setup')
+ * - Sends confirmation SMS to customer
+ * - Triggers cleaner assignment (which sends Telegram to available cleaners)
+ */
+async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
+  const metadata = session.metadata || {}
+  const { job_id, phone_number } = metadata
+
+  console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${phone_number}`)
+
+  const tenant = await getDefaultTenant()
+
+  // Send confirmation SMS to customer
+  if (phone_number && tenant) {
+    const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
+    const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
+
+    if (smsResult.success) {
+      const client = getSupabaseClient()
+
+      // Find customer for message logging
+      const { data: customer } = await client
+        .from('customers')
+        .select('id')
+        .eq('phone_number', phone_number)
+        .eq('tenant_id', tenant.id)
+        .maybeSingle()
+
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        customer_id: customer?.id || null,
+        phone_number: phone_number,
+        role: 'assistant',
+        content: confirmMsg,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: false,
+        timestamp: new Date().toISOString(),
+        source: 'stripe_card_on_file',
+      })
+
+      console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${phone_number}`)
+    }
+  }
+
+  // Trigger cleaner assignment if we have a job
+  if (job_id && !job_id.startsWith('lead-')) {
+    const job = await getJobById(job_id)
+    if (job) {
+      console.log(`[Stripe Webhook] Triggering cleaner assignment for job ${job_id}`)
+      const assignmentResult = await triggerCleanerAssignment(job_id)
+
+      if (assignmentResult.success) {
+        console.log(`[Stripe Webhook] Cleaner assignment triggered successfully for job ${job_id}`)
+      } else {
+        console.error(`[Stripe Webhook] Cleaner assignment failed: ${assignmentResult.error}`)
+      }
+    }
+  }
+
+  await logSystemEvent({
+    source: 'stripe',
+    event_type: 'CARD_ON_FILE_SAVED',
+    message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}`,
+    phone_number: phone_number || undefined,
+    job_id: job_id || undefined,
+    metadata: {
+      session_id: session.id,
+      session_mode: session.mode,
+    },
+  })
+}
+
+/**
+ * Handle setup_intent.succeeded event
+ * This fires when a card-on-file setup intent completes.
+ * The checkout.session.completed handler usually handles this first,
+ * but this provides a fallback for direct setup intents.
+ */
+async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
+  const metadata = setupIntent.metadata || {}
+  const { job_id, phone_number, purpose } = metadata
+
+  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, purpose: ${purpose}`)
+
+  // If this has card_on_file metadata and a phone number, handle it
+  // (checkout.session.completed usually handles this first, so check if already processed)
+  if (phone_number) {
+    const client = getSupabaseClient()
+    const tenant = await getDefaultTenant()
+
+    // Check if we already sent a card-on-file confirmation recently (from checkout.session.completed)
+    const recentCutoff = new Date(Date.now() - 60000).toISOString()
+    const { data: recentConfirmation } = await client
+      .from('messages')
+      .select('id')
+      .eq('phone_number', phone_number)
+      .eq('source', 'stripe_card_on_file')
+      .gte('timestamp', recentCutoff)
+      .limit(1)
+
+    if (recentConfirmation && recentConfirmation.length > 0) {
+      console.log(`[Stripe Webhook] Card-on-file already processed via checkout.session.completed, skipping`)
+      return
+    }
+
+    // If not already processed, send confirmation
+    if (tenant) {
+      const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
+      const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
+
+      if (smsResult.success) {
+        const { data: customer } = await client
+          .from('customers')
+          .select('id')
+          .eq('phone_number', phone_number)
+          .eq('tenant_id', tenant.id)
+          .maybeSingle()
+
+        await client.from('messages').insert({
+          tenant_id: tenant.id,
+          customer_id: customer?.id || null,
+          phone_number: phone_number,
+          role: 'assistant',
+          content: confirmMsg,
+          direction: 'outbound',
+          message_type: 'sms',
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: 'stripe_card_on_file',
+        })
+      }
+    }
+
+    // Trigger cleaner assignment if we have a real job
+    if (job_id && !job_id.startsWith('lead-')) {
+      const assignmentResult = await triggerCleanerAssignment(job_id)
+      if (!assignmentResult.success) {
+        console.error(`[Stripe Webhook] Cleaner assignment failed: ${assignmentResult.error}`)
+      }
+    }
+
+    await logSystemEvent({
+      source: 'stripe',
+      event_type: 'CARD_ON_FILE_SAVED',
+      message: `Setup intent succeeded for ${phone_number}`,
+      phone_number: phone_number,
+      job_id: job_id || undefined,
+      metadata: {
+        setup_intent_id: setupIntent.id,
+        purpose,
+      },
+    })
   }
 }
