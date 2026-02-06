@@ -413,10 +413,42 @@ export async function POST(request: NextRequest) {
             )
 
             if (depositResult.success && depositResult.url) {
-              // Send SMS with acknowledgment + payment link
-              const depositAmount = depositResult.amount?.toFixed(2) || (jobPrice / 2 * 1.03).toFixed(2)
-              const paymentMessage = `Thanks! I'm sending everything over now. Your ${job.service_type || 'window cleaning'} total is $${jobPrice.toFixed(2)}. Pay just $${depositAmount} deposit to confirm your appointment: ${depositResult.url}`
+              const nowTs = new Date().toISOString()
 
+              // Step 1: Send card-on-file link
+              try {
+                const { createCardOnFileLink } = await import("@/lib/stripe-client")
+                const cardResult = await createCardOnFileLink(
+                  { ...customer, email: providedEmail } as any,
+                  job.id,
+                )
+
+                if (cardResult.success && cardResult.url) {
+                  const cardMessage = `Save your card on file (not a charge): ${cardResult.url}`
+                  const cardSms = await sendSMS(tenant!, phone, cardMessage)
+                  if (cardSms.success) {
+                    await client.from("messages").insert({
+                      tenant_id: tenant?.id,
+                      customer_id: customer.id,
+                      phone_number: phone,
+                      role: "assistant",
+                      content: cardMessage,
+                      direction: "outbound",
+                      message_type: "sms",
+                      ai_generated: false,
+                      timestamp: nowTs,
+                      source: "card_on_file",
+                      metadata: { lead_id: bookedLead.id, job_id: job.id, card_on_file_url: cardResult.url },
+                    })
+                    console.log(`[OpenPhone] Card-on-file link sent to ${phone}`)
+                  }
+                }
+              } catch (cardErr) {
+                console.error("[OpenPhone] Failed to create card-on-file link:", cardErr)
+              }
+
+              // Step 2: Send deposit payment link
+              const paymentMessage = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
               const sendResult = await sendSMS(tenant!, phone, paymentMessage)
 
               if (sendResult.success) {
@@ -445,7 +477,7 @@ export async function POST(request: NextRequest) {
               await logSystemEvent({
                 source: "openphone",
                 event_type: "PAYMENT_LINKS_SENT",
-                message: `Stripe deposit link sent to ${phone} for $${jobPrice}`,
+                message: `Stripe payment links sent to ${phone} for $${jobPrice}`,
                 phone_number: phone,
                 metadata: { lead_id: bookedLead.id, job_id: job.id, amount: jobPrice, depositUrl: depositResult.url },
               })
