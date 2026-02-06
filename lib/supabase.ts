@@ -1135,9 +1135,22 @@ export async function createCleanerAssignment(
 ): Promise<CleanerAssignment | null> {
   const client = getSupabaseClient()
 
+  // Get tenant_id from the job
+  const { data: job } = await client
+    .from('jobs')
+    .select('tenant_id')
+    .eq('id', jobId)
+    .single()
+
+  if (!job?.tenant_id) {
+    console.error('Error creating assignment: could not resolve tenant_id for job', jobId)
+    return null
+  }
+
   const { data, error } = await client
     .from('cleaner_assignments')
     .insert({
+      tenant_id: job.tenant_id,
       job_id: jobId,
       cleaner_id: cleanerId,
       status: 'pending',
