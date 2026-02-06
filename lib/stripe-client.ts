@@ -294,12 +294,14 @@ export async function createCardOnFileLink(
     const stripeCustomer = await findOrCreateStripeCustomer(customer)
 
     // Create checkout session in setup mode (card on file)
+    // Redirect to business website (not the dashboard) after card is saved
+    const cardOnFileRedirect = 'https://winbrosservices.com'
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomer.id,
       mode: 'setup',
       payment_method_types: ['card'],
-      success_url: domain,
-      cancel_url: domain,
+      success_url: cardOnFileRedirect,
+      cancel_url: cardOnFileRedirect,
       metadata: {
         job_id: jobId,
         phone_number: customer.phone_number,
