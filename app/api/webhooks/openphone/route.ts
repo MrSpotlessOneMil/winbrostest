@@ -297,12 +297,249 @@ export async function POST(request: NextRequest) {
     content: m.content
   })) || []
 
-  // Get the MOST RECENT active lead for this phone number
-  // This is the lead the user controls via the UI toggle
+  // ============================================
+  // FLOW ROUTING: Check for existing leads to determine response flow
+  // - "booked" leads → phone-call flow (email capture → payment link)
+  // - "new"/"contacted"/"qualified" leads → continue follow-up conversation
+  // - No lead → new inquiry flow (intent analysis → lead creation)
+  // ============================================
+
+  // Check for a BOOKED lead first (customer called in, booked, now texting back)
+  const { data: bookedLeads } = await client
+    .from("leads")
+    .select("id, status, form_data, converted_to_job_id")
+    .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
+    .eq("status", "booked")
+    .order("created_at", { ascending: false })
+    .limit(1)
+
+  const bookedLead = bookedLeads?.[0] ?? null
+
+  if (bookedLead && smsEnabled) {
+    console.log(`[OpenPhone] Phone-call flow: Lead ${bookedLead.id} is booked, handling post-booking response`)
+
+    // Update last contact time
+    await client
+      .from("leads")
+      .update({ last_contact_at: new Date().toISOString() })
+      .eq("id", bookedLead.id)
+
+    // Check if customer provided an email address
+    const emailMatch = combinedMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)
+    const providedEmail = emailMatch ? emailMatch[0].toLowerCase() : null
+
+    if (providedEmail) {
+      console.log(`[OpenPhone] Email captured from booked customer: ${providedEmail}`)
+
+      // Save email to customer record
+      await client
+        .from("customers")
+        .update({ email: providedEmail })
+        .eq("id", customer.id)
+
+      await logSystemEvent({
+        source: "openphone",
+        event_type: "EMAIL_CAPTURED",
+        message: `Email captured from booked customer: ${providedEmail}`,
+        phone_number: phone,
+        metadata: { email: providedEmail, lead_id: bookedLead.id },
+      })
+
+      // Find the job for this booking
+      let job = null
+      if (bookedLead.converted_to_job_id) {
+        const { data: jobData } = await client
+          .from("jobs")
+          .select("*")
+          .eq("id", bookedLead.converted_to_job_id)
+          .single()
+        job = jobData
+      }
+
+      // If no job linked, find most recent job for this customer
+      if (!job) {
+        const { data: recentJob } = await client
+          .from("jobs")
+          .select("*")
+          .eq("phone_number", phone)
+          .eq("tenant_id", tenant?.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single()
+        job = recentJob
+      }
+
+      if (job) {
+        // Calculate price if missing (window cleaning pricing)
+        let jobPrice = job.price
+        if (!jobPrice || jobPrice <= 0) {
+          const formData = parseFormData(bookedLead.form_data)
+          // Try to extract window count from VAPI data
+          const squareFootage = Number(formData.square_footage) || 0
+          let windowCount = 25 // default
+          if (squareFootage <= 2499) windowCount = 25
+          else if (squareFootage <= 3499) windowCount = 33
+          else if (squareFootage <= 4999) windowCount = 50
+          else if (squareFootage <= 6499) windowCount = 70
+          else windowCount = 90
+
+          const { calculateWindowCleaningPrice } = await import("@/lib/pricing-winbros")
+          const quote = calculateWindowCleaningPrice({
+            windowCount,
+            windowType: 'standard',
+            storyCount: 1,
+            includesScreens: formData.screens_cleaning_included === true,
+            includesTracks: false,
+          })
+          jobPrice = quote.price
+
+          // Update job with calculated price
+          await client
+            .from("jobs")
+            .update({ price: jobPrice })
+            .eq("id", job.id)
+
+          console.log(`[OpenPhone] Calculated window cleaning price: $${jobPrice} for ${windowCount} windows`)
+        }
+
+        // Create Stripe deposit payment link
+        if (jobPrice > 0) {
+          try {
+            const { createDepositPaymentLink } = await import("@/lib/stripe-client")
+            const depositResult = await createDepositPaymentLink(
+              { ...customer, email: providedEmail } as any,
+              { ...job, price: jobPrice } as any,
+            )
+
+            if (depositResult.success && depositResult.url) {
+              // Send SMS with acknowledgment + payment link
+              const depositAmount = depositResult.amount?.toFixed(2) || (jobPrice / 2 * 1.03).toFixed(2)
+              const paymentMessage = `Thanks! I'm sending everything over now. Your ${job.service_type || 'window cleaning'} total is $${jobPrice.toFixed(2)}. Pay just $${depositAmount} deposit to confirm your appointment: ${depositResult.url}`
+
+              const sendResult = await sendSMS(tenant!, phone, paymentMessage)
+
+              if (sendResult.success) {
+                await client.from("messages").insert({
+                  tenant_id: tenant?.id,
+                  customer_id: customer.id,
+                  phone_number: phone,
+                  role: "assistant",
+                  content: paymentMessage,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  timestamp: new Date().toISOString(),
+                  source: "payment_link",
+                  metadata: { lead_id: bookedLead.id, job_id: job.id, deposit_url: depositResult.url },
+                })
+                console.log(`[OpenPhone] Payment link sent to ${phone}: ${depositResult.url}`)
+              }
+
+              // Update job with payment link
+              await client
+                .from("jobs")
+                .update({ stripe_payment_link: depositResult.url })
+                .eq("id", job.id)
+
+              await logSystemEvent({
+                source: "openphone",
+                event_type: "PAYMENT_LINKS_SENT",
+                message: `Stripe deposit link sent to ${phone} for $${jobPrice}`,
+                phone_number: phone,
+                metadata: { lead_id: bookedLead.id, job_id: job.id, amount: jobPrice, depositUrl: depositResult.url },
+              })
+
+              // Try to send confirmation email
+              try {
+                const { sendConfirmationEmail } = await import("@/lib/gmail-client")
+                await sendConfirmationEmail({
+                  customer: { ...customer, email: providedEmail },
+                  job: { ...job, price: jobPrice },
+                  stripeDepositUrl: depositResult.url,
+                })
+                console.log(`[OpenPhone] Confirmation email sent to ${providedEmail}`)
+              } catch (emailErr) {
+                console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
+              }
+
+              return NextResponse.json({ success: true, flow: "phone_call_payment", leadId: bookedLead.id })
+            }
+          } catch (stripeErr) {
+            console.error("[OpenPhone] Failed to create payment link:", stripeErr)
+          }
+        }
+
+        // Fallback: price couldn't be calculated or Stripe failed
+        const fallbackMsg = `Thanks for your email! We're preparing your quote and will send over the pricing details shortly.`
+        const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg)
+        if (fallbackResult.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant?.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: fallbackMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "openphone",
+          })
+        }
+      } else {
+        // No job found, send acknowledgment
+        const noJobMsg = `Thanks for your email! I'll get your pricing details together and send them over shortly.`
+        const noJobResult = await sendSMS(tenant!, phone, noJobMsg)
+        if (noJobResult.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant?.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: noJobMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "openphone",
+          })
+        }
+      }
+
+      return NextResponse.json({ success: true, flow: "phone_call_email_capture", leadId: bookedLead.id })
+
+    } else {
+      // No email provided - customer is confirming or asking a question
+      // Send a contextual response that guides them to provide email
+      const confirmMsg = `Thanks for confirming! To send you the confirmed pricing and secure your booking, could you send me your best email address?`
+      const confirmResult = await sendSMS(tenant!, phone, confirmMsg)
+      if (confirmResult.success) {
+        await client.from("messages").insert({
+          tenant_id: tenant?.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "assistant",
+          content: confirmMsg,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "openphone",
+          metadata: { lead_id: bookedLead.id },
+        })
+      }
+
+      return NextResponse.json({ success: true, flow: "phone_call_confirm", leadId: bookedLead.id })
+    }
+  }
+
+  // Get the MOST RECENT active (non-booked) lead for this phone number
   const { data: allLeadsForPhone } = await client
     .from("leads")
     .select("id, status, form_data")
     .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
     .in("status", ["new", "contacted", "qualified"])
     .order("created_at", { ascending: false })
 
@@ -310,7 +547,6 @@ export async function POST(request: NextRequest) {
   const existingLead = allLeadsForPhone?.[0] ?? null
 
   // Check if the MOST RECENT lead has auto-response paused
-  // Only check the most recent lead - that's the one the user controls in the UI
   if (existingLead) {
     const formData = parseFormData(existingLead.form_data)
     if (formData.followup_paused === true) {
@@ -320,18 +556,17 @@ export async function POST(request: NextRequest) {
   }
 
   if (existingLead) {
-    // Lead already exists, update last contact time
+    // Lead already exists (active, non-booked), update last contact time
     await client
       .from("leads")
       .update({ last_contact_at: new Date().toISOString() })
       .eq("id", existingLead.id)
 
-    console.log(`[OpenPhone] Lead already exists for ${phone}, updated last_contact_at`)
+    console.log(`[OpenPhone] Active lead exists for ${phone} (id: ${existingLead.id}), updated last_contact_at`)
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
       try {
-        // Run intent analysis on the COMBINED message for better context
         const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
         const autoResponse = await generateAutoResponse(
@@ -376,13 +611,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponseSent: smsEnabled })
   }
 
-  // Run AI intent analysis on the COMBINED message
-  console.log(`[OpenPhone] Analyzing booking intent for: "${combinedMessage}"`)
+  // ============================================
+  // NEW INQUIRY FLOW: No existing lead found
+  // Run AI intent analysis and create lead if booking intent detected
+  // ============================================
+  console.log(`[OpenPhone] No existing lead for ${phone}, analyzing as new inquiry`)
   const intentResult = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
   console.log(`[OpenPhone] Intent analysis result:`, intentResult)
 
-  // Log the intent analysis
   await logSystemEvent({
     source: "openphone",
     event_type: "SMS_INTENT_ANALYZED",
@@ -394,13 +631,10 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  // ============================================
-  // Auto-Response: Send ONE AI-powered reply for all combined messages
-  // Only if SMS auto-response is enabled for this tenant
-  // ============================================
+  // Auto-Response for new inquiries
   if (smsEnabled) {
     try {
-      console.log(`[OpenPhone] Generating auto-response for: "${combinedMessage}"`)
+      console.log(`[OpenPhone] Generating auto-response for new inquiry: "${combinedMessage}"`)
 
       const autoResponse = await generateAutoResponse(
         combinedMessage,
@@ -415,7 +649,6 @@ export async function POST(request: NextRequest) {
         const sendResult = await sendSMS(tenant!, phone, autoResponse.response)
 
         if (sendResult.success) {
-          // Store the outgoing auto-response message
           await client.from("messages").insert({
             tenant_id: tenant?.id,
             customer_id: customer.id,
@@ -436,8 +669,6 @@ export async function POST(request: NextRequest) {
             },
           })
 
-          console.log(`[OpenPhone] Auto-response sent successfully: ${sendResult.messageId}`)
-
           await logSystemEvent({
             source: "openphone",
             event_type: "AUTO_RESPONSE_SENT",
@@ -457,22 +688,17 @@ export async function POST(request: NextRequest) {
       }
     } catch (autoResponseErr) {
       console.error("[OpenPhone] Auto-response error:", autoResponseErr)
-      // Don't fail the webhook, just log the error
     }
-  } else {
-    console.log(`[OpenPhone] Auto-response skipped - SMS disabled for tenant '${tenant?.slug}'`)
   }
 
   // If booking intent detected, create lead and trigger follow-up
   if (intentResult.hasBookingIntent && (intentResult.confidence === 'high' || intentResult.confidence === 'medium')) {
     console.log(`[OpenPhone] Booking intent detected, creating lead...`)
 
-    // Extract name from customer record or intent analysis
     const firstName = customer.first_name || intentResult.extractedInfo.name?.split(' ')[0] || null
     const lastName = customer.last_name || intentResult.extractedInfo.name?.split(' ').slice(1).join(' ') || null
     const fullName = [firstName, lastName].filter(Boolean).join(' ') || null
 
-    // Create lead in our database
     const { data: lead, error: leadErr } = await client.from("leads").insert({
       tenant_id: tenant?.id,
       source_id: `sms-${Date.now()}`,
