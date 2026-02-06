@@ -411,140 +411,69 @@ export async function POST(request: NextRequest) {
         job = recentJob
       }
 
-      if (job) {
-        // Calculate price if missing (window cleaning pricing)
-        let jobPrice = job.price
-        if (!jobPrice || jobPrice <= 0) {
-          const formData = parseFormData(bookedLead.form_data)
-          // Try to extract window count from VAPI data
-          const squareFootage = Number(formData.square_footage) || 0
-          let windowCount = 25 // default
-          if (squareFootage <= 2499) windowCount = 25
-          else if (squareFootage <= 3499) windowCount = 33
-          else if (squareFootage <= 4999) windowCount = 50
-          else if (squareFootage <= 6499) windowCount = 70
-          else windowCount = 90
+      // Send card-on-file link (job is optional - we can still save card without it)
+      const jobId = job?.id || bookedLead.converted_to_job_id || null
+      try {
+        const { createCardOnFileLink } = await import("@/lib/stripe-client")
+        const cardResult = await createCardOnFileLink(
+          { ...customer, email: providedEmail } as any,
+          jobId || `lead-${bookedLead.id}`,
+        )
 
-          const { calculateWindowCleaningPrice } = await import("@/lib/pricing-winbros")
-          const quote = calculateWindowCleaningPrice({
-            windowCount,
-            windowType: 'standard',
-            storyCount: 1,
-            includesScreens: formData.screens_cleaning_included === true,
-            includesTracks: false,
-          })
-          jobPrice = quote.price
-
-          // Update job with calculated price
-          await client
-            .from("jobs")
-            .update({ price: jobPrice })
-            .eq("id", job.id)
-
-          console.log(`[OpenPhone] Calculated window cleaning price: $${jobPrice} for ${windowCount} windows`)
-        }
-
-        // Create Stripe deposit payment link
-        if (jobPrice > 0) {
-          try {
-            const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-            const depositResult = await createDepositPaymentLink(
-              { ...customer, email: providedEmail } as any,
-              { ...job, price: jobPrice } as any,
-            )
-
-            if (depositResult.success && depositResult.url) {
-              const nowTs = new Date().toISOString()
-
-              // Step 1: Send card-on-file link
-              try {
-                const { createCardOnFileLink } = await import("@/lib/stripe-client")
-                const cardResult = await createCardOnFileLink(
-                  { ...customer, email: providedEmail } as any,
-                  job.id,
-                )
-
-                if (cardResult.success && cardResult.url) {
-                  const cardMessage = `Save your card on file (not a charge): ${cardResult.url}`
-                  const cardSms = await sendSMS(tenant!, phone, cardMessage)
-                  if (cardSms.success) {
-                    await client.from("messages").insert({
-                      tenant_id: tenant?.id,
-                      customer_id: customer.id,
-                      phone_number: phone,
-                      role: "assistant",
-                      content: cardMessage,
-                      direction: "outbound",
-                      message_type: "sms",
-                      ai_generated: false,
-                      timestamp: nowTs,
-                      source: "card_on_file",
-                      metadata: { lead_id: bookedLead.id, job_id: job.id, card_on_file_url: cardResult.url },
-                    })
-                    console.log(`[OpenPhone] Card-on-file link sent to ${phone}`)
-                  }
-                }
-              } catch (cardErr) {
-                console.error("[OpenPhone] Failed to create card-on-file link:", cardErr)
-              }
-
-              // Step 2: Send deposit payment link
-              const paymentMessage = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
-              const sendResult = await sendSMS(tenant!, phone, paymentMessage)
-
-              if (sendResult.success) {
-                await client.from("messages").insert({
-                  tenant_id: tenant?.id,
-                  customer_id: customer.id,
-                  phone_number: phone,
-                  role: "assistant",
-                  content: paymentMessage,
-                  direction: "outbound",
-                  message_type: "sms",
-                  ai_generated: false,
-                  timestamp: new Date().toISOString(),
-                  source: "payment_link",
-                  metadata: { lead_id: bookedLead.id, job_id: job.id, deposit_url: depositResult.url },
-                })
-                console.log(`[OpenPhone] Payment link sent to ${phone}: ${depositResult.url}`)
-              }
-
-              // Update job with payment link
-              await client
-                .from("jobs")
-                .update({ stripe_payment_link: depositResult.url })
-                .eq("id", job.id)
-
-              await logSystemEvent({
-                source: "openphone",
-                event_type: "PAYMENT_LINKS_SENT",
-                message: `Stripe payment links sent to ${phone} for $${jobPrice}`,
-                phone_number: phone,
-                metadata: { lead_id: bookedLead.id, job_id: job.id, amount: jobPrice, depositUrl: depositResult.url },
-              })
-
-              // Try to send confirmation email
-              try {
-                const { sendConfirmationEmail } = await import("@/lib/gmail-client")
-                await sendConfirmationEmail({
-                  customer: { ...customer, email: providedEmail },
-                  job: { ...job, price: jobPrice },
-                  stripeDepositUrl: depositResult.url,
-                })
-                console.log(`[OpenPhone] Confirmation email sent to ${providedEmail}`)
-              } catch (emailErr) {
-                console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
-              }
-
-              return NextResponse.json({ success: true, flow: "phone_call_payment", leadId: bookedLead.id })
-            }
-          } catch (stripeErr) {
-            console.error("[OpenPhone] Failed to create payment link:", stripeErr)
+        if (cardResult.success && cardResult.url) {
+          const cardMessage = `Thanks! Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
+          const cardSms = await sendSMS(tenant!, phone, cardMessage)
+          if (cardSms.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant?.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: cardMessage,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              timestamp: new Date().toISOString(),
+              source: "card_on_file",
+              metadata: { lead_id: bookedLead.id, job_id: jobId, card_on_file_url: cardResult.url },
+            })
+            console.log(`[OpenPhone] Card-on-file link sent to ${phone}: ${cardResult.url}`)
           }
-        }
 
-        // Fallback: price couldn't be calculated or Stripe failed
-        const fallbackMsg = `Thanks for your email! We're preparing your quote and will send over the pricing details shortly.`
+          await logSystemEvent({
+            source: "openphone",
+            event_type: "PAYMENT_LINKS_SENT",
+            message: `Card-on-file link sent to ${phone}`,
+            phone_number: phone,
+            metadata: { lead_id: bookedLead.id, job_id: jobId, cardOnFileUrl: cardResult.url },
+          })
+
+          // Try to send confirmation email
+          if (job) {
+            try {
+              const { sendConfirmationEmail } = await import("@/lib/gmail-client")
+              await sendConfirmationEmail({
+                customer: { ...customer, email: providedEmail },
+                job,
+                stripeDepositUrl: cardResult.url,
+              })
+              console.log(`[OpenPhone] Confirmation email sent to ${providedEmail}`)
+            } catch (emailErr) {
+              console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
+            }
+          }
+
+          return NextResponse.json({ success: true, flow: "phone_call_card_on_file", leadId: bookedLead.id })
+        } else {
+          console.error("[OpenPhone] Card-on-file link creation failed:", cardResult.error)
+        }
+      } catch (cardErr) {
+        console.error("[OpenPhone] Failed to create card-on-file link:", cardErr)
+      }
+
+      // Fallback: card-on-file creation failed
+      {
+        const fallbackMsg = `Thanks for your email! We're getting everything set up and will send over the details shortly.`
         const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg)
         if (fallbackResult.success) {
           await client.from("messages").insert({
@@ -553,24 +482,6 @@ export async function POST(request: NextRequest) {
             phone_number: phone,
             role: "assistant",
             content: fallbackMsg,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            timestamp: new Date().toISOString(),
-            source: "openphone",
-          })
-        }
-      } else {
-        // No job found, send acknowledgment
-        const noJobMsg = `Thanks for your email! I'll get your pricing details together and send them over shortly.`
-        const noJobResult = await sendSMS(tenant!, phone, noJobMsg)
-        if (noJobResult.success) {
-          await client.from("messages").insert({
-            tenant_id: tenant?.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "assistant",
-            content: noJobMsg,
             direction: "outbound",
             message_type: "sms",
             ai_generated: false,
