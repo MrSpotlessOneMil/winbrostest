@@ -6,6 +6,7 @@ import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
+import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 
 // GET handler for verification - VAPI or browser can ping this to verify endpoint is live
 export async function GET() {
@@ -60,6 +61,11 @@ export async function POST(request: NextRequest) {
     duration: data?.duration,
     outcome: data?.outcome,
   }))
+
+  // Extract VAPI structured data (booking details filled by the AI assistant)
+  const vapiMessage = (payload.message as Record<string, unknown>) || payload
+  const vapiAnalysis = (vapiMessage.analysis as Record<string, unknown>) || {}
+  const structuredData = (vapiAnalysis.structuredData as Record<string, unknown>) || {}
 
   if (!data) {
     console.warn(`[VAPI Webhook] extractVapiCallData returned null - call will be ignored`)
@@ -271,15 +277,20 @@ export async function POST(request: NextRequest) {
             } else {
               console.log("[VAPI Webhook] Call outcome was 'booked', skipping follow-up sequence")
 
+              const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+              const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
+              const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
+              const bookAddress = structuredData.address as string || bookingInfo.address || null
+
               // Create a job since they booked on the call
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
                 customer_id: customerId,
                 phone_number: phone,
-                address: bookingInfo.address || null,
-                service_type: bookingInfo.serviceType || "Cleaning",
-                date: bookingInfo.requestedDate || null,
-                scheduled_at: bookingInfo.requestedTime || null,
+                address: bookAddress,
+                service_type: serviceType,
+                date: appointmentDate,
+                scheduled_at: appointmentTime,
                 price: null, // Will be set after quote
                 hours: null,
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
@@ -316,10 +327,143 @@ export async function POST(request: NextRequest) {
                   },
                 })
               }
+
+              // Send booking confirmation text
+              const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
+              const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
+                fullName || "there",
+                serviceType,
+                dateTimeStr,
+                bookAddress || "your address"
+              )
+
+              const smsResult = tenant
+                ? await sendSMS(tenant, phone, confirmationMsg)
+                : await sendSMS(phone, confirmationMsg)
+
+              if (smsResult.success) {
+                console.log(`[VAPI Webhook] Booking confirmation text sent to ${phone}`)
+                await client.from("messages").insert({
+                  tenant_id: tenant?.id,
+                  customer_id: customerId,
+                  phone_number: phone,
+                  role: "assistant",
+                  content: confirmationMsg,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  timestamp: nowIso,
+                  source: "vapi_booking_confirmation",
+                })
+              } else {
+                console.error(`[VAPI Webhook] Failed to send confirmation text:`, smsResult.error)
+              }
             }
           }
         } else {
-          console.log(`[VAPI Webhook] Lead already exists for ${phone}, skipping creation`)
+          console.log(`[VAPI Webhook] Lead already exists for ${phone} (id: ${existingLead.id})`)
+
+          // If this call was booked, update the existing lead and send confirmation
+          if (data.outcome === "booked") {
+            console.log(`[VAPI Webhook] Updating existing lead ${existingLead.id} with booked outcome`)
+
+            const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+            const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
+            const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
+            const bookAddress = structuredData.address as string || bookingInfo.address || null
+
+            // Create a job for the booking
+            const { data: job, error: jobErr } = await client.from("jobs").insert({
+              tenant_id: tenant?.id,
+              customer_id: customerId,
+              phone_number: phone,
+              address: bookAddress,
+              service_type: serviceType,
+              date: appointmentDate || null,
+              scheduled_at: appointmentTime || null,
+              price: null,
+              hours: null,
+              cleaners: 1,
+              status: "scheduled",
+              booked: true,
+              paid: false,
+              notes: `Booked via phone call (existing lead)`,
+              payment_status: "pending",
+            }).select("id").single()
+
+            if (jobErr) {
+              console.error("[VAPI Webhook] Failed to create job for existing lead:", jobErr.message)
+            } else if (job?.id) {
+              console.log(`[VAPI Webhook] Job created for existing lead: ${job.id}`)
+            }
+
+            // Update the existing lead to booked status
+            await client
+              .from("leads")
+              .update({
+                status: "booked",
+                converted_to_job_id: job?.id || null,
+                form_data: {
+                  ...bookingInfo,
+                  vapi_call_id: providerCallId,
+                  call_outcome: data.outcome,
+                  transcript_summary: data.transcript?.substring(0, 500),
+                },
+                last_contact_at: nowIso,
+              })
+              .eq("id", existingLead.id)
+
+            // Cancel any pending follow-up tasks for this lead
+            try {
+              const { cancelTask } = await import("@/lib/scheduler")
+              for (let s = 1; s <= 5; s++) {
+                await cancelTask(`lead-${existingLead.id}-stage-${s}`)
+              }
+              console.log(`[VAPI Webhook] Cancelled pending follow-up tasks for lead ${existingLead.id}`)
+            } catch (cancelErr) {
+              console.error("[VAPI Webhook] Error cancelling follow-up tasks:", cancelErr)
+            }
+
+            // Send booking confirmation text
+            const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
+            const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
+              fullName || "there",
+              serviceType,
+              dateTimeStr,
+              bookAddress || "your address"
+            )
+
+            const smsResult = tenant
+              ? await sendSMS(tenant, phone, confirmationMsg)
+              : await sendSMS(phone, confirmationMsg)
+
+            if (smsResult.success) {
+              console.log(`[VAPI Webhook] Booking confirmation text sent to ${phone}`)
+              // Save to messages table
+              await client.from("messages").insert({
+                tenant_id: tenant?.id,
+                customer_id: customerId,
+                phone_number: phone,
+                role: "assistant",
+                content: confirmationMsg,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: false,
+                timestamp: nowIso,
+                source: "vapi_booking_confirmation",
+              })
+            } else {
+              console.error(`[VAPI Webhook] Failed to send confirmation text:`, smsResult.error)
+            }
+
+            await logSystemEvent({
+              source: "vapi",
+              event_type: "EXISTING_LEAD_BOOKED",
+              message: `Existing lead ${existingLead.id} booked via call: ${fullName || phone}`,
+              phone_number: phone,
+              metadata: { lead_id: existingLead.id, job_id: job?.id, booking_info: bookingInfo },
+            })
+          }
         }
       }
     } catch (parseErr) {

@@ -93,6 +93,7 @@ export type SystemEventType =
   | 'VAPI_CALL_RECEIVED'
   | 'LEAD_CREATED_FROM_CALL'
   | 'JOB_CREATED_FROM_CALL'
+  | 'EXISTING_LEAD_BOOKED'
   // SMS/OpenPhone Events
   | 'SMS_INTENT_ANALYZED'
   | 'LEAD_CREATED_FROM_SMS'
