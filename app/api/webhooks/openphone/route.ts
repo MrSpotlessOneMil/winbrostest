@@ -421,7 +421,9 @@ export async function POST(request: NextRequest) {
         )
 
         if (cardResult.success && cardResult.url) {
-          const cardMessage = `Thanks! Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
+          const servicePrice = job?.price || job?.estimated_value || null
+          const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
+          const cardMessage = `Thanks! ${priceStr}Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
           const cardSms = await sendSMS(tenant!, phone, cardMessage)
           if (cardSms.success) {
             await client.from("messages").insert({

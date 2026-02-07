@@ -98,11 +98,149 @@ async function getAffectedJobs(date: string, tenantId: string): Promise<Job[]> {
   })
 }
 
+/**
+ * Reschedule a single job to a new date and send notifications.
+ * Returns true on success, false on failure.
+ */
+async function rescheduleJob(
+  job: Job,
+  targetDate: string,
+  affectedDate: string,
+  tenant: any,
+  client: ReturnType<typeof getSupabaseServiceClient>,
+): Promise<{ success: boolean; notifications: number }> {
+  let notifications = 0
+  const numericId = Number(job.id)
+  if (!Number.isFinite(numericId)) throw new Error("Invalid job id")
+
+  // 1. Update local database
+  const { error: updateErr } = await client.from("jobs").update({ date: targetDate }).eq("id", numericId)
+  if (updateErr) throw updateErr
+
+  // 2. Sync with HousecallPro if job has HCP ID
+  if (job.hcp_job_id && tenant.housecall_pro_api_key) {
+    try {
+      const newScheduledStart = `${targetDate}T${job.scheduled_time || "09:00"}:00Z`
+      await updateHCPJob(job.hcp_job_id, { scheduled_start: newScheduledStart })
+      console.log(`[Rain Day] Updated HCP job ${job.hcp_job_id} to ${targetDate}`)
+    } catch (hcpErr) {
+      console.error(`[Rain Day] Failed to update HCP job ${job.hcp_job_id}:`, hcpErr)
+    }
+  }
+
+  // 3. Send SMS notification to customer
+  if (job.customer_phone && tenant.openphone_api_key) {
+    try {
+      const oldDateFormatted = new Date(affectedDate + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })
+      const newDateFormatted = new Date(targetDate + "T12:00:00").toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })
+      const businessName = tenant.business_name_short || tenant.name
+      const smsMessage = `Hi ${job.customer_name}! Due to weather conditions, your ${businessName} cleaning originally scheduled for ${oldDateFormatted} has been rescheduled to ${newDateFormatted}. Same time: ${job.scheduled_time || "9:00 AM"}. Reply with any questions!`
+
+      const smsResult = await sendSMS(tenant, job.customer_phone, smsMessage)
+      if (smsResult.success) {
+        notifications++
+        console.log(`[Rain Day] SMS sent to customer ${job.customer_phone}`)
+      }
+    } catch (smsErr) {
+      console.error(`[Rain Day] Failed to send SMS to ${job.customer_phone}:`, smsErr)
+    }
+  }
+
+  // 4. Notify assigned cleaners via Telegram
+  if (job.team_id) {
+    try {
+      const { data: cleaner } = await client
+        .from("cleaners")
+        .select("id, name, telegram_id, phone")
+        .eq("id", job.team_id)
+        .single()
+
+      if (cleaner?.telegram_id) {
+        const oldDateFormatted = new Date(affectedDate + "T12:00:00").toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+        })
+        const telegramResult = await notifyScheduleChange(
+          tenant,
+          { telegram_id: cleaner.telegram_id, name: cleaner.name, phone: cleaner.phone },
+          { id: job.id, date: targetDate, scheduled_at: job.scheduled_time, address: job.address },
+          oldDateFormatted,
+          job.scheduled_time || "09:00"
+        )
+        if (telegramResult.success) {
+          notifications++
+          console.log(`[Rain Day] Telegram notification sent to cleaner ${cleaner.name}`)
+        }
+      }
+    } catch (telegramErr) {
+      console.error(`[Rain Day] Failed to notify cleaner ${job.team_id}:`, telegramErr)
+    }
+  }
+
+  return { success: true, notifications }
+}
+
+/**
+ * Generate candidate dates for auto-spread (skips Sundays and the affected date).
+ */
+function getCandidateDates(afterDate: string, count: number): string[] {
+  const dates: string[] = []
+  const start = new Date(afterDate + "T12:00:00")
+  let current = new Date(start)
+  current.setDate(current.getDate() + 1)
+
+  while (dates.length < count) {
+    // Skip Sundays (day 0)
+    if (current.getDay() !== 0) {
+      dates.push(current.toISOString().slice(0, 10))
+    }
+    current.setDate(current.getDate() + 1)
+  }
+
+  return dates
+}
+
+/**
+ * Count existing non-cancelled jobs for each candidate date.
+ */
+async function getJobCountsByDate(
+  dates: string[],
+  tenantId: string,
+  client: ReturnType<typeof getSupabaseServiceClient>,
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {}
+  for (const d of dates) counts[d] = 0
+
+  const { data } = await client
+    .from("jobs")
+    .select("date")
+    .eq("tenant_id", tenantId)
+    .neq("status", "cancelled")
+    .in("date", dates)
+
+  if (data) {
+    for (const row of data) {
+      const d = String(row.date)
+      if (counts[d] !== undefined) counts[d]++
+    }
+  }
+
+  return counts
+}
+
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  // Get the default tenant for multi-tenant filtering
   const tenant = await getDefaultTenant()
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
@@ -110,116 +248,84 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { affected_date, target_date, initiated_by } = body
+    const { affected_date, target_date, auto_spread, spread_days, initiated_by } = body
 
-    if (!affected_date || !target_date) {
+    if (!affected_date) {
       return NextResponse.json(
-        { success: false, error: "affected_date and target_date are required" },
+        { success: false, error: "affected_date is required" },
         { status: 400 }
       )
     }
 
-    // Get all affected jobs
+    if (!auto_spread && !target_date) {
+      return NextResponse.json(
+        { success: false, error: "target_date is required (or set auto_spread: true)" },
+        { status: 400 }
+      )
+    }
+
     const affectedJobs = await getAffectedJobs(affected_date, tenant.id)
+    if (affectedJobs.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: { affected_date, jobs_affected: 0, spread_summary: {} },
+        message: "No jobs found on this date",
+      })
+    }
+
+    const client = getSupabaseServiceClient()
     const successfullyRescheduled: string[] = []
     const failedJobs: string[] = []
-
-    // Process each job
-    const client = getSupabaseServiceClient()
     let notificationsSent = 0
+    const spreadSummary: Record<string, number> = {}
 
-    for (const job of affectedJobs) {
-      try {
-        const numericId = Number(job.id)
-        if (!Number.isFinite(numericId)) throw new Error("Invalid job id")
+    if (auto_spread) {
+      // Auto-spread: distribute jobs across the next N days (least-loaded first)
+      const numDays = Math.min(Math.max(spread_days || 14, 7), 30)
+      const candidateDates = getCandidateDates(affected_date, numDays)
+      const jobCounts = await getJobCountsByDate(candidateDates, tenant.id, client)
 
-        // 1. Update local database
-        const { error: updateErr } = await client.from("jobs").update({ date: target_date }).eq("id", numericId)
-        if (updateErr) throw updateErr
-
-        // 2. Sync with HousecallPro if job has HCP ID
-        if (job.hcp_job_id && tenant.housecall_pro_api_key) {
-          try {
-            // Convert target_date to ISO datetime (keep same time, change date)
-            const newScheduledStart = `${target_date}T${job.scheduled_time || "09:00"}:00Z`
-            await updateHCPJob(job.hcp_job_id, { scheduled_start: newScheduledStart })
-            console.log(`[Rain Day] Updated HCP job ${job.hcp_job_id} to ${target_date}`)
-          } catch (hcpErr) {
-            console.error(`[Rain Day] Failed to update HCP job ${job.hcp_job_id}:`, hcpErr)
-            // Continue anyway - local DB is source of truth
+      for (const job of affectedJobs) {
+        // Find the date with the fewest existing jobs
+        let bestDate = candidateDates[0]
+        let bestCount = jobCounts[bestDate] ?? Infinity
+        for (const d of candidateDates) {
+          if ((jobCounts[d] ?? 0) < bestCount) {
+            bestDate = d
+            bestCount = jobCounts[d] ?? 0
           }
         }
 
-        // 3. Send SMS notification to customer
-        if (job.customer_phone && tenant.openphone_api_key) {
-          try {
-            const oldDateFormatted = new Date(affected_date + "T12:00:00").toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })
-            const newDateFormatted = new Date(target_date + "T12:00:00").toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })
-            const businessName = tenant.business_name_short || tenant.name
-            const smsMessage = `Hi ${job.customer_name}! Due to weather conditions, your ${businessName} cleaning originally scheduled for ${oldDateFormatted} has been rescheduled to ${newDateFormatted}. Same time: ${job.scheduled_time || "9:00 AM"}. Reply with any questions!`
-
-            const smsResult = await sendSMS(tenant, job.customer_phone, smsMessage)
-            if (smsResult.success) {
-              notificationsSent++
-              console.log(`[Rain Day] SMS sent to customer ${job.customer_phone}`)
-            }
-          } catch (smsErr) {
-            console.error(`[Rain Day] Failed to send SMS to ${job.customer_phone}:`, smsErr)
-          }
+        try {
+          const result = await rescheduleJob(job, bestDate, affected_date, tenant, client)
+          successfullyRescheduled.push(job.id)
+          notificationsSent += result.notifications
+          // Update counts so next job goes to a different day
+          jobCounts[bestDate] = (jobCounts[bestDate] ?? 0) + 1
+          spreadSummary[bestDate] = (spreadSummary[bestDate] || 0) + 1
+          console.log(`[Rain Day] Job ${job.id} spread to ${bestDate} (day now has ${jobCounts[bestDate]} jobs)`)
+        } catch {
+          failedJobs.push(job.id)
         }
-
-        // 4. Notify assigned cleaners via Telegram
-        if (job.team_id) {
-          try {
-            // Fetch cleaner info from database
-            const { data: cleaner } = await client
-              .from("cleaners")
-              .select("id, name, telegram_id, phone")
-              .eq("id", job.team_id)
-              .single()
-
-            if (cleaner?.telegram_id) {
-              const oldDateFormatted = new Date(affected_date + "T12:00:00").toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })
-              const telegramResult = await notifyScheduleChange(
-                tenant,
-                { telegram_id: cleaner.telegram_id, name: cleaner.name, phone: cleaner.phone },
-                { id: job.id, date: target_date, scheduled_at: job.scheduled_time, address: job.address },
-                oldDateFormatted,
-                job.scheduled_time || "09:00"
-              )
-              if (telegramResult.success) {
-                notificationsSent++
-                console.log(`[Rain Day] Telegram notification sent to cleaner ${cleaner.name}`)
-              }
-            }
-          } catch (telegramErr) {
-            console.error(`[Rain Day] Failed to notify cleaner ${job.team_id}:`, telegramErr)
-          }
+      }
+    } else {
+      // Single target date mode (original behavior)
+      for (const job of affectedJobs) {
+        try {
+          const result = await rescheduleJob(job, target_date, affected_date, tenant, client)
+          successfullyRescheduled.push(job.id)
+          notificationsSent += result.notifications
+          spreadSummary[target_date] = (spreadSummary[target_date] || 0) + 1
+        } catch {
+          failedJobs.push(job.id)
         }
-
-        successfullyRescheduled.push(job.id)
-      } catch {
-        failedJobs.push(job.id)
       }
     }
 
-    // Create reschedule record
     const reschedule: RainDayReschedule = {
       id: `reschedule-${Date.now()}`,
       affected_date,
-      target_date,
+      target_date: auto_spread ? "auto-spread" : target_date,
       initiated_by: initiated_by || "system",
       jobs_affected: affectedJobs.length,
       jobs_successfully_rescheduled: successfullyRescheduled.length,
@@ -229,13 +335,11 @@ export async function POST(request: NextRequest) {
       completed_at: new Date().toISOString(),
     }
 
-    const response: ApiResponse<RainDayReschedule> = {
+    return NextResponse.json({
       success: true,
-      data: reschedule,
+      data: { ...reschedule, spread_summary: spreadSummary },
       message: `Successfully rescheduled ${successfullyRescheduled.length} of ${affectedJobs.length} jobs`,
-    }
-
-    return NextResponse.json(response)
+    })
   } catch (error) {
     const response: ApiResponse<never> = {
       success: false,

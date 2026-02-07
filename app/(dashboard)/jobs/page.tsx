@@ -48,6 +48,20 @@ type CreateForm = {
   description: string
 }
 
+type RainDayPreview = {
+  date: string
+  jobs_count: number
+  total_revenue: number
+  jobs: { id: string; customer_name: string; time: string; value: number; address: string }[]
+}
+
+type RainDayResult = {
+  jobs_affected: number
+  jobs_successfully_rescheduled: number
+  notifications_sent: number
+  spread_summary: Record<string, number>
+}
+
 const emptyValue = "\u2014"
 
 function resolveCustomer(job: CalendarJob) {
@@ -152,6 +166,15 @@ export default function JobsPage() {
     description: "",
   })
 
+  // Rainy day reschedule state
+  const [rainOpen, setRainOpen] = useState(false)
+  const [rainStep, setRainStep] = useState<"select" | "preview" | "loading" | "done">("select")
+  const [rainDate, setRainDate] = useState("")
+  const [rainPreview, setRainPreview] = useState<RainDayPreview | null>(null)
+  const [rainResult, setRainResult] = useState<RainDayResult | null>(null)
+  const [rainError, setRainError] = useState("")
+  const [rainLoading, setRainLoading] = useState(false)
+
   const timeFormat = useMemo(
     () =>
       ({
@@ -230,6 +253,71 @@ export default function JobsPage() {
     setSelectedEvent(details)
   }
 
+  const openRainDay = () => {
+    setRainOpen(true)
+    setRainStep("select")
+    setRainDate("")
+    setRainPreview(null)
+    setRainResult(null)
+    setRainError("")
+  }
+
+  const handleRainPreview = async () => {
+    if (!rainDate) return
+    setRainLoading(true)
+    setRainError("")
+    try {
+      const res = await fetch(`/api/rain-day?date=${rainDate}`)
+      const data = await res.json()
+      if (!data.success) {
+        setRainError(data.error || "Failed to fetch preview")
+        return
+      }
+      setRainPreview(data.data)
+      setRainStep("preview")
+    } catch {
+      setRainError("Failed to connect to server")
+    } finally {
+      setRainLoading(false)
+    }
+  }
+
+  const handleRainConfirm = async () => {
+    if (!rainDate) return
+    setRainStep("loading")
+    setRainError("")
+    try {
+      const res = await fetch("/api/rain-day", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ affected_date: rainDate, auto_spread: true }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setRainError(data.error || "Reschedule failed")
+        setRainStep("preview")
+        return
+      }
+      setRainResult(data.data)
+      setRainStep("done")
+      // Refresh calendar
+      const calRes = await fetch("/api/calendar")
+      const calData = await calRes.json()
+      setJobs(calData.jobs || [])
+    } catch {
+      setRainError("Failed to connect to server")
+      setRainStep("preview")
+    }
+  }
+
+  const formatSpreadDate = (dateStr: string) => {
+    return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })
+  }
+
   const handleCreateSave = () => {
     const calendar = calendarRef.current?.getApi()
     const title = createForm.title.trim() || "New Event"
@@ -257,11 +345,16 @@ export default function JobsPage() {
   return (
     <>
       <div className="calendar-shell">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-foreground">Jobs Calendar</h1>
-          <p className="text-sm text-muted-foreground">
-            Schedule and manage all service appointments
-          </p>
+        <div className="mb-6" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Jobs Calendar</h1>
+            <p className="text-sm text-muted-foreground">
+              Schedule and manage all service appointments
+            </p>
+          </div>
+          <button className="rain-day-btn" onClick={openRainDay}>
+            Rainy Day Reschedule
+          </button>
         </div>
 
         <div className="calendar-card">
@@ -342,6 +435,153 @@ export default function JobsPage() {
             >
               Close
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Rainy Day Reschedule Modal */}
+      <div
+        className={`cal-modal-backdrop${rainOpen ? " open" : ""}`}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setRainOpen(false)
+        }}
+      >
+        <div className="cal-modal" style={{ maxWidth: 520 }}>
+          <div className="cal-modal-header">
+            <h5>Rainy Day Reschedule</h5>
+            <button className="cal-modal-close" onClick={() => setRainOpen(false)}>
+              &times;
+            </button>
+          </div>
+          <div className="cal-modal-body">
+            {rainStep === "select" && (
+              <>
+                <p style={{ marginBottom: "0.75rem", color: "rgba(161,161,170,1)" }}>
+                  Select the date to cancel. All jobs will be automatically spread across the next available days.
+                </p>
+                <label className="cal-form-label">Rain Date</label>
+                <input
+                  type="date"
+                  className="cal-form-control"
+                  value={rainDate}
+                  onChange={(e) => setRainDate(e.target.value)}
+                />
+                {rainError && <p className="rain-error">{rainError}</p>}
+              </>
+            )}
+
+            {rainStep === "preview" && rainPreview && (
+              <>
+                <div className="rain-summary">
+                  <div className="rain-stat">
+                    <span className="rain-stat-value">{rainPreview.jobs_count}</span>
+                    <span className="rain-stat-label">Jobs Affected</span>
+                  </div>
+                  <div className="rain-stat">
+                    <span className="rain-stat-value">
+                      ${rainPreview.total_revenue.toLocaleString()}
+                    </span>
+                    <span className="rain-stat-label">Revenue at Risk</span>
+                  </div>
+                </div>
+                {rainPreview.jobs.length > 0 && (
+                  <div className="rain-job-list">
+                    {rainPreview.jobs.map((j) => (
+                      <div key={j.id} className="rain-job-row">
+                        <span className="rain-job-name">{j.customer_name}</span>
+                        <span className="rain-job-time">{j.time || "9:00 AM"}</span>
+                        {j.value > 0 && (
+                          <span className="rain-job-value">${j.value}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {rainPreview.jobs_count === 0 && (
+                  <p style={{ color: "rgba(161,161,170,1)", textAlign: "center", padding: "1rem 0" }}>
+                    No jobs found on this date.
+                  </p>
+                )}
+                {rainError && <p className="rain-error">{rainError}</p>}
+              </>
+            )}
+
+            {rainStep === "loading" && (
+              <div style={{ textAlign: "center", padding: "2rem 0" }}>
+                <div className="rain-spinner" />
+                <p style={{ color: "rgba(161,161,170,1)", marginTop: "0.75rem" }}>
+                  Rescheduling jobs and sending notifications...
+                </p>
+              </div>
+            )}
+
+            {rainStep === "done" && rainResult && (
+              <>
+                <div className="rain-summary">
+                  <div className="rain-stat">
+                    <span className="rain-stat-value">{rainResult.jobs_successfully_rescheduled}</span>
+                    <span className="rain-stat-label">Jobs Moved</span>
+                  </div>
+                  <div className="rain-stat">
+                    <span className="rain-stat-value">{rainResult.notifications_sent}</span>
+                    <span className="rain-stat-label">Notifications Sent</span>
+                  </div>
+                </div>
+                {Object.keys(rainResult.spread_summary).length > 0 && (
+                  <div className="rain-spread-table">
+                    <div className="rain-spread-header">
+                      <span>New Date</span>
+                      <span>Jobs</span>
+                    </div>
+                    {Object.entries(rainResult.spread_summary)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([date, count]) => (
+                        <div key={date} className="rain-spread-row">
+                          <span>{formatSpreadDate(date)}</span>
+                          <span>{count} job{count !== 1 ? "s" : ""}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="cal-modal-footer">
+            {rainStep === "select" && (
+              <button
+                className="cal-modal-btn cal-modal-btn-primary"
+                disabled={!rainDate || rainLoading}
+                onClick={handleRainPreview}
+              >
+                {rainLoading ? "Loading..." : "Preview Affected Jobs"}
+              </button>
+            )}
+            {rainStep === "preview" && rainPreview && rainPreview.jobs_count > 0 && (
+              <>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => setRainStep("select")}
+                >
+                  Back
+                </button>
+                <button
+                  className="cal-modal-btn rain-confirm-btn"
+                  onClick={handleRainConfirm}
+                >
+                  Confirm Reschedule
+                </button>
+              </>
+            )}
+            {rainStep === "preview" && rainPreview && rainPreview.jobs_count === 0 && (
+              <button className="cal-modal-btn" onClick={() => setRainStep("select")}>
+                Back
+              </button>
+            )}
+            {rainStep === "done" && (
+              <button className="cal-modal-btn cal-modal-btn-primary" onClick={() => setRainOpen(false)}>
+                Done
+              </button>
+            )}
           </div>
         </div>
       </div>
