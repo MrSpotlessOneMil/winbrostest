@@ -8,8 +8,8 @@ const _inter = Inter({ subsets: ["latin"], variable: '--font-inter' });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: 'OSIRIS | WinBros Command Center',
-  description: 'Operations dashboard for WinBros Windows - Lead tracking, team dispatch, and business intelligence',
+  title: 'Osiris',
+  description: 'Operations dashboard - Lead tracking, team dispatch, and business intelligence',
   icons: {
     icon: [
       {
