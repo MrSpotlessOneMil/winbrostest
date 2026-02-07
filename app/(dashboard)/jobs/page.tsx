@@ -1,371 +1,438 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  ChevronLeft,
-  ChevronRight,
-  Calendar,
-  List,
-  Plus,
-  MapPin,
-  Clock,
-  DollarSign,
-  User,
-  Filter,
-} from "lucide-react"
-import { cn } from "@/lib/utils"
-import type { Job as ApiJob, PaginatedResponse } from "@/lib/types"
+import { useEffect, useMemo, useRef, useState } from "react"
+import FullCalendar from "@fullcalendar/react"
+import dayGridPlugin from "@fullcalendar/daygrid"
+import timeGridPlugin from "@fullcalendar/timegrid"
+import listPlugin from "@fullcalendar/list"
+import interactionPlugin from "@fullcalendar/interaction"
+import { formatDate } from "@fullcalendar/core"
+import type { DateSelectArg, EventClickArg, EventInput } from "@fullcalendar/core"
+import "./calendar.css"
 
 type CalendarJob = {
-  id: string
-  time: string
-  customer: string
-  value: number
-  team: string
-  status: "scheduled" | "confirmed" | "in-progress" | "completed" | "cancelled" | "rescheduled"
-  date: string
+  id: string | number
+  title?: string
+  service_type?: string
+  date?: string
+  scheduled_at?: string
+  scheduled_time?: string
+  scheduled_date?: string
+  hours?: number
+  price?: number
+  estimated_value?: number
+  status?: string
+  notes?: string
+  address?: string
+  phone_number?: string
+  customer_name?: string
+  customers?: any
 }
 
-function toTimeDisplay(hhmm: string | null | undefined): string {
-  const s = String(hhmm || "")
-  if (!/^\d{2}:\d{2}$/.test(s)) return "—"
-  const [hStr, mStr] = s.split(":")
-  const h = Number(hStr)
-  const m = Number(mStr)
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return "—"
-  const d = new Date()
-  d.setHours(h, m, 0, 0)
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+type CalendarEventDetails = {
+  title: string
+  start: Date | null
+  end: Date | null
+  location: string
+  description: string
+  status: string
+  price: number
+  client: string
 }
 
-function isoDateKey(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, "0")
-  const d = String(date.getDate()).padStart(2, "0")
-  return `${y}-${m}-${d}`
+type CreateForm = {
+  title: string
+  start: string
+  end: string
+  location: string
+  description: string
 }
 
-function mapJobForCalendar(row: ApiJob): CalendarJob {
-  return {
-    id: row.id,
-    time: toTimeDisplay(row.scheduled_time),
-    customer: row.customer_name || "Unknown",
-    value: Number(row.estimated_value || 0),
-    team: row.team_id ? String(row.team_id) : "—",
-    status: row.status,
-    date: row.scheduled_date,
+const emptyValue = "\u2014"
+
+function resolveCustomer(job: CalendarJob) {
+  if (Array.isArray(job.customers)) {
+    return job.customers[0]
   }
+  return job.customers || null
 }
 
-const statusColors: Record<CalendarJob['status'], string> = {
-  completed: "bg-success",
-  "in-progress": "bg-primary",
-  scheduled: "bg-muted-foreground",
-  confirmed: "bg-success/70",
-  cancelled: "bg-destructive",
-  rescheduled: "bg-warning",
+function resolveCustomerName(job: CalendarJob) {
+  if (job.customer_name) return job.customer_name
+  const customer = resolveCustomer(job)
+  if (customer && typeof customer.name === "string" && customer.name.trim()) {
+    return customer.name
+  }
+  const first = customer?.first_name ? String(customer.first_name).trim() : ""
+  const last = customer?.last_name ? String(customer.last_name).trim() : ""
+  const combined = `${first} ${last}`.trim()
+  return combined || "Unknown"
+}
+
+function resolveLocation(job: CalendarJob) {
+  const customer = resolveCustomer(job)
+  return job.address || customer?.address || job.service_type || ""
+}
+
+function resolveDescription(job: CalendarJob) {
+  return job.notes || job.service_type || ""
+}
+
+function resolveStart(job: CalendarJob) {
+  const dateValue = job.scheduled_at || job.scheduled_date || job.date
+  if (!dateValue) return new Date()
+
+  const raw = String(dateValue)
+
+  // If it's a full ISO timestamp, use it directly
+  if (raw.includes("T")) return new Date(raw)
+
+  // If we have a separate time field, combine them
+  const timeValue = job.scheduled_time
+  if (timeValue && /^\d{2}:\d{2}/.test(timeValue)) {
+    return new Date(`${raw}T${timeValue}`)
+  }
+
+  // Default to 9am
+  return new Date(`${raw}T09:00:00`)
+}
+
+function resolveEnd(job: CalendarJob) {
+  const start = resolveStart(job)
+  const hours = job.hours ? Number(job.hours) : 2
+  return new Date(start.getTime() + hours * 60 * 60 * 1000)
+}
+
+function formatRange(start: Date | null, end: Date | null) {
+  if (!start) return ""
+  const startLabel = formatDate(start, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })
+  if (!end) return startLabel
+  const sameDay = start.toDateString() === end.toDateString()
+  const endLabel = formatDate(
+    end,
+    sameDay
+      ? { hour: "numeric", minute: "2-digit", hour12: true }
+      : { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+  )
+  return `${startLabel} \u2013 ${endLabel}`
+}
+
+function toLocalInput(date: Date | null) {
+  if (!date) return ""
+  const pad = (value: number) => String(value).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function eventClassForStatus(status?: string) {
+  const normalized = (status || "").toLowerCase().replace(/[_\s]/g, "-")
+  if (normalized === "completed") return "event-completed"
+  if (normalized === "cancelled") return "event-cancelled"
+  if (normalized === "confirmed") return "event-confirmed"
+  if (normalized === "in-progress") return "event-in-progress"
+  if (normalized === "rescheduled") return "event-rescheduled"
+  return "event-scheduled"
 }
 
 export default function JobsPage() {
-  const [currentDate, setCurrentDate] = useState(new Date())
-  const [selectedTeam, setSelectedTeam] = useState("all")
   const [jobs, setJobs] = useState<CalendarJob[]>([])
-  const [loading, setLoading] = useState(false)
+  const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const calendarRef = useRef<FullCalendar | null>(null)
+  const [createForm, setCreateForm] = useState<CreateForm>({
+    title: "",
+    start: "",
+    end: "",
+    location: "",
+    description: "",
+  })
 
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear()
-    const month = date.getMonth()
-    const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
-    const daysInMonth = lastDay.getDate()
-    const startingDay = firstDay.getDay()
-    return { daysInMonth, startingDay }
-  }
-
-  const { daysInMonth, startingDay } = getDaysInMonth(currentDate)
-
-  const formatDateKey = (day: number) => isoDateKey(new Date(currentDate.getFullYear(), currentDate.getMonth(), day))
-
-  const navigateMonth = (direction: "prev" | "next") => {
-    setCurrentDate((prev) => {
-      const newDate = new Date(prev)
-      if (direction === "prev") {
-        newDate.setMonth(newDate.getMonth() - 1)
-      } else {
-        newDate.setMonth(newDate.getMonth() + 1)
-      }
-      return newDate
-    })
-  }
-
-  const isToday = (day: number) => {
-    const today = new Date()
-    return (
-      day === today.getDate() &&
-      currentDate.getMonth() === today.getMonth() &&
-      currentDate.getFullYear() === today.getFullYear()
-    )
-  }
+  const timeFormat = useMemo(
+    () =>
+      ({
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      } as const),
+    []
+  )
 
   useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
+    async function fetchJobs() {
       try {
-        // Pull a larger set and filter client-side for the month (avoids N requests/day).
-        const res = await fetch(`/api/jobs?page=1&per_page=500`, { cache: "no-store" })
-        const json = (await res.json()) as PaginatedResponse<ApiJob>
-        const mapped = (json.data || []).map(mapJobForCalendar)
-
-        // Filter to current month and optional team filter.
-        const monthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
-        const monthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
-        const startKey = isoDateKey(monthStart)
-        const endKey = isoDateKey(monthEnd)
-
-        const filtered = mapped.filter((j) => j.date >= startKey && j.date <= endKey)
-        const teamFiltered =
-          selectedTeam === "all" ? filtered : filtered.filter((j) => String(j.team) === String(selectedTeam))
-
-        if (!cancelled) setJobs(teamFiltered)
+        const res = await fetch("/api/calendar")
+        const data = await res.json()
+        setJobs(data.jobs || [])
       } catch {
-        if (!cancelled) setJobs([])
-      } finally {
-        if (!cancelled) setLoading(false)
+        setJobs([])
       }
     }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [currentDate, selectedTeam])
+    fetchJobs()
+  }, [])
 
-  const jobsByDate = useMemo(() => {
-    const map = new Map<string, CalendarJob[]>()
-    for (const j of jobs) {
-      const arr = map.get(j.date) || []
-      arr.push(j)
-      map.set(j.date, arr)
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => a.time.localeCompare(b.time))
-    }
-    return map
+  const baseEvents = useMemo<EventInput[]>(() => {
+    return jobs.map((job) => {
+      const start = resolveStart(job)
+      const end = resolveEnd(job)
+      const location = resolveLocation(job)
+      const description = resolveDescription(job)
+      const title = job.title || job.service_type || resolveCustomerName(job)
+      const className = eventClassForStatus(job.status)
+
+      return {
+        id: String(job.id),
+        title,
+        start,
+        end,
+        classNames: [className],
+        extendedProps: {
+          description,
+          location,
+          resourceId: location,
+          client: resolveCustomerName(job),
+          price: job.price || job.estimated_value || 0,
+          status: job.status || "scheduled",
+        },
+      }
+    })
   }, [jobs])
 
+  const handleSelect = (info: DateSelectArg) => {
+    setCreateForm({
+      title: "",
+      start: toLocalInput(info.start),
+      end: toLocalInput(info.end),
+      location: "",
+      description: "",
+    })
+    setCreateOpen(true)
+    info.view.calendar.unselect()
+  }
+
+  const handleEventClick = (info: EventClickArg) => {
+    const start = info.event.start
+    const end = info.event.end
+    const details: CalendarEventDetails = {
+      title: info.event.title || "(no title)",
+      start,
+      end,
+      location: info.event.extendedProps.location || emptyValue,
+      description: info.event.extendedProps.description || emptyValue,
+      status: info.event.extendedProps.status || "scheduled",
+      price: info.event.extendedProps.price || 0,
+      client: info.event.extendedProps.client || emptyValue,
+    }
+    setSelectedEvent(details)
+  }
+
+  const handleCreateSave = () => {
+    const calendar = calendarRef.current?.getApi()
+    const title = createForm.title.trim() || "New Event"
+    const location = createForm.location.trim()
+    const description = createForm.description.trim()
+
+    if (calendar) {
+      calendar.addEvent({
+        id: `local-${Date.now()}`,
+        title,
+        start: createForm.start,
+        end: createForm.end || undefined,
+        classNames: ["event-scheduled"],
+        extendedProps: {
+          description,
+          location,
+          resourceId: location,
+        },
+      })
+    }
+
+    setCreateOpen(false)
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+    <>
+      <div className="calendar-shell">
+        <div className="mb-6">
           <h1 className="text-2xl font-semibold text-foreground">Jobs Calendar</h1>
-          <p className="text-sm text-muted-foreground">Schedule and manage all service appointments</p>
+          <p className="text-sm text-muted-foreground">
+            Schedule and manage all service appointments
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <Select value={selectedTeam} onValueChange={setSelectedTeam}>
-            <SelectTrigger className="w-40">
-              <Filter className="mr-2 h-4 w-4" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Teams</SelectItem>
-              <SelectItem value="1">Team 1</SelectItem>
-              <SelectItem value="2">Team 2</SelectItem>
-              <SelectItem value="3">Team 3</SelectItem>
-              <SelectItem value="4">Team 4</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            New Job
-          </Button>
+
+        <div className="calendar-card">
+          <div id="calendar">
+            <FullCalendar
+              ref={calendarRef}
+              plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
+              initialView="dayGridMonth"
+              headerToolbar={{
+                left: "prev,next today",
+                center: "title",
+                right: "dayGridMonth,timeGridWeek,listMonth",
+              }}
+              events={baseEvents}
+              selectable
+              nowIndicator
+              dayMaxEvents
+              eventTimeFormat={timeFormat}
+              select={handleSelect}
+              eventClick={handleEventClick}
+              eventDidMount={(info) => {
+                const desc = info.event.extendedProps.description || ""
+                const loc = info.event.extendedProps.location || ""
+                const tip = [desc, loc].filter(Boolean).join(" \u2022 ")
+                if (tip) {
+                  info.el.setAttribute("title", tip)
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
 
-      <Tabs defaultValue="calendar" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="calendar" className="gap-2">
-            <Calendar className="h-4 w-4" />
-            Calendar
-          </TabsTrigger>
-          <TabsTrigger value="list" className="gap-2">
-            <List className="h-4 w-4" />
-            List View
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="calendar">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-4">
-              <div className="flex items-center gap-4">
-                <Button variant="outline" size="icon" onClick={() => navigateMonth("prev")}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <h2 className="text-lg font-semibold">
-                  {currentDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-                </h2>
-                <Button variant="outline" size="icon" onClick={() => navigateMonth("next")}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+      {/* Event Details Modal */}
+      <div
+        className={`cal-modal-backdrop${selectedEvent ? " open" : ""}`}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setSelectedEvent(null)
+        }}
+      >
+        <div className="cal-modal">
+          <div className="cal-modal-header">
+            <h5>{selectedEvent?.title || "Event"}</h5>
+            <button
+              className="cal-modal-close"
+              onClick={() => setSelectedEvent(null)}
+            >
+              &times;
+            </button>
+          </div>
+          <div className="cal-modal-body">
+            <div style={{ marginBottom: "0.5rem" }}>
+              <strong>When:</strong>{" "}
+              {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
+            </div>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+            </div>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <strong>Location:</strong> {selectedEvent?.location || emptyValue}
+            </div>
+            <div style={{ marginBottom: "0.5rem" }}>
+              <strong>Status:</strong> {selectedEvent?.status || emptyValue}
+            </div>
+            {selectedEvent?.price ? (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <strong>Price:</strong> ${Number(selectedEvent.price)}
               </div>
-              <Button variant="outline" onClick={() => setCurrentDate(new Date())}>
-                Today
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {/* Calendar Grid */}
-              <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-border bg-border">
-                {/* Day headers */}
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-                  <div
-                    key={day}
-                    className="bg-muted px-2 py-3 text-center text-xs font-medium text-muted-foreground"
-                  >
-                    {day}
-                  </div>
-                ))}
+            ) : null}
+            <div>
+              <strong>Details:</strong> {selectedEvent?.description || emptyValue}
+            </div>
+          </div>
+          <div className="cal-modal-footer">
+            <button
+              className="cal-modal-btn"
+              onClick={() => setSelectedEvent(null)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
 
-                {/* Empty cells for days before the first of the month */}
-                {Array.from({ length: startingDay }).map((_, i) => (
-                  <div key={`empty-${i}`} className="min-h-32 bg-card p-2" />
-                ))}
-
-                {/* Days of the month */}
-                {Array.from({ length: daysInMonth }).map((_, i) => {
-                  const day = i + 1
-                  const dateKey = formatDateKey(day)
-                  const dayJobs = jobsByDate.get(dateKey) || []
-                  const totalRevenue = dayJobs.reduce((sum, job) => sum + Number(job.value || 0), 0)
-
-                  return (
-                    <div
-                      key={day}
-                      className={cn(
-                        "min-h-32 bg-card p-2 transition-colors hover:bg-muted/50",
-                        isToday(day) && "bg-primary/5"
-                      )}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span
-                          className={cn(
-                            "flex h-7 w-7 items-center justify-center rounded-full text-sm",
-                            isToday(day) && "bg-primary text-primary-foreground font-medium"
-                          )}
-                        >
-                          {day}
-                        </span>
-                        {totalRevenue > 0 && (
-                          <span className="text-xs font-medium text-success">${totalRevenue}</span>
-                        )}
-                      </div>
-
-                      <div className="mt-2 space-y-1">
-                        {dayJobs.slice(0, 3).map((job) => (
-                          <div
-                            key={job.id}
-                            className="flex items-center gap-1 rounded bg-muted/50 px-1.5 py-1 text-xs"
-                          >
-                            <div className={cn("h-1.5 w-1.5 rounded-full", statusColors[job.status as keyof typeof statusColors])} />
-                            <span className="truncate text-foreground">{job.time}</span>
-                            <span className="truncate text-muted-foreground">- {job.customer}</span>
-                          </div>
-                        ))}
-                        {dayJobs.length > 3 && (
-                          <div className="text-xs text-muted-foreground">+{dayJobs.length - 3} more</div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
+      {/* Create Event Modal */}
+      <div
+        className={`cal-modal-backdrop${createOpen ? " open" : ""}`}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setCreateOpen(false)
+        }}
+      >
+        <div className="cal-modal">
+          <div className="cal-modal-header">
+            <h5>Create Event</h5>
+            <button
+              className="cal-modal-close"
+              onClick={() => setCreateOpen(false)}
+            >
+              &times;
+            </button>
+          </div>
+          <div className="cal-modal-body">
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label className="cal-form-label">Title</label>
+              <input
+                type="text"
+                className="cal-form-control"
+                placeholder="Event title"
+                value={createForm.title}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, title: e.target.value }))
+                }
+              />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Start</label>
+                <input
+                  type="datetime-local"
+                  className="cal-form-control"
+                  value={createForm.start}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, start: e.target.value }))
+                  }
+                />
               </div>
-              {loading && (
-                <p className="mt-3 text-xs text-muted-foreground">Loading jobs…</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="list">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upcoming Jobs</CardTitle>
-              <CardDescription>All scheduled jobs for the next 7 days</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-6">
-                {Array.from(jobsByDate.entries())
-                  .sort(([a], [b]) => a.localeCompare(b))
-                  .map(([date, dayJobs]) => (
-                  <div key={date}>
-                    <div className="mb-3 flex items-center gap-2">
-                      <div className="h-px flex-1 bg-border" />
-                      <span className="text-sm font-medium text-muted-foreground">
-                        {new Date(date).toLocaleDateString("en-US", {
-                          weekday: "long",
-                          month: "short",
-                          day: "numeric",
-                        })}
-                      </span>
-                      <div className="h-px flex-1 bg-border" />
-                    </div>
-
-                    <div className="space-y-2">
-                      {dayJobs.map((job) => (
-                        <div
-                          key={job.id}
-                          className="flex items-center gap-4 rounded-lg border border-border bg-muted/30 p-4 transition-colors hover:bg-muted/50"
-                        >
-                          <div
-                            className={cn(
-                              "h-full w-1 self-stretch rounded-full",
-                              statusColors[job.status as keyof typeof statusColors]
-                            )}
-                          />
-                          <div className="flex flex-1 items-center justify-between">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-foreground">{job.customer}</span>
-                                <Badge variant="outline" className="text-xs">
-                                  {job.status}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                  <Clock className="h-4 w-4" />
-                                  {job.time}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <User className="h-4 w-4" />
-                                  Team {job.team}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <DollarSign className="h-4 w-4" />
-                                  ${Number(job.value || 0)}
-                                </div>
-                              </div>
-                            </div>
-                            <Button variant="ghost" size="sm">
-                              View Details
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {!loading && jobs.length === 0 && (
-                  <p className="text-sm text-muted-foreground">No jobs found for this month.</p>
-                )}
+              <div>
+                <label className="cal-form-label">End</label>
+                <input
+                  type="datetime-local"
+                  className="cal-form-control"
+                  value={createForm.end}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, end: e.target.value }))
+                  }
+                />
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
+            </div>
+            <div style={{ marginTop: "0.5rem" }}>
+              <label className="cal-form-label">Location (optional)</label>
+              <input
+                type="text"
+                className="cal-form-control"
+                value={createForm.location}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, location: e.target.value }))
+                }
+              />
+            </div>
+            <div style={{ marginTop: "0.5rem" }}>
+              <label className="cal-form-label">Description</label>
+              <textarea
+                className="cal-form-control"
+                rows={3}
+                value={createForm.description}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+              />
+            </div>
+          </div>
+          <div className="cal-modal-footer">
+            <button
+              className="cal-modal-btn cal-modal-btn-primary"
+              onClick={handleCreateSave}
+            >
+              Add to calendar
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
