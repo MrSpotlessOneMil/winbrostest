@@ -421,7 +421,26 @@ export async function POST(request: NextRequest) {
         )
 
         if (cardResult.success && cardResult.url) {
-          const servicePrice = job?.price || job?.estimated_value || null
+          // Determine service price: use job price if set, otherwise look up from pricebook
+          let servicePrice = job?.price || job?.estimated_value || null
+          if (!servicePrice && tenant?.slug === "winbros") {
+            try {
+              const { lookupPrice } = await import("@/lib/pricebook")
+              const { parseFormData } = await import("@/lib/utils")
+              const formData = parseFormData((bookedLead as any)?.form_data)
+              const priceLookup = lookupPrice({
+                serviceType: (formData.serviceType as string) || job?.service_type || null,
+                squareFootage: (formData.squareFootage as number) || job?.square_footage || null,
+                notes: (formData.notes as string) || job?.notes || null,
+              })
+              if (priceLookup) {
+                servicePrice = priceLookup.price
+                console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} ${priceLookup.tier ? `(${priceLookup.tier})` : ""} = $${priceLookup.price}`)
+              }
+            } catch (pbErr) {
+              console.error("[OpenPhone] Pricebook lookup error:", pbErr)
+            }
+          }
           const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
           const cardMessage = `Thanks! ${priceStr}Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
           const cardSms = await sendSMS(tenant!, phone, cardMessage)
