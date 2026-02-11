@@ -833,13 +833,12 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
 
     // ── Color generation (Osiris purple/black theme) ──────────
     function generateColor() {
-      // Hue biased toward purple/violet/magenta: 250-320 range
-      const hue = (250 + Math.random() * 70) / 360
-      const c = HSVtoRGB(hue, 0.6 + Math.random() * 0.4, 0.8 + Math.random() * 0.2)
-      // Reduce intensity for subtler look
-      c.r *= 0.12
-      c.g *= 0.12
-      c.b *= 0.12
+      // Purple family hues: 220-330 (blue through magenta), full saturation/value
+      const hue = (220 + Math.random() * 110) / 360
+      const c = HSVtoRGB(hue, 1.0, 1.0)
+      c.r *= 0.15
+      c.g *= 0.15
+      c.b *= 0.15
       return c
     }
 
@@ -1140,7 +1139,6 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     }
 
     // ── Input handling ────────────────────────────────────────
-    // ALWAYS splat on mouse move (no click required)
     function updatePointerDownData(pointer: Pointer, id: number, posX: number, posY: number) {
       pointer.id = id
       pointer.down = true
@@ -1168,21 +1166,37 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       pointer.down = false
     }
 
-    // Mouse: always create splats on move, click adds a burst
+    // Helper: get canvas-relative coordinates from a client event
+    function getCanvasRelativePos(clientX: number, clientY: number) {
+      const rect = canvas.getBoundingClientRect()
+      return {
+        x: clientX - rect.left,
+        y: clientY - rect.top,
+        inBounds: clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom,
+      }
+    }
+
+    // Mouse: window-level events so they work through z-index overlays
+    // Always create splats on move (no click required), click adds a burst
     const onMouseDown = (e: MouseEvent) => {
-      const posX = scaleByPixelRatio(e.offsetX)
-      const posY = scaleByPixelRatio(e.offsetY)
+      const { x, y, inBounds } = getCanvasRelativePos(e.clientX, e.clientY)
+      if (!inBounds) return
+      const posX = scaleByPixelRatio(x)
+      const posY = scaleByPixelRatio(y)
       updatePointerDownData(pointers[0], -1, posX, posY)
-      // Click = immediate splat burst
       splatStack.push(Math.floor(Math.random() * 8) + 3)
     }
 
     const onMouseMove = (e: MouseEvent) => {
-      const posX = scaleByPixelRatio(e.offsetX)
-      const posY = scaleByPixelRatio(e.offsetY)
-      // Always track, always move - no pointer.down check
+      const { x, y, inBounds } = getCanvasRelativePos(e.clientX, e.clientY)
+      if (!inBounds) {
+        if (pointers[0].down) updatePointerUpData(pointers[0])
+        return
+      }
+      const posX = scaleByPixelRatio(x)
+      const posY = scaleByPixelRatio(y)
       if (!pointers[0].down) {
-        // Initialize on first hover
+        // Initialize pointer on first hover
         pointers[0].texcoordX = posX / canvas.width
         pointers[0].texcoordY = 1.0 - posY / canvas.height
         pointers[0].prevTexcoordX = pointers[0].texcoordX
@@ -1193,33 +1207,30 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     }
 
     const onMouseUp = () => {
-      // Don't actually set down=false so hovering continues to work
-      // Only reset if leaving the canvas
+      // Don't set down=false so hovering continues to create splats
     }
 
-    const onMouseLeave = () => {
-      updatePointerUpData(pointers[0])
-    }
-
+    // Touch: window-level events for the same reason
     const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault()
-      const touches = e.targetTouches
+      const touches = e.touches
+      if (!touches.length) return
       while (touches.length >= pointers.length) pointers.push(new Pointer())
       for (let i = 0; i < touches.length; i++) {
-        const posX = scaleByPixelRatio(touches[i].pageX)
-        const posY = scaleByPixelRatio(touches[i].pageY)
+        const { x, y } = getCanvasRelativePos(touches[i].clientX, touches[i].clientY)
+        const posX = scaleByPixelRatio(x)
+        const posY = scaleByPixelRatio(y)
         updatePointerDownData(pointers[i + 1], touches[i].identifier, posX, posY)
       }
     }
 
     const onTouchMove = (e: TouchEvent) => {
-      e.preventDefault()
-      const touches = e.targetTouches
+      const touches = e.touches
       for (let i = 0; i < touches.length; i++) {
         const pointer = pointers[i + 1]
         if (!pointer?.down) continue
-        const posX = scaleByPixelRatio(touches[i].pageX)
-        const posY = scaleByPixelRatio(touches[i].pageY)
+        const { x, y } = getCanvasRelativePos(touches[i].clientX, touches[i].clientY)
+        const posX = scaleByPixelRatio(x)
+        const posY = scaleByPixelRatio(y)
         updatePointerMoveData(pointer, posX, posY)
       }
     }
@@ -1232,12 +1243,11 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       }
     }
 
-    canvas.addEventListener("mousedown", onMouseDown)
-    canvas.addEventListener("mousemove", onMouseMove)
-    canvas.addEventListener("mouseup", onMouseUp)
-    canvas.addEventListener("mouseleave", onMouseLeave)
-    canvas.addEventListener("touchstart", onTouchStart)
-    canvas.addEventListener("touchmove", onTouchMove, false)
+    window.addEventListener("mousedown", onMouseDown)
+    window.addEventListener("mousemove", onMouseMove)
+    window.addEventListener("mouseup", onMouseUp)
+    window.addEventListener("touchstart", onTouchStart, { passive: true })
+    window.addEventListener("touchmove", onTouchMove, { passive: true })
     window.addEventListener("touchend", onTouchEnd)
 
     // ── Main loop ─────────────────────────────────────────────
@@ -1245,8 +1255,8 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     let colorUpdateTimer = 0.0
     let animFrame = 0
 
-    // Start with some initial splats
-    multipleSplats(Math.floor(Math.random() * 10) + 5)
+    // Start with some initial splats (matching original: 5-25)
+    multipleSplats(Math.floor(Math.random() * 20) + 5)
 
     // Ambient auto-splat timer
     let autoSplatTimer = 0
@@ -1297,12 +1307,11 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     // ── Cleanup ───────────────────────────────────────────────
     return () => {
       cancelAnimationFrame(animFrame)
-      canvas.removeEventListener("mousedown", onMouseDown)
-      canvas.removeEventListener("mousemove", onMouseMove)
-      canvas.removeEventListener("mouseup", onMouseUp)
-      canvas.removeEventListener("mouseleave", onMouseLeave)
-      canvas.removeEventListener("touchstart", onTouchStart)
-      canvas.removeEventListener("touchmove", onTouchMove)
+      window.removeEventListener("mousedown", onMouseDown)
+      window.removeEventListener("mousemove", onMouseMove)
+      window.removeEventListener("mouseup", onMouseUp)
+      window.removeEventListener("touchstart", onTouchStart)
+      window.removeEventListener("touchmove", onTouchMove)
       window.removeEventListener("touchend", onTouchEnd)
     }
   }, [])
