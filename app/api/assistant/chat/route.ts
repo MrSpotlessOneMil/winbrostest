@@ -89,42 +89,53 @@ async function executeTool(
   const client = getSupabaseServiceClient()
 
   if (toolName === "reset_customer") {
-    const phone = toolInput.phone_number as string
-    const customer = await findCustomerByPhone(client, phone, "id, first_name, last_name, phone_number")
+    try {
+      const phone = toolInput.phone_number as string
+      console.log("[Assistant] reset_customer called with phone:", phone)
 
-    if (!customer) {
-      return `No customer found with phone number ${phone}. Make sure the number is correct.`
+      const customer = await findCustomerByPhone(client, phone, "id, first_name, last_name, phone_number")
+
+      if (!customer) {
+        return `No customer found with phone number ${phone}. Make sure the number is correct.`
+      }
+
+      console.log("[Assistant] Found customer:", customer.id, customer.phone_number)
+
+      // Reset customer transcript
+      const { error: custErr } = await client
+        .from("customers")
+        .update({
+          texting_transcript: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", customer.id)
+
+      if (custErr) {
+        console.error("[Assistant] Customer update error:", custErr)
+        return `Failed to reset customer: ${custErr.message}`
+      }
+
+      // Reset any associated leads (status and form_data live on the leads table)
+      const { error: leadErr } = await client
+        .from("leads")
+        .update({
+          status: "new",
+          form_data: {},
+          updated_at: new Date().toISOString(),
+        })
+        .eq("phone_number", customer.phone_number)
+
+      if (leadErr) {
+        console.error("[Assistant] Leads update error:", leadErr)
+        // Non-fatal: customer was already reset, leads just didn't update
+      }
+
+      const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
+      return `Done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow again from the start.`
+    } catch (err: any) {
+      console.error("[Assistant] reset_customer exception:", err)
+      return `Error resetting customer: ${err.message}`
     }
-
-    // Reset customer data (only columns that exist on customers table)
-    const { error: custErr } = await client
-      .from("customers")
-      .update({
-        texting_transcript: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", customer.id)
-
-    if (custErr) {
-      return `Failed to reset customer: ${custErr.message}`
-    }
-
-    // Reset any associated leads (lead_status and form_data live on the leads table)
-    const { error: leadErr } = await client
-      .from("leads")
-      .update({
-        status: "new",
-        form_data: {},
-        updated_at: new Date().toISOString(),
-      })
-      .eq("phone_number", customer.phone_number)
-
-    if (leadErr) {
-      return `Customer transcript cleared, but failed to reset leads: ${leadErr.message}`
-    }
-
-    const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
-    return `Done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow again from the start.`
   }
 
   if (toolName === "generate_stripe_link") {
