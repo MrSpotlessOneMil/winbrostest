@@ -607,6 +607,24 @@ export async function POST(request: NextRequest) {
               },
             })
           }
+
+          // Handle escalation — notify the owner if the AI flagged this customer
+          if (autoResponse.escalation?.shouldEscalate && tenant?.owner_phone) {
+            try {
+              const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
+              const ownerMsg = buildOwnerEscalationMessage(
+                phone,
+                customerName,
+                autoResponse.escalation.reasons,
+                combinedMessage
+              )
+              await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+              console.log(`[OpenPhone] Escalation notification sent to owner for ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+            } catch (escErr) {
+              console.error("[OpenPhone] Failed to send escalation notification:", escErr)
+            }
+          }
         }
       } catch (err) {
         console.error("[OpenPhone] Auto-response error for existing lead:", err)
@@ -685,6 +703,24 @@ export async function POST(request: NextRequest) {
               message_id: sendResult.messageId,
             },
           })
+
+          // Handle escalation — notify the owner if the AI flagged this customer
+          if (autoResponse.escalation?.shouldEscalate && tenant?.owner_phone) {
+            try {
+              const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
+              const ownerMsg = buildOwnerEscalationMessage(
+                phone,
+                customerName,
+                autoResponse.escalation.reasons,
+                combinedMessage
+              )
+              await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+              console.log(`[OpenPhone] Escalation notification sent to owner for new inquiry ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+            } catch (escErr) {
+              console.error("[OpenPhone] Failed to send escalation notification:", escErr)
+            }
+          }
         } else {
           console.error(`[OpenPhone] Failed to send auto-response:`, sendResult.error)
         }

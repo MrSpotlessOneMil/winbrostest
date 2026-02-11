@@ -328,7 +328,10 @@ export async function POST(request: NextRequest) {
           const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
 
           try {
-            const initialMessage = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+            // WinBros asks for service type (not bedrooms/bathrooms)
+            const initialMessage = tenant?.slug === 'winbros'
+              ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
+              : `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
 
             let smsResult
             if (tenant) {

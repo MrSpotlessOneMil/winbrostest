@@ -172,21 +172,24 @@ async function processLeadFollowup(
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
   const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
 
+  // WinBros uses service type + sqft, other tenants use bedrooms/bathrooms
+  const isWinBros = tenant?.slug === 'winbros'
+
   // Build service-specific quote question
-  const quoteQuestion = serviceType === 'window cleaning'
-    ? `Can you share your address and the number of windows/stories?`
+  const quoteQuestion = isWinBros
+    ? `Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
     : serviceType === 'house cleaning'
     ? `Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
     : `Can you share your address and some details about the job?`
 
-  const detailsRequest = serviceType === 'window cleaning'
-    ? `Reply with your address and number of windows or stories and we'll send you pricing right away!`
+  const detailsRequest = isWinBros
+    ? `Just reply and let us know what service you're interested in and we'll get you set up with pricing!`
     : serviceType === 'house cleaning'
     ? `Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
     : `Reply with your address and job details and we'll send you pricing right away!`
 
-  const lastChanceDetails = serviceType === 'window cleaning'
-    ? `Reply with your address and number of windows for an instant quote, or call us directly!`
+  const lastChanceDetails = isWinBros
+    ? `Reply with what service you need and we'll get you a quick quote, or call us directly!`
     : serviceType === 'house cleaning'
     ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
     : `Reply with your address and job details for an instant quote, or call us directly!`

@@ -13,6 +13,10 @@ export interface AutoResponseResult {
   response: string
   shouldSend: boolean
   reason: string
+  escalation?: {
+    shouldEscalate: boolean
+    reasons: string[]
+  }
 }
 
 /**
@@ -49,6 +53,15 @@ export async function generateAutoResponse(
   // Special handling for "yes" / "no" / "sure" - these are likely responses to our questions
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
+
+  // WinBros-specific SMS booking flow
+  if (tenant?.slug === 'winbros') {
+    try {
+      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory)
+    } catch (error) {
+      console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
+    }
+  }
 
   const businessName = tenant?.business_name_short || tenant?.business_name || 'WinBros'
   const sdrName = tenant?.sdr_persona || 'Mary'
@@ -353,5 +366,100 @@ function generateFallbackResponse(
       : `Hi! This is ${sdrName} from ${businessName}. Thanks for texting! Are you looking for ${serviceType} help? I'd be happy to get you a quote.`,
     shouldSend: true,
     reason: 'Template: default engagement'
+  }
+}
+
+// =====================================================================
+// WINBROS-SPECIFIC SMS RESPONSE
+// =====================================================================
+
+/**
+ * Generate a WinBros-specific SMS response using the dedicated booking prompt.
+ * This mirrors the WinBros phone script, collecting service type, sqft,
+ * pricing, etc. instead of bedrooms/bathrooms.
+ */
+async function generateWinBrosResponse(
+  message: string,
+  tenant: Tenant,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
+): Promise<AutoResponseResult> {
+  const { buildWinBrosSmsSystemPrompt, detectEscalation, stripEscalationTags } = await import('./winbros-sms-prompt')
+
+  const systemPrompt = buildWinBrosSmsSystemPrompt()
+
+  const historyContext = conversationHistory?.length
+    ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
+    : '(No prior messages — this is a new conversation.)'
+
+  const userMessage = `Conversation so far:\n${historyContext}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (anthropicKey) {
+    const client = new Anthropic({ apiKey: anthropicKey })
+
+    const response = await client.messages.create({
+      model: 'claude-3-5-haiku-20241022',
+      max_tokens: 500,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    })
+
+    const textContent = response.content.find(block => block.type === 'text')
+    const rawText = textContent?.type === 'text' ? textContent.text.trim() : ''
+
+    if (!rawText) {
+      throw new Error('Empty response from Claude (WinBros)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'WinBros AI-generated response',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+    }
+  }
+
+  // OpenAI fallback for WinBros
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    const client = new OpenAI({ apiKey: openaiKey })
+
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 500,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    })
+
+    const rawText = response.choices[0]?.message?.content?.trim() || ''
+
+    if (!rawText) {
+      throw new Error('Empty response from OpenAI (WinBros)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'WinBros AI-generated response (OpenAI)',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+    }
+  }
+
+  // Template fallback for WinBros (no AI keys)
+  const hasHistory = conversationHistory && conversationHistory.length > 0
+  return {
+    response: hasHistory
+      ? `Thanks for your message! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
+      : `Hi! This is Mary from WinBros Window Cleaning. Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`,
+    shouldSend: true,
+    reason: 'WinBros template fallback',
   }
 }
