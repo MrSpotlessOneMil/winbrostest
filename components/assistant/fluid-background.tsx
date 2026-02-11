@@ -734,32 +734,41 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       return target
     }
 
-    // ── Dithering texture (1x1 white fallback, no external file) ──
-    function createDitheringTexture() {
+    // ── Dithering texture (load actual blue-noise image, matching original) ──
+    function createTextureAsync(url: string) {
       const texture = g.createTexture()!
       g.bindTexture(g.TEXTURE_2D, texture)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.LINEAR)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.LINEAR)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.REPEAT)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.REPEAT)
-      // Generate a small noise texture instead of loading an image
-      const size = 64
-      const data = new Uint8Array(size * size * 3)
-      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 255
-      g.texImage2D(g.TEXTURE_2D, 0, g.RGB, size, size, 0, g.RGB, g.UNSIGNED_BYTE, data)
-      return {
+      // Start with 1x1 white pixel (matching original)
+      g.texImage2D(g.TEXTURE_2D, 0, g.RGB, 1, 1, 0, g.RGB, g.UNSIGNED_BYTE, new Uint8Array([255, 255, 255]))
+
+      const obj = {
         texture,
-        width: size,
-        height: size,
+        width: 1,
+        height: 1,
         attach(id: number) {
           g.activeTexture(g.TEXTURE0 + id)
           g.bindTexture(g.TEXTURE_2D, texture)
           return id
         },
       }
+
+      const image = new Image()
+      image.onload = () => {
+        obj.width = image.width
+        obj.height = image.height
+        g.bindTexture(g.TEXTURE_2D, texture)
+        g.texImage2D(g.TEXTURE_2D, 0, g.RGB, g.RGB, g.UNSIGNED_BYTE, image)
+      }
+      image.src = url
+
+      return obj
     }
 
-    const ditheringTexture = createDitheringTexture()
+    const ditheringTexture = createTextureAsync("/LDR_LLL1_0.png")
 
     // ── Framebuffer initialization ────────────────────────────
     let dye: any, velocity: any, divergenceFBO: any, curlFBO: any, pressure: any
@@ -836,9 +845,9 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       // Purple family hues: 220-330 (blue through magenta), full saturation/value
       const hue = (220 + Math.random() * 110) / 360
       const c = HSVtoRGB(hue, 1.0, 1.0)
-      c.r *= 0.15
-      c.g *= 0.15
-      c.b *= 0.15
+      c.r *= 0.12
+      c.g *= 0.12
+      c.b *= 0.12
       return c
     }
 
