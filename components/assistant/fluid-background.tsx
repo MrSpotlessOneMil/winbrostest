@@ -22,29 +22,38 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    // ── Config (Osiris theme) ─────────────────────────────────
+    // ── Resize canvas FIRST (before any WebGL setup, matching original) ──
+    function scaleByPixelRatio(input: number) {
+      const pixelRatio = window.devicePixelRatio || 1
+      return Math.floor(input * pixelRatio)
+    }
+
+    canvas.width = scaleByPixelRatio(canvas.clientWidth)
+    canvas.height = scaleByPixelRatio(canvas.clientHeight)
+
+    // ── Config (Osiris theme - toned down for background use) ──
     const config = {
       SIM_RESOLUTION: 128,
       DYE_RESOLUTION: 1024,
-      DENSITY_DISSIPATION: 1.0,
-      VELOCITY_DISSIPATION: 0.2,
+      DENSITY_DISSIPATION: 1.5,
+      VELOCITY_DISSIPATION: 0.4,
       PRESSURE: 0.8,
       PRESSURE_ITERATIONS: 20,
       CURL: 30,
-      SPLAT_RADIUS: 0.25,
-      SPLAT_FORCE: 6000,
+      SPLAT_RADIUS: 0.15,
+      SPLAT_FORCE: 3000,
       SHADING: true,
       COLORFUL: true,
       COLOR_UPDATE_SPEED: 10,
       BLOOM: true,
       BLOOM_ITERATIONS: 8,
       BLOOM_RESOLUTION: 256,
-      BLOOM_INTENSITY: 0.8,
+      BLOOM_INTENSITY: 0.5,
       BLOOM_THRESHOLD: 0.6,
       BLOOM_SOFT_KNEE: 0.7,
       SUNRAYS: true,
       SUNRAYS_RESOLUTION: 196,
-      SUNRAYS_WEIGHT: 1.0,
+      SUNRAYS_WEIGHT: 0.7,
       BACK_COLOR: { r: 0, g: 0, b: 0 },
       TRANSPARENT: false,
     }
@@ -842,12 +851,12 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
 
     // ── Color generation (Osiris purple/black theme) ──────────
     function generateColor() {
-      // Purple family hues: 220-330 (blue through magenta), full saturation/value
+      // Purple family hues: 220-330 (blue through magenta)
       const hue = (220 + Math.random() * 110) / 360
       const c = HSVtoRGB(hue, 1.0, 1.0)
-      c.r *= 0.12
-      c.g *= 0.12
-      c.b *= 0.12
+      c.r *= 0.08
+      c.g *= 0.08
+      c.b *= 0.08
       return c
     }
 
@@ -1103,11 +1112,6 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       return { x: width / texture.width, y: height / texture.height }
     }
 
-    function scaleByPixelRatio(input: number) {
-      const pixelRatio = window.devicePixelRatio || 1
-      return Math.floor(input * pixelRatio)
-    }
-
     function hashCode(s: string) {
       if (s.length === 0) return 0
       let hash = 0
@@ -1193,7 +1197,7 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       const posX = scaleByPixelRatio(x)
       const posY = scaleByPixelRatio(y)
       updatePointerDownData(pointers[0], -1, posX, posY)
-      splatStack.push(Math.floor(Math.random() * 8) + 3)
+      splatStack.push(Math.floor(Math.random() * 3) + 2)
     }
 
     const onMouseMove = (e: MouseEvent) => {
@@ -1264,8 +1268,8 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     let colorUpdateTimer = 0.0
     let animFrame = 0
 
-    // Start with some initial splats (matching original: 5-25)
-    multipleSplats(Math.floor(Math.random() * 20) + 5)
+    // Start with a few subtle initial splats
+    multipleSplats(Math.floor(Math.random() * 5) + 3)
 
     // Ambient auto-splat timer
     let autoSplatTimer = 0
@@ -1300,9 +1304,9 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
 
       // Ambient auto-splats for continuous life
       autoSplatTimer += dt
-      if (autoSplatTimer > 3.0) {
+      if (autoSplatTimer > 5.0) {
         autoSplatTimer = 0
-        multipleSplats(Math.floor(Math.random() * 3) + 1)
+        multipleSplats(1)
       }
 
       step(dt)
@@ -1310,7 +1314,7 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       animFrame = requestAnimationFrame(update)
     }
 
-    resizeCanvas()
+    // Canvas was already resized at the top before FBO init - just start the loop
     update()
 
     // ── Cleanup ───────────────────────────────────────────────
