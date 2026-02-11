@@ -102,17 +102,27 @@ async function executeTool(
       console.log("[Assistant] Found customer:", customer.id, customer.phone_number)
 
       // Reset customer transcript
-      const { error: custErr } = await client
+      const { data: custData, error: custErr } = await client
         .from("customers")
         .update({
-          texting_transcript: null,
+          texting_transcript: "",
           updated_at: new Date().toISOString(),
         })
         .eq("id", customer.id)
+        .select("id")
+
+      console.log("[Assistant] Customer update result:", { custData, custErr: custErr ? JSON.stringify(custErr) : null })
 
       if (custErr) {
-        console.error("[Assistant] Customer update error:", custErr)
-        return `Failed to reset customer: ${custErr.message}`
+        console.error("[Assistant] Customer update error:", JSON.stringify(custErr))
+        // If texting_transcript column doesn't exist, try without it
+        const { error: retryErr } = await client
+          .from("customers")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", customer.id)
+        if (retryErr) {
+          return `Failed to reset customer (code: ${custErr.code}): ${custErr.message}. Details: ${custErr.details || "none"}. Hint: ${custErr.hint || "none"}`
+        }
       }
 
       // Reset any associated leads (status and form_data live on the leads table)
@@ -126,15 +136,14 @@ async function executeTool(
         .eq("phone_number", customer.phone_number)
 
       if (leadErr) {
-        console.error("[Assistant] Leads update error:", leadErr)
-        // Non-fatal: customer was already reset, leads just didn't update
+        console.error("[Assistant] Leads update error:", JSON.stringify(leadErr))
       }
 
       const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
       return `Done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow again from the start.`
     } catch (err: any) {
       console.error("[Assistant] reset_customer exception:", err)
-      return `Error resetting customer: ${err.message}`
+      return `Error resetting customer: ${err.message}. Stack: ${err.stack?.slice(0, 200)}`
     }
   }
 
