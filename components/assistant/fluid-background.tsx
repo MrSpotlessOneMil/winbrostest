@@ -1268,12 +1268,6 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     let colorUpdateTimer = 0.0
     let animFrame = 0
 
-    // Start with a few subtle initial splats
-    multipleSplats(Math.floor(Math.random() * 5) + 3)
-
-    // Ambient auto-splat timer
-    let autoSplatTimer = 0
-
     function update() {
       const now = Date.now()
       let dt = (now - lastUpdateTime) / 1000
@@ -1301,13 +1295,6 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
           splatPointer(p)
         }
       })
-
-      // Ambient auto-splats for continuous life
-      autoSplatTimer += dt
-      if (autoSplatTimer > 5.0) {
-        autoSplatTimer = 0
-        multipleSplats(1)
-      }
 
       step(dt)
       render(null)
