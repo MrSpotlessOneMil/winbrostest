@@ -17,6 +17,7 @@ export interface AutoResponseResult {
     shouldEscalate: boolean
     reasons: string[]
   }
+  bookingComplete?: boolean
 }
 
 /**
@@ -383,7 +384,7 @@ async function generateWinBrosResponse(
   tenant: Tenant,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): Promise<AutoResponseResult> {
-  const { buildWinBrosSmsSystemPrompt, detectEscalation, stripEscalationTags } = await import('./winbros-sms-prompt')
+  const { buildWinBrosSmsSystemPrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
   const systemPrompt = buildWinBrosSmsSystemPrompt()
 
@@ -412,6 +413,7 @@ async function generateWinBrosResponse(
     }
 
     const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
 
     return {
@@ -419,6 +421,7 @@ async function generateWinBrosResponse(
       shouldSend: true,
       reason: 'WinBros AI-generated response',
       escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
     }
   }
 
@@ -443,6 +446,7 @@ async function generateWinBrosResponse(
     }
 
     const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
 
     return {
@@ -450,6 +454,7 @@ async function generateWinBrosResponse(
       shouldSend: true,
       reason: 'WinBros AI-generated response (OpenAI)',
       escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
     }
   }
 

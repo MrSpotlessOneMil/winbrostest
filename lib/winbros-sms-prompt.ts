@@ -14,7 +14,7 @@ export function buildWinBrosSmsSystemPrompt(): string {
   return `You are Mary, a friendly and efficient booking specialist for WinBros Window Cleaning, serving all of Central Illinois.
 
 ## YOUR GOAL
-Guide the customer through booking a cleaning service via text. Collect all required information step by step. Ask ONE question at a time.
+Guide the customer through booking a cleaning service via text. Collect all required information step by step. Ask ONE question at a time. Complete the ENTIRE booking flow — do NOT stop partway through.
 
 ## PERSONALITY
 - Warm, professional, and enthusiastic
@@ -22,6 +22,9 @@ Guide the customer through booking a cleaning service via text. Collect all requ
 - Ask ONE question per message
 - Never say you're an AI or bot
 - Use the customer's name once you have it
+
+## HANDLING MULTI-MESSAGE INPUTS
+Customers often split their answers across multiple texts (e.g. street address in one text, city in the next). When a message looks like a continuation of a previous answer (like a city name after a street address, or a last name after a first name), combine them into one answer and continue to the NEXT question. Do NOT re-ask the same question.
 
 ## ABOUT WINBROS
 - 150+ 5-star reviews
@@ -40,8 +43,9 @@ Collect these in order, one at a time. Skip any the customer already provided:
 1. **Service type**: "Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?"
 2. **Scope**: "Were you looking to get just the exterior windows cleaned, or are you wanting the interior and screens done as well?"
 3. **Building type + cleaning type**: "Is this a home or commercial building? And just a normal cleaning, or is there any post-construction residue like paint or stickers?"
-4. **French panes**: "Quick question — do you have any french pane windows or storm windows?"
+4. **French panes**: YOU MUST ASK THIS — DO NOT SKIP: "Quick question — do you have any french pane windows or storm windows?"
    → If YES: respond with "Great to know! For french pane or storm windows we like to have our team lead give you a specialized quote. They'll reach out shortly!" and include [ESCALATE:french_panes] at the END of your message.
+   → If NO: say "Perfect!" and move to the next question.
 5. **Square footage**: "What is the approximate square footage of your building including the basement? Even a rough estimate works!"
 6. **Confirm panes**: Based on their sqft, say "Based on that, your home has about [X panes]. Does that sound about right?"
    Pane ranges:
@@ -77,6 +81,7 @@ Collect these in order, one at a time. Skip any the customer already provided:
 10. **How found us**: "How did you find WinBros?"
 11. **Preferred date/time**: "Do you have a preferred date and time for us to come?"
 12. **Email**: "Last thing — what's your email address? I'll send you a secure link to put your card on file and confirm your booking!"
+    → When the customer provides their email, respond with something like "Perfect! I'm sending you a secure link now to put your card on file. You're all set — we'll see you on [date]!" and include [BOOKING_COMPLETE] at the END of your message.
 
 ## PRESSURE WASHING — FLAT RATE PRICING
 For pressure washing, ask what specifically they need cleaned, then quote:
@@ -91,12 +96,14 @@ For pressure washing, ask what specifically they need cleaned, then quote:
 - Stone Cleaning: $150
 
 Then collect: name, address, how found us, preferred date/time, email.
+When the customer provides their email, respond with confirmation and include [BOOKING_COMPLETE] at the end.
 
 ## GUTTER CLEANING — FLAT RATE PRICING
 - Gutter Cleaning: $250
 - Gutter & Soffit Washing: $200
 
 Then collect: name, address, how found us, preferred date/time, email.
+When the customer provides their email, respond with confirmation and include [BOOKING_COMPLETE] at the end.
 
 ## ESCALATION RULES
 Include the escalation tag at the END of your response (after your customer-facing message) ONLY when:
@@ -109,8 +116,11 @@ Include the escalation tag at the END of your response (after your customer-faci
 ## CRITICAL RULES
 - NEVER guess or make up prices — ALWAYS use the pricing tables above
 - Read conversation history carefully — NEVER re-ask a question that was already answered
-- If the customer provided information across multiple messages, acknowledge ALL of it
+- If the customer provided information across multiple messages, acknowledge ALL of it and move to the NEXT question
 - Do NOT ask about bedrooms or bathrooms — WinBros prices by square footage and pane count
+- NEVER skip the french panes question for window cleaning — it is REQUIRED
+- Follow the data collection steps IN ORDER — do not jump ahead or skip steps
+- You MUST complete the ENTIRE booking flow through email collection. Do not stop early.
 - If the customer seems hesitant about price, highlight the value: satisfaction guarantee, licensed & insured, 150+ 5-star reviews
 - If the customer asks "how much" before you have sqft, say "Great question! To give you exact pricing I just need your square footage. What's the approximate sqft of your home including the basement?"`
 }
@@ -166,10 +176,20 @@ export function detectEscalation(
 }
 
 /**
- * Strip escalation tags from the AI response before sending to customer.
+ * Strip escalation tags and booking-complete tags from the AI response before sending to customer.
  */
 export function stripEscalationTags(response: string): string {
-  return response.replace(/\s*\[ESCALATE:\w+\]\s*/g, '').trim()
+  return response
+    .replace(/\s*\[ESCALATE:\w+\]\s*/g, '')
+    .replace(/\s*\[BOOKING_COMPLETE\]\s*/g, '')
+    .trim()
+}
+
+/**
+ * Detect if the AI marked the booking as complete.
+ */
+export function detectBookingComplete(aiResponse: string): boolean {
+  return aiResponse.includes('[BOOKING_COMPLETE]')
 }
 
 /**
@@ -206,4 +226,238 @@ export function buildOwnerEscalationMessage(
   parts.push(`Please reach out to this customer to continue the conversation.`)
 
   return parts.join('\n')
+}
+
+// =====================================================================
+// BOOKING DATA EXTRACTION
+// =====================================================================
+
+export interface WinBrosBookingData {
+  serviceType: string | null
+  scope: string | null // "exterior" | "interior_and_exterior"
+  buildingType: string | null // "home" | "commercial"
+  squareFootage: number | null
+  price: number | null
+  planType: string | null // "one_time" | "biannual" | "quarterly"
+  fullName: string | null
+  firstName: string | null
+  lastName: string | null
+  address: string | null
+  referralSource: string | null
+  preferredDate: string | null
+  email: string | null
+}
+
+/**
+ * Extract structured booking data from a WinBros SMS conversation.
+ * Uses AI to parse the conversational data into structured fields.
+ */
+export async function extractBookingData(
+  conversationHistory: Array<{ role: 'client' | 'assistant'; content: string }>
+): Promise<WinBrosBookingData> {
+  const transcript = conversationHistory
+    .map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`)
+    .join('\n')
+
+  // Try AI extraction first
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (anthropicKey) {
+    try {
+      const Anthropic = (await import('@anthropic-ai/sdk')).default
+      const client = new Anthropic({ apiKey: anthropicKey })
+
+      const response = await client.messages.create({
+        model: 'claude-3-5-haiku-20241022',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: `Extract booking data from this WinBros cleaning service text conversation. Return ONLY a JSON object with these fields (use null for missing data):
+
+{
+  "serviceType": "window_cleaning" | "pressure_washing" | "gutter_cleaning" | null,
+  "scope": "exterior" | "interior_and_exterior" | null,
+  "buildingType": "home" | "commercial" | null,
+  "squareFootage": number | null,
+  "price": number | null,
+  "planType": "one_time" | "biannual" | "quarterly" | null,
+  "fullName": "string" | null,
+  "firstName": "string" | null,
+  "lastName": "string" | null,
+  "address": "string" | null,
+  "referralSource": "string" | null,
+  "preferredDate": "string" | null,
+  "email": "string" | null
+}
+
+For price: use the price the customer agreed to (the one-time price if they chose one-time, etc.). Look for "$" amounts in Mary's messages.
+For address: combine all parts (street, city, state, zip) from the customer's messages.
+For email: look for an email address in the customer's messages.
+
+CONVERSATION:
+${transcript}
+
+Return ONLY the JSON object, nothing else.`
+        }],
+      })
+
+      const textContent = response.content.find(block => block.type === 'text')
+      const raw = textContent?.type === 'text' ? textContent.text.trim() : ''
+
+      // Parse JSON, handling potential markdown code blocks
+      const jsonStr = raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
+      const parsed = JSON.parse(jsonStr)
+
+      return {
+        serviceType: parsed.serviceType || null,
+        scope: parsed.scope || null,
+        buildingType: parsed.buildingType || null,
+        squareFootage: parsed.squareFootage ? Number(parsed.squareFootage) : null,
+        price: parsed.price ? Number(parsed.price) : null,
+        planType: parsed.planType || null,
+        fullName: parsed.fullName || null,
+        firstName: parsed.firstName || null,
+        lastName: parsed.lastName || null,
+        address: parsed.address || null,
+        referralSource: parsed.referralSource || null,
+        preferredDate: parsed.preferredDate || null,
+        email: parsed.email || null,
+      }
+    } catch (err) {
+      console.error('[WinBros] AI booking data extraction failed:', err)
+    }
+  }
+
+  // Fallback: regex-based extraction
+  return extractBookingDataRegex(conversationHistory)
+}
+
+/**
+ * Fallback regex-based extraction when AI is unavailable.
+ */
+function extractBookingDataRegex(
+  conversationHistory: Array<{ role: 'client' | 'assistant'; content: string }>
+): WinBrosBookingData {
+  const clientMessages = conversationHistory
+    .filter(m => m.role === 'client')
+    .map(m => m.content)
+  const allText = clientMessages.join(' ')
+  const allTextLower = allText.toLowerCase()
+
+  // Service type
+  let serviceType: string | null = null
+  if (/window\s*clean/i.test(allTextLower)) serviceType = 'window_cleaning'
+  else if (/pressure\s*wash/i.test(allTextLower) || /power\s*wash/i.test(allTextLower)) serviceType = 'pressure_washing'
+  else if (/gutter/i.test(allTextLower)) serviceType = 'gutter_cleaning'
+
+  // Scope
+  let scope: string | null = null
+  if (/interior/i.test(allTextLower)) scope = 'interior_and_exterior'
+  else if (/exterior/i.test(allTextLower)) scope = 'exterior'
+
+  // Square footage
+  let squareFootage: number | null = null
+  const sqftMatch = allText.match(/(\d[\d,]+)\s*(?:sq\.?\s*ft|square\s*f(?:ee|oo)t|sqft)/i)
+  if (sqftMatch) squareFootage = parseInt(sqftMatch[1].replace(/,/g, ''), 10)
+
+  // Price from assistant messages
+  let price: number | null = null
+  const assistantMessages = conversationHistory
+    .filter(m => m.role === 'assistant')
+    .map(m => m.content)
+    .join(' ')
+  const priceMatches = assistantMessages.match(/One-Time:\s*\$(\d[\d,.]+)/i)
+  if (priceMatches) price = parseFloat(priceMatches[1].replace(/,/g, ''))
+
+  // Email
+  let email: string | null = null
+  const emailMatch = allText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
+  if (emailMatch) email = emailMatch[0].toLowerCase()
+
+  // Name - look for message after "full name" question
+  let fullName: string | null = null
+  let firstName: string | null = null
+  let lastName: string | null = null
+  for (let i = 0; i < conversationHistory.length - 1; i++) {
+    if (conversationHistory[i].role === 'assistant' &&
+        /full name/i.test(conversationHistory[i].content)) {
+      const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
+      if (nextClient) {
+        fullName = nextClient.content.trim()
+        const parts = fullName.split(/\s+/)
+        firstName = parts[0] || null
+        lastName = parts.slice(1).join(' ') || null
+      }
+      break
+    }
+  }
+
+  // Address - look for message after "address" question
+  let address: string | null = null
+  for (let i = 0; i < conversationHistory.length - 1; i++) {
+    if (conversationHistory[i].role === 'assistant' &&
+        /address/i.test(conversationHistory[i].content) &&
+        !/email/i.test(conversationHistory[i].content)) {
+      // Collect all client messages until next assistant message
+      const addressParts: string[] = []
+      for (let j = i + 1; j < conversationHistory.length; j++) {
+        if (conversationHistory[j].role === 'client') {
+          addressParts.push(conversationHistory[j].content.trim())
+        } else {
+          break
+        }
+      }
+      if (addressParts.length > 0) {
+        address = addressParts.join(', ')
+      }
+      break
+    }
+  }
+
+  // Plan type
+  let planType: string | null = null
+  if (/quarterly/i.test(allTextLower)) planType = 'quarterly'
+  else if (/biannual|bi-annual/i.test(allTextLower)) planType = 'biannual'
+  else if (/one.?time/i.test(allTextLower)) planType = 'one_time'
+
+  // Preferred date
+  let preferredDate: string | null = null
+  for (let i = 0; i < conversationHistory.length - 1; i++) {
+    if (conversationHistory[i].role === 'assistant' &&
+        /preferred date|when|time for us/i.test(conversationHistory[i].content)) {
+      const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
+      if (nextClient) {
+        preferredDate = nextClient.content.trim()
+      }
+      break
+    }
+  }
+
+  // Referral source
+  let referralSource: string | null = null
+  for (let i = 0; i < conversationHistory.length - 1; i++) {
+    if (conversationHistory[i].role === 'assistant' &&
+        /how did you find/i.test(conversationHistory[i].content)) {
+      const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
+      if (nextClient) {
+        referralSource = nextClient.content.trim()
+      }
+      break
+    }
+  }
+
+  return {
+    serviceType,
+    scope,
+    buildingType: /commercial/i.test(allTextLower) ? 'commercial' : /home|house|residential/i.test(allTextLower) ? 'home' : null,
+    squareFootage,
+    price,
+    planType,
+    fullName,
+    firstName,
+    lastName,
+    address,
+    referralSource,
+    preferredDate,
+    email,
+  }
 }

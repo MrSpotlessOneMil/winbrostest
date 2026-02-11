@@ -545,7 +545,7 @@ export async function POST(request: NextRequest) {
     .select("id, status, form_data")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
-    .in("status", ["new", "contacted", "qualified"])
+    .in("status", ["new", "contacted", "qualified", "responded"])
     .order("created_at", { ascending: false })
 
   // Get the most recent lead (first one due to descending order)
@@ -634,6 +634,161 @@ export async function POST(request: NextRequest) {
               console.log(`[OpenPhone] Escalation notification sent to owner for ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
+            }
+          }
+
+          // ==============================================
+          // WINBROS BOOKING COMPLETION: email detected → create job + send card-on-file link
+          // ==============================================
+          const emailInMessage = combinedMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)
+          const detectedEmail = emailInMessage ? emailInMessage[0].toLowerCase() : null
+
+          if (detectedEmail && (autoResponse.bookingComplete || tenant?.slug === 'winbros')) {
+            console.log(`[OpenPhone] WinBros booking completion: email detected (${detectedEmail}) for lead ${existingLead.id}`)
+
+            try {
+              // Save email to customer
+              await client
+                .from("customers")
+                .update({ email: detectedEmail })
+                .eq("id", customer.id)
+
+              // Extract all booking data from conversation
+              const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+              const bookingData = await extractBookingData(conversationHistory)
+              console.log(`[OpenPhone] Extracted booking data:`, JSON.stringify(bookingData))
+
+              // Use extracted email if AI found one, otherwise use the one from the message
+              const finalEmail = bookingData.email || detectedEmail
+
+              // Update customer name if extracted
+              if (bookingData.firstName || bookingData.lastName) {
+                await client
+                  .from("customers")
+                  .update({
+                    first_name: bookingData.firstName || customer.first_name,
+                    last_name: bookingData.lastName || customer.last_name,
+                    email: finalEmail,
+                    address: bookingData.address || customer.address,
+                  })
+                  .eq("id", customer.id)
+              }
+
+              // Determine price using extracted data or pricebook lookup
+              let servicePrice = bookingData.price
+              if (!servicePrice && tenant?.slug === 'winbros') {
+                try {
+                  const { lookupPrice } = await import("@/lib/pricebook")
+                  const priceLookup = lookupPrice({
+                    serviceType: bookingData.serviceType || null,
+                    squareFootage: bookingData.squareFootage || null,
+                    notes: bookingData.scope || null,
+                  })
+                  if (priceLookup) {
+                    servicePrice = priceLookup.price
+                    console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} = $${priceLookup.price}`)
+                  }
+                } catch (pbErr) {
+                  console.error("[OpenPhone] Pricebook lookup error:", pbErr)
+                }
+              }
+
+              // Create job
+              const { data: newJob } = await client.from("jobs").insert({
+                tenant_id: tenant?.id,
+                customer_id: customer.id,
+                phone_number: phone,
+                service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
+                address: bookingData.address || customer.address || null,
+                square_footage: bookingData.squareFootage || null,
+                price: servicePrice || null,
+                date: bookingData.preferredDate || null,
+                status: 'scheduled',
+                booked: true,
+                notes: [
+                  bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+                  bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+                  bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+                ].filter(Boolean).join(' | ') || null,
+              }).select("id").single()
+
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob?.id}`)
+
+              // Update lead to booked
+              await client
+                .from("leads")
+                .update({
+                  status: "booked",
+                  converted_to_job_id: newJob?.id || null,
+                  form_data: {
+                    ...parseFormData(existingLead.form_data),
+                    booking_data: bookingData,
+                  },
+                })
+                .eq("id", existingLead.id)
+
+              // Send card-on-file link
+              try {
+                const { createCardOnFileLink } = await import("@/lib/stripe-client")
+                const cardResult = await createCardOnFileLink(
+                  { ...customer, email: finalEmail } as any,
+                  newJob?.id || `lead-${existingLead.id}`,
+                )
+
+                if (cardResult.success && cardResult.url) {
+                  const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
+                  const cardMessage = `${priceStr}Here's the secure link to put your card on file and confirm your booking: ${cardResult.url}`
+                  const cardSms = await sendSMS(tenant!, phone, cardMessage)
+
+                  if (cardSms.success) {
+                    await client.from("messages").insert({
+                      tenant_id: tenant?.id,
+                      customer_id: customer.id,
+                      phone_number: phone,
+                      role: "assistant",
+                      content: cardMessage,
+                      direction: "outbound",
+                      message_type: "sms",
+                      ai_generated: false,
+                      timestamp: new Date().toISOString(),
+                      source: "card_on_file",
+                      metadata: {
+                        lead_id: existingLead.id,
+                        job_id: newJob?.id,
+                        card_on_file_url: cardResult.url,
+                        booking_source: "sms_flow",
+                      },
+                    })
+                    console.log(`[OpenPhone] Card-on-file link sent to ${phone} (SMS booking flow)`)
+                  }
+
+                  await logSystemEvent({
+                    source: "openphone",
+                    event_type: "SMS_BOOKING_COMPLETED",
+                    message: `SMS booking completed for ${phone} — job ${newJob?.id}, card-on-file link sent`,
+                    phone_number: phone,
+                    metadata: {
+                      lead_id: existingLead.id,
+                      job_id: newJob?.id,
+                      booking_data: bookingData,
+                      card_on_file_url: cardResult.url,
+                    },
+                  })
+                } else {
+                  console.error("[OpenPhone] Card-on-file link creation failed:", cardResult.error)
+                }
+              } catch (cardErr) {
+                console.error("[OpenPhone] Failed to create card-on-file link:", cardErr)
+              }
+
+              return NextResponse.json({
+                success: true,
+                flow: "sms_booking_complete",
+                existingLeadId: existingLead.id,
+                jobId: newJob?.id,
+              })
+            } catch (bookingErr) {
+              console.error("[OpenPhone] SMS booking completion error:", bookingErr)
             }
           }
         }
