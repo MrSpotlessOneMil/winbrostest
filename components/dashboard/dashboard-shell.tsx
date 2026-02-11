@@ -1,12 +1,21 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { TopNav } from "@/components/dashboard/top-nav"
 import { AuthProvider } from "@/lib/auth-context"
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("sidebar-collapsed") === "true"
+    }
+    return false
+  })
+
+  useEffect(() => {
+    localStorage.setItem("sidebar-collapsed", String(sidebarCollapsed))
+  }, [sidebarCollapsed])
 
   return (
     <AuthProvider>
