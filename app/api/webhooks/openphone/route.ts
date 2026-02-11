@@ -775,8 +775,8 @@ export async function POST(request: NextRequest) {
                 )
 
                 if (cardResult.success && cardResult.url) {
-                  const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
-                  const cardMessage = `${priceStr}Here's the secure link to put your card on file and confirm your booking: ${cardResult.url}`
+                  const priceStr = servicePrice ? `Your total is $${Number(servicePrice).toFixed(2)}. ` : ""
+                  const cardMessage = `${priceStr}Put your card on file so we can get you all set up: ${cardResult.url}`
                   const cardSms = await sendSMS(tenant!, phone, cardMessage)
 
                   if (cardSms.success) {
@@ -801,16 +801,46 @@ export async function POST(request: NextRequest) {
                     console.log(`[OpenPhone] Card-on-file link sent to ${phone} (SMS booking flow)`)
                   }
 
+                  // Send confirmation email to customer
+                  try {
+                    const { sendConfirmationEmail } = await import("@/lib/gmail-client")
+                    const emailResult = await sendConfirmationEmail({
+                      customer: {
+                        ...customer,
+                        email: finalEmail,
+                        first_name: bookingData.firstName || customer.first_name,
+                        last_name: bookingData.lastName || customer.last_name,
+                      } as any,
+                      job: {
+                        id: newJob?.id,
+                        service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
+                        address: bookingData.address || customer.address || null,
+                        date: bookingData.preferredDate || null,
+                        scheduled_at: null,
+                        price: servicePrice || null,
+                      } as any,
+                      stripeDepositUrl: cardResult.url,
+                    })
+                    if (emailResult.success) {
+                      console.log(`[OpenPhone] Confirmation email sent to ${finalEmail} (SMS booking flow)`)
+                    } else {
+                      console.error(`[OpenPhone] Confirmation email failed: ${emailResult.error}`)
+                    }
+                  } catch (emailErr) {
+                    console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
+                  }
+
                   await logSystemEvent({
                     source: "openphone",
                     event_type: "SMS_BOOKING_COMPLETED",
-                    message: `SMS booking completed for ${phone} — job ${newJob?.id}, card-on-file link sent`,
+                    message: `SMS booking completed for ${phone} — job ${newJob?.id}, card-on-file link sent, email sent to ${finalEmail}`,
                     phone_number: phone,
                     metadata: {
                       lead_id: existingLead.id,
                       job_id: newJob?.id,
                       booking_data: bookingData,
                       card_on_file_url: cardResult.url,
+                      email_sent_to: finalEmail,
                     },
                   })
                 } else {
