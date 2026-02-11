@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuth } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { toE164, normalizePhone } from "@/lib/phone-utils"
 import Anthropic from "@anthropic-ai/sdk"
 
 const TOOLS: Anthropic.Tool[] = [
@@ -51,6 +52,35 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ]
 
+// Robust customer lookup - tries E164, then last-10-digit match
+async function findCustomerByPhone(client: any, phone: string, select = "*") {
+  const e164 = toE164(phone)
+
+  // Try exact E164 match first
+  if (e164) {
+    const { data } = await client
+      .from("customers")
+      .select(select)
+      .eq("phone_number", e164)
+      .single()
+    if (data) return data
+  }
+
+  // Fallback: match by last 10 digits using ilike pattern
+  const digits = phone.replace(/\D/g, "")
+  const last10 = digits.slice(-10)
+  if (last10.length === 10) {
+    const { data: matches } = await client
+      .from("customers")
+      .select(select)
+      .like("phone_number", `%${last10}`)
+    if (matches && matches.length === 1) return matches[0]
+    if (matches && matches.length > 1) return matches[0] // take first match
+  }
+
+  return null
+}
+
 async function executeTool(
   toolName: string,
   toolInput: Record<string, any>,
@@ -60,17 +90,9 @@ async function executeTool(
 
   if (toolName === "reset_customer") {
     const phone = toolInput.phone_number as string
-    // Normalize phone
-    const digits = phone.replace(/\D/g, "")
-    const e164 = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith("1") ? `+${digits}` : phone
+    const customer = await findCustomerByPhone(client, phone, "id, first_name, last_name, phone_number")
 
-    const { data: customer, error } = await client
-      .from("customers")
-      .select("id, first_name, last_name, phone_number")
-      .eq("phone_number", e164)
-      .single()
-
-    if (error || !customer) {
+    if (!customer) {
       return `No customer found with phone number ${phone}. Make sure the number is correct.`
     }
 
@@ -93,7 +115,7 @@ async function executeTool(
         form_data: {},
         updated_at: new Date().toISOString(),
       })
-      .eq("phone_number", e164)
+      .eq("phone_number", customer.phone_number)
 
     const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
     return `Done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow again from the start.`
@@ -101,16 +123,9 @@ async function executeTool(
 
   if (toolName === "generate_stripe_link") {
     const phone = toolInput.phone_number as string
-    const digits = phone.replace(/\D/g, "")
-    const e164 = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith("1") ? `+${digits}` : phone
+    const customer = await findCustomerByPhone(client, phone)
 
-    const { data: customer, error } = await client
-      .from("customers")
-      .select("*")
-      .eq("phone_number", e164)
-      .single()
-
-    if (error || !customer) {
+    if (!customer) {
       return `No customer found with phone number ${phone}.`
     }
 
@@ -122,7 +137,7 @@ async function executeTool(
     const { data: jobs } = await client
       .from("jobs")
       .select("id")
-      .eq("phone_number", e164)
+      .eq("phone_number", customer.phone_number)
       .order("created_at", { ascending: false })
       .limit(1)
 
