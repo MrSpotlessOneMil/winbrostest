@@ -561,13 +561,24 @@ export async function POST(request: NextRequest) {
   }
 
   if (existingLead) {
-    // Lead already exists (active, non-booked), update last contact time
+    // Lead responded — update status and cancel remaining follow-up tasks
     await client
       .from("leads")
-      .update({ last_contact_at: new Date().toISOString() })
+      .update({ status: "responded", last_contact_at: new Date().toISOString() })
       .eq("id", existingLead.id)
 
-    console.log(`[OpenPhone] Active lead exists for ${phone} (id: ${existingLead.id}), updated last_contact_at`)
+    // Cancel all pending follow-up stages so the sequence stops
+    try {
+      const { cancelTask } = await import("@/lib/scheduler")
+      for (let stage = 1; stage <= 5; stage++) {
+        await cancelTask(`lead-${existingLead.id}-stage-${stage}`)
+      }
+      console.log(`[OpenPhone] Cancelled remaining follow-up tasks for lead ${existingLead.id}`)
+    } catch (cancelErr) {
+      console.error("[OpenPhone] Error cancelling follow-up tasks:", cancelErr)
+    }
+
+    console.log(`[OpenPhone] Active lead ${existingLead.id} marked as responded for ${phone}`)
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
@@ -797,6 +808,15 @@ export async function POST(request: NextRequest) {
           intent: intentResult,
         },
       })
+
+      // Auto-response already served as the initial greeting (stage 1),
+      // so mark the lead as contacted to prevent the scheduled stage 1 from sending a duplicate.
+      if (smsEnabled) {
+        await client
+          .from("leads")
+          .update({ followup_stage: 1, last_contact_at: new Date().toISOString() })
+          .eq("id", lead.id)
+      }
 
       // Schedule the 5-stage follow-up sequence
       try {

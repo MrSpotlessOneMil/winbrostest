@@ -218,8 +218,8 @@ async function processLeadFollowup(
     }
   }
 
-  // Skip if lead is already booked or lost
-  if (lead.status === 'booked' || lead.status === 'lost' || lead.status === 'unqualified') {
+  // Skip if lead is already booked, lost, or has responded (customer texted back)
+  if (['booked', 'lost', 'unqualified', 'responded'].includes(lead.status)) {
     console.log(`[lead-followup] Lead ${leadId} status is ${lead.status}, skipping follow-up`)
     return
   }
