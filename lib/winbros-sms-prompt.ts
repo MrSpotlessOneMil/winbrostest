@@ -113,6 +113,10 @@ Include the escalation tag at the END of your response (after your customer-faci
 - Square footage > 9000 → [ESCALATE:large_home]
 - Customer wants to cancel, reschedule, or has billing issues → [ESCALATE:service_issue]
 
+**CRITICAL: When you include ANY [ESCALATE:...] tag, you are handing the conversation off to our team lead. Your message MUST end with something like "They'll reach out shortly!" or "They'll be in touch shortly!" Do NOT ask any more questions. Do NOT continue the booking flow. The team lead will take over from here.**
+
+If the conversation history already contains an [ESCALATE:...] response from you, and the customer sends another message, reply with: "Our team lead will be reaching out to you shortly! If you have any questions in the meantime, feel free to text us."
+
 ## CRITICAL RULES
 - NEVER guess or make up prices — ALWAYS use the pricing tables above
 - Read conversation history carefully — NEVER re-ask a question that was already answered
@@ -120,7 +124,7 @@ Include the escalation tag at the END of your response (after your customer-faci
 - Do NOT ask about bedrooms or bathrooms — WinBros prices by square footage and pane count
 - NEVER skip the french panes question for window cleaning — it is REQUIRED
 - Follow the data collection steps IN ORDER — do not jump ahead or skip steps
-- You MUST complete the ENTIRE booking flow through email collection. Do not stop early.
+- You MUST complete the ENTIRE booking flow through email collection — UNLESS an escalation occurs, in which case STOP.
 - If the customer seems hesitant about price, highlight the value: satisfaction guarantee, licensed & insured, 150+ 5-star reviews
 - If the customer asks "how much" before you have sqft, say "Great question! To give you exact pricing I just need your square footage. What's the approximate sqft of your home including the basement?"`
 }
@@ -213,9 +217,13 @@ export function buildOwnerEscalationMessage(
     .map(r => `- ${reasonMap[r] || r}`)
     .join('\n')
 
+  const customerLine = customerName && customerName !== 'Unknown'
+    ? `Customer: ${customerName}\nPhone: ${customerPhone}`
+    : `Phone: ${customerPhone}`
+
   const parts = [
     `NEW LEAD NEEDS ATTENTION`,
-    `Customer: ${customerName} | ${customerPhone}`,
+    customerLine,
     `Reason:\n${reasonLines}`,
   ]
 

@@ -545,7 +545,7 @@ export async function POST(request: NextRequest) {
     .select("id, status, form_data")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
-    .in("status", ["new", "contacted", "qualified", "responded"])
+    .in("status", ["new", "contacted", "qualified", "responded", "escalated"])
     .order("created_at", { ascending: false })
 
   // Get the most recent lead (first one due to descending order)
@@ -622,16 +622,55 @@ export async function POST(request: NextRequest) {
           // Handle escalation — notify the owner if the AI flagged this customer
           if (autoResponse.escalation?.shouldEscalate && tenant?.owner_phone) {
             try {
-              const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
-              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
-              const ownerMsg = buildOwnerEscalationMessage(
-                phone,
-                customerName,
-                autoResponse.escalation.reasons,
-                combinedMessage
-              )
-              await sendSMS(tenant, tenant.owner_phone, ownerMsg)
-              console.log(`[OpenPhone] Escalation notification sent to owner for ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+              // Check if we already sent an escalation for this phone recently (prevent duplicates)
+              const recentEscCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+              const { data: recentEsc } = await client
+                .from("system_events")
+                .select("id")
+                .eq("event_type", "LEAD_ESCALATED")
+                .eq("phone_number", phone)
+                .gte("created_at", recentEscCutoff)
+                .limit(1)
+
+              if (!recentEsc || recentEsc.length === 0) {
+                const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+                // Try to get a real name from conversation history
+                const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+                  || extractNameFromConversation(conversationHistory)
+                  || "Unknown"
+                const ownerMsg = buildOwnerEscalationMessage(
+                  phone,
+                  customerName,
+                  autoResponse.escalation.reasons,
+                  combinedMessage
+                )
+                await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+
+                await logSystemEvent({
+                  source: "openphone",
+                  event_type: "LEAD_ESCALATED",
+                  message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
+                  phone_number: phone,
+                  metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
+                })
+
+                console.log(`[OpenPhone] Escalation notification sent to owner for ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+              } else {
+                console.log(`[OpenPhone] Escalation already sent recently for ${phone}, skipping duplicate`)
+              }
+
+              // Pause auto-response for this lead — owner is taking over
+              await client
+                .from("leads")
+                .update({
+                  status: "escalated",
+                  form_data: {
+                    ...parseFormData(existingLead.form_data),
+                    followup_paused: true,
+                    escalation_reasons: autoResponse.escalation.reasons,
+                  },
+                })
+                .eq("id", existingLead.id)
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
             }
@@ -873,16 +912,41 @@ export async function POST(request: NextRequest) {
           // Handle escalation — notify the owner if the AI flagged this customer
           if (autoResponse.escalation?.shouldEscalate && tenant?.owner_phone) {
             try {
-              const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
-              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
-              const ownerMsg = buildOwnerEscalationMessage(
-                phone,
-                customerName,
-                autoResponse.escalation.reasons,
-                combinedMessage
-              )
-              await sendSMS(tenant, tenant.owner_phone, ownerMsg)
-              console.log(`[OpenPhone] Escalation notification sent to owner for new inquiry ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+              // Check if we already sent an escalation for this phone recently (prevent duplicates)
+              const recentEscCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+              const { data: recentEsc } = await client
+                .from("system_events")
+                .select("id")
+                .eq("event_type", "LEAD_ESCALATED")
+                .eq("phone_number", phone)
+                .gte("created_at", recentEscCutoff)
+                .limit(1)
+
+              if (!recentEsc || recentEsc.length === 0) {
+                const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+                const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+                  || extractNameFromConversation(conversationHistory)
+                  || "Unknown"
+                const ownerMsg = buildOwnerEscalationMessage(
+                  phone,
+                  customerName,
+                  autoResponse.escalation.reasons,
+                  combinedMessage
+                )
+                await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+
+                await logSystemEvent({
+                  source: "openphone",
+                  event_type: "LEAD_ESCALATED",
+                  message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
+                  phone_number: phone,
+                  metadata: { reasons: autoResponse.escalation.reasons },
+                })
+
+                console.log(`[OpenPhone] Escalation notification sent to owner for new inquiry ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+              } else {
+                console.log(`[OpenPhone] Escalation already sent recently for new inquiry ${phone}, skipping duplicate`)
+              }
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
             }
@@ -1000,4 +1064,29 @@ export async function POST(request: NextRequest) {
     intentAnalysis: intentResult,
     leadCreated: false,
   })
+}
+
+/**
+ * Try to extract a customer name from the conversation history.
+ * Looks for the customer's response after a "full name" question from the assistant.
+ */
+function extractNameFromConversation(
+  conversationHistory: Array<{ role: string; content: string }>
+): string | null {
+  for (let i = 0; i < conversationHistory.length - 1; i++) {
+    if (
+      conversationHistory[i].role === 'assistant' &&
+      /full name/i.test(conversationHistory[i].content)
+    ) {
+      const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
+      if (nextClient) {
+        const name = nextClient.content.trim()
+        // Sanity check: should look like a name (not an email, URL, or long message)
+        if (name.length > 0 && name.length < 60 && !name.includes('@') && !name.includes('http')) {
+          return name
+        }
+      }
+    }
+  }
+  return null
 }
