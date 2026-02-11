@@ -36,7 +36,7 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       SIM_RESOLUTION: 256,
       DYE_RESOLUTION: 1024,
       DENSITY_DISSIPATION: 1.8,
-      VELOCITY_DISSIPATION: 1.9,
+      VELOCITY_DISSIPATION: 4,
       PRESSURE: 0.13,
       PRESSURE_ITERATIONS: 20,
       CURL: 0.04,
@@ -851,9 +851,8 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
 
     // ── Color generation (Osiris purple/black theme) ──────────
     function generateColor() {
-      // Purple family hues: 220-330 (blue through magenta)
-      const hue = (220 + Math.random() * 110) / 360
-      const c = HSVtoRGB(hue, 1.0, 1.0)
+      // Single Osiris purple (270°, matching Tailwind purple-500 #a855f7)
+      const c = HSVtoRGB(270 / 360, 1.0, 1.0)
       c.r *= 0.024
       c.g *= 0.024
       c.b *= 0.024
