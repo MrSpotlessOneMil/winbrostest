@@ -410,8 +410,8 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 /**
  * Handle setup_intent.succeeded event
  * This fires when a card-on-file setup intent completes.
- * The checkout.session.completed handler usually handles this first,
- * but this provides a fallback for direct setup intents.
+ * The checkout.session.completed handler sends the confirmation SMS,
+ * so this only handles cleaner assignment as a fallback (no SMS to avoid duplicates).
  */
 async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const metadata = setupIntent.metadata || {}
@@ -419,56 +419,24 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
 
   console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, purpose: ${purpose}`)
 
-  // If this has card_on_file metadata and a phone number, handle it
-  // (checkout.session.completed usually handles this first, so check if already processed)
   if (phone_number) {
+    // Check if checkout.session.completed already handled this (it sends the SMS)
     const client = getSupabaseClient()
-    const tenant = await getDefaultTenant()
-
-    // Check if we already sent a card-on-file confirmation recently (from checkout.session.completed)
-    const recentCutoff = new Date(Date.now() - 60000).toISOString()
-    const { data: recentConfirmation } = await client
-      .from('messages')
+    const recentCutoff = new Date(Date.now() - 120000).toISOString()
+    const { data: alreadyHandled } = await client
+      .from('system_events')
       .select('id')
+      .eq('event_type', 'CARD_ON_FILE_SAVED')
       .eq('phone_number', phone_number)
-      .eq('source', 'stripe_card_on_file')
-      .gte('timestamp', recentCutoff)
+      .gte('created_at', recentCutoff)
       .limit(1)
 
-    if (recentConfirmation && recentConfirmation.length > 0) {
-      console.log(`[Stripe Webhook] Card-on-file already processed via checkout.session.completed, skipping`)
+    if (alreadyHandled && alreadyHandled.length > 0) {
+      console.log(`[Stripe Webhook] Card-on-file already processed via checkout.session.completed, skipping setup_intent handler`)
       return
     }
 
-    // If not already processed, send confirmation
-    if (tenant) {
-      const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
-      const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
-
-      if (smsResult.success) {
-        const { data: customer } = await client
-          .from('customers')
-          .select('id')
-          .eq('phone_number', phone_number)
-          .eq('tenant_id', tenant.id)
-          .maybeSingle()
-
-        await client.from('messages').insert({
-          tenant_id: tenant.id,
-          customer_id: customer?.id || null,
-          phone_number: phone_number,
-          role: 'assistant',
-          content: confirmMsg,
-          direction: 'outbound',
-          message_type: 'sms',
-          ai_generated: false,
-          timestamp: new Date().toISOString(),
-          source: 'stripe_card_on_file',
-        })
-      }
-    }
-
-    // Trigger cleaner assignment if we have a real job
+    // Fallback: trigger cleaner assignment if checkout.session.completed didn't fire
     if (job_id && !job_id.startsWith('lead-')) {
       const assignmentResult = await triggerCleanerAssignment(job_id)
       if (!assignmentResult.success) {
@@ -479,12 +447,13 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
     await logSystemEvent({
       source: 'stripe',
       event_type: 'CARD_ON_FILE_SAVED',
-      message: `Setup intent succeeded for ${phone_number}`,
+      message: `Setup intent succeeded for ${phone_number} (fallback handler)`,
       phone_number: phone_number,
       job_id: job_id || undefined,
       metadata: {
         setup_intent_id: setupIntent.id,
         purpose,
+        handler: 'setup_intent_fallback',
       },
     })
   }

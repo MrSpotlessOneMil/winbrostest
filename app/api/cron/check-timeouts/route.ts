@@ -33,6 +33,7 @@ import { getClientConfig } from '@/lib/client-config'
 const STANDARD_TIMEOUT_MINUTES = 30
 const URGENT_TIMEOUT_MINUTES = 15
 const OWNER_ALERT_MINUTES = 30
+const MAX_FOLLOWUP_ATTEMPTS = 10
 const CANCEL_REASSIGN_INTERVAL_MINUTES = 20
 const CANCEL_REASSIGN_ALERT_MINUTES = CANCEL_REASSIGN_INTERVAL_MINUTES * 2
 const CANCEL_REASSIGN_LOOKBACK_MINUTES = 180
@@ -150,7 +151,73 @@ async function executeCheckTimeouts(request: NextRequest) {
         continue
       }
 
+      // Count how many follow-up rounds have already been sent for this job
+      const { data: followupEvents } = await client
+        .from('system_events')
+        .select('id')
+        .eq('event_type', 'URGENT_FOLLOWUP_SENT')
+        .eq('job_id', jobId)
+
+      const followupCount = followupEvents?.length || 0
+
       const pendingCleanerNames: string[] = []
+      for (const pending of allPending || []) {
+        const cleaner = await getCleanerById(pending.cleaner_id)
+        if (cleaner?.name) {
+          pendingCleanerNames.push(cleaner.name)
+        }
+      }
+
+      // If we've hit the max follow-up limit, stop messaging cleaners and alert the owner
+      if (followupCount >= MAX_FOLLOWUP_ATTEMPTS) {
+        const maxReached = await hasSystemEvent(client, 'OWNER_ALERT', jobId, {
+          key: 'reason',
+          value: 'max_followups_exhausted',
+        })
+
+        if (!maxReached && OWNER_PHONE) {
+          const customer = await getCustomerByPhone(job.phone_number)
+          const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(' ') || 'Unknown'
+          const dateStr = job.date
+            ? new Date(job.date).toLocaleDateString('en-US', {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+              })
+            : 'TBD'
+          const pendingList = pendingCleanerNames.length > 0 ? pendingCleanerNames.join(', ') : 'none'
+
+          const alertMessage = [
+            `UNCLAIMED JOB: After ${MAX_FOLLOWUP_ATTEMPTS} follow-up attempts, no employee has responded on Telegram.`,
+            `Customer: ${customerName} | ${job.phone_number || 'no phone'}`,
+            `Service: ${job.service_type || 'Cleaning'} | ${dateStr} at ${job.scheduled_at || 'TBD'}`,
+            `Address: ${job.address || 'not available'}`,
+            `Contacted: ${pendingList}`,
+            `This job still needs to be assigned manually.`,
+          ].join(' ')
+
+          await sendSMS(OWNER_PHONE, alertMessage)
+          ownerAlerts++
+
+          await logSystemEvent({
+            source: 'cron',
+            event_type: 'OWNER_ALERT',
+            message: `Max follow-ups (${MAX_FOLLOWUP_ATTEMPTS}) reached. Owner texted about unclaimed job.`,
+            job_id: jobId,
+            phone_number: OWNER_PHONE,
+            metadata: {
+              reason: 'max_followups_exhausted',
+              followup_count: followupCount,
+              pending_cleaners: pendingCleanerNames,
+              date: dateStr,
+              scheduled_at: job.scheduled_at,
+            },
+          })
+        }
+        continue
+      }
+
+      // Send urgent follow-up (under the limit)
       let jobUrgentsSent = 0
       for (const pending of allPending || []) {
         const cleaner = await getCleanerById(pending.cleaner_id)
@@ -161,22 +228,20 @@ async function executeCheckTimeouts(request: NextRequest) {
             jobUrgentsSent++
           }
         }
-        if (cleaner?.name) {
-          pendingCleanerNames.push(cleaner.name)
-        }
       }
 
       if (jobUrgentsSent > 0) {
         await logSystemEvent({
           source: 'cron',
           event_type: 'URGENT_FOLLOWUP_SENT',
-          message: `Urgent follow-up sent to ${jobUrgentsSent} cleaners.`,
+          message: `Urgent follow-up sent to ${jobUrgentsSent} cleaners. (${followupCount + 1}/${MAX_FOLLOWUP_ATTEMPTS})`,
           job_id: jobId,
           phone_number: job.phone_number,
           metadata: {
             timeout_minutes: timeoutMinutes,
             cleaners: pendingCleanerNames,
             sent_count: jobUrgentsSent,
+            attempt_number: followupCount + 1,
           },
         })
       }
