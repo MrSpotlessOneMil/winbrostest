@@ -854,9 +854,9 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       // Purple family hues: 220-330 (blue through magenta)
       const hue = (220 + Math.random() * 110) / 360
       const c = HSVtoRGB(hue, 1.0, 1.0)
-      c.r *= 0.08
-      c.g *= 0.08
-      c.b *= 0.08
+      c.r *= 0.024
+      c.g *= 0.024
+      c.b *= 0.024
       return c
     }
 

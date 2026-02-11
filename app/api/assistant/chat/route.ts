@@ -96,19 +96,21 @@ async function executeTool(
       return `No customer found with phone number ${phone}. Make sure the number is correct.`
     }
 
-    // Reset customer data
-    await client
+    // Reset customer data (only columns that exist on customers table)
+    const { error: custErr } = await client
       .from("customers")
       .update({
         texting_transcript: null,
-        lead_status: "new",
-        form_data: {},
         updated_at: new Date().toISOString(),
       })
       .eq("id", customer.id)
 
-    // Also reset any associated leads
-    await client
+    if (custErr) {
+      return `Failed to reset customer: ${custErr.message}`
+    }
+
+    // Reset any associated leads (lead_status and form_data live on the leads table)
+    const { error: leadErr } = await client
       .from("leads")
       .update({
         status: "new",
@@ -116,6 +118,10 @@ async function executeTool(
         updated_at: new Date().toISOString(),
       })
       .eq("phone_number", customer.phone_number)
+
+    if (leadErr) {
+      return `Customer transcript cleared, but failed to reset leads: ${leadErr.message}`
+    }
 
     const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
     return `Done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow again from the start.`
