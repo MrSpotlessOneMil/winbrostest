@@ -1193,6 +1193,11 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
     const onMouseDown = (e: MouseEvent) => {
       const { x, y, inBounds } = getCanvasRelativePos(e.clientX, e.clientY)
       if (!inBounds) return
+
+      // Don't create burst splats when clicking UI elements
+      const target = e.target as HTMLElement
+      if (target.closest("[data-no-splat], aside, button, textarea, input, a")) return
+
       const posX = scaleByPixelRatio(x)
       const posY = scaleByPixelRatio(y)
       updatePointerDownData(pointers[0], -1, posX, posY)
