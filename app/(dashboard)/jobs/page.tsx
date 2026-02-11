@@ -347,7 +347,7 @@ export default function JobsPage() {
       <div className="calendar-shell">
         <div className="mb-6" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Jobs Calendar</h1>
+            <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
             <p className="text-sm text-muted-foreground">
               Schedule and manage all service appointments
             </p>

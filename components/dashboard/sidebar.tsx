@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   CalendarDays,
   Users,
+  Sparkles,
   Settings,
   Bug,
   ShieldCheck,
@@ -23,8 +24,9 @@ import { useState, useRef, useEffect } from "react"
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
-  { name: "Jobs Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
+  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
+  { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
