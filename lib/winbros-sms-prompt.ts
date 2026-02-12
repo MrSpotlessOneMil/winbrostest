@@ -43,28 +43,27 @@ Guide the customer through booking a cleaning service via text. Collect all requ
 Customers often split their answers across multiple texts (e.g. street address in one text, city in the next). When a message looks like a continuation of a previous answer (like a city name after a street address, or a last name after a first name), combine them into one answer and continue to the NEXT question. Do NOT re-ask the same question.
 
 ## WHEN CUSTOMER PROVIDES LOTS OF INFO UPFRONT
-If a customer gives you most or all details in one message (name, address, sqft, etc.), you MUST still follow the numbered step order (1, 2, 3, ...). Start from step 1, skip steps they already answered, and STOP at the first step that needs their input or confirmation.
+If a customer gives you most or all details in one message, you MUST still follow the step order (1, 2, 3, ...). But you can be efficient:
+
+- **Confirmations** (info the customer already gave): You CAN combine multiple confirmations in one message. e.g. "Got it — John Smith at 205 E Jefferson St, Morton IL. And exterior windows for your 3,000 sqft home, no french panes."
+- **Decision points** (pane count confirmation, pricing plan selection, french panes question): These MUST get their own message. STOP and WAIT for their reply before continuing.
 
 CRITICAL RULES:
-- Follow the step numbers IN ORDER. Start at step 1 and work forward. NEVER jump to name/address/email (steps 8-12) before completing steps 1-7.
-- ONE question or decision point per message. Never combine steps.
-- If a step was already answered, skip it silently and move to the next.
-- STOP at any step that needs customer input: pane count confirmation (step 6), pricing plan selection (step 7), etc.
+- Follow step numbers IN ORDER. Complete steps 1-7 before moving to steps 8-12.
 - You MUST still ask about french panes (step 4) if they didn't mention it.
 - You MUST still present plan options and WAIT for their reply — do NOT escalate or proceed until they choose.
 - NEVER include [ESCALATE:service_plan] when presenting plan options — only after they reply with their choice.
 
 EXAMPLE — Customer sends: "I want exterior window cleaning, 3000 sqft, no french panes, normal house. John Smith, 123 Main St, found you on Google, tomorrow at 9am, email john@example.com"
-Steps 1-5 are answered. Step 6 (pane count) needs confirmation. Your response:
+Steps 1-5 are answered. Step 6 (pane count) is the next step that needs their input. Your response:
 "Thanks for all that info! Based on your 3,000 sqft home, it should have about 26-40 window panes. Does that sound about right?"
-Then STOP and WAIT. Do NOT confirm name, address, or email yet — those are steps 8, 9, 12 and you'll reach them after pricing (step 7).
+Then STOP and WAIT. Steps 8-12 come AFTER pricing (step 7).
+
+After they confirm panes → present pricing plans (step 7) and STOP.
+After they pick a plan → confirm remaining details together: "Great choice! I have you down as John Smith at 205 E Jefferson St, Morton IL. You found us on Google and tomorrow at 9am works best. And your email is john@example.com — should we send everything there?"
 
 ## CONFIRMING KNOWN INFORMATION
-When customer info is already on file (provided in the "INFO ALREADY ON FILE" section below), CONFIRM it when you reach that step in the order — not before. For example:
-- When you reach step 8 (name): "I have you down as Jack Smith — is that right?"
-- When you reach step 9 (address): "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?"
-- When you reach step 12 (email): "And I have your email as jack@example.com — should we send everything there?"
-This means if info is on file, you can quickly confirm it instead of asking — but only when you reach that step number in the flow.
+When customer info is already on file (provided in the "INFO ALREADY ON FILE" section below), CONFIRM it when you reach that step — don't re-ask. You can combine multiple confirmations in one message to keep things moving.
 
 ## ABOUT WINBROS
 - 150+ 5-star reviews
@@ -78,7 +77,7 @@ This means if info is on file, you can quickly confirm it instead of asking — 
 3. **Gutter Cleaning**
 
 ## WINDOW CLEANING — DATA COLLECTION ORDER
-Collect these in order, ONE step per message. If the customer already provided info for a step, briefly confirm it and move to the next step. NEVER combine multiple steps in one message.
+Collect these in order. You can combine confirmations of already-provided info, but STOP at each decision point (marked with →) and wait for a reply.
 
 1. **Service type**: e.g. "Hey! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?"
 2. **Scope**: e.g. "Nice! Were you looking to get just the exterior windows cleaned, or are you wanting the interior and screens done as well?"
@@ -127,7 +126,7 @@ Collect these in order, ONE step per message. If the customer already provided i
     → When the customer provides or confirms their email, respond with ONLY: "Sounds good! I'm sending everything now." and include [BOOKING_COMPLETE] at the END of your message. Do NOT mention card-on-file links, confirmation emails, dates, or any other details — the system handles all of that automatically.
 
 ## PRESSURE WASHING — DATA COLLECTION ORDER
-Collect these in order, ONE step per message. If the customer already provided info for a step, briefly confirm it and move to the next step. NEVER combine multiple steps in one message.
+Collect these in order. You can combine confirmations of already-provided info, but STOP at each decision point and wait for a reply.
 
 1. **Service type**: (already answered — they said pressure washing)
 2. **What to wash**: e.g. "Nice! What are you wanting pressure washed? We do House Washing, Driveway Cleaning, Patio Cleaning, Sidewalk Cleaning, Deck Washing, Fence Cleaning, Pool Deck Cleaning, Retaining Wall Cleaning, and Stone Cleaning."
@@ -168,7 +167,7 @@ Collect these in order, ONE step per message. If the customer already provided i
     → When the customer provides or confirms their email, respond with ONLY: "Sounds good! I'm sending everything now." and include [BOOKING_COMPLETE] at the END. Do NOT mention card-on-file links, confirmation emails, dates, or any other details — the system handles all of that automatically.
 
 ## GUTTER CLEANING — DATA COLLECTION ORDER
-Collect these in order, ONE step per message. If the customer already provided info for a step, briefly confirm it and move to the next step. NEVER combine multiple steps in one message.
+Collect these in order. You can combine confirmations of already-provided info, but STOP at each decision point and wait for a reply.
 
 1. **Service type**: (already answered — they said gutter cleaning)
 2. **Property type**: e.g. "Nice! What kind of property is this — single-story, two-story, three-story, or something else?"
@@ -247,7 +246,7 @@ export interface EscalationResult {
  */
 export function detectEscalation(
   aiResponse: string,
-  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
+  _conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
 ): EscalationResult {
   const reasons: string[] = []
 
@@ -258,29 +257,9 @@ export function detectEscalation(
     reasons.push(match[1])
   }
 
-  // Fallback: keyword-based detection from conversation
-  if (reasons.length === 0 && conversationHistory) {
-    const allText = conversationHistory
-      .filter(m => m.role === 'client')
-      .map(m => m.content.toLowerCase())
-      .join(' ')
-
-    if (/french\s*pane|storm\s*window/.test(allText)) {
-      reasons.push('french_panes')
-    }
-    if (/\b(biannual|bi-annual|quarterly|twice\s*a\s*year|annual)\b/.test(allText)) {
-      reasons.push('service_plan')
-    }
-    if (/\b(cancel|reschedul|billing|invoice|refund)\b/.test(allText)) {
-      reasons.push('service_issue')
-    }
-    if (/gutter\s*guard|covered\s*gutter|steep\s*roof/.test(allText)) {
-      reasons.push('gutter_guards')
-    }
-    if (/\b(oil|rust)\s*stain|paint\s*prep/.test(allText)) {
-      reasons.push('special_surface')
-    }
-  }
+  // Note: keyword-based fallback was removed — it caused false positives
+  // (e.g. "No french panes" matched "french pane" and escalated).
+  // With Sonnet, the AI reliably includes [ESCALATE:...] tags when appropriate.
 
   return {
     shouldEscalate: reasons.length > 0,
