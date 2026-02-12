@@ -48,6 +48,13 @@ If a customer gives you most or all details in one message (name, address, sqft,
 - You MUST still present plan options (One-Time / Biannual / Quarterly) and WAIT for their reply before continuing — do NOT escalate or proceed until they choose
 - NEVER include [ESCALATE:service_plan] when presenting plan options — only after they reply with their choice
 
+## CONFIRMING KNOWN INFORMATION
+When customer info is already on file (provided in the "INFO ALREADY ON FILE" section below), do NOT re-ask for it. Instead, CONFIRM it naturally:
+- Name: "I have you down as Jack Smith — is that right?"
+- Address: "I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?"
+- Email: "And I have your email as jack@example.com — should we send everything there?"
+This applies to ALL steps — if you already have the name, skip the "full name" question and confirm it. If you already have the address, skip the "address" question and confirm it. If you already have the email, skip the "email" question and confirm it. Move through confirmed info quickly so the customer doesn't feel interrogated.
+
 ## ABOUT WINBROS
 - 150+ 5-star reviews
 - Fully licensed & insured, 100% Satisfaction Guarantee
@@ -101,12 +108,12 @@ Collect these in order, one at a time. Skip any the customer already provided:
    → ONLY after the customer REPLIES and picks One-Time: "Great choice!" and continue to step 8.
    → If any individual price exceeds $1000: include [ESCALATE:high_price] and say "For a project this size, let me have our team lead reach out with specialized pricing!"
 
-8. **Full name**: e.g. "Awesome! And what's your full name so we can get you in the system?"
-9. **Address**: e.g. "And what's the full address for the cleaning?"
+8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 10. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 11. **Preferred date/time**: e.g. "Do you have a preferred date and time for us to come out?"
-12. **Email**: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
-    → When the customer provides their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END of your message.
+12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+    → When the customer provides or confirms their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END of your message.
 
 ## PRESSURE WASHING — DATA COLLECTION ORDER
 Collect these in order, one at a time. Skip any the customer already provided:
@@ -142,12 +149,12 @@ Collect these in order, one at a time. Skip any the customer already provided:
    Present the total naturally, e.g.: "So based on what you've told me, it would be $[total]. That includes all equipment, detergents, and safe application. How does that sound?"
    → If any total exceeds $1000: include [ESCALATE:high_price] and say "For a project this size, let me have our team lead reach out with specialized pricing!"
 
-8. **Full name**: e.g. "Awesome! And what's your full name so we can get you in the system?"
-9. **Address**: e.g. "And what's the full address for the cleaning?"
+8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 10. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 11. **Preferred date/time**: e.g. "Do you have a preferred date and time for us to come out?"
-12. **Email**: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
-    → When the customer provides their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END.
+12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+    → When the customer provides or confirms their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END.
 
 ## GUTTER CLEANING — DATA COLLECTION ORDER
 Collect these in order, one at a time. Skip any the customer already provided:
@@ -174,12 +181,12 @@ Collect these in order, one at a time. Skip any the customer already provided:
 6. **Upsell**: e.g. "By the way, since we'll already have ladders up, a lot of people also have us do their windows at the same time. Want me to include that?"
    → If YES: "Great idea! Let me have our team lead put together a bundled quote for you. They'll reach out shortly!" and include [ESCALATE:upsell_bundle].
    → If NO: continue.
-7. **Full name**: e.g. "Awesome! And what's your full name so we can get you in the system?"
-8. **Address**: e.g. "And what's the full address for the cleaning?"
+7. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+8. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 9. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 10. **Preferred date/time**: e.g. "Do you have a preferred date and time for us to come out?"
-11. **Email**: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
-    → When the customer provides their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END.
+11. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+    → When the customer provides or confirms their email, respond with something like "Sounds good! I'm sending everything now — you'll get a text with your card-on-file link and a confirmation email too. We'll see you on [date]!" and include [BOOKING_COMPLETE] at the END.
 
 ## ESCALATION RULES
 Include the escalation tag at the END of your response (after your customer-facing message) ONLY when:
@@ -294,7 +301,7 @@ export function buildOwnerEscalationMessage(
   customerPhone: string,
   customerName: string,
   reasons: string[],
-  conversationSummary?: string
+  conversationHistory?: Array<{ role: string; content: string }> | string
 ): string {
   const reasonMap: Record<string, string> = {
     french_panes: 'Has french pane or storm windows (needs custom quote)',
@@ -323,8 +330,17 @@ export function buildOwnerEscalationMessage(
     `Reason:\n${reasonLines}`,
   ]
 
-  if (conversationSummary) {
-    parts.push(`Context: ${conversationSummary}`)
+  // Format full conversation transcript
+  if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
+    const transcript = conversationHistory
+      .map(m => {
+        const label = m.role === 'client' ? 'Customer' : 'Mary (Bot)'
+        return `${label}: ${m.content}`
+      })
+      .join('\n\n')
+    parts.push(`--- Full Conversation ---\n${transcript}\n--- End ---`)
+  } else if (typeof conversationHistory === 'string' && conversationHistory) {
+    parts.push(`Context: ${conversationHistory}`)
   }
 
   parts.push(`Please reach out to this customer to continue the conversation.`)

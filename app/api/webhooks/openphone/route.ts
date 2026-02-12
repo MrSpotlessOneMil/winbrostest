@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS } from "@/lib/openphone"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
-import { generateAutoResponse } from "@/lib/auto-response"
+import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -542,7 +542,7 @@ export async function POST(request: NextRequest) {
   // Get the MOST RECENT active (non-booked) lead for this phone number
   const { data: allLeadsForPhone } = await client
     .from("leads")
-    .select("id, status, form_data")
+    .select("id, status, form_data, source")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .in("status", ["new", "contacted", "qualified", "responded", "escalated"])
@@ -585,11 +585,23 @@ export async function POST(request: NextRequest) {
       try {
         const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
+        // Build known customer info so the AI can confirm instead of re-asking
+        const leadFormData = parseFormData(existingLead.form_data)
+        const knownInfo: KnownCustomerInfo = {
+          firstName: customer.first_name || leadFormData.first_name || null,
+          lastName: customer.last_name || leadFormData.last_name || null,
+          address: customer.address || leadFormData.address || null,
+          email: customer.email || leadFormData.email || null,
+          phone: phone,
+          source: existingLead.source || null,
+        }
+
         const autoResponse = await generateAutoResponse(
           combinedMessage,
           quickIntent,
           tenant,
-          conversationHistory
+          conversationHistory,
+          knownInfo
         )
 
         if (autoResponse.shouldSend && autoResponse.response) {
@@ -638,11 +650,16 @@ export async function POST(request: NextRequest) {
                 const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
                   || extractNameFromConversation(conversationHistory)
                   || "Unknown"
+                // Include full conversation transcript (history + latest bot response)
+                const fullTranscript = [
+                  ...conversationHistory,
+                  { role: 'assistant', content: autoResponse.response || '' },
+                ]
                 const ownerMsg = buildOwnerEscalationMessage(
                   phone,
                   customerName,
                   autoResponse.escalation.reasons,
-                  combinedMessage
+                  fullTranscript
                 )
                 await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
@@ -894,11 +911,21 @@ export async function POST(request: NextRequest) {
     try {
       console.log(`[OpenPhone] Generating auto-response for new inquiry: "${combinedMessage}"`)
 
+      // Build known customer info so the AI can confirm instead of re-asking
+      const knownInfoNew: KnownCustomerInfo = {
+        firstName: customer.first_name || intentResult.extractedInfo.name?.split(' ')[0] || null,
+        lastName: customer.last_name || intentResult.extractedInfo.name?.split(' ').slice(1).join(' ') || null,
+        address: customer.address || intentResult.extractedInfo.address || null,
+        email: customer.email || null,
+        phone: phone,
+      }
+
       const autoResponse = await generateAutoResponse(
         combinedMessage,
         intentResult,
         tenant,
-        conversationHistory
+        conversationHistory,
+        knownInfoNew
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {
@@ -957,11 +984,16 @@ export async function POST(request: NextRequest) {
                 const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
                   || extractNameFromConversation(conversationHistory)
                   || "Unknown"
+                // Include full conversation transcript (history + latest bot response)
+                const fullTranscript = [
+                  ...conversationHistory,
+                  { role: 'assistant', content: autoResponse.response || '' },
+                ]
                 const ownerMsg = buildOwnerEscalationMessage(
                   phone,
                   customerName,
                   autoResponse.escalation.reasons,
-                  combinedMessage
+                  fullTranscript
                 )
                 await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 

@@ -23,11 +23,21 @@ export interface AutoResponseResult {
 /**
  * Generate an AI-powered auto-response based on the incoming message and intent analysis
  */
+export interface KnownCustomerInfo {
+  firstName?: string | null
+  lastName?: string | null
+  address?: string | null
+  email?: string | null
+  phone?: string | null
+  source?: string | null // "housecall_pro", "ghl", etc.
+}
+
 export async function generateAutoResponse(
   incomingMessage: string,
   intentAnalysis: IntentAnalysis,
   tenant: Tenant | null,
-  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownCustomerInfo?: KnownCustomerInfo
 ): Promise<AutoResponseResult> {
   // Don't respond to obvious opt-outs
   const lowerMessage = incomingMessage.toLowerCase().trim()
@@ -58,7 +68,7 @@ export async function generateAutoResponse(
   // WinBros-specific SMS booking flow
   if (tenant?.slug === 'winbros') {
     try {
-      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory)
+      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo)
     } catch (error) {
       console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
     }
@@ -382,7 +392,8 @@ function generateFallbackResponse(
 async function generateWinBrosResponse(
   message: string,
   tenant: Tenant,
-  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownCustomerInfo?: KnownCustomerInfo
 ): Promise<AutoResponseResult> {
   const { buildWinBrosSmsSystemPrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
@@ -392,7 +403,28 @@ async function generateWinBrosResponse(
     ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
 
-  const userMessage = `Conversation so far:\n${historyContext}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
+  // Build known info context so the AI can confirm rather than re-ask
+  let knownInfoBlock = ''
+  if (knownCustomerInfo) {
+    const parts: string[] = []
+    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
+      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    }
+    if (knownCustomerInfo.address) {
+      parts.push(`Address on file: ${knownCustomerInfo.address}`)
+    }
+    if (knownCustomerInfo.email) {
+      parts.push(`Email on file: ${knownCustomerInfo.email}`)
+    }
+    if (knownCustomerInfo.source) {
+      parts.push(`Lead source: ${knownCustomerInfo.source}`)
+    }
+    if (parts.length > 0) {
+      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nIMPORTANT: For any info already on file, CONFIRM it with the customer instead of asking for it again. Examples:\n- Address: "I have your address as 123 Main St — is that where we'll be cleaning?" (NOT "What's the address?")\n- Email: "I have your email as john@example.com — should we send everything there?" (NOT "What's the best email for you?")\n- Name: "I have you down as Jack Smith — is that right?" (NOT "What's your full name?")\nSkip any step where the info is already on file and just confirm it quickly.\n`
+    }
+  }
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
