@@ -706,8 +706,8 @@ export async function POST(request: NextRequest) {
             : null
           const bookingEmail = detectedEmail || fallbackEmail
 
-          if (bookingEmail && (autoResponse.bookingComplete || tenant?.slug === 'winbros')) {
-            console.log(`[OpenPhone] WinBros booking completion: email=${bookingEmail} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
+          if (bookingEmail && autoResponse.bookingComplete) {
+            console.log(`[OpenPhone] SMS booking completion: email=${bookingEmail} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
 
             try {
               // Save email to customer
