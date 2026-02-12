@@ -420,7 +420,7 @@ async function generateWinBrosResponse(
       parts.push(`Lead source: ${knownCustomerInfo.source}`)
     }
     if (parts.length > 0) {
-      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nIMPORTANT: For any info already on file, CONFIRM it with the customer instead of asking for it again. Examples:\n- Address: "I have your address as 123 Main St — is that where we'll be cleaning?" (NOT "What's the address?")\n- Email: "I have your email as john@example.com — should we send everything there?" (NOT "What's the best email for you?")\n- Name: "I have you down as Jack Smith — is that right?" (NOT "What's your full name?")\nSkip any step where the info is already on file and just confirm it quickly.\n`
+      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking. But still follow the step order — don't jump ahead to confirm these early.\n`
     }
   }
 
@@ -431,7 +431,7 @@ async function generateWinBrosResponse(
     const client = new Anthropic({ apiKey: anthropicKey })
 
     const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-sonnet-4-5-20250929',
       max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
