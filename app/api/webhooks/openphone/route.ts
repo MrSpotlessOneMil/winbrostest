@@ -699,11 +699,28 @@ export async function POST(request: NextRequest) {
           const emailInMessage = combinedMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)
           const detectedEmail = emailInMessage ? emailInMessage[0].toLowerCase() : null
 
-          // Fallback: if booking is complete but email was confirmed (e.g. customer said "Yup"),
-          // use the known email from the customer record or lead form data
-          const fallbackEmail = !detectedEmail && autoResponse.bookingComplete
-            ? (customer.email || parseFormData(existingLead.form_data).email || null)?.toLowerCase()
-            : null
+          // Fallback chain when booking is complete but email isn't in the current message
+          // (e.g. customer confirmed email with "Yup"):
+          // 1. Check customer record in DB
+          // 2. Check lead form_data (from HCP)
+          // 3. Scan conversation history for an email address
+          let fallbackEmail: string | null = null
+          if (!detectedEmail && autoResponse.bookingComplete) {
+            fallbackEmail = (customer.email || parseFormData(existingLead.form_data).email || null)?.toLowerCase() || null
+
+            // Last resort: scan conversation history for an email
+            if (!fallbackEmail && conversationHistory.length > 0) {
+              const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i
+              for (const msg of [...conversationHistory].reverse()) {
+                const historyMatch = msg.content.match(emailRegex)
+                if (historyMatch) {
+                  fallbackEmail = historyMatch[0].toLowerCase()
+                  console.log(`[OpenPhone] Found email in conversation history: ${fallbackEmail} (from ${msg.role} message)`)
+                  break
+                }
+              }
+            }
+          }
           const bookingEmail = detectedEmail || fallbackEmail
 
           if (bookingEmail && autoResponse.bookingComplete) {
