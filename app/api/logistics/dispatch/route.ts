@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { getDefaultTenant } from '@/lib/tenant'
+import { sendTelegramMessage } from '@/lib/telegram'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 import { dispatchRoutes } from '@/lib/dispatch'
 
@@ -27,11 +28,21 @@ export async function POST(request: NextRequest) {
     const optimization = await optimizeRoutesForDate(date, tenant.id)
 
     if (optimization.stats.assignedJobs === 0) {
+      // Alert owner if optimization couldn't assign any jobs (skipped teams, no jobs, etc.)
+      if (optimization.warnings.length > 0 && tenant.owner_telegram_chat_id) {
+        const warningLines = optimization.warnings.map(w => `  - ${w}`).join('\n')
+        const msg = `<b>Logistics Dispatch — ${date}</b>\n\nNo jobs were dispatched.\n\n<b>Warnings:</b>\n${warningLines}`
+        await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, msg, 'HTML').catch(err =>
+          console.error('[Logistics] Failed to alert owner:', err)
+        )
+      }
+
       return NextResponse.json({
         success: true,
         data: {
           optimization: optimization.stats,
           dispatch: { jobsUpdated: 0, assignmentsCreated: 0, telegramsSent: 0, smsSent: 0 },
+          warnings: optimization.warnings,
         },
         message: 'No jobs to dispatch',
       })

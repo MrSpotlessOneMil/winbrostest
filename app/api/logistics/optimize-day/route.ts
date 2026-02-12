@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { verifyCronAuth } from '@/lib/cron-auth'
 import { getDefaultTenant } from '@/lib/tenant'
+import { sendTelegramMessage } from '@/lib/telegram'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 
 export async function POST(request: NextRequest) {
@@ -29,6 +30,18 @@ export async function POST(request: NextRequest) {
     console.log(`[Logistics] Optimizing routes for ${date}`)
 
     const result = await optimizeRoutesForDate(date, tenant.id, options)
+
+    // Alert owner if there were warnings or issues
+    if (result.warnings.length > 0 && tenant.owner_telegram_chat_id) {
+      const warningLines = result.warnings.map(w => `  - ${w}`).join('\n')
+      const unassignedLine = result.unassignedJobs.length > 0
+        ? `\n\n<b>Unassigned jobs:</b> ${result.unassignedJobs.length}`
+        : ''
+      const msg = `<b>Route Optimization — ${date}</b>\n\n${result.stats.assignedJobs} of ${result.stats.totalJobs} jobs assigned to ${result.stats.activeTeams} teams.\n\n<b>Warnings:</b>\n${warningLines}${unassignedLine}`
+      await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, msg, 'HTML').catch(err =>
+        console.error('[Logistics] Failed to alert owner:', err)
+      )
+    }
 
     return NextResponse.json({
       success: true,

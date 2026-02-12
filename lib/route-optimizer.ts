@@ -120,15 +120,18 @@ export async function optimizeRoutesForDate(
   console.log(`[RouteOptimizer] Optimizing routes for ${date}, tenant ${tenantId}`)
 
   // 1. Load teams and jobs
-  const teams = await loadTeamsWithLocations(tenantId)
+  const { teams, skippedWarnings } = await loadTeamsWithLocations(tenantId)
   const jobs = await loadJobsForDate(date, tenantId)
 
   if (teams.length === 0) {
-    return buildEmptyResult(date, jobs, 0, ['No active teams with home locations found'])
+    return buildEmptyResult(date, jobs, 0, [
+      'No active teams with home locations found',
+      ...skippedWarnings,
+    ])
   }
 
   if (jobs.length === 0) {
-    return buildEmptyResult(date, [], teams.length, ['No jobs found for this date'])
+    return buildEmptyResult(date, [], teams.length, ['No jobs found for this date', ...skippedWarnings])
   }
 
   console.log(`[RouteOptimizer] Found ${teams.length} teams and ${jobs.length} jobs`)
@@ -245,7 +248,10 @@ export async function optimizeRoutesForDate(
   }
 
   // 6. Feasibility checks
-  const warnings = runFeasibilityChecks(routes, { maxDriveMinutes: maxDrive, dailyTargetRevenue: dailyTarget })
+  const warnings = [
+    ...skippedWarnings,
+    ...runFeasibilityChecks(routes, { maxDriveMinutes: maxDrive, dailyTargetRevenue: dailyTarget }),
+  ]
 
   const totalAssigned = routes.reduce((sum, r) => sum + r.stops.length, 0)
   const totalDriveAll = routes.reduce((sum, r) => sum + r.totalDriveTimeMinutes, 0)
@@ -275,7 +281,10 @@ export async function optimizeRoutesForDate(
 /**
  * Load active teams with their lead's home location.
  */
-async function loadTeamsWithLocations(tenantId: string): Promise<TeamForRouting[]> {
+async function loadTeamsWithLocations(tenantId: string): Promise<{
+  teams: TeamForRouting[]
+  skippedWarnings: string[]
+}> {
   const client = getSupabaseServiceClient()
 
   const { data, error } = await client
@@ -286,23 +295,36 @@ async function loadTeamsWithLocations(tenantId: string): Promise<TeamForRouting[
 
   if (error || !data) {
     console.error('[RouteOptimizer] Failed to load teams:', error)
-    return []
+    return { teams: [], skippedWarnings: ['Failed to load teams from database'] }
   }
 
-  const results: TeamForRouting[] = []
+  const teams: TeamForRouting[] = []
+  const skippedWarnings: string[] = []
 
   for (const team of data) {
     const members = (team.team_members || []) as any[]
     const leadMember = members.find((m: any) => m.role === 'lead' && m.is_active && m.cleaners?.active)
-    if (!leadMember?.cleaners) continue
 
-    const lead = leadMember.cleaners
-    if (lead.home_lat == null || lead.home_lng == null) {
-      console.warn(`[RouteOptimizer] Team "${team.name}" lead "${lead.name}" has no home coordinates, skipping`)
+    if (!leadMember?.cleaners) {
+      const msg = `Team "${team.name}" has no active lead assigned — skipped from routing`
+      console.warn(`[RouteOptimizer] ${msg}`)
+      skippedWarnings.push(msg)
       continue
     }
 
-    results.push({
+    const lead = leadMember.cleaners
+    if (lead.home_lat == null || lead.home_lng == null) {
+      const msg = `Team "${team.name}" lead "${lead.name}" has no home coordinates — skipped from routing. Update home address in cleaner settings.`
+      console.warn(`[RouteOptimizer] ${msg}`)
+      skippedWarnings.push(msg)
+      continue
+    }
+
+    if (!lead.telegram_id) {
+      skippedWarnings.push(`Team "${team.name}" lead "${lead.name}" has no Telegram ID — route will be optimized but team lead won't receive Telegram notification`)
+    }
+
+    teams.push({
       id: team.id,
       name: team.name,
       leadId: lead.id,
@@ -322,7 +344,7 @@ async function loadTeamsWithLocations(tenantId: string): Promise<TeamForRouting[
     })
   }
 
-  return results
+  return { teams, skippedWarnings }
 }
 
 /**

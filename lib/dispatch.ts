@@ -158,7 +158,7 @@ export async function dispatchRoutes(
 
   console.log(`[Dispatch] ${dryRun ? 'DRY RUN - ' : ''}Jobs: ${jobsUpdated}, Assignments: ${assignmentsCreated}, Telegrams: ${telegramsSent}, SMS: ${smsSent}, Errors: ${errors.length}`)
 
-  return {
+  const result: DispatchResult = {
     success: errors.length === 0,
     jobsUpdated,
     assignmentsCreated,
@@ -166,6 +166,13 @@ export async function dispatchRoutes(
     smsSent,
     errors,
   }
+
+  // Send owner a summary if there were any issues
+  if (!dryRun) {
+    await sendOwnerDispatchSummary(tenant, optimization, result)
+  }
+
+  return result
 }
 
 // ── Telegram Route Message ─────────────────────────────────────
@@ -232,6 +239,84 @@ async function sendCustomerEtaSms(
 
   const result = await sendSMS(tenant, stop.customerPhone, message)
   return { success: result.success, error: result.error }
+}
+
+// ── Owner Dispatch Summary ────────────────────────────────────
+
+/**
+ * Send the owner a Telegram summary after dispatch.
+ * Always sends a brief status. Highlights warnings and errors prominently.
+ */
+async function sendOwnerDispatchSummary(
+  tenant: Tenant,
+  optimization: OptimizationResult,
+  dispatch: DispatchResult
+): Promise<void> {
+  if (!tenant.owner_telegram_chat_id) return
+
+  const hasIssues = optimization.warnings.length > 0 ||
+    dispatch.errors.length > 0 ||
+    optimization.unassignedJobs.length > 0
+
+  // Build message
+  const lines: string[] = []
+
+  if (hasIssues) {
+    lines.push(`<b>Logistics Dispatch — ${optimization.date}</b>`)
+  } else {
+    lines.push(`<b>Logistics Dispatch — ${optimization.date}</b>`)
+  }
+
+  // Stats line
+  lines.push('')
+  lines.push(`Jobs: ${dispatch.jobsUpdated} dispatched to ${optimization.stats.activeTeams} team${optimization.stats.activeTeams !== 1 ? 's' : ''}`)
+  if (dispatch.telegramsSent > 0) {
+    lines.push(`Telegram routes sent: ${dispatch.telegramsSent}`)
+  }
+  if (dispatch.smsSent > 0) {
+    lines.push(`Customer ETA texts: ${dispatch.smsSent}`)
+  }
+
+  // Warnings (skipped teams, missing data, feasibility)
+  if (optimization.warnings.length > 0) {
+    lines.push('')
+    lines.push('<b>Warnings:</b>')
+    for (const w of optimization.warnings) {
+      lines.push(`  - ${escapeHtml(w)}`)
+    }
+  }
+
+  // Unassigned jobs
+  if (optimization.unassignedJobs.length > 0) {
+    lines.push('')
+    lines.push(`<b>Unassigned jobs (${optimization.unassignedJobs.length}):</b>`)
+    for (const uj of optimization.unassignedJobs.slice(0, 5)) {
+      lines.push(`  - Job #${uj.jobId}: ${escapeHtml(uj.reason)}`)
+    }
+    if (optimization.unassignedJobs.length > 5) {
+      lines.push(`  ... and ${optimization.unassignedJobs.length - 5} more`)
+    }
+  }
+
+  // Dispatch errors
+  if (dispatch.errors.length > 0) {
+    lines.push('')
+    lines.push('<b>Errors:</b>')
+    for (const e of dispatch.errors.slice(0, 5)) {
+      lines.push(`  - ${escapeHtml(e)}`)
+    }
+    if (dispatch.errors.length > 5) {
+      lines.push(`  ... and ${dispatch.errors.length - 5} more`)
+    }
+  }
+
+  const message = lines.join('\n')
+
+  try {
+    await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, message, 'HTML')
+  } catch (err) {
+    console.error('[Dispatch] Failed to send owner summary:', err)
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────
