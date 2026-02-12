@@ -780,12 +780,12 @@ export async function POST(request: NextRequest) {
                 phone_number: phone,
                 service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
                 address: bookingData.address || customer.address || null,
-                square_footage: bookingData.squareFootage || null,
                 price: servicePrice || null,
                 date: bookingData.preferredDate || null,
                 status: 'scheduled',
                 booked: true,
                 notes: [
+                  bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
                   bookingData.scope ? `Scope: ${bookingData.scope}` : null,
                   bookingData.planType ? `Plan: ${bookingData.planType}` : null,
                   bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,

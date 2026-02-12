@@ -354,37 +354,49 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
   const client = getSupabaseClient()
 
-  // Send confirmation SMS to customer
+  // Send confirmation SMS to customer (with dedup to prevent double-send from checkout + setup_intent race)
   if (phone_number) {
-    console.log(`[Stripe Webhook] Sending card-on-file confirmation SMS to ${phone_number}`)
-    const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
-    const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
+    const recentCutoff = new Date(Date.now() - 120000).toISOString()
+    const { data: alreadySent } = await client
+      .from('messages')
+      .select('id')
+      .eq('phone_number', phone_number)
+      .eq('source', 'stripe_card_on_file')
+      .gte('timestamp', recentCutoff)
+      .limit(1)
 
-    if (smsResult.success) {
-      // Find customer for message logging
-      const { data: customer } = await client
-        .from('customers')
-        .select('id')
-        .eq('phone_number', phone_number)
-        .eq('tenant_id', tenant.id)
-        .maybeSingle()
-
-      await client.from('messages').insert({
-        tenant_id: tenant.id,
-        customer_id: customer?.id || null,
-        phone_number: phone_number,
-        role: 'assistant',
-        content: confirmMsg,
-        direction: 'outbound',
-        message_type: 'sms',
-        ai_generated: false,
-        timestamp: new Date().toISOString(),
-        source: 'stripe_card_on_file',
-      })
-
-      console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${phone_number}`)
+    if (alreadySent && alreadySent.length > 0) {
+      console.log(`[Stripe Webhook] Card-on-file SMS already sent to ${phone_number} recently, skipping duplicate`)
     } else {
-      console.error(`[Stripe Webhook] Failed to send card-on-file SMS to ${phone_number}: ${smsResult.error}`)
+      console.log(`[Stripe Webhook] Sending card-on-file confirmation SMS to ${phone_number}`)
+      const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
+      const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
+
+      if (smsResult.success) {
+        const { data: customer } = await client
+          .from('customers')
+          .select('id')
+          .eq('phone_number', phone_number)
+          .eq('tenant_id', tenant.id)
+          .maybeSingle()
+
+        await client.from('messages').insert({
+          tenant_id: tenant.id,
+          customer_id: customer?.id || null,
+          phone_number: phone_number,
+          role: 'assistant',
+          content: confirmMsg,
+          direction: 'outbound',
+          message_type: 'sms',
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: 'stripe_card_on_file',
+        })
+
+        console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${phone_number}`)
+      } else {
+        console.error(`[Stripe Webhook] Failed to send card-on-file SMS to ${phone_number}: ${smsResult.error}`)
+      }
     }
   }
 
@@ -435,12 +447,12 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         phone_number: custPhone,
         service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
         address: bookingData.address || custAddress || null,
-        square_footage: bookingData.squareFootage || null,
         price: bookingData.price || null,
         date: bookingData.preferredDate || null,
         status: 'scheduled',
         booked: true,
         notes: [
+          bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
           bookingData.scope ? `Scope: ${bookingData.scope}` : null,
           bookingData.planType ? `Plan: ${bookingData.planType}` : null,
           bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
