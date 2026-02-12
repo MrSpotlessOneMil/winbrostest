@@ -694,19 +694,26 @@ export async function POST(request: NextRequest) {
           }
 
           // ==============================================
-          // WINBROS BOOKING COMPLETION: email detected → create job + send card-on-file link
+          // WINBROS BOOKING COMPLETION: create job + send card-on-file link
           // ==============================================
           const emailInMessage = combinedMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)
           const detectedEmail = emailInMessage ? emailInMessage[0].toLowerCase() : null
 
-          if (detectedEmail && (autoResponse.bookingComplete || tenant?.slug === 'winbros')) {
-            console.log(`[OpenPhone] WinBros booking completion: email detected (${detectedEmail}) for lead ${existingLead.id}`)
+          // Fallback: if booking is complete but email was confirmed (e.g. customer said "Yup"),
+          // use the known email from the customer record or lead form data
+          const fallbackEmail = !detectedEmail && autoResponse.bookingComplete
+            ? (customer.email || parseFormData(existingLead.form_data).email || null)?.toLowerCase()
+            : null
+          const bookingEmail = detectedEmail || fallbackEmail
+
+          if (bookingEmail && (autoResponse.bookingComplete || tenant?.slug === 'winbros')) {
+            console.log(`[OpenPhone] WinBros booking completion: email=${bookingEmail} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
 
             try {
               // Save email to customer
               await client
                 .from("customers")
-                .update({ email: detectedEmail })
+                .update({ email: bookingEmail })
                 .eq("id", customer.id)
 
               // Extract all booking data from conversation
@@ -714,8 +721,8 @@ export async function POST(request: NextRequest) {
               const bookingData = await extractBookingData(conversationHistory)
               console.log(`[OpenPhone] Extracted booking data:`, JSON.stringify(bookingData))
 
-              // Use extracted email if AI found one, otherwise use the one from the message
-              const finalEmail = bookingData.email || detectedEmail
+              // Use extracted email if AI found one, otherwise use the one from booking
+              const finalEmail = bookingData.email || bookingEmail
 
               // Update customer name if extracted
               if (bookingData.firstName || bookingData.lastName) {
