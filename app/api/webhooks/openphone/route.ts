@@ -774,7 +774,7 @@ export async function POST(request: NextRequest) {
               }
 
               // Create job
-              const { data: newJob } = await client.from("jobs").insert({
+              const { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
                 customer_id: customer.id,
                 phone_number: phone,
@@ -792,6 +792,9 @@ export async function POST(request: NextRequest) {
                 ].filter(Boolean).join(' | ') || null,
               }).select("id").single()
 
+              if (jobError) {
+                console.error(`[OpenPhone] Job creation failed:`, jobError)
+              }
               console.log(`[OpenPhone] Job created from SMS booking: ${newJob?.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
 
               // Update lead to booked

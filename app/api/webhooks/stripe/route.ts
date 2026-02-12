@@ -390,6 +390,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
   // Get job details for logging and assignment
   let job: Awaited<ReturnType<typeof getJobById>> | null = null
+  let actualJobId = job_id
   if (job_id && !job_id.startsWith('lead-')) {
     job = await getJobById(job_id)
     if (!job) {
@@ -397,8 +398,73 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     } else {
       console.log(`[Stripe Webhook] Job found: ${job_id} — service: ${job.service_type}, date: ${job.date}, address: ${job.address}, price: ${job.price}`)
     }
+  } else if (job_id && job_id.startsWith('lead-')) {
+    // Job creation failed during booking — retry from lead data
+    const leadId = job_id.replace('lead-', '')
+    console.log(`[Stripe Webhook] job_id is lead fallback (${job_id}), attempting job creation from lead ${leadId}`)
+
+    const { data: lead } = await client
+      .from('leads')
+      .select('*')
+      .eq('id', leadId)
+      .single()
+
+    if (lead) {
+      const bookingData = lead.form_data?.booking_data || {}
+
+      // Look up associated customer
+      let custId = lead.customer_id || null
+      let custPhone = phone_number || null
+      let custAddress: string | null = null
+      if (custId) {
+        const { data: cust } = await client
+          .from('customers')
+          .select('id, phone_number, address')
+          .eq('id', custId)
+          .single()
+        if (cust) {
+          custPhone = custPhone || cust.phone_number
+          custAddress = cust.address
+        }
+      }
+
+      // Try to create the job now
+      const { data: retryJob } = await client.from('jobs').insert({
+        tenant_id: tenant.id,
+        customer_id: custId,
+        phone_number: custPhone,
+        service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
+        address: bookingData.address || custAddress || null,
+        square_footage: bookingData.squareFootage || null,
+        price: bookingData.price || null,
+        date: bookingData.preferredDate || null,
+        status: 'scheduled',
+        booked: true,
+        notes: [
+          bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+          bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+          bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+        ].filter(Boolean).join(' | ') || null,
+      }).select('id').single()
+
+      if (retryJob) {
+        actualJobId = retryJob.id
+        job = await getJobById(retryJob.id)
+        console.log(`[Stripe Webhook] Job created from lead retry: ${retryJob.id}`)
+
+        // Update lead with the real job ID
+        await client
+          .from('leads')
+          .update({ converted_to_job_id: retryJob.id, status: 'booked' })
+          .eq('id', leadId)
+      } else {
+        console.error(`[Stripe Webhook] Job creation retry failed for lead ${leadId}`)
+      }
+    } else {
+      console.error(`[Stripe Webhook] Lead not found: ${leadId}`)
+    }
   } else {
-    console.log(`[Stripe Webhook] No real job_id for card-on-file (job_id=${job_id}), skipping assignment`)
+    console.log(`[Stripe Webhook] No job_id for card-on-file, skipping assignment`)
   }
 
   // Route-optimization tenants (WinBros): notify owner, job will be batch-routed
@@ -410,7 +476,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     if (useRouteOptimization) {
       // WinBros flow: job is queued for batch route optimization (daily cron or manual dispatch)
       // Notify the owner via Telegram so they know a new booking came in
-      console.log(`[Stripe Webhook] Route optimization tenant — notifying owner about new booking (job ${job_id})`)
+      console.log(`[Stripe Webhook] Route optimization tenant — notifying owner about new booking (job ${actualJobId})`)
       assignmentOutcome = 'queued_for_route_optimization'
 
       if (tenant.owner_telegram_chat_id) {
@@ -429,30 +495,47 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
           `Address: ${addressStr}`,
           `Price: ${priceStr}`,
           ``,
-          `Job will be included in the next route optimization. Use /api/logistics/dispatch to dispatch manually.`,
+          `Job will be included in the next route optimization.`,
         ].join('\n')
 
         try {
           await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
-          console.log(`[Stripe Webhook] Owner Telegram notification sent for new booking (job ${job_id})`)
+          console.log(`[Stripe Webhook] Owner Telegram notification sent for new booking (job ${actualJobId})`)
         } catch (err) {
-          console.error(`[Stripe Webhook] Failed to send owner Telegram for job ${job_id}:`, err)
+          console.error(`[Stripe Webhook] Failed to send owner Telegram for job ${actualJobId}:`, err)
         }
       } else {
         console.warn(`[Stripe Webhook] No owner_telegram_chat_id configured — owner not notified about booking`)
       }
     } else {
       // Standard flow: trigger individual cleaner assignment
-      console.log(`[Stripe Webhook] Triggering cleaner assignment for job ${job_id}`)
-      const assignmentResult = await triggerCleanerAssignment(job_id)
+      console.log(`[Stripe Webhook] Triggering cleaner assignment for job ${actualJobId}`)
+      const assignmentResult = await triggerCleanerAssignment(actualJobId!)
 
       if (assignmentResult.success) {
         assignmentOutcome = 'cleaner_assigned'
-        console.log(`[Stripe Webhook] Cleaner assignment triggered successfully for job ${job_id}`)
+        console.log(`[Stripe Webhook] Cleaner assignment triggered successfully for job ${actualJobId}`)
       } else {
         assignmentOutcome = `assignment_failed: ${assignmentResult.error}`
-        console.error(`[Stripe Webhook] Cleaner assignment failed for job ${job_id}: ${assignmentResult.error}`)
+        console.error(`[Stripe Webhook] Cleaner assignment failed for job ${actualJobId}: ${assignmentResult.error}`)
       }
+    }
+  } else if (job_id?.startsWith('lead-') && tenant.owner_telegram_chat_id) {
+    // Even if job retry failed, still notify owner that a customer saved their card
+    assignmentOutcome = 'lead_only_notified'
+    const ownerMsg = [
+      `<b>New Booking — Card on File</b>`,
+      ``,
+      `Customer: ${phone_number || 'Unknown'}`,
+      `⚠️ Job creation failed — check the lead in the dashboard.`,
+      `Lead ID: ${job_id.replace('lead-', '')}`,
+    ].join('\n')
+
+    try {
+      await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
+      console.log(`[Stripe Webhook] Owner notified about card-on-file with failed job (${job_id})`)
+    } catch (err) {
+      console.error(`[Stripe Webhook] Failed to send lead-fallback owner Telegram:`, err)
     }
   }
 
@@ -460,9 +543,9 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   await logSystemEvent({
     source: 'stripe',
     event_type: 'CARD_ON_FILE_SAVED',
-    message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}${job ? ` — job ${job_id} (${job.service_type}, ${job.date})` : ''}`,
+    message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}${job ? ` — job ${actualJobId} (${job.service_type}, ${job.date})` : ''}`,
     phone_number: phone_number || undefined,
-    job_id: job_id || undefined,
+    job_id: actualJobId || undefined,
     metadata: {
       session_id: session.id,
       session_mode: session.mode,
@@ -512,42 +595,23 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
 
     console.log(`[Stripe Webhook] setup_intent fallback — checkout.session.completed did not fire, processing here`)
 
-    // Fallback: trigger cleaner assignment if checkout.session.completed didn't fire
-    // For route-optimization tenants, the handleCardOnFileSaved logic handles owner notification
-    // Here we just do the assignment fallback for non-route-optimization tenants
-    if (job_id && !job_id.startsWith('lead-')) {
-      const tenant = await getDefaultTenant()
-      const useRouteOptimization = tenant?.workflow_config?.use_route_optimization === true
-
-      if (useRouteOptimization) {
-        console.log(`[Stripe Webhook] Route optimization tenant — job ${job_id} queued for batch routing (setup_intent fallback)`)
-        // Owner notification would have been sent by handleCardOnFileSaved if it ran
-        // If we're in the fallback, send it now
-        if (tenant?.owner_telegram_chat_id) {
-          const job = await getJobById(job_id)
-          if (job) {
-            const ownerMsg = `<b>New Booking — Card on File</b>\n\nJob ${job_id}: ${job.service_type || 'cleaning'} on ${job.date || 'TBD'}\nAddress: ${job.address || 'TBD'}\n\nQueued for route optimization.`
-            await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML').catch(err =>
-              console.error(`[Stripe Webhook] Failed to send fallback owner Telegram:`, err)
-            )
-          }
-        }
-      } else {
-        const assignmentResult = await triggerCleanerAssignment(job_id)
-        if (!assignmentResult.success) {
-          console.error(`[Stripe Webhook] Cleaner assignment failed (setup_intent fallback): ${assignmentResult.error}`)
-        } else {
-          console.log(`[Stripe Webhook] Cleaner assignment succeeded (setup_intent fallback) for job ${job_id}`)
-        }
-      }
+    // Fallback: delegate to handleCardOnFileSaved which handles lead- retry, owner notification, and assignment
+    // It logs its own system event, so we just return after
+    if (job_id) {
+      const fakeSession = {
+        id: setupIntent.id,
+        mode: 'setup' as const,
+        metadata: metadata,
+      } as Stripe.Checkout.Session
+      await handleCardOnFileSaved(fakeSession)
+      return
     }
 
     await logSystemEvent({
       source: 'stripe',
       event_type: 'CARD_ON_FILE_SAVED',
-      message: `Setup intent succeeded for ${phone_number} (fallback handler)`,
+      message: `Setup intent succeeded for ${phone_number} (fallback handler, no job_id)`,
       phone_number: phone_number,
-      job_id: job_id || undefined,
       metadata: {
         setup_intent_id: setupIntent.id,
         purpose,
