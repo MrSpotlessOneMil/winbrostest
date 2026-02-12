@@ -768,7 +768,7 @@ export async function POST(request: NextRequest) {
                 ].filter(Boolean).join(' | ') || null,
               }).select("id").single()
 
-              console.log(`[OpenPhone] Job created from SMS booking: ${newJob?.id}`)
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob?.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
 
               // Update lead to booked
               await client

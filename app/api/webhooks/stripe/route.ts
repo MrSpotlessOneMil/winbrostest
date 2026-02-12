@@ -7,6 +7,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
 import { getDefaultTenant } from '@/lib/tenant'
 import { sendSMS } from '@/lib/openphone'
+import { sendTelegramMessage } from '@/lib/telegram'
 
 export async function POST(request: NextRequest) {
   try {
@@ -336,24 +337,30 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 /**
  * Handle card-on-file setup completion (checkout.session.completed with mode: 'setup')
  * - Sends confirmation SMS to customer
- * - Triggers cleaner assignment (which sends Telegram to available cleaners)
+ * - For route-optimization tenants (WinBros): notifies owner via Telegram, job queued for batch routing
+ * - For other tenants: triggers individual cleaner assignment cascade
  */
 async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   const metadata = session.metadata || {}
   const { job_id, phone_number } = metadata
 
-  console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${phone_number}`)
+  console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${phone_number}, session: ${session.id}`)
 
   const tenant = await getDefaultTenant()
+  if (!tenant) {
+    console.error('[Stripe Webhook] No tenant configured, cannot process card-on-file')
+    return
+  }
+
+  const client = getSupabaseClient()
 
   // Send confirmation SMS to customer
-  if (phone_number && tenant) {
+  if (phone_number) {
+    console.log(`[Stripe Webhook] Sending card-on-file confirmation SMS to ${phone_number}`)
     const confirmMsg = "Thanks, your card is on file. You're fully set up now!"
     const smsResult = await sendSMS(tenant, phone_number, confirmMsg)
 
     if (smsResult.success) {
-      const client = getSupabaseClient()
-
       // Find customer for message logging
       const { data: customer } = await client
         .from('customers')
@@ -376,35 +383,102 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
       })
 
       console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${phone_number}`)
+    } else {
+      console.error(`[Stripe Webhook] Failed to send card-on-file SMS to ${phone_number}: ${smsResult.error}`)
     }
   }
 
-  // Trigger cleaner assignment if we have a job
+  // Get job details for logging and assignment
+  let job: Awaited<ReturnType<typeof getJobById>> | null = null
   if (job_id && !job_id.startsWith('lead-')) {
-    const job = await getJobById(job_id)
-    if (job) {
+    job = await getJobById(job_id)
+    if (!job) {
+      console.error(`[Stripe Webhook] Job not found for card-on-file: ${job_id}`)
+    } else {
+      console.log(`[Stripe Webhook] Job found: ${job_id} — service: ${job.service_type}, date: ${job.date}, address: ${job.address}, price: ${job.price}`)
+    }
+  } else {
+    console.log(`[Stripe Webhook] No real job_id for card-on-file (job_id=${job_id}), skipping assignment`)
+  }
+
+  // Route-optimization tenants (WinBros): notify owner, job will be batch-routed
+  // Other tenants: trigger individual cleaner assignment cascade
+  const useRouteOptimization = tenant.workflow_config?.use_route_optimization === true
+  let assignmentOutcome = 'no_job'
+
+  if (job) {
+    if (useRouteOptimization) {
+      // WinBros flow: job is queued for batch route optimization (daily cron or manual dispatch)
+      // Notify the owner via Telegram so they know a new booking came in
+      console.log(`[Stripe Webhook] Route optimization tenant — notifying owner about new booking (job ${job_id})`)
+      assignmentOutcome = 'queued_for_route_optimization'
+
+      if (tenant.owner_telegram_chat_id) {
+        const customerName = phone_number || 'Unknown'
+        const priceStr = job.price ? `$${Number(job.price).toFixed(2)}` : 'TBD'
+        const dateStr = job.date || 'TBD'
+        const serviceStr = job.service_type || 'window cleaning'
+        const addressStr = job.address || 'TBD'
+
+        const ownerMsg = [
+          `<b>New Booking — Card on File</b>`,
+          ``,
+          `Customer: ${customerName}`,
+          `Service: ${serviceStr}`,
+          `Date: ${dateStr}`,
+          `Address: ${addressStr}`,
+          `Price: ${priceStr}`,
+          ``,
+          `Job will be included in the next route optimization. Use /api/logistics/dispatch to dispatch manually.`,
+        ].join('\n')
+
+        try {
+          await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
+          console.log(`[Stripe Webhook] Owner Telegram notification sent for new booking (job ${job_id})`)
+        } catch (err) {
+          console.error(`[Stripe Webhook] Failed to send owner Telegram for job ${job_id}:`, err)
+        }
+      } else {
+        console.warn(`[Stripe Webhook] No owner_telegram_chat_id configured — owner not notified about booking`)
+      }
+    } else {
+      // Standard flow: trigger individual cleaner assignment
       console.log(`[Stripe Webhook] Triggering cleaner assignment for job ${job_id}`)
       const assignmentResult = await triggerCleanerAssignment(job_id)
 
       if (assignmentResult.success) {
+        assignmentOutcome = 'cleaner_assigned'
         console.log(`[Stripe Webhook] Cleaner assignment triggered successfully for job ${job_id}`)
       } else {
-        console.error(`[Stripe Webhook] Cleaner assignment failed: ${assignmentResult.error}`)
+        assignmentOutcome = `assignment_failed: ${assignmentResult.error}`
+        console.error(`[Stripe Webhook] Cleaner assignment failed for job ${job_id}: ${assignmentResult.error}`)
       }
     }
   }
 
+  // Log system event with full details
   await logSystemEvent({
     source: 'stripe',
     event_type: 'CARD_ON_FILE_SAVED',
-    message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}`,
+    message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}${job ? ` — job ${job_id} (${job.service_type}, ${job.date})` : ''}`,
     phone_number: phone_number || undefined,
     job_id: job_id || undefined,
     metadata: {
       session_id: session.id,
       session_mode: session.mode,
+      assignment_outcome: assignmentOutcome,
+      use_route_optimization: useRouteOptimization,
+      job_details: job ? {
+        service_type: job.service_type,
+        date: job.date,
+        address: job.address,
+        price: job.price,
+        status: job.status,
+      } : null,
     },
   })
+
+  console.log(`[Stripe Webhook] Card-on-file processing complete — outcome: ${assignmentOutcome}`)
 }
 
 /**
@@ -417,7 +491,7 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const metadata = setupIntent.metadata || {}
   const { job_id, phone_number, purpose } = metadata
 
-  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, purpose: ${purpose}`)
+  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${phone_number}, purpose: ${purpose}`)
 
   if (phone_number) {
     // Check if checkout.session.completed already handled this (it sends the SMS)
@@ -432,15 +506,39 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
       .limit(1)
 
     if (alreadyHandled && alreadyHandled.length > 0) {
-      console.log(`[Stripe Webhook] Card-on-file already processed via checkout.session.completed, skipping setup_intent handler`)
+      console.log(`[Stripe Webhook] Card-on-file already processed via checkout.session.completed, skipping setup_intent fallback`)
       return
     }
 
+    console.log(`[Stripe Webhook] setup_intent fallback — checkout.session.completed did not fire, processing here`)
+
     // Fallback: trigger cleaner assignment if checkout.session.completed didn't fire
+    // For route-optimization tenants, the handleCardOnFileSaved logic handles owner notification
+    // Here we just do the assignment fallback for non-route-optimization tenants
     if (job_id && !job_id.startsWith('lead-')) {
-      const assignmentResult = await triggerCleanerAssignment(job_id)
-      if (!assignmentResult.success) {
-        console.error(`[Stripe Webhook] Cleaner assignment failed: ${assignmentResult.error}`)
+      const tenant = await getDefaultTenant()
+      const useRouteOptimization = tenant?.workflow_config?.use_route_optimization === true
+
+      if (useRouteOptimization) {
+        console.log(`[Stripe Webhook] Route optimization tenant — job ${job_id} queued for batch routing (setup_intent fallback)`)
+        // Owner notification would have been sent by handleCardOnFileSaved if it ran
+        // If we're in the fallback, send it now
+        if (tenant?.owner_telegram_chat_id) {
+          const job = await getJobById(job_id)
+          if (job) {
+            const ownerMsg = `<b>New Booking — Card on File</b>\n\nJob ${job_id}: ${job.service_type || 'cleaning'} on ${job.date || 'TBD'}\nAddress: ${job.address || 'TBD'}\n\nQueued for route optimization.`
+            await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML').catch(err =>
+              console.error(`[Stripe Webhook] Failed to send fallback owner Telegram:`, err)
+            )
+          }
+        }
+      } else {
+        const assignmentResult = await triggerCleanerAssignment(job_id)
+        if (!assignmentResult.success) {
+          console.error(`[Stripe Webhook] Cleaner assignment failed (setup_intent fallback): ${assignmentResult.error}`)
+        } else {
+          console.log(`[Stripe Webhook] Cleaner assignment succeeded (setup_intent fallback) for job ${job_id}`)
+        }
       }
     }
 
@@ -456,5 +554,7 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
         handler: 'setup_intent_fallback',
       },
     })
+  } else {
+    console.log(`[Stripe Webhook] Setup intent succeeded but no phone_number in metadata — cannot process`)
   }
 }
