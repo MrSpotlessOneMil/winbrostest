@@ -54,6 +54,9 @@ export interface WorkflowConfig {
   require_deposit: boolean
   deposit_percentage: number
 
+  // Route optimization (WinBros logistics engine)
+  use_route_optimization: boolean
+
   // Kill switches
   sms_auto_response_enabled: boolean
 }

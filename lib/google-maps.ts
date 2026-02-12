@@ -1,0 +1,296 @@
+/**
+ * Google Maps Platform Integration
+ *
+ * Provides geocoding (address → lat/lng) and distance matrix
+ * (traffic-aware drive times between locations) for route optimization.
+ *
+ * Requires GOOGLE_MAPS_API_KEY environment variable.
+ */
+
+// ── Types ──────────────────────────────────────────────────────
+
+export interface LatLng {
+  lat: number
+  lng: number
+}
+
+export interface GeocodeResult {
+  lat: number
+  lng: number
+  formattedAddress: string
+  placeId: string
+}
+
+export interface DistanceMatrixEntry {
+  originIndex: number
+  destinationIndex: number
+  distanceMeters: number
+  distanceMiles: number
+  durationSeconds: number
+  durationMinutes: number
+  durationInTrafficSeconds?: number
+  durationInTrafficMinutes?: number
+}
+
+export interface DistanceMatrixResult {
+  entries: DistanceMatrixEntry[]
+  origins: string[]
+  destinations: string[]
+}
+
+// ── In-memory geocode cache ────────────────────────────────────
+
+const geocodeCache = new Map<string, GeocodeResult>()
+
+function normalizeAddress(address: string): string {
+  return address.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function getApiKey(): string {
+  const key = process.env.GOOGLE_MAPS_API_KEY
+  if (!key) {
+    throw new Error('GOOGLE_MAPS_API_KEY not configured')
+  }
+  return key
+}
+
+function metersToMiles(meters: number): number {
+  return Math.round((meters / 1609.344) * 10) / 10
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// ── Geocoding ──────────────────────────────────────────────────
+
+/**
+ * Geocode a street address to lat/lng coordinates.
+ * Results are cached in-memory by normalized address.
+ */
+export async function geocodeAddress(address: string): Promise<GeocodeResult | null> {
+  const key = normalizeAddress(address)
+  const cached = geocodeCache.get(key)
+  if (cached) return cached
+
+  try {
+    const apiKey = getApiKey()
+    const encoded = encodeURIComponent(address)
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${apiKey}`
+
+    const response = await fetch(url)
+    if (!response.ok) {
+      console.error(`[GoogleMaps] Geocode HTTP error: ${response.status}`)
+      return null
+    }
+
+    const data = await response.json()
+
+    if (data.status !== 'OK' || !data.results?.length) {
+      console.error(`[GoogleMaps] Geocode failed for "${address}": ${data.status}`)
+      return null
+    }
+
+    const result: GeocodeResult = {
+      lat: data.results[0].geometry.location.lat,
+      lng: data.results[0].geometry.location.lng,
+      formattedAddress: data.results[0].formatted_address,
+      placeId: data.results[0].place_id,
+    }
+
+    geocodeCache.set(key, result)
+    return result
+  } catch (error) {
+    console.error(`[GoogleMaps] Geocode error for "${address}":`, error)
+    return null
+  }
+}
+
+/**
+ * Batch geocode multiple addresses.
+ * Skips addresses already in cache. Returns a Map of original address → result.
+ */
+export async function batchGeocodeAddresses(
+  addresses: string[]
+): Promise<Map<string, GeocodeResult>> {
+  const results = new Map<string, GeocodeResult>()
+  const toGeocode: string[] = []
+
+  // Check cache first
+  for (const addr of addresses) {
+    const key = normalizeAddress(addr)
+    const cached = geocodeCache.get(key)
+    if (cached) {
+      results.set(addr, cached)
+    } else if (!toGeocode.includes(addr)) {
+      toGeocode.push(addr)
+    }
+  }
+
+  // Geocode missing addresses with rate limit delay
+  for (const addr of toGeocode) {
+    const result = await geocodeAddress(addr)
+    if (result) {
+      results.set(addr, result)
+    }
+    // Small delay to respect rate limits (50 QPS)
+    if (toGeocode.indexOf(addr) < toGeocode.length - 1) {
+      await sleep(50)
+    }
+  }
+
+  return results
+}
+
+// ── Distance Matrix ────────────────────────────────────────────
+
+/**
+ * Format a location as a string for the Distance Matrix API.
+ */
+function formatLocation(loc: string | LatLng): string {
+  if (typeof loc === 'string') return loc
+  return `${loc.lat},${loc.lng}`
+}
+
+/**
+ * Get distances and durations between origins and destinations.
+ * Uses traffic-aware departure time when provided.
+ *
+ * Note: Google Distance Matrix API allows max 25 origins or 25 destinations per request.
+ */
+export async function getDistanceMatrix(
+  origins: Array<string | LatLng>,
+  destinations: Array<string | LatLng>,
+  departureTime?: Date
+): Promise<DistanceMatrixResult> {
+  const apiKey = getApiKey()
+
+  const originsStr = origins.map(formatLocation).join('|')
+  const destinationsStr = destinations.map(formatLocation).join('|')
+
+  let url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(originsStr)}&destinations=${encodeURIComponent(destinationsStr)}&units=imperial&key=${apiKey}`
+
+  // Add departure_time for traffic-aware estimates
+  if (departureTime) {
+    url += `&departure_time=${Math.floor(departureTime.getTime() / 1000)}`
+  } else {
+    // Use "now" for current traffic conditions
+    url += `&departure_time=now`
+  }
+
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`[GoogleMaps] Distance Matrix HTTP error: ${response.status}`)
+  }
+
+  const data = await response.json()
+
+  if (data.status !== 'OK') {
+    throw new Error(`[GoogleMaps] Distance Matrix API error: ${data.status}`)
+  }
+
+  const entries: DistanceMatrixEntry[] = []
+
+  for (let i = 0; i < data.rows.length; i++) {
+    for (let j = 0; j < data.rows[i].elements.length; j++) {
+      const element = data.rows[i].elements[j]
+
+      if (element.status !== 'OK') {
+        // Use a large fallback value for unreachable routes
+        entries.push({
+          originIndex: i,
+          destinationIndex: j,
+          distanceMeters: 999999,
+          distanceMiles: 999,
+          durationSeconds: 99999,
+          durationMinutes: 999,
+        })
+        continue
+      }
+
+      entries.push({
+        originIndex: i,
+        destinationIndex: j,
+        distanceMeters: element.distance.value,
+        distanceMiles: metersToMiles(element.distance.value),
+        durationSeconds: element.duration.value,
+        durationMinutes: Math.round(element.duration.value / 60),
+        durationInTrafficSeconds: element.duration_in_traffic?.value,
+        durationInTrafficMinutes: element.duration_in_traffic
+          ? Math.round(element.duration_in_traffic.value / 60)
+          : undefined,
+      })
+    }
+  }
+
+  return {
+    entries,
+    origins: origins.map(formatLocation),
+    destinations: destinations.map(formatLocation),
+  }
+}
+
+/**
+ * Calculate pairwise distance matrix for a set of locations.
+ * Returns an NxN matrix where matrix[i][j] is the drive time in minutes from i to j.
+ *
+ * For sets larger than 25, batches requests to stay under API limits.
+ */
+export async function getPairwiseDistanceMatrix(
+  locations: Array<{ id: string; address: string; lat?: number; lng?: number }>
+): Promise<{
+  matrix: number[][]
+  locationIds: string[]
+}> {
+  // Geocode any locations missing coordinates
+  const needsGeocode = locations.filter(l => l.lat == null || l.lng == null)
+  if (needsGeocode.length > 0) {
+    const geocoded = await batchGeocodeAddresses(needsGeocode.map(l => l.address))
+    for (const loc of needsGeocode) {
+      const result = geocoded.get(loc.address)
+      if (result) {
+        loc.lat = result.lat
+        loc.lng = result.lng
+      }
+    }
+  }
+
+  // Build LatLng array (filter out locations that failed geocoding)
+  const validLocations = locations.filter(l => l.lat != null && l.lng != null)
+  const locationIds = validLocations.map(l => l.id)
+  const n = validLocations.length
+
+  // Initialize NxN matrix with zeros on diagonal
+  const matrix: number[][] = Array.from({ length: n }, () => Array(n).fill(0))
+
+  if (n <= 1) return { matrix, locationIds }
+
+  // Batch by 25 to stay within API limits
+  const BATCH_SIZE = 25
+
+  for (let oi = 0; oi < n; oi += BATCH_SIZE) {
+    const originSlice = validLocations.slice(oi, Math.min(oi + BATCH_SIZE, n))
+    const originLatLngs: LatLng[] = originSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
+
+    for (let di = 0; di < n; di += BATCH_SIZE) {
+      const destSlice = validLocations.slice(di, Math.min(di + BATCH_SIZE, n))
+      const destLatLngs: LatLng[] = destSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
+
+      const result = await getDistanceMatrix(originLatLngs, destLatLngs)
+
+      for (const entry of result.entries) {
+        const row = oi + entry.originIndex
+        const col = di + entry.destinationIndex
+        // Prefer traffic-aware duration when available
+        matrix[row][col] = entry.durationInTrafficMinutes ?? entry.durationMinutes
+      }
+
+      // Small delay between batches
+      await sleep(100)
+    }
+  }
+
+  return { matrix, locationIds }
+}
