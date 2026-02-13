@@ -222,9 +222,9 @@ export default function TeamsPage() {
   )
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full gap-4 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Teams</h1>
           <p className="text-sm text-muted-foreground">Real-time crew tracking and performance</p>
@@ -238,7 +238,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Summary Stats - compact row */}
-      <div className="grid gap-3 grid-cols-3">
+      <div className="grid gap-3 grid-cols-3 shrink-0">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10 shrink-0">
@@ -275,7 +275,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Two-column layout: teams left, chat right */}
-      <div className="flex gap-6 h-[calc(100vh-16rem)]">
+      <div className="flex gap-6 flex-1 min-h-0">
         {/* LEFT: Team list with inline members */}
         <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
           {teams.map((team) => {
