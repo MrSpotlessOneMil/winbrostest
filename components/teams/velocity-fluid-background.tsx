@@ -27,17 +27,15 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     const config = {
       SIM_RESOLUTION: 128,
-      VELOCITY_DISSIPATION: 0.3,
+      VELOCITY_DISSIPATION: 0.01,
       PRESSURE: 0.13,
       PRESSURE_ITERATIONS: 20,
       CURL: 30,
       SPLAT_RADIUS: 0.25,
       SPLAT_FORCE: 6000,
       VECTOR_SPACING: 10,
-      VECTOR_SCALE: 0.06,
-      AMBIENT_INTERVAL: 3000,
-      AMBIENT_FORCE: 400,
-      AMBIENT_RADIUS: 0.4,
+      VECTOR_SCALE: 0.5,
+      MAX_VELOCITY: 60,
     }
 
     class Pointer {
@@ -252,7 +250,10 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
           vec4 result = texture2D(uSource, coord);
         #endif
         float decay = 1.0 + dissipation * dt;
-        gl_FragColor = result / decay;
+        vec2 v = result.xy / decay;
+        float mag = length(v);
+        if (mag > 60.0) v *= 60.0 / mag;
+        gl_FragColor = vec4(v, 0.0, 1.0);
       }
     `, supportLinearFiltering ? null : ["MANUAL_FILTERING"])
 
@@ -311,7 +312,8 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         force.y *= -1.0;
         vec2 velocity = texture2D(uVelocity, vUv).xy;
         velocity += force * dt;
-        velocity = min(max(velocity, -1000.0), 1000.0);
+        float mag = length(velocity);
+        if (mag > 60.0) velocity *= 60.0 / mag;
         gl_FragColor = vec4(velocity, 0.0, 1.0);
       }
     `)
@@ -377,7 +379,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       flat in float v_speed;
       out vec4 fragColor;
       void main() {
-        float alpha = clamp(v_speed * 0.012 + 0.15, 0.0, 0.7);
+        float alpha = clamp(v_speed * 0.025 + 0.2, 0.0, 0.7);
         fragColor = vec4(u_color * alpha, alpha);
       }
     `)
@@ -397,14 +399,14 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const vectorFieldProgram = new Program(vectorFieldVS, vectorFieldFS)
 
     // ── FBO helpers ──
-    function createFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number) {
+    function createFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
       g.activeTexture(g.TEXTURE0)
       const texture = g.createTexture()!
       g.bindTexture(g.TEXTURE_2D, texture)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, param)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, param)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE)
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, wrap)
+      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, wrap)
       g.texImage2D(g.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, null)
 
       const fbo = g.createFramebuffer()!
@@ -424,9 +426,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     }
 
-    function createDoubleFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number) {
-      let fbo1 = createFBO(w, h, internalFormat, format, type, param)
-      let fbo2 = createFBO(w, h, internalFormat, format, type, param)
+    function createDoubleFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+      let fbo1 = createFBO(w, h, internalFormat, format, type, param, wrap)
+      let fbo2 = createFBO(w, h, internalFormat, format, type, param, wrap)
       return {
         width: w, height: h,
         texelSizeX: fbo1.texelSizeX, texelSizeY: fbo1.texelSizeY,
@@ -438,18 +440,18 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     }
 
-    function resizeFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number) {
-      const newFBO = createFBO(w, h, internalFormat, format, type, param)
+    function resizeFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+      const newFBO = createFBO(w, h, internalFormat, format, type, param, wrap)
       copyProgram.bind()
       g.uniform1i(copyProgram.uniforms.uTexture, target.attach(0))
       blit(newFBO)
       return newFBO
     }
 
-    function resizeDoubleFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number) {
+    function resizeDoubleFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
       if (target.width === w && target.height === h) return target
-      target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param)
-      target.write = createFBO(w, h, internalFormat, format, type, param)
+      target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param, wrap)
+      target.write = createFBO(w, h, internalFormat, format, type, param, wrap)
       target.width = w; target.height = h
       target.texelSizeX = 1.0 / w; target.texelSizeY = 1.0 / h
       return target
@@ -476,9 +478,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.disable(g.BLEND)
 
       if (!velocity)
-        velocity = createDoubleFBO(simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+        velocity = createDoubleFBO(simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering, g.REPEAT)
       else
-        velocity = resizeDoubleFBO(velocity, simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering)
+        velocity = resizeDoubleFBO(velocity, simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering, g.REPEAT)
 
       divergenceFBO = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, g.NEAREST)
       curlFBO = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, g.NEAREST)
@@ -725,26 +727,8 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     window.addEventListener("touchmove", onTouchMove, { passive: true })
     window.addEventListener("touchend", onTouchEnd)
 
-    // ── Ambient splats — gentle periodic forcing for "grass in wind" effect ──
-    function ambientSplat() {
-      const x = Math.random()
-      const y = Math.random()
-      const angle = Math.random() * Math.PI * 2
-      const dx = Math.cos(angle) * config.AMBIENT_FORCE
-      const dy = Math.sin(angle) * config.AMBIENT_FORCE
-      splatProgram.bind()
-      g.uniform1i(splatProgram.uniforms.uTarget, velocity.read.attach(0))
-      g.uniform1f(splatProgram.uniforms.aspectRatio, canvas.width / canvas.height)
-      g.uniform2f(splatProgram.uniforms.point, x, y)
-      g.uniform3f(splatProgram.uniforms.color, dx, dy, 0.0)
-      g.uniform1f(splatProgram.uniforms.radius, correctRadius(config.AMBIENT_RADIUS / 100.0))
-      blit(velocity.write)
-      velocity.swap()
-    }
-
     // ── Main loop ──
     let lastUpdateTime = Date.now()
-    let lastAmbientTime = Date.now()
     let animFrame = 0
 
     function update() {
@@ -755,13 +739,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
       if (resizeCanvas()) {
         initFluidFramebuffers()
-      }
-
-      // Periodic ambient splats to keep the field alive
-      if (now - lastAmbientTime > config.AMBIENT_INTERVAL) {
-        lastAmbientTime = now
-        const count = Math.floor(Math.random() * 2) + 2
-        for (let i = 0; i < count; i++) ambientSplat()
       }
 
       if (splatStack.length > 0) multipleSplats(splatStack.pop()!)
@@ -775,8 +752,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       animFrame = requestAnimationFrame(update)
     }
 
-    // Initial splats
-    splatStack.push(5)
+    // Initial splats seed the field — with near-zero dissipation + vorticity
+    // confinement, the flow is self-sustaining (no ambient forcing needed)
+    splatStack.push(8)
     update()
 
     return () => {
