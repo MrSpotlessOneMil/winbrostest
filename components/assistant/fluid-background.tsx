@@ -1201,7 +1201,7 @@ export function FluidBackground({ className }: FluidBackgroundProps) {
       const posX = scaleByPixelRatio(x)
       const posY = scaleByPixelRatio(y)
       updatePointerDownData(pointers[0], -1, posX, posY)
-      splatStack.push(Math.floor(Math.random() * 3) + 2)
+      splatStack.push(Math.floor(Math.random() * 11) + 10)
     }
 
     const onMouseMove = (e: MouseEvent) => {
