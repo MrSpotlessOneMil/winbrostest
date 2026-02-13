@@ -27,9 +27,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     const config = {
       SIM_RESOLUTION: 128,
-      VELOCITY_DISSIPATION: 0.01,
+      VELOCITY_DISSIPATION: 0,
       PRESSURE: 0.13,
-      PRESSURE_ITERATIONS: 20,
+      PRESSURE_ITERATIONS: 3,
       CURL: 30,
       SPLAT_RADIUS: 0.25,
       SPLAT_FORCE: 6000,
