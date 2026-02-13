@@ -41,6 +41,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const AUTO_SPLAT_COUNT = 2
     const AUTO_SPLAT_STRENGTH = 2.5 // slow gentle velocity
     const AUTO_SPLAT_RADIUS = 0.02  // 8x broader than mouse splats = smooth wide waves
+    const DISSIPATION = 0.985       // gentle velocity decay per frame — prevents accumulation
 
     class Pointer {
       id = -1; texcoordX = 0; texcoordY = 0
@@ -169,8 +170,8 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     `)
 
-    // Advection: exactly matches repo — no dt, no dissipation
-    // uDimensions = canvas dimensions (repo line 148 & 634)
+    // Advection: uDimensions = canvas dimensions (repo line 148 & 634)
+    // Slight dissipation prevents velocity from accumulating with continuous auto-splats
     const advectionShader = compileShader(g.FRAGMENT_SHADER, `
       precision highp float;
       varying vec2 vUv;
@@ -180,7 +181,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       void main () {
         vec2 vel = texture2D(uVelocity, vUv).xy;
         vec2 coord = vUv - vel / uDimensions;
-        gl_FragColor = texture2D(uSource, coord);
+        gl_FragColor = texture2D(uSource, coord) * ${DISSIPATION.toFixed(4)};
       }
     `)
 
