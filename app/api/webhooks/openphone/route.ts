@@ -782,6 +782,7 @@ export async function POST(request: NextRequest) {
                 address: bookingData.address || customer.address || null,
                 price: servicePrice || null,
                 date: bookingData.preferredDate || null,
+                scheduled_at: bookingData.preferredTime || null,
                 status: 'scheduled',
                 booked: true,
                 notes: [

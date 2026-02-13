@@ -340,6 +340,110 @@ export function buildOwnerEscalationMessage(
 }
 
 // =====================================================================
+// DATE PARSING
+// =====================================================================
+
+/**
+ * Parse natural language date strings (e.g. "tomorrow at 9am", "next Monday",
+ * "Feb 15", "2/15") into YYYY-MM-DD format. Returns null if unparseable.
+ * Also extracts a time string (HH:MM) if present.
+ */
+export function parseNaturalDate(input: string): { date: string | null; time: string | null } {
+  if (!input) return { date: null, time: null }
+
+  const now = new Date()
+  // Work in Central time (WinBros is in Illinois)
+  const centralNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }))
+  const text = input.toLowerCase().trim()
+
+  let targetDate: Date | null = null
+
+  // Try ISO format first (YYYY-MM-DD)
+  const isoMatch = text.match(/(\d{4}-\d{2}-\d{2})/)
+  if (isoMatch) {
+    const d = new Date(isoMatch[1] + 'T12:00:00')
+    if (!isNaN(d.getTime())) targetDate = d
+  }
+
+  // "today"
+  if (!targetDate && /\btoday\b/.test(text)) {
+    targetDate = new Date(centralNow)
+  }
+
+  // "tomorrow"
+  if (!targetDate && /\btomorrow\b/.test(text)) {
+    targetDate = new Date(centralNow)
+    targetDate.setDate(targetDate.getDate() + 1)
+  }
+
+  // "next [day]" or just a day name
+  if (!targetDate) {
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+    for (let i = 0; i < dayNames.length; i++) {
+      if (text.includes(dayNames[i])) {
+        targetDate = new Date(centralNow)
+        const currentDay = targetDate.getDay()
+        let daysAhead = i - currentDay
+        if (daysAhead <= 0) daysAhead += 7 // Always go to next occurrence
+        if (/\bnext\b/.test(text) && daysAhead <= 7) daysAhead += 0 // "next Monday" = upcoming
+        targetDate.setDate(targetDate.getDate() + daysAhead)
+        break
+      }
+    }
+  }
+
+  // "MM/DD" or "M/D" format
+  if (!targetDate) {
+    const slashMatch = text.match(/\b(\d{1,2})\/(\d{1,2})\b/)
+    if (slashMatch) {
+      const month = parseInt(slashMatch[1])
+      const day = parseInt(slashMatch[2])
+      if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+        targetDate = new Date(centralNow.getFullYear(), month - 1, day)
+        if (targetDate < centralNow) {
+          targetDate.setFullYear(targetDate.getFullYear() + 1)
+        }
+      }
+    }
+  }
+
+  // Month name + day: "Feb 15", "February 15th", "March 3rd"
+  if (!targetDate) {
+    const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+    const monthMatch = text.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?\b/)
+    if (monthMatch) {
+      const monthIdx = monthNames.findIndex(m => monthMatch[1].startsWith(m))
+      const day = parseInt(monthMatch[2])
+      if (monthIdx >= 0 && day >= 1 && day <= 31) {
+        targetDate = new Date(centralNow.getFullYear(), monthIdx, day)
+        if (targetDate < centralNow) {
+          targetDate.setFullYear(targetDate.getFullYear() + 1)
+        }
+      }
+    }
+  }
+
+  // Extract time if present
+  let time: string | null = null
+  const timeMatch = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i)
+  if (timeMatch) {
+    let hours = parseInt(timeMatch[1])
+    const minutes = timeMatch[2] ? parseInt(timeMatch[2]) : 0
+    const ampm = timeMatch[3].toLowerCase()
+    if (ampm === 'pm' && hours < 12) hours += 12
+    if (ampm === 'am' && hours === 12) hours = 0
+    time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+  }
+
+  if (!targetDate) return { date: null, time }
+
+  const yyyy = targetDate.getFullYear()
+  const mm = (targetDate.getMonth() + 1).toString().padStart(2, '0')
+  const dd = targetDate.getDate().toString().padStart(2, '0')
+  return { date: `${yyyy}-${mm}-${dd}`, time }
+}
+
+// =====================================================================
 // BOOKING DATA EXTRACTION
 // =====================================================================
 
@@ -355,7 +459,8 @@ export interface WinBrosBookingData {
   lastName: string | null
   address: string | null
   referralSource: string | null
-  preferredDate: string | null
+  preferredDate: string | null // YYYY-MM-DD
+  preferredTime: string | null // HH:MM (24h)
   email: string | null
 }
 
@@ -430,7 +535,8 @@ Return ONLY the JSON object, nothing else.`
         lastName: parsed.lastName || null,
         address: parsed.address || null,
         referralSource: parsed.referralSource || null,
-        preferredDate: parsed.preferredDate || null,
+        preferredDate: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).date : null,
+        preferredTime: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).time : null,
         email: parsed.email || null,
       }
     } catch (err) {
@@ -530,14 +636,22 @@ function extractBookingDataRegex(
   else if (/biannual|bi-annual/i.test(allTextLower)) planType = 'biannual'
   else if (/one.?time/i.test(allTextLower)) planType = 'one_time'
 
-  // Preferred date
+  // Preferred date — parse natural language into YYYY-MM-DD
   let preferredDate: string | null = null
+  let preferredTime: string | null = null
   for (let i = 0; i < conversationHistory.length - 1; i++) {
     if (conversationHistory[i].role === 'assistant' &&
         /preferred date|when|time for us/i.test(conversationHistory[i].content)) {
       const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
       if (nextClient) {
-        preferredDate = nextClient.content.trim()
+        const rawDate = nextClient.content.trim()
+        const parsed = parseNaturalDate(rawDate)
+        preferredDate = parsed.date // YYYY-MM-DD or null
+        preferredTime = parsed.time
+        if (!preferredDate) {
+          // If we can't parse it, store the raw text in notes rather than the date column
+          console.log(`[extractBookingData] Could not parse date: "${rawDate}"`)
+        }
       }
       break
     }
@@ -569,6 +683,7 @@ function extractBookingDataRegex(
     address,
     referralSource,
     preferredDate,
+    preferredTime,
     email,
   }
 }

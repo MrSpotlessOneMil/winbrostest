@@ -449,6 +449,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         address: bookingData.address || custAddress || null,
         price: bookingData.price || null,
         date: bookingData.preferredDate || null,
+        scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
         booked: true,
         notes: [
