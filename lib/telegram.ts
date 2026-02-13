@@ -544,16 +544,19 @@ You have no jobs scheduled for today. Enjoy your day off!
     const address = job.address || job.customer?.address || 'See details'
     const customerName = job.customer?.first_name || 'Customer'
     const safeNotes = formatCleanerNotes(job.notes)
-    const bedrooms = job.customer?.bedrooms ?? job.bedrooms ?? '?'
-    const bathrooms = job.customer?.bathrooms ?? job.bathrooms ?? '?'
     const serviceType = job.service_type ? humanizeText(job.service_type) : 'Standard cleaning'
+    const isWindowCleaning = tenant?.slug === 'winbros'
+
+    // WinBros doesn't need bedrooms/bathrooms — it's a window cleaning company
+    const propertyLine = isWindowCleaning
+      ? ''
+      : `- ${job.customer?.bedrooms ?? job.bedrooms ?? '?'}BR / ${job.customer?.bathrooms ?? job.bathrooms ?? '?'}BA\n`
 
     return `
 <b>${index + 1}. ${time}</b>
 - ${address}
 - ${customerName}
-- ${bedrooms}BR / ${bathrooms}BA
-${serviceType}
+${propertyLine}${serviceType}
 ${safeNotes ? `- ${safeNotes}` : ''}
 `.trim()
   }).join('\n\n')
