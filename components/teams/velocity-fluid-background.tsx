@@ -33,7 +33,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const PRESSURE_CALC_BETA = 0.25
     const MAX_VELOCITY = 30
     const SPLAT_RADIUS = 0.0025
-    const SPLAT_FORCE = 300         // gentler mouse interaction (repo uses ~2x raw px delta)
+    const SPLAT_FORCE = 80           // subtle mouse interaction — small ripple, not a disturbance
     const VECTOR_SPACING = 10
     const VECTOR_SCALE = 2.5
     // Periodic broad auto-splats create smooth wave-like ambient flow
