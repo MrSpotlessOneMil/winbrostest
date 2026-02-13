@@ -39,12 +39,11 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     }
 
     // Particle config
-    const PARTICLE_DENSITY = 0.08
-    const MAX_NUM_PARTICLES = 65536
+    const PARTICLE_DENSITY = 0.1        // Matches repo
+    const MAX_NUM_PARTICLES = 130000   // Matches repo
     const PARTICLE_LIFETIME = 1000
-    const TRAIL_DECAY = 0.97           // RGB multiplier per frame (lower = faster fade)
+    const TRAIL_LIFETIME = 100         // Frames for trail alpha fade (repo default)
     const NUM_RENDER_STEPS = 3
-    const PARTICLE_BRIGHTNESS = 0.06   // Per-particle RGB contribution
 
     class Pointer {
       id = -1; texcoordX = 0; texcoordY = 0
@@ -401,15 +400,16 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     `)
 
-    // Fade trails: multiply RGB by decay factor
+    // Fade trails: decrement alpha (matches repo IncrementOpacityShader)
     const fadeTrailsShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vUv;
       uniform sampler2D u_image;
-      uniform float u_decay;
+      uniform float u_increment;
       void main() {
-        vec3 rgb = texture2D(u_image, vUv).rgb;
-        gl_FragColor = vec4(rgb * u_decay, 1.0);
+        vec4 px = texture2D(u_image, vUv);
+        px.a = clamp(px.a + u_increment, 0.0, 1.0);
+        gl_FragColor = px;
       }
     `)
 
@@ -432,7 +432,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     `)
 
-    // Particle fragment: Osiris purple, velocity-modulated, RGB output for additive blending
+    // Particle fragment: matches repo ParticleFragmentShader, Osiris purple
     const particleFS = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vParticleUV;
@@ -440,31 +440,26 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       uniform sampler2D u_ages;
       uniform sampler2D u_velocity;
       uniform float u_maxAge;
-      uniform float u_brightness;
       void main() {
         float age = texture2D(u_ages, vParticleUV).x / u_maxAge;
-        // Fade in/out at start and end of life
         float opacity = 1.0;
         if (age < 0.1) opacity = age / 0.1;
         if (age > 0.9) opacity = 1.0 - (age - 0.9) / 0.1;
-
         vec2 velocity = texture2D(u_velocity, vScreenUV).xy;
-        float speed = clamp(length(velocity) * 2.0 + 0.2, 0.0, 1.0);
-
-        float brightness = opacity * speed * u_brightness;
-        // Osiris purple (0.4, 0.15, 0.55)
-        gl_FragColor = vec4(0.4 * brightness, 0.15 * brightness, 0.55 * brightness, 0.0);
+        float multiplier = clamp(length(velocity) * 0.5 + 0.7, 0.0, 1.0);
+        // Osiris purple (repo uses vec4(0,0,0.2,a) for blue)
+        gl_FragColor = vec4(0.15, 0.0, 0.25, opacity * multiplier);
       }
     `)
 
-    // Composite: just output trail RGB
+    // Composite: premultiply alpha for screen output
     const compositeShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vUv;
       uniform sampler2D u_trail;
       void main() {
-        vec3 color = texture2D(u_trail, vUv).rgb;
-        gl_FragColor = vec4(color, 1.0);
+        vec4 trail = texture2D(u_trail, vUv);
+        gl_FragColor = vec4(trail.rgb * trail.a, 1.0);
       }
     `)
 
@@ -683,10 +678,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     const initialPositionsFBO = createDataFBO(particleTexSize, particleTexSize, floatFormatRGBA.internalFormat, floatFormatRGBA.format, floatTexType, g.NEAREST, makeRandomPositions())
 
-    // Trail texture
-    const rgba = formatRGBA!
-    let trailRead = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
-    let trailWrite = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
+    // Trail texture — uint8 RGBA (matches repo, provides natural [0,1] clamping)
+    let trailRead = createFBO(canvas.width, canvas.height, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, g.LINEAR)
+    let trailWrite = createFBO(canvas.width, canvas.height, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, g.LINEAR)
 
     // Particle UV buffer
     const particleUVs = new Float32Array(particleTexSize * particleTexSize * 2)
@@ -806,10 +800,10 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       blit(particleAgeWrite)
       const tmpAge = particleAgeRead; particleAgeRead = particleAgeWrite; particleAgeWrite = tmpAge
 
-      // 2. Fade trails: multiply RGB by decay factor
+      // 2. Fade trails: decrement alpha (matches repo)
       fadeTrailsProgram.bind()
       g.uniform1i(fadeTrailsProgram.uniforms.u_image, trailRead.attach(0))
-      g.uniform1f(fadeTrailsProgram.uniforms.u_decay, TRAIL_DECAY)
+      g.uniform1f(fadeTrailsProgram.uniforms.u_increment, -1.0 / TRAIL_LIFETIME)
       blit(trailWrite)
       const tmpTrail = trailRead; trailRead = trailWrite; trailWrite = tmpTrail
 
@@ -828,9 +822,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         blit(particlePosWrite)
         const tmpPos = particlePosRead; particlePosRead = particlePosWrite; particlePosWrite = tmpPos
 
-        // Render particles as points to trail (pure additive: ONE, ONE)
+        // Render particles as points to trail (alpha-weighted additive)
         g.enable(g.BLEND)
-        g.blendFunc(g.ONE, g.ONE)
+        g.blendFunc(g.SRC_ALPHA, g.ONE)
 
         g.bindFramebuffer(g.FRAMEBUFFER, trailRead.fbo)
         g.viewport(0, 0, trailRead.width, trailRead.height)
@@ -841,7 +835,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         g.uniform1i(particleRenderUniforms.u_ages, particleAgeRead.attach(1))
         g.uniform1i(particleRenderUniforms.u_velocity, velocity.read.attach(2))
         g.uniform1f(particleRenderUniforms.u_maxAge, PARTICLE_LIFETIME)
-        g.uniform1f(particleRenderUniforms.u_brightness, PARTICLE_BRIGHTNESS)
 
         // Bind particle UV buffer at location 1
         g.bindBuffer(g.ARRAY_BUFFER, particleUVBuffer)
@@ -992,8 +985,8 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
       if (resizeCanvas()) {
         initFluidFramebuffers()
-        trailRead = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
-        trailWrite = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
+        trailRead = createFBO(canvas.width, canvas.height, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, g.LINEAR)
+        trailWrite = createFBO(canvas.width, canvas.height, g.RGBA, g.RGBA, g.UNSIGNED_BYTE, g.LINEAR)
       }
 
       if (splatStack.length > 0) multipleSplats(splatStack.pop()!)

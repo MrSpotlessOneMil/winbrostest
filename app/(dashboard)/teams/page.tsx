@@ -25,6 +25,7 @@ import {
   Pencil,
   MessageSquare,
   MessageCircle,
+  Send,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
@@ -80,9 +81,11 @@ export default function TeamsPage() {
   const [editSaving, setEditSaving] = useState(false)
 
   // Chat panel state
-  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string } | null>(null)
+  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(null)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatLoading, setChatLoading] = useState(false)
+  const [sendText, setSendText] = useState("")
+  const [sending, setSending] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
 
   async function loadTeams() {
@@ -185,6 +188,26 @@ export default function TeamsPage() {
       // silently fail
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  async function handleSendTelegram() {
+    if (!chatMember?.telegram_id || !sendText.trim() || sending) return
+    setSending(true)
+    try {
+      const res = await fetch("/api/teams/send-telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telegram_id: chatMember.telegram_id, message: sendText.trim() }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setSendText("")
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setSending(false)
     }
   }
 
@@ -294,11 +317,12 @@ export default function TeamsPage() {
                         <div
                           key={m.id}
                           className={cn(
-                            "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors",
+                            "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
                             isSelected
                               ? "bg-purple-500/10 border border-purple-500/30"
                               : "hover:bg-muted/50"
                           )}
+                          onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
                         >
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             <span className={cn(
@@ -321,27 +345,18 @@ export default function TeamsPage() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              className={cn(
-                                "h-7 w-7",
-                                isSelected && "text-purple-400"
-                              )}
-                              disabled={!m.phone}
-                              onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone })}
-                            >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
                               className="h-7 w-7"
-                              onClick={() => setEditingMember({
-                                id: m.id,
-                                name: m.name,
-                                phone: m.phone,
-                                email: "",
-                                telegram_id: m.telegram_id || "",
-                                is_team_lead: m.role === "lead",
-                              })}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditingMember({
+                                  id: m.id,
+                                  name: m.name,
+                                  phone: m.phone,
+                                  email: "",
+                                  telegram_id: m.telegram_id || "",
+                                  is_team_lead: m.role === "lead",
+                                })
+                              }}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
@@ -410,6 +425,34 @@ export default function TeamsPage() {
                 />
               ))}
             </div>
+
+            {/* Telegram Send Bar */}
+            {chatMember && (
+              <div className="p-3 backdrop-blur-md bg-black/50 border-t border-purple-500/10">
+                {chatMember.telegram_id ? (
+                  <div className="flex gap-2">
+                    <Input
+                      value={sendText}
+                      onChange={(e) => setSendText(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendTelegram() } }}
+                      placeholder="Send Telegram message..."
+                      className="flex-1 bg-zinc-900/80 border-purple-500/20 text-white placeholder:text-purple-300/30 text-sm"
+                      disabled={sending}
+                    />
+                    <Button
+                      size="icon"
+                      className="shrink-0 bg-purple-600 hover:bg-purple-500 h-9 w-9"
+                      onClick={handleSendTelegram}
+                      disabled={!sendText.trim() || sending}
+                    >
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-purple-300/40 text-center">No Telegram ID configured for this member</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
