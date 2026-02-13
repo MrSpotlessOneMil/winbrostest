@@ -381,14 +381,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       splat(pointer.texcoordX, pointer.texcoordY, dx, dy)
     }
 
-    // Broad gentle ambient splats — creates smooth wave-like flow, not tight swirls
+    // Broad gentle ambient splats — right-to-left drift with slight vertical variation
     function autoSplat() {
       for (let i = 0; i < AUTO_SPLAT_COUNT; i++) {
         const x = Math.random()
         const y = Math.random()
-        const angle = Math.random() * Math.PI * 2
-        const dx = Math.cos(angle) * AUTO_SPLAT_STRENGTH
-        const dy = Math.sin(angle) * AUTO_SPLAT_STRENGTH
+        const dx = -AUTO_SPLAT_STRENGTH
+        const dy = (Math.random() - 0.5) * AUTO_SPLAT_STRENGTH * 0.4
         splat(x, y, dx, dy, AUTO_SPLAT_RADIUS)
       }
     }
