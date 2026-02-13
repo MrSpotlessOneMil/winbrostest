@@ -522,10 +522,29 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
             const dateStr = job.date
               ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
               : 'TBD'
-            const timeStr = job.scheduled_at
-              ? new Date(job.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
-              : ''
-            const serviceStr = job.service_type || 'window cleaning'
+
+            // scheduled_at may be a time string like "09:00" or a full ISO timestamp
+            let timeStr = ''
+            if (job.scheduled_at) {
+              const raw = String(job.scheduled_at)
+              const shortTime = raw.match(/^(\d{1,2}):(\d{2})$/)
+              if (shortTime) {
+                // Plain "HH:MM" — format as "9:00 AM"
+                let h = parseInt(shortTime[1])
+                const m = shortTime[2]
+                const ampm = h >= 12 ? 'PM' : 'AM'
+                if (h > 12) h -= 12
+                if (h === 0) h = 12
+                timeStr = `${h}:${m} ${ampm}`
+              } else {
+                const d = new Date(raw)
+                if (!isNaN(d.getTime())) {
+                  timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+                }
+              }
+            }
+
+            const serviceStr = (job.service_type || 'Window Cleaning').replace(/\b\w/g, c => c.toUpperCase())
             const addressStr = job.address || 'See details'
             const priceStr = job.price ? `$${Number(job.price).toFixed(2)}` : 'TBD'
             const businessName = tenant.business_name_short || tenant.name
@@ -534,22 +553,20 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
               ? [
                   `<b>New Job Added Today - ${businessName}</b>`,
                   ``,
-                  `Date: Today${timeStr ? `, ${timeStr}` : ''}`,
+                  timeStr ? `Time: ${timeStr}` : null,
                   `Service: ${serviceStr}`,
                   `Address: ${addressStr}`,
                   `Price: ${priceStr}`,
-                  job.notes ? `Notes: ${job.notes}` : null,
                   ``,
                   `This job has been added to your schedule for today.`,
                 ].filter(Boolean).join('\n')
               : [
                   `<b>New Job Assigned - ${businessName}</b>`,
                   ``,
-                  `Date: ${dateStr}${timeStr ? `, ${timeStr}` : ''}`,
+                  `Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}`,
                   `Service: ${serviceStr}`,
                   `Address: ${addressStr}`,
                   `Price: ${priceStr}`,
-                  job.notes ? `Notes: ${job.notes}` : null,
                   ``,
                   `This job has been added to your schedule.`,
                 ].filter(Boolean).join('\n')

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Input } from "@/components/ui/input"
 import {
   Dialog,
   DialogContent,
@@ -24,8 +25,12 @@ import {
   Truck,
   Users,
   ChevronRight,
+  Pencil,
+  MessageSquare,
+  MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { MemberChatSheet } from "@/components/teams/member-chat-sheet"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
 type UiTeam = Team & {
@@ -42,6 +47,7 @@ type UiTeam = Team & {
     id: string
     name: string
     phone: string
+    telegram_id?: string
     role: "lead" | "technician"
     is_active: boolean
     last_location_lat?: number | null
@@ -62,58 +68,89 @@ export default function TeamsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [loading, setLoading] = useState(false)
   const [selectedTeam, setSelectedTeam] = useState<UiTeam | null>(null)
+  const [editingMember, setEditingMember] = useState<{
+    id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
+  } | null>(null)
+  const [editSaving, setEditSaving] = useState(false)
+  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string } | null>(null)
+
+  async function loadTeams() {
+    setLoading(true)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
+      const json = (await res.json()) as ApiResponse<any[]>
+      const rows = Array.isArray(json.data) ? json.data : []
+      const mapped: UiTeam[] = rows.map((t: any) => {
+        const members = Array.isArray(t.members) ? t.members : []
+        const lead = members.find((m: any) => m.role === "lead") || members[0]
+        const leadName = String(lead?.name || t.name || "Team Lead")
+        const memberNames = members.map((m: any) => String(m.name || "")).filter(Boolean)
+        return {
+          ...t,
+          leadName,
+          memberNames,
+          membersDetailed: members.map((m: any) => ({
+            id: String(m.id),
+            name: String(m.name || "Cleaner"),
+            phone: String(m.phone || ""),
+            telegram_id: m.telegram_id || undefined,
+            role: m.role === "lead" ? "lead" : "technician",
+            is_active: Boolean(m.is_active),
+            last_location_lat: m.last_location_lat ?? null,
+            last_location_lng: m.last_location_lng ?? null,
+            last_location_accuracy_meters: m.last_location_accuracy_meters ?? null,
+            last_location_updated_at: m.last_location_updated_at ?? null,
+          })),
+          currentJob: t.current_job_id
+            ? {
+                address: "—",
+                customer: "—",
+                service: "—",
+                eta: "—",
+              }
+            : null,
+        }
+      })
+      setTeams(mapped)
+    } catch {
+      setTeams([])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const today = new Date().toISOString().slice(0, 10)
-        const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
-        const json = (await res.json()) as ApiResponse<any[]>
-        const rows = Array.isArray(json.data) ? json.data : []
-        const mapped: UiTeam[] = rows.map((t: any) => {
-          const members = Array.isArray(t.members) ? t.members : []
-          const lead = members.find((m: any) => m.role === "lead") || members[0]
-          const leadName = String(lead?.name || t.name || "Team Lead")
-          const memberNames = members.map((m: any) => String(m.name || "")).filter(Boolean)
-          return {
-            ...t,
-            leadName,
-            memberNames,
-            membersDetailed: members.map((m: any) => ({
-              id: String(m.id),
-              name: String(m.name || "Cleaner"),
-              phone: String(m.phone || ""),
-              role: m.role === "lead" ? "lead" : "technician",
-              is_active: Boolean(m.is_active),
-              last_location_lat: m.last_location_lat ?? null,
-              last_location_lng: m.last_location_lng ?? null,
-              last_location_accuracy_meters: m.last_location_accuracy_meters ?? null,
-              last_location_updated_at: m.last_location_updated_at ?? null,
-            })),
-            currentJob: t.current_job_id
-              ? {
-                  address: "—",
-                  customer: "—",
-                  service: "—",
-                  eta: "—",
-                }
-              : null,
-          }
-        })
-        if (!cancelled) setTeams(mapped)
-      } catch {
-        if (!cancelled) setTeams([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
+    loadTeams().then(() => { if (cancelled) setTeams([]) })
+    return () => { cancelled = true }
   }, [])
+
+  async function handleSaveEdit() {
+    if (!editingMember) return
+    setEditSaving(true)
+    try {
+      await fetch("/api/manage-teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_cleaner",
+          cleaner_id: Number(editingMember.id),
+          name: editingMember.name,
+          phone: editingMember.phone,
+          email: editingMember.email,
+          telegram_id: editingMember.telegram_id,
+          is_team_lead: editingMember.is_team_lead,
+        }),
+      })
+      setEditingMember(null)
+      await loadTeams()
+    } catch {
+      // silently fail
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   const activeTeams = useMemo(() => teams.filter((t) => t.status !== "off" && t.is_active), [teams])
   const totalRevenue = useMemo(
@@ -338,7 +375,7 @@ export default function TeamsPage() {
                   key={m.id}
                   className="flex items-start justify-between rounded-lg border border-border bg-muted/30 p-3"
                 >
-                  <div className="space-y-1">
+                  <div className="space-y-1 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-foreground">{m.name}</span>
                       <Badge variant="outline">{m.role}</Badge>
@@ -351,6 +388,12 @@ export default function TeamsPage() {
                         <Phone className="h-4 w-4" />
                         <span>{m.phone || "—"}</span>
                       </div>
+                      {m.telegram_id && (
+                        <div className="flex items-center gap-1">
+                          <MessageCircle className="h-4 w-4" />
+                          <span className="font-mono text-xs">{m.telegram_id}</span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-1">
                         <MapPin className="h-4 w-4" />
                         <span>
@@ -367,6 +410,32 @@ export default function TeamsPage() {
                       </p>
                     )}
                   </div>
+                  <div className="flex items-center gap-1 ml-2 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setEditingMember({
+                        id: m.id,
+                        name: m.name,
+                        phone: m.phone,
+                        email: "",
+                        telegram_id: m.telegram_id || "",
+                        is_team_lead: m.role === "lead",
+                      })}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={!m.phone}
+                      onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone })}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               )
             })}
@@ -376,6 +445,73 @@ export default function TeamsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Member Modal */}
+      <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Team Member</DialogTitle>
+            <DialogDescription>Update member details</DialogDescription>
+          </DialogHeader>
+          {editingMember && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Name</label>
+                <Input
+                  value={editingMember.name}
+                  onChange={(e) => setEditingMember({ ...editingMember, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Phone</label>
+                <Input
+                  value={editingMember.phone}
+                  onChange={(e) => setEditingMember({ ...editingMember, phone: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Email</label>
+                <Input
+                  value={editingMember.email}
+                  onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Telegram Chat ID</label>
+                <Input
+                  value={editingMember.telegram_id}
+                  onChange={(e) => setEditingMember({ ...editingMember, telegram_id: e.target.value })}
+                  placeholder="e.g. 123456789"
+                  className="font-mono"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="is_team_lead"
+                  checked={editingMember.is_team_lead}
+                  onChange={(e) => setEditingMember({ ...editingMember, is_team_lead: e.target.checked })}
+                  className="rounded border-border"
+                />
+                <label htmlFor="is_team_lead" className="text-sm text-foreground">Team Lead</label>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setEditingMember(null)}>Cancel</Button>
+                <Button onClick={handleSaveEdit} disabled={editSaving}>
+                  {editSaving ? "Saving..." : "Save Changes"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Member Chat Sheet */}
+      <MemberChatSheet
+        open={!!chatMember}
+        onOpenChange={(open) => !open && setChatMember(null)}
+        member={chatMember}
+      />
     </div>
   )
 }
