@@ -2,13 +2,12 @@
 
 /*
  * WebGL Velocity-Mode Particle Trail Visualization
- * Combines Navier-Stokes fluid simulation with a GPU particle trail system
- * inspired by amandaghassaei/FluidSimulation's "velocity" render mode.
+ * Navier-Stokes fluid sim + GPU particle trails.
+ * Particles advected through velocity field via RK2 integration.
+ * Brightness modulated by velocity magnitude. Osiris purple/black.
  *
- * Particles are advected through the velocity field via RK2 integration.
- * Their brightness is modulated by velocity magnitude at their location.
- * Trails accumulate and fade over time, creating a streaming flow effect.
- * Osiris purple/black color theme.
+ * Trail system: RGB decay (multiply by 0.97/frame) + additive particle rendering.
+ * This avoids the alpha-accumulation bugs of the previous approach.
  */
 
 import { useEffect, useRef } from "react"
@@ -25,15 +24,10 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     if (!canvasEl) return
     const canvas = canvasEl
 
-    function scaleByPixelRatio(input: number) {
-      const pixelRatio = window.devicePixelRatio || 1
-      return Math.floor(input * pixelRatio)
-    }
+    // Use 1x pixel ratio for performance (background effect doesn't need retina)
+    canvas.width = canvas.clientWidth
+    canvas.height = canvas.clientHeight
 
-    canvas.width = scaleByPixelRatio(canvas.clientWidth)
-    canvas.height = scaleByPixelRatio(canvas.clientHeight)
-
-    // ── Config ──
     const config = {
       SIM_RESOLUTION: 128,
       VELOCITY_DISSIPATION: 1.5,
@@ -48,21 +42,15 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const PARTICLE_DENSITY = 0.08
     const MAX_NUM_PARTICLES = 65536
     const PARTICLE_LIFETIME = 1000
-    const TRAIL_LIFETIME = 100
+    const TRAIL_DECAY = 0.97           // RGB multiplier per frame (lower = faster fade)
     const NUM_RENDER_STEPS = 3
+    const PARTICLE_BRIGHTNESS = 0.06   // Per-particle RGB contribution
 
-    // ── Pointer ──
     class Pointer {
-      id = -1
-      texcoordX = 0
-      texcoordY = 0
-      prevTexcoordX = 0
-      prevTexcoordY = 0
-      deltaX = 0
-      deltaY = 0
-      down = false
-      moved = false
-      color = { r: 0.024, g: 0, b: 0.024 }
+      id = -1; texcoordX = 0; texcoordY = 0
+      prevTexcoordX = 0; prevTexcoordY = 0
+      deltaX = 0; deltaY = 0
+      down = false; moved = false
     }
 
     const pointers: Pointer[] = [new Pointer()]
@@ -76,7 +64,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       gl = (canvas.getContext("webgl", params) || canvas.getContext("experimental-webgl", params)) as WebGL2RenderingContext | null
     }
     if (!gl) return
-
     const g = gl!
 
     let halfFloat: any
@@ -88,6 +75,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       halfFloat = g.getExtension("OES_texture_half_float")
       supportLinearFiltering = g.getExtension("OES_texture_half_float_linear")
     }
+    g.getExtension("OES_texture_float")
 
     g.clearColor(0.0, 0.0, 0.0, 1.0)
 
@@ -136,9 +124,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       formatR = getSupportedFormat(g.RGBA, g.RGBA, halfFloatTexType)
     }
 
-    // ── Shader compilation ──
+    // ── Shader helpers ──
     function compileShader(type: number, source: string, keywords?: string[] | null) {
-      source = addKeywords(source, keywords)
+      if (keywords) {
+        let defs = ""
+        keywords.forEach((k) => { defs += "#define " + k + "\n" })
+        source = defs + source
+      }
       const shader = g.createShader(type)!
       g.shaderSource(shader, source)
       g.compileShader(shader)
@@ -147,29 +139,12 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       return shader
     }
 
-    function addKeywords(source: string, keywords?: string[] | null) {
-      if (!keywords) return source
-      let keywordsString = ""
-      keywords.forEach((keyword) => { keywordsString += "#define " + keyword + "\n" })
-      return keywordsString + source
-    }
-
-    function createProgramFromShaders(vertexShader: WebGLShader, fragmentShader: WebGLShader) {
-      const program = g.createProgram()!
-      g.attachShader(program, vertexShader)
-      g.attachShader(program, fragmentShader)
-      g.linkProgram(program)
-      if (!g.getProgramParameter(program, g.LINK_STATUS))
-        console.trace(g.getProgramInfoLog(program))
-      return program
-    }
-
     function getUniforms(program: WebGLProgram) {
       const uniforms: Record<string, WebGLUniformLocation | null> = {}
-      const uniformCount = g.getProgramParameter(program, g.ACTIVE_UNIFORMS)
-      for (let i = 0; i < uniformCount; i++) {
-        const uniformName = g.getActiveUniform(program, i)!.name
-        uniforms[uniformName] = g.getUniformLocation(program, uniformName)
+      const count = g.getProgramParameter(program, g.ACTIVE_UNIFORMS)
+      for (let i = 0; i < count; i++) {
+        const name = g.getActiveUniform(program, i)!.name
+        uniforms[name] = g.getUniformLocation(program, name)
       }
       return uniforms
     }
@@ -177,8 +152,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     class Program {
       uniforms: Record<string, WebGLUniformLocation | null>
       program: WebGLProgram
-      constructor(vertexShader: WebGLShader, fragmentShader: WebGLShader) {
-        this.program = createProgramFromShaders(vertexShader, fragmentShader)
+      constructor(vs: WebGLShader, fs: WebGLShader) {
+        this.program = g.createProgram()!
+        g.attachShader(this.program, vs)
+        g.attachShader(this.program, fs)
+        g.linkProgram(this.program)
+        if (!g.getProgramParameter(this.program, g.LINK_STATUS))
+          console.trace(g.getProgramInfoLog(this.program))
         this.uniforms = getUniforms(this.program)
       }
       bind() { g.useProgram(this.program) }
@@ -189,10 +169,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       precision highp float;
       attribute vec2 aPosition;
       varying vec2 vUv;
-      varying vec2 vL;
-      varying vec2 vR;
-      varying vec2 vT;
-      varying vec2 vB;
+      varying vec2 vL, vR, vT, vB;
       uniform vec2 texelSize;
       void main () {
         vUv = aPosition * 0.5 + 0.5;
@@ -275,11 +252,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const divergenceShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       precision mediump sampler2D;
-      varying highp vec2 vUv;
-      varying highp vec2 vL;
-      varying highp vec2 vR;
-      varying highp vec2 vT;
-      varying highp vec2 vB;
+      varying highp vec2 vUv, vL, vR, vT, vB;
       uniform sampler2D uVelocity;
       void main () {
         float L = texture2D(uVelocity, vL).x;
@@ -287,10 +260,10 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         float T = texture2D(uVelocity, vT).y;
         float B = texture2D(uVelocity, vB).y;
         vec2 C = texture2D(uVelocity, vUv).xy;
-        if (vL.x < 0.0) { L = -C.x; }
-        if (vR.x > 1.0) { R = -C.x; }
-        if (vT.y > 1.0) { T = -C.y; }
-        if (vB.y < 0.0) { B = -C.y; }
+        if (vL.x < 0.0) L = -C.x;
+        if (vR.x > 1.0) R = -C.x;
+        if (vT.y > 1.0) T = -C.y;
+        if (vB.y < 0.0) B = -C.y;
         float div = 0.5 * (R - L + T - B);
         gl_FragColor = vec4(div, 0.0, 0.0, 1.0);
       }
@@ -299,11 +272,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const curlShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       precision mediump sampler2D;
-      varying highp vec2 vUv;
-      varying highp vec2 vL;
-      varying highp vec2 vR;
-      varying highp vec2 vT;
-      varying highp vec2 vB;
+      varying highp vec2 vUv, vL, vR, vT, vB;
       uniform sampler2D uVelocity;
       void main () {
         float L = texture2D(uVelocity, vL).y;
@@ -318,11 +287,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const vorticityShader = compileShader(g.FRAGMENT_SHADER, `
       precision highp float;
       precision highp sampler2D;
-      varying vec2 vUv;
-      varying vec2 vL;
-      varying vec2 vR;
-      varying vec2 vT;
-      varying vec2 vB;
+      varying vec2 vUv, vL, vR, vT, vB;
       uniform sampler2D uVelocity;
       uniform sampler2D uCurl;
       uniform float curl;
@@ -347,11 +312,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const pressureShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       precision mediump sampler2D;
-      varying highp vec2 vUv;
-      varying highp vec2 vL;
-      varying highp vec2 vR;
-      varying highp vec2 vT;
-      varying highp vec2 vB;
+      varying highp vec2 vUv, vL, vR, vT, vB;
       uniform sampler2D uPressure;
       uniform sampler2D uDivergence;
       void main () {
@@ -368,11 +329,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const gradientSubtractShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       precision mediump sampler2D;
-      varying highp vec2 vUv;
-      varying highp vec2 vL;
-      varying highp vec2 vR;
-      varying highp vec2 vT;
-      varying highp vec2 vB;
+      varying highp vec2 vUv, vL, vR, vT, vB;
       uniform sampler2D uPressure;
       uniform sampler2D uVelocity;
       void main () {
@@ -388,10 +345,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     // ── Particle Shaders ──
 
-    // Advect particles through velocity field (RK2 integration)
+    // Advect particles through velocity field (RK2)
     const advectParticlesShader = compileShader(g.FRAGMENT_SHADER, `
       precision highp float;
-      precision highp int;
       varying vec2 vUv;
       uniform float u_dt;
       uniform vec2 u_pxSize;
@@ -400,13 +356,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       uniform sampler2D u_ages;
       uniform sampler2D u_initialPositions;
 
-      vec2 getWrappedUV(vec2 uv) {
-        return fract(uv);
-      }
-
       void main() {
-        int age = int(texture2D(u_ages, vUv).x);
-        if (age < 1) {
+        float age = texture2D(u_ages, vUv).x;
+        if (age < 1.0) {
           gl_FragColor = texture2D(u_initialPositions, vUv);
           return;
         }
@@ -424,102 +376,99 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
         vec2 position = absolutePosition + previousDisplacement;
 
-        // Forward integrate via RK2
-        vec2 particleUV1 = getWrappedUV(position * u_pxSize);
-        vec2 velocity1 = texture2D(u_velocity, particleUV1).xy;
-        vec2 halfStep = position + velocity1 * 0.5 * u_dt * canvasSize;
-        vec2 particleUV2 = getWrappedUV(halfStep * u_pxSize);
-        vec2 velocity2 = texture2D(u_velocity, particleUV2).xy;
-        vec2 displacement = previousDisplacement + velocity2 * u_dt * canvasSize;
+        // RK2 integration
+        vec2 uv1 = fract(position * u_pxSize);
+        vec2 vel1 = texture2D(u_velocity, uv1).xy;
+        vec2 halfStep = position + vel1 * 0.5 * u_dt * canvasSize;
+        vec2 uv2 = fract(halfStep * u_pxSize);
+        vec2 vel2 = texture2D(u_velocity, uv2).xy;
+        vec2 displacement = previousDisplacement + vel2 * u_dt * canvasSize;
 
         gl_FragColor = vec4(absolutePosition, displacement);
       }
     `)
 
-    // Age particles: increment, reset when > maxAge
+    // Age particles
     const ageParticlesShader = compileShader(g.FRAGMENT_SHADER, `
-      precision mediump float;
-      precision mediump int;
+      precision highp float;
       varying vec2 vUv;
       uniform sampler2D u_ages;
-      uniform int u_maxAge;
+      uniform float u_maxAge;
       void main() {
-        int age = int(texture2D(u_ages, vUv).x) + 1;
-        if (age > u_maxAge) age = 0;
-        gl_FragColor = vec4(float(age), 0.0, 0.0, 0.0);
+        float age = texture2D(u_ages, vUv).x + 1.0;
+        if (age > u_maxAge) age = 0.0;
+        gl_FragColor = vec4(age, 0.0, 0.0, 0.0);
       }
     `)
 
-    // Fade trails: decrement alpha
+    // Fade trails: multiply RGB by decay factor
     const fadeTrailsShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vUv;
       uniform sampler2D u_image;
-      uniform float u_increment;
+      uniform float u_decay;
       void main() {
-        vec4 px = texture2D(u_image, vUv);
-        px.a = clamp(px.a + u_increment, 0.0, 1.0);
-        gl_FragColor = px;
+        vec3 rgb = texture2D(u_image, vUv).rgb;
+        gl_FragColor = vec4(rgb * u_decay, 1.0);
       }
     `)
 
-    // Particle vertex shader: read position from texture, output point
-    const particleVertexShaderSource = compileShader(g.VERTEX_SHADER, `
+    // Particle vertex: read position from texture
+    const particleVS = compileShader(g.VERTEX_SHADER, `
       precision highp float;
       attribute vec2 aParticleUV;
       uniform sampler2D u_positions;
       uniform vec2 u_pxSize;
       varying vec2 vParticleUV;
-      varying vec2 vUV;
+      varying vec2 vScreenUV;
       void main() {
         vParticleUV = aParticleUV;
         vec4 posData = texture2D(u_positions, aParticleUV);
         vec2 position = posData.rg + posData.ba;
-        vUV = position * u_pxSize;
-        // Convert pixel position to clip space
-        vec2 clipPos = vUV * 2.0 - 1.0;
+        vScreenUV = position * u_pxSize;
+        vec2 clipPos = vScreenUV * 2.0 - 1.0;
         gl_Position = vec4(clipPos, 0.0, 1.0);
         gl_PointSize = 1.0;
       }
     `)
 
-    // Particle fragment shader: Osiris purple, velocity-modulated brightness
-    const particleFragmentShaderSource = compileShader(g.FRAGMENT_SHADER, `
+    // Particle fragment: Osiris purple, velocity-modulated, RGB output for additive blending
+    const particleFS = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vParticleUV;
-      varying vec2 vUV;
+      varying vec2 vScreenUV;
       uniform sampler2D u_ages;
       uniform sampler2D u_velocity;
-      uniform int u_maxAge;
+      uniform float u_maxAge;
+      uniform float u_brightness;
       void main() {
-        float age = texture2D(u_ages, vParticleUV).x / float(u_maxAge);
+        float age = texture2D(u_ages, vParticleUV).x / u_maxAge;
+        // Fade in/out at start and end of life
         float opacity = 1.0;
-        if (age < 0.1) {
-          opacity = age / 0.1;
-        }
-        if (age > 0.9) {
-          opacity = 1.0 - (age - 0.9) / 0.1;
-        }
-        vec2 velocity = texture2D(u_velocity, vUV).xy;
-        float multiplier = clamp(length(velocity) * 0.5 + 0.7, 0.0, 1.0);
-        // Osiris purple particle color
-        gl_FragColor = vec4(0.33, 0.17, 0.48, opacity * multiplier);
+        if (age < 0.1) opacity = age / 0.1;
+        if (age > 0.9) opacity = 1.0 - (age - 0.9) / 0.1;
+
+        vec2 velocity = texture2D(u_velocity, vScreenUV).xy;
+        float speed = clamp(length(velocity) * 2.0 + 0.2, 0.0, 1.0);
+
+        float brightness = opacity * speed * u_brightness;
+        // Osiris purple (0.4, 0.15, 0.55)
+        gl_FragColor = vec4(0.4 * brightness, 0.15 * brightness, 0.55 * brightness, 0.0);
       }
     `)
 
-    // Composite trail texture onto screen
+    // Composite: just output trail RGB
     const compositeShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vUv;
       uniform sampler2D u_trail;
       void main() {
-        vec4 trail = texture2D(u_trail, vUv);
-        vec3 color = trail.rgb * trail.a;
+        vec3 color = texture2D(u_trail, vUv).rgb;
         gl_FragColor = vec4(color, 1.0);
       }
     `)
 
-    // ── Blit setup (fullscreen quad) ──
+    // ── Fullscreen quad ──
     const quadBuffer = g.createBuffer()!
     const quadIndexBuffer = g.createBuffer()!
     g.bindBuffer(g.ARRAY_BUFFER, quadBuffer)
@@ -552,7 +501,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.drawElements(g.TRIANGLES, 6, g.UNSIGNED_SHORT, 0)
     }
 
-    // ── Create programs ──
+    // ── Programs ──
     const copyProgram = new Program(baseVertexShader, copyShader)
     const clearProgram = new Program(baseVertexShader, clearShader)
     const splatProgram = new Program(baseVertexShader, splatShader)
@@ -563,12 +512,21 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const pressureProgram = new Program(baseVertexShader, pressureShader)
     const gradientSubtractProgram = new Program(baseVertexShader, gradientSubtractShader)
 
-    // Particle programs
     const advectParticlesProgram = new Program(baseVertexShader, advectParticlesShader)
     const ageParticlesProgram = new Program(baseVertexShader, ageParticlesShader)
     const fadeTrailsProgram = new Program(baseVertexShader, fadeTrailsShader)
-    const renderParticlesProgram = new Program(particleVertexShaderSource, particleFragmentShaderSource)
     const compositeProgram = new Program(baseVertexShader, compositeShader)
+
+    // Particle render program - manually create to force aParticleUV to location 1
+    const particleRenderProgObj = g.createProgram()!
+    g.attachShader(particleRenderProgObj, particleVS)
+    g.attachShader(particleRenderProgObj, particleFS)
+    g.bindAttribLocation(particleRenderProgObj, 1, "aParticleUV")
+    g.linkProgram(particleRenderProgObj)
+    if (!g.getProgramParameter(particleRenderProgObj, g.LINK_STATUS))
+      console.trace(g.getProgramInfoLog(particleRenderProgObj))
+    const particleRenderUniforms = getUniforms(particleRenderProgObj)
+    const PARTICLE_ATTRIB_LOC = 1
 
     // ── FBO helpers ──
     function createFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number) {
@@ -624,14 +582,11 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       if (target.width === w && target.height === h) return target
       target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param)
       target.write = createFBO(w, h, internalFormat, format, type, param)
-      target.width = w
-      target.height = h
-      target.texelSizeX = 1.0 / w
-      target.texelSizeY = 1.0 / h
+      target.width = w; target.height = h
+      target.texelSizeX = 1.0 / w; target.texelSizeY = 1.0 / h
       return target
     }
 
-    // Create FBO with initial data
     function createDataFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, data: Float32Array) {
       g.activeTexture(g.TEXTURE0)
       const texture = g.createTexture()!
@@ -640,12 +595,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, param)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE)
       g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE)
-
-      if (isWebGL2) {
-        (g as WebGL2RenderingContext).texImage2D(g.TEXTURE_2D, 0, internalFormat, w, h, 0, format, g.FLOAT, data)
-      } else {
-        g.texImage2D(g.TEXTURE_2D, 0, internalFormat, w, h, 0, format, g.FLOAT, data)
-      }
+      g.texImage2D(g.TEXTURE_2D, 0, internalFormat, w, h, 0, format, type, data)
 
       const fbo = g.createFramebuffer()!
       g.bindFramebuffer(g.FRAMEBUFFER, fbo)
@@ -662,7 +612,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     }
 
-    // ── Fluid Framebuffers ──
+    // ── Fluid framebuffers ──
     let velocity: any, divergenceFBO: any, curlFBO: any, pressure: any
 
     function getResolution(resolution: number) {
@@ -680,7 +630,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       const rg = formatRG!
       const r = formatR!
       const filtering = supportLinearFiltering ? g.LINEAR : g.NEAREST
-
       g.disable(g.BLEND)
 
       if (!velocity)
@@ -695,48 +644,37 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     initFluidFramebuffers()
 
-    // ── Particle System Setup ──
+    // ── Particle system ──
     const numParticles = Math.min(
       Math.floor(PARTICLE_DENSITY * canvas.width * canvas.height),
       MAX_NUM_PARTICLES
     )
     const particleTexSize = Math.ceil(Math.sqrt(numParticles))
 
-    // Need FLOAT textures for particle data (writing from CPU)
-    // Use RGBA32F for WebGL2
     const floatTexType = g.FLOAT
-    g.getExtension("OES_texture_float")
     const floatFormatRGBA = isWebGL2
       ? { internalFormat: (g as WebGL2RenderingContext).RGBA32F, format: g.RGBA }
       : { internalFormat: g.RGBA, format: g.RGBA }
 
-    // Initialize particle positions (random)
     function makeRandomPositions() {
       const data = new Float32Array(particleTexSize * particleTexSize * 4)
-      const cw = canvas.width
-      const ch = canvas.height
       for (let i = 0; i < particleTexSize * particleTexSize; i++) {
-        data[i * 4 + 0] = Math.random() * cw     // absolute X
-        data[i * 4 + 1] = Math.random() * ch     // absolute Y
-        data[i * 4 + 2] = 0                       // displacement X
-        data[i * 4 + 3] = 0                       // displacement Y
-      }
-      return data
-    }
-
-    // Initialize particle ages (random so they don't all die at once)
-    function makeRandomAges() {
-      const data = new Float32Array(particleTexSize * particleTexSize * 4)
-      for (let i = 0; i < particleTexSize * particleTexSize; i++) {
-        data[i * 4 + 0] = Math.floor(Math.random() * PARTICLE_LIFETIME)
-        data[i * 4 + 1] = 0
+        data[i * 4 + 0] = Math.random() * canvas.width
+        data[i * 4 + 1] = Math.random() * canvas.height
         data[i * 4 + 2] = 0
         data[i * 4 + 3] = 0
       }
       return data
     }
 
-    // Particle double FBOs via closured lets
+    function makeRandomAges() {
+      const data = new Float32Array(particleTexSize * particleTexSize * 4)
+      for (let i = 0; i < particleTexSize * particleTexSize; i++) {
+        data[i * 4 + 0] = Math.floor(Math.random() * PARTICLE_LIFETIME)
+      }
+      return data
+    }
+
     let particlePosRead = createDataFBO(particleTexSize, particleTexSize, floatFormatRGBA.internalFormat, floatFormatRGBA.format, floatTexType, g.NEAREST, makeRandomPositions())
     let particlePosWrite = createDataFBO(particleTexSize, particleTexSize, floatFormatRGBA.internalFormat, floatFormatRGBA.format, floatTexType, g.NEAREST, makeRandomPositions())
 
@@ -745,7 +683,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     const initialPositionsFBO = createDataFBO(particleTexSize, particleTexSize, floatFormatRGBA.internalFormat, floatFormatRGBA.format, floatTexType, g.NEAREST, makeRandomPositions())
 
-    // Trail texture at canvas resolution
+    // Trail texture
     const rgba = formatRGBA!
     let trailRead = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
     let trailWrite = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
@@ -763,12 +701,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     g.bindBuffer(g.ARRAY_BUFFER, particleUVBuffer)
     g.bufferData(g.ARRAY_BUFFER, particleUVs, g.STATIC_DRAW)
 
-    // ── Color generation ──
-    function generateColor() {
-      return { r: 0.024, g: 0, b: 0.024 }
-    }
-
-    // ── Splat functions (velocity only) ──
+    // ── Splat functions ──
     function splat(x: number, y: number, dx: number, dy: number) {
       splatProgram.bind()
       g.uniform1i(splatProgram.uniforms.uTarget, velocity.read.attach(0))
@@ -802,7 +735,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       return radius
     }
 
-    // ── Navier-Stokes simulation step ──
+    // ── Navier-Stokes step ──
     function step(dt: number) {
       g.disable(g.BLEND)
       bindQuad()
@@ -869,25 +802,20 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       // 1. Age particles
       ageParticlesProgram.bind()
       g.uniform1i(ageParticlesProgram.uniforms.u_ages, particleAgeRead.attach(0))
-      g.uniform1i(ageParticlesProgram.uniforms.u_maxAge, PARTICLE_LIFETIME)
+      g.uniform1f(ageParticlesProgram.uniforms.u_maxAge, PARTICLE_LIFETIME)
       blit(particleAgeWrite)
-      // swap
-      const tmpAge = particleAgeRead
-      particleAgeRead = particleAgeWrite
-      particleAgeWrite = tmpAge
+      const tmpAge = particleAgeRead; particleAgeRead = particleAgeWrite; particleAgeWrite = tmpAge
 
-      // 2. Fade trails
+      // 2. Fade trails: multiply RGB by decay factor
       fadeTrailsProgram.bind()
       g.uniform1i(fadeTrailsProgram.uniforms.u_image, trailRead.attach(0))
-      g.uniform1f(fadeTrailsProgram.uniforms.u_increment, -1.0 / TRAIL_LIFETIME)
+      g.uniform1f(fadeTrailsProgram.uniforms.u_decay, TRAIL_DECAY)
       blit(trailWrite)
-      const tmpTrail = trailRead
-      trailRead = trailWrite
-      trailWrite = tmpTrail
+      const tmpTrail = trailRead; trailRead = trailWrite; trailWrite = tmpTrail
 
-      // 3. Advect + render particles (multiple sub-steps)
+      // 3. Advect + render particles
       for (let s = 0; s < NUM_RENDER_STEPS; s++) {
-        // Advect particles through velocity field
+        // Advect
         g.disable(g.BLEND)
         bindQuad()
         advectParticlesProgram.bind()
@@ -898,31 +826,29 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         g.uniform1i(advectParticlesProgram.uniforms.u_ages, particleAgeRead.attach(2))
         g.uniform1i(advectParticlesProgram.uniforms.u_initialPositions, initialPositionsFBO.attach(3))
         blit(particlePosWrite)
-        const tmpPos = particlePosRead
-        particlePosRead = particlePosWrite
-        particlePosWrite = tmpPos
+        const tmpPos = particlePosRead; particlePosRead = particlePosWrite; particlePosWrite = tmpPos
 
-        // Render particles as points to trail texture
+        // Render particles as points to trail (pure additive: ONE, ONE)
         g.enable(g.BLEND)
-        g.blendFunc(g.SRC_ALPHA, g.ONE) // additive blending
+        g.blendFunc(g.ONE, g.ONE)
 
         g.bindFramebuffer(g.FRAMEBUFFER, trailRead.fbo)
         g.viewport(0, 0, trailRead.width, trailRead.height)
 
-        renderParticlesProgram.bind()
-        g.uniform1i(renderParticlesProgram.uniforms.u_positions, particlePosRead.attach(0))
-        g.uniform2f(renderParticlesProgram.uniforms.u_pxSize, 1.0 / canvas.width, 1.0 / canvas.height)
-        g.uniform1i(renderParticlesProgram.uniforms.u_ages, particleAgeRead.attach(1))
-        g.uniform1i(renderParticlesProgram.uniforms.u_velocity, velocity.read.attach(2))
-        g.uniform1i(renderParticlesProgram.uniforms.u_maxAge, PARTICLE_LIFETIME)
+        g.useProgram(particleRenderProgObj)
+        g.uniform1i(particleRenderUniforms.u_positions, particlePosRead.attach(0))
+        g.uniform2f(particleRenderUniforms.u_pxSize, 1.0 / canvas.width, 1.0 / canvas.height)
+        g.uniform1i(particleRenderUniforms.u_ages, particleAgeRead.attach(1))
+        g.uniform1i(particleRenderUniforms.u_velocity, velocity.read.attach(2))
+        g.uniform1f(particleRenderUniforms.u_maxAge, PARTICLE_LIFETIME)
+        g.uniform1f(particleRenderUniforms.u_brightness, PARTICLE_BRIGHTNESS)
 
-        // Bind particle UV buffer and draw points
+        // Bind particle UV buffer at location 1
         g.bindBuffer(g.ARRAY_BUFFER, particleUVBuffer)
-        const aParticleUV = g.getAttribLocation(renderParticlesProgram.program, "aParticleUV")
-        g.enableVertexAttribArray(aParticleUV)
-        g.vertexAttribPointer(aParticleUV, 2, g.FLOAT, false, 0, 0)
+        g.enableVertexAttribArray(PARTICLE_ATTRIB_LOC)
+        g.vertexAttribPointer(PARTICLE_ATTRIB_LOC, 2, g.FLOAT, false, 0, 0)
         g.drawArrays(g.POINTS, 0, particleTexSize * particleTexSize)
-        g.disableVertexAttribArray(aParticleUV)
+        g.disableVertexAttribArray(PARTICLE_ATTRIB_LOC)
 
         g.disable(g.BLEND)
       }
@@ -930,76 +856,35 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     // ── Render to screen ──
     function render() {
-      // Draw black background
-      g.bindFramebuffer(g.FRAMEBUFFER, null)
-      g.viewport(0, 0, g.drawingBufferWidth, g.drawingBufferHeight)
-      g.clearColor(0.0, 0.0, 0.0, 1.0)
-      g.clear(g.COLOR_BUFFER_BIT)
-
-      // Composite trail texture onto screen
-      g.enable(g.BLEND)
-      g.blendFunc(g.SRC_ALPHA, g.ONE_MINUS_SRC_ALPHA)
-
+      g.disable(g.BLEND)
       bindQuad()
       compositeProgram.bind()
       g.uniform1i(compositeProgram.uniforms.u_trail, trailRead.attach(0))
-      g.bindFramebuffer(g.FRAMEBUFFER, null)
-      g.viewport(0, 0, g.drawingBufferWidth, g.drawingBufferHeight)
-      g.drawElements(g.TRIANGLES, 6, g.UNSIGNED_SHORT, 0)
-
-      g.disable(g.BLEND)
+      blit(null, true)
     }
 
-    // ── Utility ──
+    // ── Input handling ──
     function correctDeltaX(delta: number) {
-      const aspectRatio = canvas.width / canvas.height
-      if (aspectRatio < 1) delta *= aspectRatio
+      const a = canvas.width / canvas.height
+      if (a < 1) delta *= a
       return delta
     }
 
     function correctDeltaY(delta: number) {
-      const aspectRatio = canvas.width / canvas.height
-      if (aspectRatio > 1) delta /= aspectRatio
+      const a = canvas.width / canvas.height
+      if (a > 1) delta /= a
       return delta
     }
 
     function resizeCanvas() {
-      const width = scaleByPixelRatio(canvas.clientWidth)
-      const height = scaleByPixelRatio(canvas.clientHeight)
+      const width = canvas.clientWidth
+      const height = canvas.clientHeight
       if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width
         canvas.height = height
         return true
       }
       return false
-    }
-
-    // ── Input handling ──
-    function updatePointerDownData(pointer: Pointer, id: number, posX: number, posY: number) {
-      pointer.id = id
-      pointer.down = true
-      pointer.moved = false
-      pointer.texcoordX = posX / canvas.width
-      pointer.texcoordY = 1.0 - posY / canvas.height
-      pointer.prevTexcoordX = pointer.texcoordX
-      pointer.prevTexcoordY = pointer.texcoordY
-      pointer.deltaX = 0
-      pointer.deltaY = 0
-      pointer.color = generateColor()
-    }
-
-    function updatePointerMoveData(pointer: Pointer, posX: number, posY: number) {
-      pointer.prevTexcoordX = pointer.texcoordX
-      pointer.prevTexcoordY = pointer.texcoordY
-      pointer.texcoordX = posX / canvas.width
-      pointer.texcoordY = 1.0 - posY / canvas.height
-      pointer.deltaX = correctDeltaX(pointer.texcoordX - pointer.prevTexcoordX)
-      pointer.deltaY = correctDeltaY(pointer.texcoordY - pointer.prevTexcoordY)
-      pointer.moved = Math.abs(pointer.deltaX) > 0 || Math.abs(pointer.deltaY) > 0
-    }
-
-    function updatePointerUpData(pointer: Pointer) {
-      pointer.down = false
     }
 
     function getCanvasRelativePos(clientX: number, clientY: number) {
@@ -1014,34 +899,39 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const onMouseDown = (e: MouseEvent) => {
       const { x, y, inBounds } = getCanvasRelativePos(e.clientX, e.clientY)
       if (!inBounds) return
-      const target = e.target as HTMLElement
-      if (target.closest("[data-no-splat], aside, button, textarea, input, a")) return
-      const posX = scaleByPixelRatio(x)
-      const posY = scaleByPixelRatio(y)
-      updatePointerDownData(pointers[0], -1, posX, posY)
+      if ((e.target as HTMLElement).closest("[data-no-splat], aside, button, textarea, input, a")) return
+      pointers[0].id = -1
+      pointers[0].down = true
+      pointers[0].moved = false
+      pointers[0].texcoordX = x / canvas.width
+      pointers[0].texcoordY = 1.0 - y / canvas.height
+      pointers[0].prevTexcoordX = pointers[0].texcoordX
+      pointers[0].prevTexcoordY = pointers[0].texcoordY
+      pointers[0].deltaX = 0
+      pointers[0].deltaY = 0
       splatStack.push(Math.floor(Math.random() * 3) + 2)
     }
 
     const onMouseMove = (e: MouseEvent) => {
       const { x, y, inBounds } = getCanvasRelativePos(e.clientX, e.clientY)
       if (!inBounds) {
-        if (pointers[0].down) updatePointerUpData(pointers[0])
+        if (pointers[0].down) pointers[0].down = false
         return
       }
-      const posX = scaleByPixelRatio(x)
-      const posY = scaleByPixelRatio(y)
       if (!pointers[0].down) {
-        pointers[0].texcoordX = posX / canvas.width
-        pointers[0].texcoordY = 1.0 - posY / canvas.height
+        pointers[0].texcoordX = x / canvas.width
+        pointers[0].texcoordY = 1.0 - y / canvas.height
         pointers[0].prevTexcoordX = pointers[0].texcoordX
         pointers[0].prevTexcoordY = pointers[0].texcoordY
         pointers[0].down = true
       }
-      updatePointerMoveData(pointers[0], posX, posY)
-    }
-
-    const onMouseUp = () => {
-      // Don't set down=false so hovering continues to create splats
+      pointers[0].prevTexcoordX = pointers[0].texcoordX
+      pointers[0].prevTexcoordY = pointers[0].texcoordY
+      pointers[0].texcoordX = x / canvas.width
+      pointers[0].texcoordY = 1.0 - y / canvas.height
+      pointers[0].deltaX = correctDeltaX(pointers[0].texcoordX - pointers[0].prevTexcoordX)
+      pointers[0].deltaY = correctDeltaY(pointers[0].texcoordY - pointers[0].prevTexcoordY)
+      pointers[0].moved = Math.abs(pointers[0].deltaX) > 0 || Math.abs(pointers[0].deltaY) > 0
     }
 
     const onTouchStart = (e: TouchEvent) => {
@@ -1050,35 +940,42 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       while (touches.length >= pointers.length) pointers.push(new Pointer())
       for (let i = 0; i < touches.length; i++) {
         const { x, y } = getCanvasRelativePos(touches[i].clientX, touches[i].clientY)
-        const posX = scaleByPixelRatio(x)
-        const posY = scaleByPixelRatio(y)
-        updatePointerDownData(pointers[i + 1], touches[i].identifier, posX, posY)
+        const p = pointers[i + 1]
+        p.id = touches[i].identifier
+        p.down = true; p.moved = false
+        p.texcoordX = x / canvas.width
+        p.texcoordY = 1.0 - y / canvas.height
+        p.prevTexcoordX = p.texcoordX
+        p.prevTexcoordY = p.texcoordY
+        p.deltaX = 0; p.deltaY = 0
       }
     }
 
     const onTouchMove = (e: TouchEvent) => {
       const touches = e.touches
       for (let i = 0; i < touches.length; i++) {
-        const pointer = pointers[i + 1]
-        if (!pointer?.down) continue
+        const p = pointers[i + 1]
+        if (!p?.down) continue
         const { x, y } = getCanvasRelativePos(touches[i].clientX, touches[i].clientY)
-        const posX = scaleByPixelRatio(x)
-        const posY = scaleByPixelRatio(y)
-        updatePointerMoveData(pointer, posX, posY)
+        p.prevTexcoordX = p.texcoordX
+        p.prevTexcoordY = p.texcoordY
+        p.texcoordX = x / canvas.width
+        p.texcoordY = 1.0 - y / canvas.height
+        p.deltaX = correctDeltaX(p.texcoordX - p.prevTexcoordX)
+        p.deltaY = correctDeltaY(p.texcoordY - p.prevTexcoordY)
+        p.moved = Math.abs(p.deltaX) > 0 || Math.abs(p.deltaY) > 0
       }
     }
 
     const onTouchEnd = (e: TouchEvent) => {
-      const touches = e.changedTouches
-      for (let i = 0; i < touches.length; i++) {
-        const pointer = pointers.find((p) => p.id === touches[i].identifier)
-        if (pointer) updatePointerUpData(pointer)
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const pointer = pointers.find((p) => p.id === e.changedTouches[i].identifier)
+        if (pointer) pointer.down = false
       }
     }
 
     window.addEventListener("mousedown", onMouseDown)
     window.addEventListener("mousemove", onMouseMove)
-    window.addEventListener("mouseup", onMouseUp)
     window.addEventListener("touchstart", onTouchStart, { passive: true })
     window.addEventListener("touchmove", onTouchMove, { passive: true })
     window.addEventListener("touchend", onTouchEnd)
@@ -1095,18 +992,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
       if (resizeCanvas()) {
         initFluidFramebuffers()
-        // Recreate trail textures at new size
         trailRead = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
         trailWrite = createFBO(canvas.width, canvas.height, rgba.internalFormat, rgba.format, halfFloatTexType, g.LINEAR)
       }
 
-      // Apply pointer inputs
       if (splatStack.length > 0) multipleSplats(splatStack.pop()!)
       pointers.forEach((p) => {
-        if (p.moved) {
-          p.moved = false
-          splatPointer(p)
-        }
+        if (p.moved) { p.moved = false; splatPointer(p) }
       })
 
       step(dt)
@@ -1116,16 +1008,14 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       animFrame = requestAnimationFrame(update)
     }
 
-    // Initial splats to get some motion going
+    // Initial splats
     splatStack.push(5)
     update()
 
-    // ── Cleanup ──
     return () => {
       cancelAnimationFrame(animFrame)
       window.removeEventListener("mousedown", onMouseDown)
       window.removeEventListener("mousemove", onMouseMove)
-      window.removeEventListener("mouseup", onMouseUp)
       window.removeEventListener("touchstart", onTouchStart)
       window.removeEventListener("touchmove", onTouchMove)
       window.removeEventListener("touchend", onTouchEnd)
