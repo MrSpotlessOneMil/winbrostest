@@ -27,14 +27,17 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     const config = {
       SIM_RESOLUTION: 128,
-      VELOCITY_DISSIPATION: 1.5,
+      VELOCITY_DISSIPATION: 0.3,
       PRESSURE: 0.13,
       PRESSURE_ITERATIONS: 20,
       CURL: 30,
       SPLAT_RADIUS: 0.25,
       SPLAT_FORCE: 6000,
       VECTOR_SPACING: 10,
-      VECTOR_SCALE: 0.8,
+      VECTOR_SCALE: 0.06,
+      AMBIENT_INTERVAL: 3000,
+      AMBIENT_FORCE: 400,
+      AMBIENT_RADIUS: 0.4,
     }
 
     class Pointer {
@@ -374,7 +377,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       flat in float v_speed;
       out vec4 fragColor;
       void main() {
-        float alpha = clamp(v_speed * 0.15 + 0.08, 0.0, 0.85);
+        float alpha = clamp(v_speed * 0.012 + 0.15, 0.0, 0.7);
         fragColor = vec4(u_color * alpha, alpha);
       }
     `)
@@ -722,8 +725,26 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     window.addEventListener("touchmove", onTouchMove, { passive: true })
     window.addEventListener("touchend", onTouchEnd)
 
+    // ── Ambient splats — gentle periodic forcing for "grass in wind" effect ──
+    function ambientSplat() {
+      const x = Math.random()
+      const y = Math.random()
+      const angle = Math.random() * Math.PI * 2
+      const dx = Math.cos(angle) * config.AMBIENT_FORCE
+      const dy = Math.sin(angle) * config.AMBIENT_FORCE
+      splatProgram.bind()
+      g.uniform1i(splatProgram.uniforms.uTarget, velocity.read.attach(0))
+      g.uniform1f(splatProgram.uniforms.aspectRatio, canvas.width / canvas.height)
+      g.uniform2f(splatProgram.uniforms.point, x, y)
+      g.uniform3f(splatProgram.uniforms.color, dx, dy, 0.0)
+      g.uniform1f(splatProgram.uniforms.radius, correctRadius(config.AMBIENT_RADIUS / 100.0))
+      blit(velocity.write)
+      velocity.swap()
+    }
+
     // ── Main loop ──
     let lastUpdateTime = Date.now()
+    let lastAmbientTime = Date.now()
     let animFrame = 0
 
     function update() {
@@ -734,6 +755,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
       if (resizeCanvas()) {
         initFluidFramebuffers()
+      }
+
+      // Periodic ambient splats to keep the field alive
+      if (now - lastAmbientTime > config.AMBIENT_INTERVAL) {
+        lastAmbientTime = now
+        const count = Math.floor(Math.random() * 2) + 2
+        for (let i = 0; i < count; i++) ambientSplat()
       }
 
       if (splatStack.length > 0) multipleSplats(splatStack.pop()!)
