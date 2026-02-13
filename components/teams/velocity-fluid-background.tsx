@@ -2,10 +2,11 @@
 
 /*
  * WebGL2 Velocity Vector Field Visualization
- * Navier-Stokes fluid sim + vector field rendering (GL_LINES).
- * Matches gpu-io "Velocity" display mode: short line segments show
- * velocity direction/magnitude at a grid of sample points.
- * Purple on black, Osiris brand.
+ * Navier-Stokes fluid sim matching gpu-io/examples/fluid exactly.
+ * Pipeline: advect → divergence → jacobi pressure → gradient subtract.
+ * No curl/vorticity, no dissipation, no pressure clearing.
+ * Velocity in canvas-pixel units, REPEAT wrap on all state textures.
+ * Rendered as GL_LINES vector field (gpu-io "Velocity" mode).
  */
 
 import { useEffect, useRef } from "react"
@@ -25,18 +26,15 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     canvas.width = canvas.clientWidth
     canvas.height = canvas.clientHeight
 
-    const config = {
-      SIM_RESOLUTION: 128,
-      VELOCITY_DISSIPATION: 0,
-      PRESSURE: 0.13,
-      PRESSURE_ITERATIONS: 3,
-      CURL: 30,
-      SPLAT_RADIUS: 0.25,
-      SPLAT_FORCE: 6000,
-      VECTOR_SPACING: 10,
-      VECTOR_SCALE: 0.5,
-      MAX_VELOCITY: 60,
-    }
+    const VELOCITY_SCALE_FACTOR = 8
+    const NUM_JACOBI_STEPS = 3
+    const PRESSURE_CALC_ALPHA = -1
+    const PRESSURE_CALC_BETA = 0.25
+    const MAX_VELOCITY = 30
+    const SPLAT_RADIUS = 0.0025
+    const SPLAT_FORCE = 800
+    const VECTOR_SPACING = 10
+    const VECTOR_SCALE = 2.5
 
     class Pointer {
       id = -1; texcoordX = 0; texcoordY = 0
@@ -48,61 +46,19 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const pointers: Pointer[] = [new Pointer()]
     const splatStack: number[] = []
 
-    // ── WebGL2 Context (required for gl_VertexID) ──
+    // ── WebGL2 Context ──
     const params = { alpha: true, depth: false, stencil: false, antialias: false, preserveDrawingBuffer: false }
     const gl = canvas.getContext("webgl2", params) as WebGL2RenderingContext | null
     if (!gl) return
     const g = gl
 
     g.getExtension("EXT_color_buffer_float")
-    const supportLinearFiltering = g.getExtension("OES_texture_float_linear")
+    g.getExtension("OES_texture_float_linear")
     g.getExtension("OES_texture_float")
-
     g.clearColor(0.0, 0.0, 0.0, 1.0)
 
-    const halfFloatTexType = g.HALF_FLOAT
-
-    type TexFormat = { internalFormat: number; format: number } | null
-
-    function getSupportedFormat(internalFormat: number, format: number, type: number): TexFormat {
-      if (!supportRenderTextureFormat(internalFormat, format, type)) {
-        switch (internalFormat) {
-          case g.R16F: return getSupportedFormat(g.RG16F, g.RG, type)
-          case g.RG16F: return getSupportedFormat(g.RGBA16F, g.RGBA, type)
-          default: return null
-        }
-      }
-      return { internalFormat, format }
-    }
-
-    function supportRenderTextureFormat(internalFormat: number, format: number, type: number) {
-      const texture = g.createTexture()
-      g.bindTexture(g.TEXTURE_2D, texture)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MIN_FILTER, g.NEAREST)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_MAG_FILTER, g.NEAREST)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_S, g.CLAMP_TO_EDGE)
-      g.texParameteri(g.TEXTURE_2D, g.TEXTURE_WRAP_T, g.CLAMP_TO_EDGE)
-      g.texImage2D(g.TEXTURE_2D, 0, internalFormat, 4, 4, 0, format, type, null)
-      const fbo = g.createFramebuffer()
-      g.bindFramebuffer(g.FRAMEBUFFER, fbo)
-      g.framebufferTexture2D(g.FRAMEBUFFER, g.COLOR_ATTACHMENT0, g.TEXTURE_2D, texture, 0)
-      const status = g.checkFramebufferStatus(g.FRAMEBUFFER)
-      g.deleteTexture(texture)
-      g.deleteFramebuffer(fbo)
-      g.bindFramebuffer(g.FRAMEBUFFER, null)
-      return status === g.FRAMEBUFFER_COMPLETE
-    }
-
-    const formatRG = getSupportedFormat(g.RG16F, g.RG, halfFloatTexType)
-    const formatR = getSupportedFormat(g.R16F, g.RED, halfFloatTexType)
-
     // ── Shader helpers ──
-    function compileShader(type: number, source: string, keywords?: string[] | null) {
-      if (keywords) {
-        let defs = ""
-        keywords.forEach((k) => { defs += "#define " + k + "\n" })
-        source = defs + source
-      }
+    function compileShader(type: number, source: string) {
       const shader = g.createShader(type)!
       g.shaderSource(shader, source)
       g.compileShader(shader)
@@ -136,7 +92,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       bind() { g.useProgram(this.program) }
     }
 
-    // ── VAOs for clean state management ──
+    // ── VAOs ──
     const quadVAO = g.createVertexArray()!
     g.bindVertexArray(quadVAO)
     const quadBuffer = g.createBuffer()!
@@ -149,7 +105,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     g.enableVertexAttribArray(0)
     g.bindVertexArray(null)
 
-    // Empty VAO for vector field (uses gl_VertexID, no attribs)
     const emptyVAO = g.createVertexArray()!
 
     function blit(target: any, clear = false) {
@@ -169,43 +124,28 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.bindVertexArray(null)
     }
 
-    // ── Navier-Stokes Shaders (GLSL 100 for blit programs) ──
+    // ── Shaders — matching gpu-io/examples/fluid exactly ──
+
     const baseVertexShader = compileShader(g.VERTEX_SHADER, `
       precision highp float;
       attribute vec2 aPosition;
       varying vec2 vUv;
-      varying vec2 vL, vR, vT, vB;
-      uniform vec2 texelSize;
       void main () {
         vUv = aPosition * 0.5 + 0.5;
-        vL = vUv - vec2(texelSize.x, 0.0);
-        vR = vUv + vec2(texelSize.x, 0.0);
-        vT = vUv + vec2(0.0, texelSize.y);
-        vB = vUv - vec2(0.0, texelSize.y);
         gl_Position = vec4(aPosition, 0.0, 1.0);
       }
     `)
 
     const copyShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv;
+      varying vec2 vUv;
       uniform sampler2D uTexture;
       void main () { gl_FragColor = texture2D(uTexture, vUv); }
     `)
 
-    const clearShader = compileShader(g.FRAGMENT_SHADER, `
-      precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv;
-      uniform sampler2D uTexture;
-      uniform float value;
-      void main () { gl_FragColor = value * texture2D(uTexture, vUv); }
-    `)
-
+    // Splat: Gaussian velocity injection
     const splatShader = compileShader(g.FRAGMENT_SHADER, `
       precision highp float;
-      precision highp sampler2D;
       varying vec2 vUv;
       uniform sampler2D uTarget;
       uniform float aspectRatio;
@@ -217,138 +157,78 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         p.x *= aspectRatio;
         vec3 splat = exp(-dot(p, p) / radius) * color;
         vec3 base = texture2D(uTarget, vUv).xyz;
-        gl_FragColor = vec4(base + splat, 1.0);
+        // Clamp velocity magnitude to MAX_VELOCITY
+        vec2 v = base.xy + splat.xy;
+        float mag = length(v);
+        if (mag > ${MAX_VELOCITY.toFixed(1)}) v *= ${MAX_VELOCITY.toFixed(1)} / mag;
+        gl_FragColor = vec4(v, 0.0, 1.0);
       }
     `)
 
+    // Advection: exactly matches repo — no dt, no dissipation
+    // vel is in canvas-pixel units, divided by canvas dimensions to get UV offset
     const advectionShader = compileShader(g.FRAGMENT_SHADER, `
       precision highp float;
-      precision highp sampler2D;
       varying vec2 vUv;
       uniform sampler2D uVelocity;
       uniform sampler2D uSource;
-      uniform vec2 texelSize;
-      uniform vec2 dyeTexelSize;
-      uniform float dt;
-      uniform float dissipation;
-      vec4 bilerp (sampler2D sam, vec2 uv, vec2 tsize) {
-        vec2 st = uv / tsize - 0.5;
-        vec2 iuv = floor(st);
-        vec2 fuv = fract(st);
-        vec4 a = texture2D(sam, (iuv + vec2(0.5, 0.5)) * tsize);
-        vec4 b = texture2D(sam, (iuv + vec2(1.5, 0.5)) * tsize);
-        vec4 c = texture2D(sam, (iuv + vec2(0.5, 1.5)) * tsize);
-        vec4 d = texture2D(sam, (iuv + vec2(1.5, 1.5)) * tsize);
-        return mix(mix(a, b, fuv.x), mix(c, d, fuv.x), fuv.y);
-      }
+      uniform vec2 uDimensions;
       void main () {
-        #ifdef MANUAL_FILTERING
-          vec2 coord = vUv - dt * bilerp(uVelocity, vUv, texelSize).xy * texelSize;
-          vec4 result = bilerp(uSource, coord, dyeTexelSize);
-        #else
-          vec2 coord = vUv - dt * texture2D(uVelocity, vUv).xy * texelSize;
-          vec4 result = texture2D(uSource, coord);
-        #endif
-        float decay = 1.0 + dissipation * dt;
-        vec2 v = result.xy / decay;
-        float mag = length(v);
-        if (mag > 60.0) v *= 60.0 / mag;
-        gl_FragColor = vec4(v, 0.0, 1.0);
+        vec2 vel = texture2D(uVelocity, vUv).xy;
+        vec2 coord = vUv - vel / uDimensions;
+        gl_FragColor = texture2D(uSource, coord);
       }
-    `, supportLinearFiltering ? null : ["MANUAL_FILTERING"])
+    `)
 
+    // Divergence: simple central differences, no boundary conditions (REPEAT handles edges)
     const divergenceShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv, vL, vR, vT, vB;
+      varying vec2 vUv;
       uniform sampler2D uVelocity;
+      uniform vec2 uPxSize;
       void main () {
-        float L = texture2D(uVelocity, vL).x;
-        float R = texture2D(uVelocity, vR).x;
-        float T = texture2D(uVelocity, vT).y;
-        float B = texture2D(uVelocity, vB).y;
-        vec2 C = texture2D(uVelocity, vUv).xy;
-        if (vL.x < 0.0) L = -C.x;
-        if (vR.x > 1.0) R = -C.x;
-        if (vT.y > 1.0) T = -C.y;
-        if (vB.y < 0.0) B = -C.y;
-        float div = 0.5 * (R - L + T - B);
+        float n = texture2D(uVelocity, vUv + vec2(0.0, uPxSize.y)).y;
+        float s = texture2D(uVelocity, vUv - vec2(0.0, uPxSize.y)).y;
+        float e = texture2D(uVelocity, vUv + vec2(uPxSize.x, 0.0)).x;
+        float w = texture2D(uVelocity, vUv - vec2(uPxSize.x, 0.0)).x;
+        float div = 0.5 * (e - w + n - s);
         gl_FragColor = vec4(div, 0.0, 0.0, 1.0);
       }
     `)
 
-    const curlShader = compileShader(g.FRAGMENT_SHADER, `
-      precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv, vL, vR, vT, vB;
-      uniform sampler2D uVelocity;
-      void main () {
-        float L = texture2D(uVelocity, vL).y;
-        float R = texture2D(uVelocity, vR).y;
-        float T = texture2D(uVelocity, vT).x;
-        float B = texture2D(uVelocity, vB).x;
-        float vorticity = R - L - T + B;
-        gl_FragColor = vec4(0.5 * vorticity, 0.0, 0.0, 1.0);
-      }
-    `)
-
-    const vorticityShader = compileShader(g.FRAGMENT_SHADER, `
-      precision highp float;
-      precision highp sampler2D;
-      varying vec2 vUv, vL, vR, vT, vB;
-      uniform sampler2D uVelocity;
-      uniform sampler2D uCurl;
-      uniform float curl;
-      uniform float dt;
-      void main () {
-        float L = texture2D(uCurl, vL).x;
-        float R = texture2D(uCurl, vR).x;
-        float T = texture2D(uCurl, vT).x;
-        float B = texture2D(uCurl, vB).x;
-        float C = texture2D(uCurl, vUv).x;
-        vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
-        force /= length(force) + 0.0001;
-        force *= curl * C;
-        force.y *= -1.0;
-        vec2 velocity = texture2D(uVelocity, vUv).xy;
-        velocity += force * dt;
-        float mag = length(velocity);
-        if (mag > 60.0) velocity *= 60.0 / mag;
-        gl_FragColor = vec4(velocity, 0.0, 1.0);
-      }
-    `)
-
+    // Jacobi pressure solver: α=-1, β=0.25
     const pressureShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv, vL, vR, vT, vB;
+      varying vec2 vUv;
       uniform sampler2D uPressure;
       uniform sampler2D uDivergence;
+      uniform vec2 uPxSize;
       void main () {
-        float L = texture2D(uPressure, vL).x;
-        float R = texture2D(uPressure, vR).x;
-        float T = texture2D(uPressure, vT).x;
-        float B = texture2D(uPressure, vB).x;
-        float divergence = texture2D(uDivergence, vUv).x;
-        float pressure = (L + R + B + T - divergence) * 0.25;
-        gl_FragColor = vec4(pressure, 0.0, 0.0, 1.0);
+        vec4 n = texture2D(uPressure, vUv + vec2(0.0, uPxSize.y));
+        vec4 s = texture2D(uPressure, vUv - vec2(0.0, uPxSize.y));
+        vec4 e = texture2D(uPressure, vUv + vec2(uPxSize.x, 0.0));
+        vec4 w = texture2D(uPressure, vUv - vec2(uPxSize.x, 0.0));
+        vec4 d = texture2D(uDivergence, vUv);
+        gl_FragColor = (n + s + e + w + ${PRESSURE_CALC_ALPHA.toFixed(1)} * d) * ${PRESSURE_CALC_BETA.toFixed(4)};
       }
     `)
 
+    // Gradient subtraction: vel -= 0.5 * grad(pressure), then clamp magnitude
     const gradientSubtractShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
-      precision mediump sampler2D;
-      varying highp vec2 vUv, vL, vR, vT, vB;
+      varying vec2 vUv;
       uniform sampler2D uPressure;
       uniform sampler2D uVelocity;
+      uniform vec2 uPxSize;
       void main () {
-        float L = texture2D(uPressure, vL).x;
-        float R = texture2D(uPressure, vR).x;
-        float T = texture2D(uPressure, vT).x;
-        float B = texture2D(uPressure, vB).x;
-        vec2 velocity = texture2D(uVelocity, vUv).xy;
-        velocity.xy -= vec2(R - L, T - B);
-        gl_FragColor = vec4(velocity, 0.0, 1.0);
+        float n = texture2D(uPressure, vUv + vec2(0.0, uPxSize.y)).x;
+        float s = texture2D(uPressure, vUv - vec2(0.0, uPxSize.y)).x;
+        float e = texture2D(uPressure, vUv + vec2(uPxSize.x, 0.0)).x;
+        float w = texture2D(uPressure, vUv - vec2(uPxSize.x, 0.0)).x;
+        vec2 vel = texture2D(uVelocity, vUv).xy - 0.5 * vec2(e - w, n - s);
+        float mag = length(vel);
+        if (mag > ${MAX_VELOCITY.toFixed(1)}) vel *= ${MAX_VELOCITY.toFixed(1)} / mag;
+        gl_FragColor = vec4(vel, 0.0, 1.0);
       }
     `)
 
@@ -356,12 +236,12 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const vectorFieldVS = compileShader(g.VERTEX_SHADER, `#version 300 es
       precision highp float;
       uniform sampler2D u_velocity;
-      uniform vec2 u_dimensions;    // grid dimensions (num vectors X, Y)
-      uniform vec2 u_scale;         // velocity scale in UV space
+      uniform vec2 u_dimensions;
+      uniform vec2 u_scale;
       flat out float v_speed;
       void main() {
         int lineIndex = gl_VertexID / 2;
-        int isEnd = gl_VertexID - 2 * lineIndex; // 0 = base, 1 = tip
+        int isEnd = gl_VertexID - 2 * lineIndex;
         int dimX = int(u_dimensions.x);
         int y = lineIndex / dimX;
         int x = lineIndex - y * dimX;
@@ -379,27 +259,22 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       flat in float v_speed;
       out vec4 fragColor;
       void main() {
-        float alpha = clamp(v_speed * 0.025 + 0.2, 0.0, 0.7);
+        float alpha = clamp(v_speed * 0.06 + 0.15, 0.0, 0.7);
         fragColor = vec4(u_color * alpha, alpha);
       }
     `)
 
     // ── Programs ──
     const copyProgram = new Program(baseVertexShader, copyShader)
-    const clearProgram = new Program(baseVertexShader, clearShader)
     const splatProgram = new Program(baseVertexShader, splatShader)
     const advectionProgram = new Program(baseVertexShader, advectionShader)
     const divergenceProgram = new Program(baseVertexShader, divergenceShader)
-    const curlProgram = new Program(baseVertexShader, curlShader)
-    const vorticityProgram = new Program(baseVertexShader, vorticityShader)
     const pressureProgram = new Program(baseVertexShader, pressureShader)
     const gradientSubtractProgram = new Program(baseVertexShader, gradientSubtractShader)
-
-    // Vector field program
     const vectorFieldProgram = new Program(vectorFieldVS, vectorFieldFS)
 
     // ── FBO helpers ──
-    function createFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+    function createFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.REPEAT) {
       g.activeTexture(g.TEXTURE0)
       const texture = g.createTexture()!
       g.bindTexture(g.TEXTURE_2D, texture)
@@ -426,7 +301,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     }
 
-    function createDoubleFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+    function createDoubleFBO(w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.REPEAT) {
       let fbo1 = createFBO(w, h, internalFormat, format, type, param, wrap)
       let fbo2 = createFBO(w, h, internalFormat, format, type, param, wrap)
       return {
@@ -440,7 +315,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     }
 
-    function resizeFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+    function resizeFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.REPEAT) {
       const newFBO = createFBO(w, h, internalFormat, format, type, param, wrap)
       copyProgram.bind()
       g.uniform1i(copyProgram.uniforms.uTexture, target.attach(0))
@@ -448,7 +323,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       return newFBO
     }
 
-    function resizeDoubleFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.CLAMP_TO_EDGE) {
+    function resizeDoubleFBO(target: any, w: number, h: number, internalFormat: number, format: number, type: number, param: number, wrap = g.REPEAT) {
       if (target.width === w && target.height === h) return target
       target.read = resizeFBO(target.read, w, h, internalFormat, format, type, param, wrap)
       target.write = createFBO(w, h, internalFormat, format, type, param, wrap)
@@ -458,45 +333,37 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     }
 
     // ── Fluid framebuffers ──
-    let velocity: any, divergenceFBO: any, curlFBO: any, pressure: any
-
-    function getResolution(resolution: number) {
-      let aspectRatio = g.drawingBufferWidth / g.drawingBufferHeight
-      if (aspectRatio < 1) aspectRatio = 1.0 / aspectRatio
-      const min = Math.round(resolution)
-      const max = Math.round(resolution * aspectRatio)
-      if (g.drawingBufferWidth > g.drawingBufferHeight) return { width: max, height: min }
-      else return { width: min, height: max }
-    }
+    // Velocity at lower resolution (like repo's VELOCITY_SCALE_FACTOR=8)
+    let velocity: any, divergenceFBO: any, pressure: any
 
     function initFluidFramebuffers() {
-      const simRes = getResolution(config.SIM_RESOLUTION)
-      const texType = halfFloatTexType
-      const rg = formatRG!
-      const r = formatR!
-      const filtering = supportLinearFiltering ? g.LINEAR : g.NEAREST
+      const w = Math.ceil(canvas.width / VELOCITY_SCALE_FACTOR)
+      const h = Math.ceil(canvas.height / VELOCITY_SCALE_FACTOR)
+      const rg = { internalFormat: g.RG16F, format: g.RG }
+      const r = { internalFormat: g.R16F, format: g.RED }
+      const texType = g.HALF_FLOAT
       g.disable(g.BLEND)
 
       if (!velocity)
-        velocity = createDoubleFBO(simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering, g.REPEAT)
+        velocity = createDoubleFBO(w, h, rg.internalFormat, rg.format, texType, g.LINEAR)
       else
-        velocity = resizeDoubleFBO(velocity, simRes.width, simRes.height, rg.internalFormat, rg.format, texType, filtering, g.REPEAT)
+        velocity = resizeDoubleFBO(velocity, w, h, rg.internalFormat, rg.format, texType, g.LINEAR)
 
-      divergenceFBO = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, g.NEAREST)
-      curlFBO = createFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, g.NEAREST)
-      pressure = createDoubleFBO(simRes.width, simRes.height, r.internalFormat, r.format, texType, g.NEAREST)
+      divergenceFBO = createFBO(w, h, r.internalFormat, r.format, texType, g.NEAREST)
+      pressure = createDoubleFBO(w, h, r.internalFormat, r.format, texType, g.NEAREST)
     }
 
     initFluidFramebuffers()
 
     // ── Splat functions ──
+    // Velocity is in canvas-pixel units (matching repo)
     function splat(x: number, y: number, dx: number, dy: number) {
       splatProgram.bind()
       g.uniform1i(splatProgram.uniforms.uTarget, velocity.read.attach(0))
       g.uniform1f(splatProgram.uniforms.aspectRatio, canvas.width / canvas.height)
       g.uniform2f(splatProgram.uniforms.point, x, y)
       g.uniform3f(splatProgram.uniforms.color, dx, dy, 0.0)
-      g.uniform1f(splatProgram.uniforms.radius, correctRadius(config.SPLAT_RADIUS / 100.0))
+      g.uniform1f(splatProgram.uniforms.radius, SPLAT_RADIUS)
       blit(velocity.write)
       velocity.swap()
     }
@@ -505,87 +372,62 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       for (let i = 0; i < amount; i++) {
         const x = Math.random()
         const y = Math.random()
-        const dx = 1000 * (Math.random() - 0.5)
-        const dy = 1000 * (Math.random() - 0.5)
+        const dx = MAX_VELOCITY * (Math.random() - 0.5) * 2
+        const dy = MAX_VELOCITY * (Math.random() - 0.5) * 2
         splat(x, y, dx, dy)
       }
     }
 
     function splatPointer(pointer: Pointer) {
-      const dx = pointer.deltaX * config.SPLAT_FORCE
-      const dy = pointer.deltaY * config.SPLAT_FORCE
+      // Convert UV delta to canvas-pixel delta, then scale
+      const dx = pointer.deltaX * canvas.width * SPLAT_FORCE / canvas.width
+      const dy = pointer.deltaY * canvas.height * SPLAT_FORCE / canvas.height
       splat(pointer.texcoordX, pointer.texcoordY, dx, dy)
     }
 
-    function correctRadius(radius: number) {
-      const aspectRatio = canvas.width / canvas.height
-      if (aspectRatio > 1) radius *= aspectRatio
-      return radius
-    }
-
-    // ── Navier-Stokes step ──
-    function step(dt: number) {
+    // ── Navier-Stokes step — matches repo pipeline exactly ──
+    function step() {
       g.disable(g.BLEND)
+      const pxSize = [velocity.texelSizeX, velocity.texelSizeY] as const
 
-      curlProgram.bind()
-      g.uniform2f(curlProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
-      g.uniform1i(curlProgram.uniforms.uVelocity, velocity.read.attach(0))
-      blit(curlFBO)
-
-      vorticityProgram.bind()
-      g.uniform2f(vorticityProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
-      g.uniform1i(vorticityProgram.uniforms.uVelocity, velocity.read.attach(0))
-      g.uniform1i(vorticityProgram.uniforms.uCurl, curlFBO.attach(1))
-      g.uniform1f(vorticityProgram.uniforms.curl, config.CURL)
-      g.uniform1f(vorticityProgram.uniforms.dt, dt)
+      // 1. Advect velocity (self-advection, no dt, no dissipation)
+      // uDimensions = velocity texture size (NOT canvas size) — repo uses velocityState.width/height
+      advectionProgram.bind()
+      g.uniform1i(advectionProgram.uniforms.uVelocity, velocity.read.attach(0))
+      g.uniform1i(advectionProgram.uniforms.uSource, velocity.read.attach(0))
+      g.uniform2f(advectionProgram.uniforms.uDimensions, velocity.width, velocity.height)
       blit(velocity.write)
       velocity.swap()
 
+      // 2. Compute divergence
       divergenceProgram.bind()
-      g.uniform2f(divergenceProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
       g.uniform1i(divergenceProgram.uniforms.uVelocity, velocity.read.attach(0))
+      g.uniform2f(divergenceProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
       blit(divergenceFBO)
 
-      clearProgram.bind()
-      g.uniform1i(clearProgram.uniforms.uTexture, pressure.read.attach(0))
-      g.uniform1f(clearProgram.uniforms.value, config.PRESSURE)
-      blit(pressure.write)
-      pressure.swap()
-
+      // 3. Jacobi pressure iterations (α=-1, β=0.25, 3 steps)
       pressureProgram.bind()
-      g.uniform2f(pressureProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
-      g.uniform1i(pressureProgram.uniforms.uDivergence, divergenceFBO.attach(0))
-      for (let i = 0; i < config.PRESSURE_ITERATIONS; i++) {
-        g.uniform1i(pressureProgram.uniforms.uPressure, pressure.read.attach(1))
+      g.uniform2f(pressureProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
+      g.uniform1i(pressureProgram.uniforms.uDivergence, divergenceFBO.attach(1))
+      for (let i = 0; i < NUM_JACOBI_STEPS; i++) {
+        g.uniform1i(pressureProgram.uniforms.uPressure, pressure.read.attach(0))
         blit(pressure.write)
         pressure.swap()
       }
 
+      // 4. Subtract pressure gradient from velocity
       gradientSubtractProgram.bind()
-      g.uniform2f(gradientSubtractProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
       g.uniform1i(gradientSubtractProgram.uniforms.uPressure, pressure.read.attach(0))
       g.uniform1i(gradientSubtractProgram.uniforms.uVelocity, velocity.read.attach(1))
-      blit(velocity.write)
-      velocity.swap()
-
-      advectionProgram.bind()
-      g.uniform2f(advectionProgram.uniforms.texelSize, velocity.texelSizeX, velocity.texelSizeY)
-      if (!supportLinearFiltering)
-        g.uniform2f(advectionProgram.uniforms.dyeTexelSize, velocity.texelSizeX, velocity.texelSizeY)
-      const velocityId = velocity.read.attach(0)
-      g.uniform1i(advectionProgram.uniforms.uVelocity, velocityId)
-      g.uniform1i(advectionProgram.uniforms.uSource, velocityId)
-      g.uniform1f(advectionProgram.uniforms.dt, dt)
-      g.uniform1f(advectionProgram.uniforms.dissipation, config.VELOCITY_DISSIPATION)
+      g.uniform2f(gradientSubtractProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
       blit(velocity.write)
       velocity.swap()
     }
 
     // ── Render vector field ──
     function renderVectorField() {
-      const spacing = config.VECTOR_SPACING
-      const gridW = Math.floor(g.drawingBufferWidth / spacing)
-      const gridH = Math.floor(g.drawingBufferHeight / spacing)
+      const gridW = Math.floor(g.drawingBufferWidth / VECTOR_SPACING)
+      const gridH = Math.floor(g.drawingBufferHeight / VECTOR_SPACING)
       const numVectors = gridW * gridH
       if (numVectors <= 0) return
 
@@ -600,7 +442,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       vectorFieldProgram.bind()
       g.uniform1i(vectorFieldProgram.uniforms.u_velocity, velocity.read.attach(0))
       g.uniform2f(vectorFieldProgram.uniforms.u_dimensions, gridW, gridH)
-      g.uniform2f(vectorFieldProgram.uniforms.u_scale, config.VECTOR_SCALE / g.drawingBufferWidth, config.VECTOR_SCALE / g.drawingBufferHeight)
+      g.uniform2f(vectorFieldProgram.uniforms.u_scale,
+        VECTOR_SCALE / g.drawingBufferWidth,
+        VECTOR_SCALE / g.drawingBufferHeight)
       g.uniform3f(vectorFieldProgram.uniforms.u_color, 0.35, 0.12, 0.55)
 
       g.bindVertexArray(emptyVAO)
@@ -728,15 +572,9 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     window.addEventListener("touchend", onTouchEnd)
 
     // ── Main loop ──
-    let lastUpdateTime = Date.now()
     let animFrame = 0
 
     function update() {
-      const now = Date.now()
-      let dt = (now - lastUpdateTime) / 1000
-      dt = Math.min(dt, 0.016666)
-      lastUpdateTime = now
-
       if (resizeCanvas()) {
         initFluidFramebuffers()
       }
@@ -746,14 +584,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         if (p.moved) { p.moved = false; splatPointer(p) }
       })
 
-      step(dt)
+      step()
       renderVectorField()
 
       animFrame = requestAnimationFrame(update)
     }
 
-    // Initial splats seed the field — with near-zero dissipation + vorticity
-    // confinement, the flow is self-sustaining (no ambient forcing needed)
+    // Seed initial flow
     splatStack.push(8)
     update()
 
