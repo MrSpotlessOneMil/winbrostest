@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { getDefaultTenant } from '@/lib/tenant'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { toE164 } from '@/lib/phone-utils'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
@@ -27,13 +28,14 @@ export async function POST(request: NextRequest) {
     // Store the sent message in the messages table so it appears in chat history
     if (phone) {
       try {
+        const normalizedPhone = toE164(phone)
         const tenant = await getDefaultTenant()
-        if (tenant) {
+        if (tenant && normalizedPhone) {
           const client = getSupabaseServiceClient()
           const now = new Date().toISOString()
           await client.from('messages').insert({
             tenant_id: tenant.id,
-            phone_number: phone,
+            phone_number: normalizedPhone,
             direction: 'outbound',
             message_type: 'sms',
             body: message.trim(),
