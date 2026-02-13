@@ -3,8 +3,8 @@
 /*
  * WebGL2 Velocity Vector Field Visualization
  * Navier-Stokes fluid sim matching gpu-io/examples/fluid exactly.
- * Pipeline: advect → curl → vorticity → divergence → jacobi pressure → gradient subtract.
- * Very gentle vorticity confinement (CURL=0.2) sustains ambient flow.
+ * Pipeline: advect → divergence → jacobi pressure → gradient subtract.
+ * Periodic gentle auto-splats sustain ambient wave-like flow.
  * Velocity in canvas-pixel units, REPEAT wrap, float32 textures.
  * Rendered as GL_LINES vector field (gpu-io "Velocity" mode).
  */
@@ -33,16 +33,14 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const PRESSURE_CALC_BETA = 0.25
     const MAX_VELOCITY = 30
     const SPLAT_RADIUS = 0.0025
-    const SPLAT_FORCE = 800
+    const SPLAT_FORCE = 300         // gentler mouse interaction (repo uses ~2x raw px delta)
     const VECTOR_SPACING = 10
     const VECTOR_SCALE = 2.5
-    // Vorticity confinement — helps sustain rotational flow between auto-splats
-    const CURL = 0.4
-    // Auto-splat: inject gentle ambient splats periodically to keep the field alive
-    // (both repos decay to zero without user interaction — this keeps it animated)
-    const AUTO_SPLAT_INTERVAL = 90  // frames (~1.5s at 60fps)
-    const AUTO_SPLAT_COUNT = 3
-    const AUTO_SPLAT_STRENGTH = 8   // much gentler than MAX_VELOCITY=30
+    // Periodic broad auto-splats create smooth wave-like ambient flow
+    const AUTO_SPLAT_INTERVAL = 50  // frames (~0.8s at 60fps)
+    const AUTO_SPLAT_COUNT = 2
+    const AUTO_SPLAT_STRENGTH = 4   // gentle velocity
+    const AUTO_SPLAT_RADIUS = 0.02  // 8x broader than mouse splats = smooth wide waves
 
     class Pointer {
       id = -1; texcoordX = 0; texcoordY = 0
@@ -186,45 +184,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     `)
 
-    // Curl: compute curl of velocity field (scalar in 2D)
-    const curlShader = compileShader(g.FRAGMENT_SHADER, `
-      precision mediump float;
-      varying vec2 vUv;
-      uniform sampler2D uVelocity;
-      uniform vec2 uPxSize;
-      void main () {
-        float T = texture2D(uVelocity, vUv + vec2(0.0, uPxSize.y)).x;
-        float B = texture2D(uVelocity, vUv - vec2(0.0, uPxSize.y)).x;
-        float R = texture2D(uVelocity, vUv + vec2(uPxSize.x, 0.0)).y;
-        float L = texture2D(uVelocity, vUv - vec2(uPxSize.x, 0.0)).y;
-        float vorticity = R - L - T + B;
-        gl_FragColor = vec4(vorticity, 0.0, 0.0, 1.0);
-      }
-    `)
-
-    // Vorticity confinement: gently re-injects curl to sustain ambient flow
-    const vorticityShader = compileShader(g.FRAGMENT_SHADER, `
-      precision mediump float;
-      varying vec2 vUv;
-      uniform sampler2D uVelocity;
-      uniform sampler2D uCurl;
-      uniform vec2 uPxSize;
-      uniform float uCurlStrength;
-      void main () {
-        float T = texture2D(uCurl, vUv + vec2(0.0, uPxSize.y)).x;
-        float B = texture2D(uCurl, vUv - vec2(0.0, uPxSize.y)).x;
-        float R = texture2D(uCurl, vUv + vec2(uPxSize.x, 0.0)).x;
-        float L = texture2D(uCurl, vUv - vec2(uPxSize.x, 0.0)).x;
-        float C = texture2D(uCurl, vUv).x;
-        vec2 force = 0.5 * vec2(abs(T) - abs(B), abs(R) - abs(L));
-        force /= length(force) + 0.0002;
-        force *= uCurlStrength * C;
-        force.y *= -1.0;
-        vec2 vel = texture2D(uVelocity, vUv).xy + force;
-        gl_FragColor = vec4(vel, 0.0, 1.0);
-      }
-    `)
-
     // Divergence: matches repo exactly
     const divergenceShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
@@ -258,7 +217,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       }
     `)
 
-    // Gradient subtraction + MAX_VELOCITY clamp (safety net for vorticity confinement)
+    // Gradient subtraction: matches repo exactly (no velocity clamp — only splat shader clamps)
     const gradientSubtractShader = compileShader(g.FRAGMENT_SHADER, `
       precision mediump float;
       varying vec2 vUv;
@@ -270,10 +229,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         float s = texture2D(uPressure, vUv - vec2(0.0, uPxSize.y)).x;
         float e = texture2D(uPressure, vUv + vec2(uPxSize.x, 0.0)).x;
         float w = texture2D(uPressure, vUv - vec2(uPxSize.x, 0.0)).x;
-        vec2 vel = texture2D(uVelocity, vUv).xy - 0.5 * vec2(e - w, n - s);
-        float mag = length(vel);
-        if (mag > ${MAX_VELOCITY.toFixed(1)}) vel *= ${MAX_VELOCITY.toFixed(1)} / mag;
-        gl_FragColor = vec4(vel, 0.0, 1.0);
+        gl_FragColor = vec4(texture2D(uVelocity, vUv).xy - 0.5 * vec2(e - w, n - s), 0.0, 1.0);
       }
     `)
 
@@ -305,7 +261,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       flat in float v_speed;
       out vec4 fragColor;
       void main() {
-        float alpha = clamp(v_speed * 0.1 + 0.22, 0.0, 0.7);
+        float alpha = clamp(v_speed * 0.04 + 0.38, 0.0, 0.7);
         fragColor = vec4(u_color * alpha, alpha);
       }
     `)
@@ -314,8 +270,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const copyProgram = new Program(baseVertexShader, copyShader)
     const splatProgram = new Program(baseVertexShader, splatShader)
     const advectionProgram = new Program(baseVertexShader, advectionShader)
-    const curlProgram = new Program(baseVertexShader, curlShader)
-    const vorticityProgram = new Program(baseVertexShader, vorticityShader)
     const divergenceProgram = new Program(baseVertexShader, divergenceShader)
     const pressureProgram = new Program(baseVertexShader, pressureShader)
     const gradientSubtractProgram = new Program(baseVertexShader, gradientSubtractShader)
@@ -381,7 +335,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     }
 
     // ── Fluid framebuffers — float32 matching repo (type: FLOAT) ──
-    let velocity: any, divergenceFBO: any, pressure: any, curlFBO: any
+    let velocity: any, divergenceFBO: any, pressure: any
 
     function initFluidFramebuffers() {
       const w = Math.ceil(canvas.width / VELOCITY_SCALE_FACTOR)
@@ -393,7 +347,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       else
         velocity = resizeDoubleFBO(velocity, w, h, g.RG32F, g.RG, g.FLOAT, g.LINEAR)
 
-      curlFBO = createFBO(w, h, g.R32F, g.RED, g.FLOAT, g.NEAREST)
       divergenceFBO = createFBO(w, h, g.R32F, g.RED, g.FLOAT, g.NEAREST)
       pressure = createDoubleFBO(w, h, g.R32F, g.RED, g.FLOAT, g.NEAREST)
     }
@@ -401,13 +354,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     initFluidFramebuffers()
 
     // ── Splat functions ──
-    function splat(x: number, y: number, dx: number, dy: number) {
+    function splat(x: number, y: number, dx: number, dy: number, radius = SPLAT_RADIUS) {
       splatProgram.bind()
       g.uniform1i(splatProgram.uniforms.uTarget, velocity.read.attach(0))
       g.uniform1f(splatProgram.uniforms.aspectRatio, canvas.width / canvas.height)
       g.uniform2f(splatProgram.uniforms.point, x, y)
       g.uniform3f(splatProgram.uniforms.color, dx, dy, 0.0)
-      g.uniform1f(splatProgram.uniforms.radius, SPLAT_RADIUS)
+      g.uniform1f(splatProgram.uniforms.radius, radius)
       blit(velocity.write)
       velocity.swap()
     }
@@ -428,7 +381,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       splat(pointer.texcoordX, pointer.texcoordY, dx, dy)
     }
 
-    // Gentle ambient splats — random position, random low-velocity direction
+    // Broad gentle ambient splats — creates smooth wave-like flow, not tight swirls
     function autoSplat() {
       for (let i = 0; i < AUTO_SPLAT_COUNT; i++) {
         const x = Math.random()
@@ -436,12 +389,12 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         const angle = Math.random() * Math.PI * 2
         const dx = Math.cos(angle) * AUTO_SPLAT_STRENGTH
         const dy = Math.sin(angle) * AUTO_SPLAT_STRENGTH
-        splat(x, y, dx, dy)
+        splat(x, y, dx, dy, AUTO_SPLAT_RADIUS)
       }
     }
 
-    // ── Navier-Stokes step ──
-    // advect → curl → vorticity → divergence → jacobi × 3 → gradient subtract
+    // ── Navier-Stokes step — matches repo exactly ──
+    // advect → divergence → jacobi × 3 → gradient subtract
     function step() {
       g.disable(g.BLEND)
       const pxSize = [velocity.texelSizeX, velocity.texelSizeY] as const
@@ -454,28 +407,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       blit(velocity.write)
       velocity.swap()
 
-      // 2. Compute curl of velocity
-      curlProgram.bind()
-      g.uniform1i(curlProgram.uniforms.uVelocity, velocity.read.attach(0))
-      g.uniform2f(curlProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
-      blit(curlFBO)
-
-      // 3. Vorticity confinement — gently sustains ambient flow
-      vorticityProgram.bind()
-      g.uniform1i(vorticityProgram.uniforms.uVelocity, velocity.read.attach(0))
-      g.uniform1i(vorticityProgram.uniforms.uCurl, curlFBO.attach(1))
-      g.uniform2f(vorticityProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
-      g.uniform1f(vorticityProgram.uniforms.uCurlStrength, CURL)
-      blit(velocity.write)
-      velocity.swap()
-
-      // 4. Compute divergence
+      // 2. Compute divergence
       divergenceProgram.bind()
       g.uniform1i(divergenceProgram.uniforms.uVelocity, velocity.read.attach(0))
       g.uniform2f(divergenceProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
       blit(divergenceFBO)
 
-      // 5. Jacobi pressure iterations
+      // 3. Jacobi pressure iterations
       pressureProgram.bind()
       g.uniform2f(pressureProgram.uniforms.uPxSize, pxSize[0], pxSize[1])
       g.uniform1i(pressureProgram.uniforms.uDivergence, divergenceFBO.attach(1))
@@ -485,7 +423,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         pressure.swap()
       }
 
-      // 6. Subtract pressure gradient from velocity
+      // 4. Subtract pressure gradient from velocity
       gradientSubtractProgram.bind()
       g.uniform1i(gradientSubtractProgram.uniforms.uPressure, pressure.read.attach(0))
       g.uniform1i(gradientSubtractProgram.uniforms.uVelocity, velocity.read.attach(1))
@@ -515,7 +453,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.uniform2f(vectorFieldProgram.uniforms.u_scale,
         VECTOR_SCALE / g.drawingBufferWidth,
         VECTOR_SCALE / g.drawingBufferHeight)
-      g.uniform3f(vectorFieldProgram.uniforms.u_color, 0.35, 0.12, 0.55)
+      g.uniform3f(vectorFieldProgram.uniforms.u_color, 0.45, 0.18, 0.65)
 
       g.bindVertexArray(emptyVAO)
       g.drawArrays(g.LINES, 0, numVectors * 2)
@@ -570,7 +508,6 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       pointers[0].prevTexcoordY = pointers[0].texcoordY
       pointers[0].deltaX = 0
       pointers[0].deltaY = 0
-      splatStack.push(Math.floor(Math.random() * 3) + 2)
     }
 
     const onMouseMove = (e: MouseEvent) => {
