@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { sendTelegramMessage } from '@/lib/telegram'
+import { getDefaultTenant } from '@/lib/tenant'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
   try {
-    const { telegram_id, message } = await request.json()
+    const { telegram_id, message, phone } = await request.json()
 
     if (!telegram_id) {
       return NextResponse.json({ success: false, error: 'telegram_id is required' }, { status: 400 })
@@ -20,6 +22,33 @@ export async function POST(request: NextRequest) {
 
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error }, { status: 500 })
+    }
+
+    // Store the sent message in the messages table so it appears in chat history
+    if (phone) {
+      try {
+        const tenant = await getDefaultTenant()
+        if (tenant) {
+          const client = getSupabaseServiceClient()
+          const now = new Date().toISOString()
+          await client.from('messages').insert({
+            tenant_id: tenant.id,
+            phone_number: phone,
+            direction: 'outbound',
+            message_type: 'sms',
+            body: message.trim(),
+            content: message.trim(),
+            role: 'assistant',
+            ai_generated: false,
+            status: 'sent',
+            source: 'telegram_dashboard',
+            timestamp: now,
+            metadata: { telegram_id, telegram_message_id: result.messageId },
+          })
+        }
+      } catch (dbErr) {
+        console.error('[send-telegram] Failed to store message in DB:', dbErr)
+      }
     }
 
     return NextResponse.json({ success: true, messageId: result.messageId })

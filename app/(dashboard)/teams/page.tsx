@@ -80,8 +80,14 @@ export default function TeamsPage() {
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
 
-  // Chat panel state
-  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(null)
+  // Chat panel state — persist selected member across reloads
+  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(() => {
+    if (typeof window === "undefined") return null
+    try {
+      const saved = localStorage.getItem("teams-chat-member")
+      return saved ? JSON.parse(saved) : null
+    } catch { return null }
+  })
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [sendText, setSendText] = useState("")
@@ -134,6 +140,12 @@ export default function TeamsPage() {
     loadTeams().then(() => { if (cancelled) setTeams([]) })
     return () => { cancelled = true }
   }, [])
+
+  // Persist selected chat member to localStorage
+  useEffect(() => {
+    if (chatMember) localStorage.setItem("teams-chat-member", JSON.stringify(chatMember))
+    else localStorage.removeItem("teams-chat-member")
+  }, [chatMember])
 
   // Fetch messages when chatMember changes
   useEffect(() => {
@@ -193,16 +205,29 @@ export default function TeamsPage() {
 
   async function handleSendTelegram() {
     if (!chatMember?.telegram_id || !sendText.trim() || sending) return
+    const messageText = sendText.trim()
     setSending(true)
     try {
       const res = await fetch("/api/teams/send-telegram", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegram_id: chatMember.telegram_id, message: sendText.trim() }),
+        body: JSON.stringify({ telegram_id: chatMember.telegram_id, message: messageText, phone: chatMember.phone }),
       })
       const json = await res.json()
       if (json.success) {
         setSendText("")
+        // Optimistically add the sent message to the chat
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            id: `temp-${Date.now()}`,
+            phone_number: chatMember.phone,
+            direction: "outbound",
+            body: messageText,
+            timestamp: new Date().toISOString(),
+            status: "sent",
+          },
+        ])
       }
     } catch {
       // silently fail
