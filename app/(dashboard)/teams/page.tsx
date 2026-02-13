@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,7 +30,8 @@ import {
   MessageCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { MemberChatSheet } from "@/components/teams/member-chat-sheet"
+import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
+import { MessageBubble } from "@/components/message-bubble"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
 type UiTeam = Team & {
@@ -57,6 +58,15 @@ type UiTeam = Team & {
   }>
 }
 
+interface ChatMessage {
+  id: string
+  phone_number: string
+  direction: string
+  body: string
+  timestamp: string
+  status: string
+}
+
 const statusConfig = {
   "on-job": { label: "On Job", className: "bg-success/10 text-success border-success/20", icon: Truck },
   traveling: { label: "Traveling", className: "bg-primary/10 text-primary border-primary/20", icon: MapPin },
@@ -72,7 +82,12 @@ export default function TeamsPage() {
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+
+  // Chat panel state
   const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string } | null>(null)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
 
   async function loadTeams() {
     setLoading(true)
@@ -126,6 +141,36 @@ export default function TeamsPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Fetch messages when chatMember changes
+  useEffect(() => {
+    if (!chatMember?.phone) {
+      setChatMessages([])
+      return
+    }
+    let cancelled = false
+    async function fetchMessages() {
+      setChatLoading(true)
+      try {
+        const res = await fetch(`/api/teams/messages?phone=${encodeURIComponent(chatMember!.phone)}&limit=200`)
+        const json = await res.json()
+        if (!cancelled && json.success) setChatMessages(json.data || [])
+      } catch {
+        if (!cancelled) setChatMessages([])
+      } finally {
+        if (!cancelled) setChatLoading(false)
+      }
+    }
+    fetchMessages()
+    return () => { cancelled = true }
+  }, [chatMember?.phone])
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    if (chatMessages.length > 0 && chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight
+    }
+  }, [chatMessages])
+
   async function handleSaveEdit() {
     if (!editingMember) return
     setEditSaving(true)
@@ -178,186 +223,244 @@ export default function TeamsPage() {
         </Button>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-success/10">
-                <Users className="h-6 w-6 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Active Teams</p>
-                <p className="text-2xl font-semibold text-foreground">{activeTeams.length}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <DollarSign className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Revenue</p>
-                <p className="text-2xl font-semibold text-foreground">${totalRevenue.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning/10">
-                <TrendingUp className="h-6 w-6 text-warning" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Daily Target</p>
-                <p className="text-2xl font-semibold text-foreground">${totalTarget.toLocaleString()}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10">
-                <Star className="h-6 w-6 text-accent" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Avg Rating</p>
-                <p className="text-2xl font-semibold text-foreground">—</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Team Cards */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {teams.map((team) => {
-          const StatusIcon = statusConfig[team.status as keyof typeof statusConfig].icon
-          const target = Number(team.daily_metrics?.target || team.daily_target || 0)
-          const revenue = Number(team.daily_metrics?.revenue || 0)
-          const jobsCompleted = Number(team.daily_metrics?.jobs_completed || 0)
-          const jobsScheduled = Number(team.daily_metrics?.jobs_scheduled || 0)
-          const revenuePercent = target > 0 ? (revenue / target) * 100 : 0
-
-          return (
-            <Card
-              key={team.id}
-              className={cn(team.status === "off" && "opacity-60")}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                      <Users className="h-5 w-5 text-primary" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg">{team.name}</CardTitle>
-                      <CardDescription>Lead: {team.leadName}</CardDescription>
-                    </div>
+      {/* Two-column layout: teams left, chat right */}
+      <div className="flex gap-6 h-[calc(100vh-12rem)]">
+        {/* LEFT: Team content (scrollable) */}
+        <div className="flex-1 min-w-0 overflow-y-auto space-y-6 pr-1">
+          {/* Summary Stats */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-success/10">
+                    <Users className="h-6 w-6 text-success" />
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={statusConfig[team.status as keyof typeof statusConfig].className}
-                  >
-                    <StatusIcon className="mr-1 h-3 w-3" />
-                    {statusConfig[team.status as keyof typeof statusConfig].label}
-                  </Badge>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Active Teams</p>
+                    <p className="text-2xl font-semibold text-foreground">{activeTeams.length}</p>
+                  </div>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Members */}
-                <div className="flex items-center gap-2">
-                  <div className="flex -space-x-2">
-                    {team.memberNames.map((member) => (
-                      <Avatar key={member} className="h-8 w-8 border-2 border-background">
-                        <AvatarFallback className="text-xs bg-muted">
-                          {member.split(" ").map((n) => n[0]).join("")}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
-                  </div>
-                  <span className="text-sm text-muted-foreground">{team.memberNames.length} members</span>
-                </div>
-
-                {/* Current Job */}
-                {team.currentJob && (
-                  <div className="rounded-lg bg-muted/50 p-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{team.currentJob.customer}</p>
-                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="h-3 w-3" />
-                          {team.currentJob.address}
-                        </div>
-                        <p className="mt-1 text-xs text-muted-foreground">{team.currentJob.service}</p>
-                      </div>
-                      <Badge variant="secondary" className="text-xs">
-                        <Clock className="mr-1 h-3 w-3" />
-                        {team.currentJob.eta}
-                      </Badge>
-                    </div>
-                  </div>
-                )}
-
-                {/* Stats */}
-                {team.status !== "off" && (
-                  <>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Daily Revenue</span>
-                        <span className="font-medium text-foreground">
-                          ${revenue.toLocaleString()} / ${target.toLocaleString()}
-                        </span>
-                      </div>
-                      <Progress value={revenuePercent} className="h-2" />
-                    </div>
-
-                    <div className="grid grid-cols-4 gap-2 text-center">
-                      <div className="rounded-lg bg-muted/50 p-2">
-                        <p className="text-lg font-semibold text-foreground">
-                          {jobsCompleted}/{jobsScheduled}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Jobs</p>
-                      </div>
-                      <div className="rounded-lg bg-muted/50 p-2">
-                        <p className="text-lg font-semibold text-foreground">—</p>
-                        <p className="text-xs text-muted-foreground">Rating</p>
-                      </div>
-                      <div className="rounded-lg bg-success/10 p-2">
-                        <p className="text-lg font-semibold text-success">$0</p>
-                        <p className="text-xs text-muted-foreground">Tips</p>
-                      </div>
-                      <div className="rounded-lg bg-primary/10 p-2">
-                        <p className="text-lg font-semibold text-primary">$0</p>
-                        <p className="text-xs text-muted-foreground">Upsells</p>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                <Button variant="ghost" className="w-full justify-between" disabled={team.status === "off"}>
-                  <span
-                    className="w-full text-left"
-                    onClick={() => setSelectedTeam(team)}
-                  >
-                    View Full Details
-                  </span>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
               </CardContent>
             </Card>
-          )
-        })}
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                    <DollarSign className="h-6 w-6 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Total Revenue</p>
+                    <p className="text-2xl font-semibold text-foreground">${totalRevenue.toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-warning/10">
+                    <TrendingUp className="h-6 w-6 text-warning" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Daily Target</p>
+                    <p className="text-2xl font-semibold text-foreground">${totalTarget.toLocaleString()}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-accent/10">
+                    <Star className="h-6 w-6 text-accent" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Avg Rating</p>
+                    <p className="text-2xl font-semibold text-foreground">—</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Team Cards */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {teams.map((team) => {
+              const StatusIcon = statusConfig[team.status as keyof typeof statusConfig].icon
+              const target = Number(team.daily_metrics?.target || team.daily_target || 0)
+              const revenue = Number(team.daily_metrics?.revenue || 0)
+              const jobsCompleted = Number(team.daily_metrics?.jobs_completed || 0)
+              const jobsScheduled = Number(team.daily_metrics?.jobs_scheduled || 0)
+              const revenuePercent = target > 0 ? (revenue / target) * 100 : 0
+
+              return (
+                <Card
+                  key={team.id}
+                  className={cn(team.status === "off" && "opacity-60")}
+                >
+                  <CardHeader className="pb-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                          <Users className="h-5 w-5 text-primary" />
+                        </div>
+                        <div>
+                          <CardTitle className="text-lg">{team.name}</CardTitle>
+                          <CardDescription>Lead: {team.leadName}</CardDescription>
+                        </div>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={statusConfig[team.status as keyof typeof statusConfig].className}
+                      >
+                        <StatusIcon className="mr-1 h-3 w-3" />
+                        {statusConfig[team.status as keyof typeof statusConfig].label}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Members */}
+                    <div className="flex items-center gap-2">
+                      <div className="flex -space-x-2">
+                        {team.memberNames.map((member) => (
+                          <Avatar key={member} className="h-8 w-8 border-2 border-background">
+                            <AvatarFallback className="text-xs bg-muted">
+                              {member.split(" ").map((n) => n[0]).join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                        ))}
+                      </div>
+                      <span className="text-sm text-muted-foreground">{team.memberNames.length} members</span>
+                    </div>
+
+                    {/* Current Job */}
+                    {team.currentJob && (
+                      <div className="rounded-lg bg-muted/50 p-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{team.currentJob.customer}</p>
+                            <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                              <MapPin className="h-3 w-3" />
+                              {team.currentJob.address}
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">{team.currentJob.service}</p>
+                          </div>
+                          <Badge variant="secondary" className="text-xs">
+                            <Clock className="mr-1 h-3 w-3" />
+                            {team.currentJob.eta}
+                          </Badge>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Stats */}
+                    {team.status !== "off" && (
+                      <>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Daily Revenue</span>
+                            <span className="font-medium text-foreground">
+                              ${revenue.toLocaleString()} / ${target.toLocaleString()}
+                            </span>
+                          </div>
+                          <Progress value={revenuePercent} className="h-2" />
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          <div className="rounded-lg bg-muted/50 p-2">
+                            <p className="text-lg font-semibold text-foreground">
+                              {jobsCompleted}/{jobsScheduled}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Jobs</p>
+                          </div>
+                          <div className="rounded-lg bg-muted/50 p-2">
+                            <p className="text-lg font-semibold text-foreground">—</p>
+                            <p className="text-xs text-muted-foreground">Rating</p>
+                          </div>
+                          <div className="rounded-lg bg-success/10 p-2">
+                            <p className="text-lg font-semibold text-success">$0</p>
+                            <p className="text-xs text-muted-foreground">Tips</p>
+                          </div>
+                          <div className="rounded-lg bg-primary/10 p-2">
+                            <p className="text-lg font-semibold text-primary">$0</p>
+                            <p className="text-xs text-muted-foreground">Upsells</p>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-between"
+                      disabled={team.status === "off"}
+                      onClick={() => setSelectedTeam(team)}
+                    >
+                      <span>View Full Details</span>
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {loading && <p className="text-sm text-muted-foreground">Loading teams...</p>}
+          {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
+        </div>
+
+        {/* RIGHT: Persistent chat panel */}
+        <div className="relative w-96 shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20" data-no-splat>
+          <VelocityFluidBackground className="z-0" />
+
+          <div className="relative z-10 flex flex-col h-full">
+            {/* Chat Header */}
+            <div className="p-4 backdrop-blur-md bg-black/40 border-b border-purple-500/10">
+              {chatMember ? (
+                <>
+                  <h3 className="text-white font-semibold">{chatMember.name}</h3>
+                  <div className="flex items-center gap-1 text-purple-300/70 text-sm">
+                    <Phone className="h-3 w-3" />
+                    {chatMember.phone}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-white font-semibold">Team Chat</h3>
+                  <p className="text-purple-300/50 text-sm">Select a member to view messages</p>
+                </>
+              )}
+            </div>
+
+            {/* Chat Messages */}
+            <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-1">
+              {!chatMember && (
+                <div className="flex flex-col items-center justify-center h-full text-center px-6">
+                  <MessageSquare className="h-10 w-10 text-purple-500/30 mb-3" />
+                  <p className="text-purple-300/50 text-sm">
+                    Select a team member from any team card to view their SMS conversation history
+                  </p>
+                </div>
+              )}
+              {chatMember && chatLoading && (
+                <p className="text-center text-sm text-purple-300/50 py-8">Loading messages...</p>
+              )}
+              {chatMember && !chatLoading && chatMessages.length === 0 && (
+                <p className="text-center text-sm text-purple-300/50 py-8">No messages found.</p>
+              )}
+              {chatMessages.map((msg) => (
+                <MessageBubble
+                  key={msg.id}
+                  role={msg.direction === "inbound" ? "client" : "assistant"}
+                  content={msg.body}
+                  timestamp={msg.timestamp}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {loading && <p className="text-sm text-muted-foreground">Loading teams…</p>}
-      {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
-
+      {/* Team Detail Dialog */}
       <Dialog open={!!selectedTeam} onOpenChange={(open) => !open && setSelectedTeam(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -505,13 +608,6 @@ export default function TeamsPage() {
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Member Chat Sheet */}
-      <MemberChatSheet
-        open={!!chatMember}
-        onOpenChange={(open) => !open && setChatMember(null)}
-        member={chatMember}
-      />
     </div>
   )
 }
