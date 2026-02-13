@@ -39,7 +39,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     // Periodic broad auto-splats create smooth wave-like ambient flow
     const AUTO_SPLAT_INTERVAL = 50  // frames (~0.8s at 60fps)
     const AUTO_SPLAT_COUNT = 2
-    const AUTO_SPLAT_STRENGTH = 4   // gentle velocity
+    const AUTO_SPLAT_STRENGTH = 2.5 // slow gentle velocity
     const AUTO_SPLAT_RADIUS = 0.02  // 8x broader than mouse splats = smooth wide waves
 
     class Pointer {
