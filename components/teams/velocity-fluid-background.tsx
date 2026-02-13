@@ -36,9 +36,13 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
     const SPLAT_FORCE = 800
     const VECTOR_SPACING = 10
     const VECTOR_SCALE = 2.5
-    // Very gentle vorticity confinement — sustains ambient flow without blowing up
-    // Previous CURL=5 was 25x too strong. This just counteracts numerical diffusion.
-    const CURL = 0.2
+    // Vorticity confinement — helps sustain rotational flow between auto-splats
+    const CURL = 0.4
+    // Auto-splat: inject gentle ambient splats periodically to keep the field alive
+    // (both repos decay to zero without user interaction — this keeps it animated)
+    const AUTO_SPLAT_INTERVAL = 90  // frames (~1.5s at 60fps)
+    const AUTO_SPLAT_COUNT = 3
+    const AUTO_SPLAT_STRENGTH = 8   // much gentler than MAX_VELOCITY=30
 
     class Pointer {
       id = -1; texcoordX = 0; texcoordY = 0
@@ -424,6 +428,18 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       splat(pointer.texcoordX, pointer.texcoordY, dx, dy)
     }
 
+    // Gentle ambient splats — random position, random low-velocity direction
+    function autoSplat() {
+      for (let i = 0; i < AUTO_SPLAT_COUNT; i++) {
+        const x = Math.random()
+        const y = Math.random()
+        const angle = Math.random() * Math.PI * 2
+        const dx = Math.cos(angle) * AUTO_SPLAT_STRENGTH
+        const dy = Math.sin(angle) * AUTO_SPLAT_STRENGTH
+        splat(x, y, dx, dy)
+      }
+    }
+
     // ── Navier-Stokes step ──
     // advect → curl → vorticity → divergence → jacobi × 3 → gradient subtract
     function step() {
@@ -627,6 +643,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
 
     // ── Main loop ──
     let animFrame = 0
+    let frameCount = 0
 
     function update() {
       if (resizeCanvas()) {
@@ -637,6 +654,12 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       pointers.forEach((p) => {
         if (p.moved) { p.moved = false; splatPointer(p) }
       })
+
+      // Periodic ambient splats — keeps velocity field alive without user interaction
+      frameCount++
+      if (frameCount % AUTO_SPLAT_INTERVAL === 0) {
+        autoSplat()
+      }
 
       step()
       renderVectorField()
