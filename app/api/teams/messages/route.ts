@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await client
     .from('messages')
-    .select('id, phone_number, direction, body, timestamp, status')
+    .select('id, phone_number, direction, content, timestamp, status')
     .eq('tenant_id', tenant.id)
     .eq('phone_number', normalized)
     .order('timestamp', { ascending: true })

@@ -60,7 +60,7 @@ interface ChatMessage {
   id: string
   phone_number: string
   direction: string
-  body: string
+  content: string
   timestamp: string
   status: string
 }
@@ -223,7 +223,7 @@ export default function TeamsPage() {
             id: `temp-${Date.now()}`,
             phone_number: chatMember.phone,
             direction: "outbound",
-            body: messageText,
+            content: messageText,
             timestamp: new Date().toISOString(),
             status: "sent",
           },
@@ -445,7 +445,7 @@ export default function TeamsPage() {
                 <MessageBubble
                   key={msg.id}
                   role={msg.direction === "inbound" ? "client" : "assistant"}
-                  content={msg.body}
+                  content={msg.content}
                   timestamp={msg.timestamp}
                 />
               ))}

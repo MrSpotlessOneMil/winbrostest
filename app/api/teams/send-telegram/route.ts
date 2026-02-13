@@ -38,7 +38,6 @@ export async function POST(request: NextRequest) {
             phone_number: normalizedPhone,
             direction: 'outbound',
             message_type: 'sms',
-            body: message.trim(),
             content: message.trim(),
             role: 'assistant',
             ai_generated: false,
