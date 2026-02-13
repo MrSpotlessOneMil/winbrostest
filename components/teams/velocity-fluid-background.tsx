@@ -34,7 +34,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       SPLAT_RADIUS: 0.25,
       SPLAT_FORCE: 6000,
       VECTOR_SPACING: 10,
-      VECTOR_SCALE: 2.5,
+      VECTOR_SCALE: 0.8,
     }
 
     class Pointer {
@@ -596,7 +596,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
       g.uniform1i(vectorFieldProgram.uniforms.u_velocity, velocity.read.attach(0))
       g.uniform2f(vectorFieldProgram.uniforms.u_dimensions, gridW, gridH)
       g.uniform2f(vectorFieldProgram.uniforms.u_scale, config.VECTOR_SCALE / g.drawingBufferWidth, config.VECTOR_SCALE / g.drawingBufferHeight)
-      g.uniform3f(vectorFieldProgram.uniforms.u_color, 0.55, 0.15, 0.85)
+      g.uniform3f(vectorFieldProgram.uniforms.u_color, 0.35, 0.12, 0.55)
 
       g.bindVertexArray(emptyVAO)
       g.drawArrays(g.LINES, 0, numVectors * 2)
