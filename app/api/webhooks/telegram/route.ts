@@ -209,6 +209,27 @@ async function handleAcceptCallback(
         // 7. Update job.customer_notified = true
         if (customerNotified) {
           await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
+
+          // Log the outbound message to the database
+          const tenant = await getDefaultTenant()
+          if (tenant) {
+            const client = getSupabaseClient()
+            client.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id || null,
+              phone_number: job.phone_number,
+              role: "assistant",
+              content: smsMessage,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              source: "cleaner_assigned",
+              job_id: Number(jobId),
+              timestamp: new Date().toISOString(),
+            }).then(({ error: logErr }) => {
+              if (logErr) console.error("[Telegram] Failed to log cleaner-assigned SMS:", logErr)
+            })
+          }
         }
       }
     }

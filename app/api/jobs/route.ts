@@ -210,6 +210,23 @@ export async function PATCH(request: NextRequest) {
           sendSMS(tenant as any, customerPhone, smsMessage).catch((err) =>
             console.error("[Jobs PATCH] Failed to send reschedule SMS:", err)
           )
+
+          // Log the outbound message to the database
+          client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer?.id || oldJob.customer_id || null,
+            phone_number: customerPhone,
+            role: "assistant",
+            content: smsMessage,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            source: "calendar_reschedule",
+            job_id: Number(id),
+            timestamp: new Date().toISOString(),
+          }).then(({ error: logErr }) => {
+            if (logErr) console.error("[Jobs PATCH] Failed to log reschedule message:", logErr)
+          })
         }
       }
     }

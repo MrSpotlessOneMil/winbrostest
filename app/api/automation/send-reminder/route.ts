@@ -85,6 +85,23 @@ export async function POST(request: NextRequest) {
             if (result.success) {
               remindersSent++
               console.log(`[Reminder] Day-before SMS sent to ${customer.phone_number}`)
+
+              // Log the outbound message to the database
+              client.from("messages").insert({
+                tenant_id: tenant.id,
+                customer_id: customer.id || null,
+                phone_number: customer.phone_number,
+                role: "assistant",
+                content: message,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: false,
+                source: "day_before_reminder",
+                job_id: job.id ? Number(job.id) : null,
+                timestamp: new Date().toISOString(),
+              }).then(({ error: logErr }) => {
+                if (logErr) console.error("[Reminder] Failed to log reminder message:", logErr)
+              })
             } else {
               errors++
             }

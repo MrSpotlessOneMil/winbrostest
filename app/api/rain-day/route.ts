@@ -147,6 +147,23 @@ async function rescheduleJob(
       if (smsResult.success) {
         notifications++
         console.log(`[Rain Day] SMS sent to customer ${job.customer_phone}`)
+
+        // Log the outbound message to the database
+        await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: job.customer_id || null,
+          phone_number: job.customer_phone,
+          role: "assistant",
+          content: smsMessage,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          source: "rain_day_reschedule",
+          job_id: job.id ? Number(job.id) : null,
+          timestamp: new Date().toISOString(),
+        }).then(({ error: logErr }) => {
+          if (logErr) console.error("[Rain Day] Failed to log reschedule message:", logErr)
+        })
       }
     } catch (smsErr) {
       console.error(`[Rain Day] Failed to send SMS to ${job.customer_phone}:`, smsErr)
