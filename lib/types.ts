@@ -2,7 +2,7 @@
 
 // ==================== LEADS ====================
 export type LeadSource = "phone" | "sms" | "meta" | "website" | "vapi"
-export type LeadStatus = "new" | "contacted" | "qualified" | "booked" | "nurturing" | "escalated" | "lost"
+export type LeadStatus = "new" | "contacted" | "qualified" | "booked" | "assigned" | "nurturing" | "escalated" | "lost"
 
 export interface Lead {
   id: string

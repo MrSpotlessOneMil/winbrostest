@@ -351,7 +351,7 @@ CREATE TABLE leads (
 
   -- Lead status
   status TEXT DEFAULT 'new' CHECK (status IN (
-    'new', 'contacted', 'qualified', 'booked', 'lost', 'unresponsive', 'nurturing', 'escalated'
+    'new', 'contacted', 'qualified', 'booked', 'assigned', 'lost', 'unresponsive', 'nurturing', 'escalated'
   )),
 
   -- Follow-up tracking

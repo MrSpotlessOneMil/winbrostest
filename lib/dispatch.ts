@@ -118,6 +118,21 @@ export async function dispatchRoutes(
       } else {
         assignmentsCreated++
       }
+
+      // Update associated lead status to 'assigned'
+      const { data: associatedLead } = await client
+        .from('leads')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('converted_to_job_id', stop.jobId)
+        .maybeSingle()
+
+      if (associatedLead) {
+        await client
+          .from('leads')
+          .update({ status: 'assigned', updated_at: new Date().toISOString() })
+          .eq('id', associatedLead.id)
+      }
     }
 
     // 3. Send route to team lead via Telegram

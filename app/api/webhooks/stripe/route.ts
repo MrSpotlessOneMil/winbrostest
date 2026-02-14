@@ -512,6 +512,24 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
           console.log(`[Stripe Webhook] Job ${actualJobId} auto-assigned to team "${team.name}" (cleaner ${lead.cleaner_id})`)
 
+          // Update lead status to 'assigned' so the lead flow puck reflects assignment
+          if (actualJobId) {
+            const { data: associatedLead } = await client
+              .from('leads')
+              .select('id')
+              .eq('tenant_id', tenant.id)
+              .eq('converted_to_job_id', actualJobId)
+              .maybeSingle()
+
+            if (associatedLead) {
+              await client
+                .from('leads')
+                .update({ status: 'assigned', updated_at: new Date().toISOString() })
+                .eq('id', associatedLead.id)
+              console.log(`[Stripe Webhook] Lead ${associatedLead.id} status updated to 'assigned'`)
+            }
+          }
+
           // Check if same-day — notify cleaner via Telegram (informational, no buttons)
           const todayCentral = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
           const isSameDay = job.date === todayCentral
@@ -546,7 +564,6 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
             const serviceStr = (job.service_type || 'Window Cleaning').replace(/\b\w/g, c => c.toUpperCase())
             const addressStr = job.address || 'See details'
-            const priceStr = job.price ? `$${Number(job.price).toFixed(2)}` : 'TBD'
             const businessName = tenant.business_name_short || tenant.name
 
             const notifMsg = isSameDay
@@ -556,7 +573,6 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
                   timeStr ? `Time: ${timeStr}` : null,
                   `Service: ${serviceStr}`,
                   `Address: ${addressStr}`,
-                  `Price: ${priceStr}`,
                   ``,
                   `This job has been added to your schedule for today.`,
                 ].filter(Boolean).join('\n')
@@ -566,7 +582,6 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
                   `Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}`,
                   `Service: ${serviceStr}`,
                   `Address: ${addressStr}`,
-                  `Price: ${priceStr}`,
                   ``,
                   `This job has been added to your schedule.`,
                 ].filter(Boolean).join('\n')

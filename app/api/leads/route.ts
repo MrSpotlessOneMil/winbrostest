@@ -22,6 +22,7 @@ function mapLead(row: any): Lead {
     statusRaw === "contacted" ||
     statusRaw === "qualified" ||
     statusRaw === "booked" ||
+    statusRaw === "assigned" ||
     statusRaw === "nurturing" ||
     statusRaw === "escalated" ||
     statusRaw === "lost"
