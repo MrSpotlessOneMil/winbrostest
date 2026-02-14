@@ -7,7 +7,7 @@ import timeGridPlugin from "@fullcalendar/timegrid"
 import listPlugin from "@fullcalendar/list"
 import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
-import type { DateSelectArg, EventClickArg, EventInput } from "@fullcalendar/core"
+import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -32,6 +32,7 @@ type CalendarJob = {
 }
 
 type CalendarEventDetails = {
+  jobId: string
   title: string
   start: Date | null
   end: Date | null
@@ -41,6 +42,23 @@ type CalendarEventDetails = {
   price: number
   client: string
   cleaner: string
+  cleanerName: string
+  hours: number
+}
+
+type PendingMove = {
+  jobId: string
+  newStart: Date
+  newEnd: Date
+  hours: number
+  cleanerName: string
+  conflictJobId: string
+  conflictTitle: string
+  conflictStart: Date
+  conflictEnd: Date
+  conflictHours: number
+  revert: (() => void) | null
+  source: "drag" | "edit"
 }
 
 type CreateForm = {
@@ -191,6 +209,12 @@ export default function JobsPage() {
     description: "",
   })
 
+  // Drag-and-drop / edit state
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editForm, setEditForm] = useState({ date: "", time: "" })
+  const [saving, setSaving] = useState(false)
+
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
   const [rainStep, setRainStep] = useState<"select" | "preview" | "loading" | "done">("select")
@@ -248,8 +272,11 @@ export default function JobsPage() {
           resourceId: location,
           client: customerName,
           cleaner: cleanerName || "",
+          cleanerName: cleanerName || "",
           price: job.price || job.estimated_value || 0,
           status: job.status || "scheduled",
+          jobId: String(job.id),
+          hours: job.hours ? Number(job.hours) : 2,
         },
       }
     })
@@ -271,6 +298,7 @@ export default function JobsPage() {
     const start = info.event.start
     const end = info.event.end
     const details: CalendarEventDetails = {
+      jobId: info.event.id || info.event.extendedProps.jobId || "",
       title: info.event.title || "(no title)",
       start,
       end,
@@ -280,8 +308,171 @@ export default function JobsPage() {
       price: info.event.extendedProps.price || 0,
       client: info.event.extendedProps.client || emptyValue,
       cleaner: info.event.extendedProps.cleaner || "",
+      cleanerName: info.event.extendedProps.cleanerName || "",
+      hours: info.event.extendedProps.hours || 2,
     }
     setSelectedEvent(details)
+    setEditMode(false)
+  }
+
+  const refreshJobs = async () => {
+    try {
+      const res = await fetch("/api/calendar")
+      const data = await res.json()
+      setJobs(data.jobs || [])
+    } catch { /* ignore */ }
+  }
+
+  const saveJobTime = async (jobId: string, newStart: Date, hours: number): Promise<boolean> => {
+    const date = `${newStart.getFullYear()}-${String(newStart.getMonth() + 1).padStart(2, "0")}-${String(newStart.getDate()).padStart(2, "0")}`
+    const scheduled_at = `${String(newStart.getHours()).padStart(2, "0")}:${String(newStart.getMinutes()).padStart(2, "0")}`
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: jobId, date, scheduled_at }),
+      })
+      const data = await res.json()
+      return data.success === true
+    } catch {
+      return false
+    }
+  }
+
+  const findConflicts = (cleanerName: string, newStart: Date, newEnd: Date, excludeEventId: string) => {
+    if (!cleanerName) return []
+    return baseEvents.filter((e) => {
+      if (String(e.id) === excludeEventId) return false
+      if ((e.extendedProps as any)?.cleanerName !== cleanerName) return false
+      const eStart = new Date(e.start as any)
+      const eEnd = new Date(e.end as any)
+      return newStart < eEnd && eStart < newEnd
+    })
+  }
+
+  const handleEventDrop = async (info: EventDropArg) => {
+    const { event, revert } = info
+    const newStart = event.start!
+    const hours = event.extendedProps.hours || 2
+    const newEnd = event.end || new Date(newStart.getTime() + hours * 3600000)
+    const cleanerName = event.extendedProps.cleanerName || ""
+    const jobId = event.id
+
+    if (!cleanerName) {
+      setSaving(true)
+      const saved = await saveJobTime(jobId, newStart, hours)
+      if (!saved) revert()
+      else await refreshJobs()
+      setSaving(false)
+      return
+    }
+
+    const conflicts = findConflicts(cleanerName, newStart, newEnd, jobId)
+    if (conflicts.length === 0) {
+      setSaving(true)
+      const saved = await saveJobTime(jobId, newStart, hours)
+      if (!saved) revert()
+      else await refreshJobs()
+      setSaving(false)
+      return
+    }
+
+    const conflict = conflicts[0]
+    setPendingMove({
+      jobId,
+      newStart,
+      newEnd,
+      hours,
+      cleanerName,
+      conflictJobId: String(conflict.id),
+      conflictTitle: conflict.title as string,
+      conflictStart: new Date(conflict.start as any),
+      conflictEnd: new Date(conflict.end as any),
+      conflictHours: (conflict.extendedProps as any)?.hours || 2,
+      revert,
+      source: "drag",
+    })
+  }
+
+  const handleConfirmMove = async () => {
+    if (!pendingMove) return
+    setSaving(true)
+
+    const saved = await saveJobTime(pendingMove.jobId, pendingMove.newStart, pendingMove.hours)
+    if (!saved) {
+      pendingMove.revert?.()
+      setPendingMove(null)
+      setSaving(false)
+      return
+    }
+
+    const newConflictStart = pendingMove.newEnd
+    await saveJobTime(pendingMove.conflictJobId, newConflictStart, pendingMove.conflictHours)
+
+    if (pendingMove.source === "edit") {
+      setSelectedEvent(null)
+      setEditMode(false)
+    }
+
+    setPendingMove(null)
+    setSaving(false)
+    await refreshJobs()
+  }
+
+  const handleCancelMove = () => {
+    pendingMove?.revert?.()
+    setPendingMove(null)
+  }
+
+  const handleStartEdit = () => {
+    if (!selectedEvent?.start) return
+    const d = selectedEvent.start
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+    setEditForm({ date, time })
+    setEditMode(true)
+  }
+
+  const handleEditSave = async () => {
+    if (!selectedEvent || !editForm.date || !editForm.time) return
+    const newStart = new Date(`${editForm.date}T${editForm.time}:00`)
+    if (isNaN(newStart.getTime())) return
+
+    const hours = selectedEvent.hours || 2
+    const newEnd = new Date(newStart.getTime() + hours * 3600000)
+    const cleanerName = selectedEvent.cleanerName || ""
+    const jobId = selectedEvent.jobId
+
+    if (cleanerName) {
+      const conflicts = findConflicts(cleanerName, newStart, newEnd, jobId)
+      if (conflicts.length > 0) {
+        const conflict = conflicts[0]
+        setPendingMove({
+          jobId,
+          newStart,
+          newEnd,
+          hours,
+          cleanerName,
+          conflictJobId: String(conflict.id),
+          conflictTitle: conflict.title as string,
+          conflictStart: new Date(conflict.start as any),
+          conflictEnd: new Date(conflict.end as any),
+          conflictHours: (conflict.extendedProps as any)?.hours || 2,
+          revert: null,
+          source: "edit",
+        })
+        return
+      }
+    }
+
+    setSaving(true)
+    const saved = await saveJobTime(jobId, newStart, hours)
+    setSaving(false)
+    if (saved) {
+      setSelectedEvent(null)
+      setEditMode(false)
+      await refreshJobs()
+    }
   }
 
   const openRainDay = () => {
@@ -401,12 +592,17 @@ export default function JobsPage() {
                 right: "dayGridMonth,timeGridWeek,listMonth",
               }}
               events={baseEvents}
+              editable
               selectable
               nowIndicator
               dayMaxEvents
+              eventDurationEditable={false}
+              snapDuration="00:15:00"
+              dragRevertDuration={0}
               eventTimeFormat={timeFormat}
               select={handleSelect}
               eventClick={handleEventClick}
+              eventDrop={handleEventDrop}
               datesSet={(info) => {
                 localStorage.setItem(STORAGE_KEY_VIEW, info.view.type)
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
@@ -442,39 +638,145 @@ export default function JobsPage() {
             </button>
           </div>
           <div className="cal-modal-body">
-            <div style={{ marginBottom: "0.5rem" }}>
-              <strong>When:</strong>{" "}
-              {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
-            </div>
-            <div style={{ marginBottom: "0.5rem" }}>
-              <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
-            </div>
-            {selectedEvent?.cleaner && (
-              <div style={{ marginBottom: "0.5rem" }}>
-                <strong>Cleaner:</strong> {selectedEvent.cleaner}
+            {!editMode ? (
+              <>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>When:</strong>{" "}
+                  {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+                </div>
+                {selectedEvent?.cleaner && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Cleaner:</strong> {selectedEvent.cleaner}
+                  </div>
+                )}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>Location:</strong> {selectedEvent?.location || emptyValue}
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>Status:</strong> {selectedEvent?.status || emptyValue}
+                </div>
+                {selectedEvent?.price ? (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Price:</strong> ${Number(selectedEvent.price)}
+                  </div>
+                ) : null}
+                <div>
+                  <strong>Details:</strong> {selectedEvent?.description || emptyValue}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginBottom: "0.75rem" }}>
+                  <label className="cal-form-label">Date</label>
+                  <input
+                    type="date"
+                    className="cal-form-control"
+                    value={editForm.date}
+                    onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
+                  />
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Start Time</label>
+                  <input
+                    type="time"
+                    className="cal-form-control"
+                    value={editForm.time}
+                    onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
+                  />
+                </div>
+                <div style={{ marginTop: "0.75rem", fontSize: "0.8rem", color: "#71717a" }}>
+                  Duration: {selectedEvent?.hours || 2} hours
+                </div>
+              </>
+            )}
+          </div>
+          <div className="cal-modal-footer">
+            {!editMode ? (
+              <>
+                <button
+                  className="cal-modal-btn cal-modal-btn-edit"
+                  onClick={handleStartEdit}
+                >
+                  Edit Time
+                </button>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => setSelectedEvent(null)}
+                >
+                  Close
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => setEditMode(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="cal-modal-btn cal-modal-btn-primary"
+                  onClick={handleEditSave}
+                  disabled={saving || !editForm.date || !editForm.time}
+                >
+                  {saving ? <><span className="saving-spinner" /> Saving...</> : "Save Changes"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Conflict Confirmation Dialog */}
+      <div
+        className={`cal-modal-backdrop${pendingMove ? " open" : ""}`}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) handleCancelMove()
+        }}
+        style={{ zIndex: 60 }}
+      >
+        <div className="cal-modal" style={{ maxWidth: 440 }}>
+          <div className="cal-modal-header">
+            <h5>Schedule Conflict</h5>
+            <button
+              className="cal-modal-close"
+              onClick={handleCancelMove}
+            >
+              &times;
+            </button>
+          </div>
+          <div className="cal-modal-body">
+            <p style={{ marginBottom: "0.75rem", color: "#d4d4d8" }}>
+              <strong>{pendingMove?.cleanerName}</strong> already has a job scheduled at this time.
+              If you continue, the overlapping job will be automatically rescheduled.
+            </p>
+            {pendingMove && (
+              <div className="conflict-info">
+                <div className="conflict-info-label">Overlapping Job</div>
+                <div className="conflict-info-title">{pendingMove.conflictTitle}</div>
+                <div className="conflict-info-time">
+                  {formatRange(pendingMove.conflictStart, pendingMove.conflictEnd)}
+                </div>
               </div>
             )}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <strong>Location:</strong> {selectedEvent?.location || emptyValue}
-            </div>
-            <div style={{ marginBottom: "0.5rem" }}>
-              <strong>Status:</strong> {selectedEvent?.status || emptyValue}
-            </div>
-            {selectedEvent?.price ? (
-              <div style={{ marginBottom: "0.5rem" }}>
-                <strong>Price:</strong> ${Number(selectedEvent.price)}
-              </div>
-            ) : null}
-            <div>
-              <strong>Details:</strong> {selectedEvent?.description || emptyValue}
-            </div>
           </div>
           <div className="cal-modal-footer">
             <button
               className="cal-modal-btn"
-              onClick={() => setSelectedEvent(null)}
+              onClick={handleCancelMove}
+              disabled={saving}
             >
-              Close
+              Cancel
+            </button>
+            <button
+              className="cal-modal-btn cal-modal-btn-warning"
+              onClick={handleConfirmMove}
+              disabled={saving}
+            >
+              {saving ? <><span className="saving-spinner" /> Saving...</> : "Continue"}
             </button>
           </div>
         </div>

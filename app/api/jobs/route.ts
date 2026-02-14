@@ -131,6 +131,49 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(response)
 }
 
+export async function PATCH(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  const tenant = await getAuthTenant(request)
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+
+  try {
+    const body = await request.json()
+    const { id, date, scheduled_at, hours } = body
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: "Job ID is required" }, { status: 400 })
+    }
+
+    const client = getSupabaseServiceClient()
+
+    const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+    if (date !== undefined) updates.date = date
+    if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
+    if (hours !== undefined) updates.hours = hours
+
+    const { data, error } = await client
+      .from("jobs")
+      .update(updates)
+      .eq("id", Number(id))
+      .eq("tenant_id", tenant.id)
+      .select("*, customers (*), cleaners (*)")
+      .single()
+
+    if (error) throw error
+
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Failed to update job" },
+      { status: 400 }
+    )
+  }
+}
+
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
