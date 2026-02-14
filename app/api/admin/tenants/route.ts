@@ -134,6 +134,7 @@ export async function POST(request: NextRequest) {
         use_ghl: false,
         use_stripe: true,
         use_wave: false,
+        use_route_optimization: false,
         lead_followup_enabled: true,
         lead_followup_stages: 5,
         skip_calls_for_sms_leads: true,
@@ -205,4 +206,78 @@ export async function PATCH(request: NextRequest) {
   }
 
   return NextResponse.json({ success: true, data })
+}
+
+// DELETE - Remove a tenant and all associated data
+export async function DELETE(request: NextRequest) {
+  if (!(await isAdmin(request))) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  }
+
+  const body = await request.json()
+  const { tenantId } = body
+
+  if (!tenantId) {
+    return NextResponse.json({ success: false, error: "tenantId is required" }, { status: 400 })
+  }
+
+  const client = getAdminClient()
+
+  // Verify tenant exists
+  const { data: tenant } = await client
+    .from("tenants")
+    .select("id, name, slug")
+    .eq("id", tenantId)
+    .single()
+
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
+  }
+
+  // Delete associated data in dependency order
+  const deletions: string[] = []
+
+  const tables = [
+    "scheduled_tasks",
+    "system_events",
+    "cleaner_assignments",
+    "reviews",
+    "tips",
+    "upsells",
+    "messages",
+    "calls",
+    "jobs",
+    "leads",
+    "followup_queue",
+    "customers",
+    "cleaners",
+    "teams",
+    "sessions",
+    "users",
+  ]
+
+  for (const table of tables) {
+    const { count, error: delErr } = await client
+      .from(table)
+      .delete({ count: "exact" })
+      .eq("tenant_id", tenantId)
+
+    if (!delErr && count && count > 0) {
+      deletions.push(`${table}: ${count} rows`)
+    }
+  }
+
+  // Finally delete the tenant itself
+  const { error } = await client
+    .from("tenants")
+    .delete()
+    .eq("id", tenantId)
+
+  if (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+
+  deletions.push(`tenant: ${tenant.name} (${tenant.slug})`)
+
+  return NextResponse.json({ success: true, data: { tenantId, deletions } })
 }

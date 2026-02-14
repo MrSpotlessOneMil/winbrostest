@@ -40,6 +40,7 @@ interface WorkflowConfig {
   use_ghl: boolean
   use_stripe: boolean
   use_wave: boolean
+  use_route_optimization: boolean
   lead_followup_enabled: boolean
   lead_followup_stages: number
   skip_calls_for_sms_leads: boolean
@@ -133,6 +134,10 @@ export default function AdminPage() {
   // Reset test customers state
   const [resetting, setResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{ success: boolean; deletions?: string[]; error?: string } | null>(null)
+
+  // Delete business state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   async function fetchTenants() {
     setLoading(true)
@@ -357,6 +362,60 @@ export default function AdminPage() {
     setResetting(false)
   }
 
+  async function deleteBusiness(tenantId: string) {
+    setDeleting(true)
+    try {
+      const res = await fetch("/api/admin/tenants", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to delete business")
+      }
+      setShowDeleteConfirm(false)
+      setSelectedTenant(null)
+      await fetchTenants()
+    } catch (e: any) {
+      setError(e.message || "Failed to delete business")
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  function getFlowType(config: WorkflowConfig): string {
+    if (config.use_housecall_pro && config.use_route_optimization) return "winbros"
+    if (!config.use_housecall_pro && !config.use_route_optimization) return "spotless"
+    return "custom"
+  }
+
+  async function setFlowType(tenant: Tenant, flowType: string) {
+    if (flowType === "winbros") {
+      await updateTenant(tenant.id, {
+        workflow_config: {
+          use_housecall_pro: true,
+          use_route_optimization: true,
+          cleaner_assignment_auto: true,
+          skip_calls_for_sms_leads: true,
+          use_vapi_inbound: true,
+          use_vapi_outbound: true,
+        },
+      })
+    } else if (flowType === "spotless") {
+      await updateTenant(tenant.id, {
+        workflow_config: {
+          use_housecall_pro: false,
+          use_route_optimization: false,
+          cleaner_assignment_auto: false,
+          skip_calls_for_sms_leads: false,
+          use_vapi_inbound: true,
+          use_vapi_outbound: true,
+        },
+      })
+    }
+  }
+
   const currentTenant = tenants.find((t) => t.id === selectedTenant)
 
   return (
@@ -467,10 +526,19 @@ export default function AdminPage() {
                     <CardTitle>{currentTenant.business_name || currentTenant.name}</CardTitle>
                     <CardDescription>Slug: {currentTenant.slug}</CardDescription>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2">
                     <Badge variant={currentTenant.active ? "default" : "destructive"}>
                       {currentTenant.active ? "Active" : "Inactive"}
                     </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      onClick={() => setShowDeleteConfirm(true)}
+                      title="Delete Business"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -568,6 +636,40 @@ export default function AdminPage() {
                           onCheckedChange={() => toggleActive(currentTenant)}
                           disabled={updating === currentTenant.id}
                         />
+                      </div>
+
+                      {/* Business Flow Type */}
+                      <div className="p-4 rounded-lg border border-border space-y-3">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-lg bg-primary/10">
+                            <Settings2 className="h-5 w-5 text-primary" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="font-medium">Business Flow</div>
+                            <div className="text-sm text-muted-foreground">
+                              Select the lead intake and job assignment flow for this business
+                            </div>
+                          </div>
+                        </div>
+                        <select
+                          value={getFlowType(currentTenant.workflow_config)}
+                          onChange={(e) => setFlowType(currentTenant, e.target.value)}
+                          disabled={updating === currentTenant.id}
+                          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:opacity-50"
+                        >
+                          <option value="winbros">Window Cleaning (HCP leads, route optimization, auto-assign)</option>
+                          <option value="spotless">Remote Cleaning (phone leads, accept/decline cascade)</option>
+                          <option value="custom" disabled>Custom</option>
+                        </select>
+                        <div className="text-xs text-muted-foreground pl-1">
+                          {getFlowType(currentTenant.workflow_config) === "winbros" ? (
+                            <>HousecallPro enabled, route optimization on, cleaners auto-assigned to calendar</>
+                          ) : getFlowType(currentTenant.workflow_config) === "spotless" ? (
+                            <>Leads from phone/SMS, cleaners accept or decline jobs in Telegram</>
+                          ) : (
+                            <>Custom configuration - toggle individual settings in the Booking Flow tab</>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </TabsContent>
@@ -1257,6 +1359,60 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {/* Delete Business Confirmation */}
+      {showDeleteConfirm && currentTenant && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-red-400 flex items-center gap-2">
+                  <Trash2 className="h-5 w-5" />
+                  Delete Business
+                </CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => setShowDeleteConfirm(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription>
+                This will permanently delete <strong>{currentTenant.business_name || currentTenant.name}</strong> and all associated data including customers, jobs, leads, messages, and more.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert className="border-red-500/30 bg-red-500/5">
+                <AlertTriangle className="h-4 w-4 text-red-400" />
+                <AlertTitle className="text-red-400">This action cannot be undone</AlertTitle>
+                <AlertDescription className="text-muted-foreground">
+                  All data for this business will be permanently removed.
+                </AlertDescription>
+              </Alert>
+              <div className="flex gap-2 pt-2">
+                <Button variant="outline" className="flex-1" onClick={() => setShowDeleteConfirm(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => deleteBusiness(currentTenant.id)}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Business
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
