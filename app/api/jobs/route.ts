@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { sendSMS } from "@/lib/openphone"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -150,6 +151,14 @@ export async function PATCH(request: NextRequest) {
 
     const client = getSupabaseServiceClient()
 
+    // Fetch old job to detect time changes for SMS notification
+    const { data: oldJob } = await client
+      .from("jobs")
+      .select("*, customers (*)")
+      .eq("id", Number(id))
+      .eq("tenant_id", tenant.id)
+      .single()
+
     const updates: Record<string, any> = { updated_at: new Date().toISOString() }
     if (date !== undefined) updates.date = date
     if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
@@ -164,6 +173,46 @@ export async function PATCH(request: NextRequest) {
       .single()
 
     if (error) throw error
+
+    // Send SMS notification if date or time changed
+    if (oldJob && (date !== undefined || scheduled_at !== undefined)) {
+      const oldDate = oldJob.date
+      const oldTime = oldJob.scheduled_at
+      const timeChanged = (date !== undefined && date !== oldDate) || (scheduled_at !== undefined && scheduled_at !== oldTime)
+
+      if (timeChanged) {
+        const customer = Array.isArray(oldJob.customers) ? oldJob.customers[0] : oldJob.customers
+        const customerPhone = customer?.phone_number || oldJob.phone_number
+        const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
+        const businessName = (tenant as any).business_name_short || (tenant as any).name || "us"
+
+        if (customerPhone) {
+          const newDate = date || oldDate
+          const newTime = scheduled_at || oldTime
+          const dateFormatted = new Date(newDate + "T12:00:00").toLocaleDateString("en-US", {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+          })
+          // Format time for display
+          const timeParts = String(newTime).match(/^(\d{1,2}):(\d{2})/)
+          let timeFormatted = "9:00 AM"
+          if (timeParts) {
+            const h = parseInt(timeParts[1])
+            const m = timeParts[2]
+            const ampm = h >= 12 ? "PM" : "AM"
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+            timeFormatted = `${h12}:${m} ${ampm}`
+          }
+
+          const smsMessage = `Hi ${customerName}! Your ${businessName} cleaning has been rescheduled to ${dateFormatted} at ${timeFormatted}. Reply with any questions!`
+
+          sendSMS(tenant as any, customerPhone, smsMessage).catch((err) =>
+            console.error("[Jobs PATCH] Failed to send reschedule SMS:", err)
+          )
+        }
+      }
+    }
 
     return NextResponse.json({ success: true, data })
   } catch (error) {

@@ -700,7 +700,7 @@ export default function JobsPage() {
                   className="cal-modal-btn cal-modal-btn-edit"
                   onClick={handleStartEdit}
                 >
-                  Edit Time
+                  Edit
                 </button>
                 <button
                   className="cal-modal-btn"
