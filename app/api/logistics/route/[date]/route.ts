@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
-import { getDefaultTenant } from '@/lib/tenant'
+import { requireAuth, getAuthTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function GET(
@@ -10,7 +9,7 @@ export async function GET(
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ success: false, error: 'No tenant configured' }, { status: 500 })
   }

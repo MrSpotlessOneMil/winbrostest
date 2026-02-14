@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
-import { getDefaultTenant, getTenantServiceDescription } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { getTenantServiceDescription } from "@/lib/tenant"
 import { cancelTask, scheduleTask } from "@/lib/scheduler"
 import { sendSMS } from "@/lib/openphone"
 import { initiateOutboundCall } from "@/lib/vapi"
@@ -21,6 +22,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
   const { id } = await params
   const leadId = id
 
@@ -29,7 +33,7 @@ export async function POST(
   }
 
   const client = getSupabaseClient()
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
 
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })

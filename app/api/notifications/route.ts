@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type NotificationItem = {
   id: string
@@ -44,7 +43,7 @@ export async function GET(req: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(req)
   if (!tenant) {
     return NextResponse.json({ success: true, data: [] })
   }

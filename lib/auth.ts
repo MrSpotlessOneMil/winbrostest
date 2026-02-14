@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSupabaseServiceClient } from './supabase'
 import { getUserApiKeys, type UserApiKeys } from './user-api-keys'
+import { getTenantById, type Tenant } from './tenant'
 
 const SESSION_COOKIE_NAME = 'winbros_session'
 const SESSION_DURATION_DAYS = 30
@@ -11,6 +12,7 @@ export interface AuthUser {
   username: string
   display_name: string | null
   email: string | null
+  tenant_id: string | null
   is_active: boolean
 }
 
@@ -36,7 +38,7 @@ export async function verifyPassword(
 
   const { data: user, error } = await client
     .from('users')
-    .select('id, username, display_name, email, is_active, password_hash')
+    .select('id, username, display_name, email, tenant_id, is_active, password_hash')
     .eq('username', username)
     .eq('is_active', true)
     .single()
@@ -60,6 +62,7 @@ export async function verifyPassword(
     username: user.username,
     display_name: user.display_name,
     email: user.email,
+    tenant_id: user.tenant_id,
     is_active: user.is_active,
   }
 }
@@ -109,7 +112,7 @@ export async function getSession(
   // Get user
   const { data: user, error: userError } = await client
     .from('users')
-    .select('id, username, display_name, email, is_active')
+    .select('id, username, display_name, email, tenant_id, is_active')
     .eq('id', session.user_id)
     .eq('is_active', true)
     .single()
@@ -125,6 +128,7 @@ export async function getSession(
       username: user.username,
       display_name: user.display_name,
       email: user.email,
+      tenant_id: user.tenant_id,
       is_active: user.is_active,
     },
   }
@@ -220,4 +224,15 @@ export async function requireAuthWithApiKeys(
   const apiKeys = await getUserApiKeys(user.id)
 
   return { user, apiKeys }
+}
+
+/**
+ * Get the tenant for the authenticated user.
+ * Use this instead of getDefaultTenant() in dashboard API routes
+ * to ensure each user only sees their own tenant's data.
+ */
+export async function getAuthTenant(request: NextRequest): Promise<Tenant | null> {
+  const user = await getAuthUser(request)
+  if (!user?.tenant_id) return null
+  return getTenantById(user.tenant_id)
 }

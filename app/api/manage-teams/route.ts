@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type TeamRow = { id: number; name: string; active: boolean; deleted_at?: string | null }
 type CleanerRow = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; active: boolean; deleted_at?: string | null; is_team_lead?: boolean }
@@ -16,7 +15,7 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
   }
@@ -59,7 +58,7 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
   }

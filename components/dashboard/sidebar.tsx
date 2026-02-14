@@ -39,24 +39,50 @@ export function Sidebar({ collapsed }: SidebarProps) {
   const pathname = usePathname()
   const { isAdmin, user, logout, accounts, addAccount, switchAccount } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [dropdownVisible, setDropdownVisible] = useState(false)
   const [showAddAccount, setShowAddAccount] = useState(false)
   const [loginUsername, setLoginUsername] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
   const [loginError, setLoginError] = useState("")
   const [loggingIn, setLoggingIn] = useState(false)
+  const [switchingTo, setSwitchingTo] = useState<number | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Animate dropdown open/close
+  useEffect(() => {
+    if (dropdownOpen) {
+      setDropdownVisible(true)
+    }
+  }, [dropdownOpen])
+
+  const closeDropdown = () => {
+    setDropdownOpen(false)
+    setTimeout(() => {
+      setDropdownVisible(false)
+      setShowAddAccount(false)
+      setLoginError("")
+    }, 200)
+  }
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setDropdownOpen(false)
-        setShowAddAccount(false)
-        setLoginError("")
+        closeDropdown()
       }
     }
     document.addEventListener("mousedown", handleClick)
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
+
+  const handleSwitchAccount = async (userId: number) => {
+    setSwitchingTo(userId)
+    // Brief press animation, then close dropdown, then switch
+    await new Promise((r) => setTimeout(r, 150))
+    closeDropdown()
+    await new Promise((r) => setTimeout(r, 200))
+    await switchAccount(userId)
+    setSwitchingTo(null)
+  }
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -71,7 +97,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       setShowAddAccount(false)
       setLoginUsername("")
       setLoginPassword("")
-      setDropdownOpen(false)
+      closeDropdown()
     } else {
       setLoginError(result.error || "Login failed")
     }
@@ -140,8 +166,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
         {!collapsed ? (
           <div ref={dropdownRef} className="relative">
             <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-zinc-800/50 text-left"
+              onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
+              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-zinc-800/50 text-left transition-colors"
             >
               <div className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
                 {user?.display_name?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase() || "U"}
@@ -157,8 +183,14 @@ export function Sidebar({ collapsed }: SidebarProps) {
               <ChevronsUpDown className="w-4 h-4 text-zinc-600 shrink-0" />
             </button>
 
-            {dropdownOpen && (
-              <div className="absolute left-0 right-0 bottom-full mb-2 bg-zinc-900 border border-zinc-700/80 rounded-lg py-1 z-50 shadow-2xl shadow-black/50 max-h-80 overflow-y-auto">
+            {dropdownVisible && (
+              <div
+                className={`absolute left-0 right-0 bottom-full mb-2 bg-zinc-900 border border-zinc-700/80 rounded-lg py-1 z-50 shadow-2xl shadow-black/50 max-h-80 overflow-y-auto transition-all duration-200 origin-bottom ${
+                  dropdownOpen
+                    ? "opacity-100 scale-100 translate-y-0"
+                    : "opacity-0 scale-95 translate-y-2 pointer-events-none"
+                }`}
+              >
                 {/* Current account indicator */}
                 <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
                   Current Account
@@ -184,25 +216,42 @@ export function Sidebar({ collapsed }: SidebarProps) {
                     <div className="px-3 py-1.5 mt-1 text-xs font-medium text-zinc-500 uppercase tracking-wider border-t border-zinc-800">
                       Switch Account
                     </div>
-                    {otherAccounts.map((account) => (
-                      <button
-                        key={account.user.id}
-                        onClick={() => switchAccount(account.user.id)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-zinc-800"
-                      >
-                        <div className="w-7 h-7 rounded-md bg-zinc-700/50 flex items-center justify-center text-xs font-semibold text-zinc-400 shrink-0">
-                          {account.user.display_name?.charAt(0)?.toUpperCase() || account.user.username?.charAt(0)?.toUpperCase() || "U"}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-zinc-300 truncate">
-                            {account.user.display_name || account.user.username}
+                    {otherAccounts.map((account) => {
+                      const isSwitching = switchingTo === account.user.id
+                      return (
+                        <button
+                          key={account.user.id}
+                          onClick={() => handleSwitchAccount(account.user.id)}
+                          disabled={switchingTo !== null}
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all duration-150 ${
+                            isSwitching
+                              ? "bg-purple-500/15 scale-[0.97]"
+                              : "hover:bg-zinc-800 scale-100"
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 transition-colors duration-150 ${
+                            isSwitching
+                              ? "bg-purple-500/25 text-purple-300"
+                              : "bg-zinc-700/50 text-zinc-400"
+                          }`}>
+                            {account.user.display_name?.charAt(0)?.toUpperCase() || account.user.username?.charAt(0)?.toUpperCase() || "U"}
                           </div>
-                          <div className="text-[10px] text-zinc-500 truncate">
-                            {account.user.email || ""}
+                          <div className="flex-1 min-w-0">
+                            <div className={`text-sm font-medium truncate transition-colors duration-150 ${
+                              isSwitching ? "text-purple-200" : "text-zinc-300"
+                            }`}>
+                              {account.user.display_name || account.user.username}
+                            </div>
+                            <div className="text-[10px] text-zinc-500 truncate">
+                              {account.user.email || ""}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                          {isSwitching && (
+                            <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                          )}
+                        </button>
+                      )
+                    })}
                   </>
                 )}
 
@@ -269,7 +318,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 {/* Settings */}
                 <Link
                   href="/settings"
-                  onClick={() => setDropdownOpen(false)}
+                  onClick={() => closeDropdown()}
                   className="flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
                 >
                   <Settings className="w-3.5 h-3.5" />
@@ -279,8 +328,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 {/* Logout */}
                 <button
                   onClick={() => {
+                    closeDropdown()
                     logout()
-                    setDropdownOpen(false)
                   }}
                   className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left"
                 >
@@ -293,7 +342,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
         ) : (
           <div className="flex justify-center">
             <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
+              onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
               title={user?.display_name || user?.username || "User"}
               className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300"
             >

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Team, TeamDailyMetrics, ApiResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
   }
 
   // Get the default tenant (winbros) for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json(
       {

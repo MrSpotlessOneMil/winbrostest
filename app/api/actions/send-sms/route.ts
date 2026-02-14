@@ -10,8 +10,7 @@ import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
 import { appendToTextingTranscript, getSupabaseClient } from '@/lib/supabase'
 import { getClientConfig } from '@/lib/client-config'
-import { requireAuth } from '@/lib/auth'
-import { getDefaultTenant } from '@/lib/tenant'
+import { requireAuth, getAuthTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
@@ -44,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get tenant for proper phone formatting
-    const tenant = await getDefaultTenant()
+    const tenant = await getAuthTenant(request)
 
     // Send the SMS
     const result = await sendSMS(phoneNumber, message)

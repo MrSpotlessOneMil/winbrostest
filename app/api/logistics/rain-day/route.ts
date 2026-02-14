@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, getAuthTenant } from '@/lib/auth'
 import { verifyCronAuth } from '@/lib/cron-auth'
 import { getDefaultTenant } from '@/lib/tenant'
 import { checkAndHandleRainDay } from '@/lib/rain-day'
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request) || await getDefaultTenant()
   if (!tenant) {
     return NextResponse.json({ success: false, error: 'No tenant configured' }, { status: 500 })
   }

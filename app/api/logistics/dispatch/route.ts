@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
-import { getDefaultTenant } from '@/lib/tenant'
+import { requireAuth, getAuthTenant } from '@/lib/auth'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 import { dispatchRoutes } from '@/lib/dispatch'
@@ -9,7 +8,7 @@ export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ success: false, error: 'No tenant configured' }, { status: 500 })
   }

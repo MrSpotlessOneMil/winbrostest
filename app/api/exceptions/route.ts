@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type ExceptionType = "no-confirm" | "high-value" | "routing" | "scheduling" | "system"
 type Priority = "high" | "medium" | "low"
@@ -79,7 +78,7 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ success: true, data: [] as ExceptionItem[] })
   }

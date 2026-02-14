@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Call, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function mapOutcome(value: unknown): Call["outcome"] | undefined {
   const raw = typeof value === "string" ? value.toLowerCase() : ""
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ data: [], total: 0, page: 1, per_page: 50, total_pages: 0 })
   }

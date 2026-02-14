@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Lead, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function mapLead(row: any): Lead {
   const name =
@@ -53,7 +52,7 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ data: [], total: 0, page: 1, per_page: 20, total_pages: 0 })
   }
@@ -102,7 +101,7 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { DailyMetrics, ApiResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth } from "@/lib/auth"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -93,7 +92,7 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   // Get the default tenant for multi-tenant filtering
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }

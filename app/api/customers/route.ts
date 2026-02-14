@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
   const client = getSupabaseClient()
-  const tenant = await getDefaultTenant()
+  const tenant = await getAuthTenant(request)
 
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
