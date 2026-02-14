@@ -8,6 +8,62 @@ import { getDefaultTenant } from './tenant'
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org/bot'
 
+/**
+ * Log a Telegram message (inbound or outbound) to the messages table.
+ * Uses dynamic import to avoid circular dependency with supabase.ts.
+ * Fire-and-forget — never throws.
+ */
+export async function logTelegramMessage(opts: {
+  telegramChatId: string
+  direction: 'inbound' | 'outbound'
+  content: string
+  source: string
+  messageId?: number
+}) {
+  try {
+    const { getSupabaseServiceClient } = await import('./supabase')
+    const { getDefaultTenant: getTenant } = await import('./tenant')
+    const tenant = await getTenant()
+    if (!tenant) return
+
+    const client = getSupabaseServiceClient()
+
+    // Look up the cleaner's phone by telegram_id
+    const { data: cleaner } = await client
+      .from('cleaners')
+      .select('phone')
+      .eq('tenant_id', tenant.id)
+      .eq('telegram_id', opts.telegramChatId)
+      .limit(1)
+      .single()
+
+    // Normalize phone to E.164 for consistent querying
+    const { toE164 } = await import('./phone-utils')
+    const rawPhone = cleaner?.phone || null
+    const phone = rawPhone ? toE164(rawPhone) || rawPhone : null
+
+    await client.from('messages').insert({
+      tenant_id: tenant.id,
+      phone_number: phone,
+      direction: opts.direction,
+      message_type: 'sms',
+      content: opts.content,
+      role: opts.direction === 'inbound' ? 'client' : 'assistant',
+      ai_generated: false,
+      status: 'sent',
+      source: opts.source,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        telegram_chat_id: opts.telegramChatId,
+        telegram_message_id: opts.messageId,
+        channel: 'telegram',
+      },
+    })
+  } catch (err) {
+    console.error('[telegram] Failed to log message:', err)
+  }
+}
+
 // Simplified types that don't depend on supabase.ts to avoid circular imports
 interface CleanerInfo {
   telegram_id?: string | null
@@ -152,6 +208,15 @@ export async function sendTelegramMessage(
       console.error('Telegram API error:', data)
       return { success: false, error: data.description || 'Telegram API error' }
     }
+
+    // Log outbound message to DB (fire-and-forget)
+    logTelegramMessage({
+      telegramChatId: chatId,
+      direction: 'outbound',
+      content: text,
+      source: 'telegram_bot',
+      messageId: data.result?.message_id,
+    }).catch(() => {})
 
     return {
       success: true,

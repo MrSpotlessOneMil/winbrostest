@@ -6,7 +6,7 @@ export async function GET() {
     const client = getSupabaseClient()
     const { data, error } = await client
       .from("jobs")
-      .select("*, customers (*)")
+      .select("*, customers (*), cleaners (*)")
       .order("created_at", { ascending: false })
       .limit(2000)
 

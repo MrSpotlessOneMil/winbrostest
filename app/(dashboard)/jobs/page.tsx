@@ -27,6 +27,8 @@ type CalendarJob = {
   phone_number?: string
   customer_name?: string
   customers?: any
+  cleaners?: any
+  cleaner_id?: number
 }
 
 type CalendarEventDetails = {
@@ -38,6 +40,7 @@ type CalendarEventDetails = {
   status: string
   price: number
   client: string
+  cleaner: string
 }
 
 type CreateForm = {
@@ -92,23 +95,32 @@ function resolveDescription(job: CalendarJob) {
   return job.notes || job.service_type || ""
 }
 
+function resolveCleanerName(job: CalendarJob) {
+  const cleaner = job.cleaners
+  if (!cleaner) return null
+  if (Array.isArray(cleaner)) return cleaner[0]?.name || null
+  return cleaner.name || null
+}
+
 function resolveStart(job: CalendarJob) {
-  const dateValue = job.scheduled_at || job.scheduled_date || job.date
-  if (!dateValue) return new Date()
+  // date column is the actual date (YYYY-MM-DD), scheduled_at is a time string
+  const dateStr = job.date || job.scheduled_date
+  if (!dateStr) return new Date()
 
-  const raw = String(dateValue)
+  const rawDate = String(dateStr)
 
-  // If it's a full ISO timestamp, use it directly
-  if (raw.includes("T")) return new Date(raw)
+  // If it's already a full ISO timestamp, use it directly
+  if (rawDate.includes("T")) return new Date(rawDate)
 
-  // If we have a separate time field, combine them
-  const timeValue = job.scheduled_time
-  if (timeValue && /^\d{2}:\d{2}/.test(timeValue)) {
-    return new Date(`${raw}T${timeValue}`)
+  // Use scheduled_at as the time component (e.g. "09:00 AM PST", "14:30", etc.)
+  const timeStr = job.scheduled_at || job.scheduled_time || ""
+  const timeMatch = String(timeStr).match(/^(\d{1,2}):(\d{2})/)
+  if (timeMatch) {
+    return new Date(`${rawDate}T${timeMatch[0]}:00`)
   }
 
   // Default to 9am
-  return new Date(`${raw}T09:00:00`)
+  return new Date(`${rawDate}T09:00:00`)
 }
 
 function resolveEnd(job: CalendarJob) {
@@ -151,6 +163,19 @@ function eventClassForStatus(status?: string) {
   if (normalized === "in-progress") return "event-in-progress"
   if (normalized === "rescheduled") return "event-rescheduled"
   return "event-scheduled"
+}
+
+const STORAGE_KEY_VIEW = "calendar-view"
+const STORAGE_KEY_DATE = "calendar-date"
+
+function getSavedView(): string {
+  if (typeof window === "undefined") return "dayGridMonth"
+  return localStorage.getItem(STORAGE_KEY_VIEW) || "dayGridMonth"
+}
+
+function getSavedDate(): string | undefined {
+  if (typeof window === "undefined") return undefined
+  return localStorage.getItem(STORAGE_KEY_DATE) || undefined
 }
 
 export default function JobsPage() {
@@ -204,7 +229,11 @@ export default function JobsPage() {
       const end = resolveEnd(job)
       const location = resolveLocation(job)
       const description = resolveDescription(job)
-      const title = job.title || job.service_type || resolveCustomerName(job)
+      const cleanerName = resolveCleanerName(job)
+      const customerName = resolveCustomerName(job)
+      const title = cleanerName
+        ? `${customerName} (${cleanerName})`
+        : job.title || job.service_type || customerName
       const className = eventClassForStatus(job.status)
 
       return {
@@ -217,7 +246,8 @@ export default function JobsPage() {
           description,
           location,
           resourceId: location,
-          client: resolveCustomerName(job),
+          client: customerName,
+          cleaner: cleanerName || "",
           price: job.price || job.estimated_value || 0,
           status: job.status || "scheduled",
         },
@@ -249,6 +279,7 @@ export default function JobsPage() {
       status: info.event.extendedProps.status || "scheduled",
       price: info.event.extendedProps.price || 0,
       client: info.event.extendedProps.client || emptyValue,
+      cleaner: info.event.extendedProps.cleaner || "",
     }
     setSelectedEvent(details)
   }
@@ -362,7 +393,8 @@ export default function JobsPage() {
             <FullCalendar
               ref={calendarRef}
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
-              initialView="dayGridMonth"
+              initialView={getSavedView()}
+              initialDate={getSavedDate()}
               headerToolbar={{
                 left: "prev,next today",
                 center: "title",
@@ -375,6 +407,10 @@ export default function JobsPage() {
               eventTimeFormat={timeFormat}
               select={handleSelect}
               eventClick={handleEventClick}
+              datesSet={(info) => {
+                localStorage.setItem(STORAGE_KEY_VIEW, info.view.type)
+                localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
+              }}
               eventDidMount={(info) => {
                 const desc = info.event.extendedProps.description || ""
                 const loc = info.event.extendedProps.location || ""
@@ -413,6 +449,11 @@ export default function JobsPage() {
             <div style={{ marginBottom: "0.5rem" }}>
               <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
             </div>
+            {selectedEvent?.cleaner && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <strong>Cleaner:</strong> {selectedEvent.cleaner}
+              </div>
+            )}
             <div style={{ marginBottom: "0.5rem" }}>
               <strong>Location:</strong> {selectedEvent?.location || emptyValue}
             </div>

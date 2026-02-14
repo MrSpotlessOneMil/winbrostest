@@ -9,7 +9,7 @@ import {
   updateCleanerAssignment,
   updateJob,
 } from "@/lib/supabase"
-import { answerCallbackQuery, sendTelegramMessage } from "@/lib/telegram"
+import { answerCallbackQuery, sendTelegramMessage, logTelegramMessage } from "@/lib/telegram"
 import { assignNextAvailableCleaner } from "@/lib/cleaner-assignment"
 import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
@@ -413,6 +413,15 @@ export async function POST(request: NextRequest) {
     const chatId = chat.id.toString()
 
     console.log(`[OSIRIS] Telegram message from ${from.username || from.first_name}: ${text}`)
+
+    // Log inbound message to DB (fire-and-forget)
+    logTelegramMessage({
+      telegramChatId: chatId,
+      direction: 'inbound',
+      content: text,
+      source: 'telegram_webhook',
+      messageId: update.message.message_id,
+    }).catch(() => {})
 
     // Handle /start command - different response based on context
     if (text.toLowerCase() === "/start") {
