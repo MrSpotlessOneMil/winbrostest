@@ -9,74 +9,81 @@ export async function GET(request: NextRequest) {
   const client = getSupabaseClient()
   const tenant = await getAuthTenant(request)
 
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
 
   // Fetch customers with their messages and jobs
-  const { data: customers, error: customersError } = await client
+  let customersQuery = client
     .from("customers")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .order("updated_at", { ascending: false })
     .limit(100)
+  if (tenant) customersQuery = customersQuery.eq("tenant_id", tenant.id)
+  const { data: customers, error: customersError } = await customersQuery
 
   if (customersError) {
     return NextResponse.json({ success: false, error: customersError.message }, { status: 500 })
   }
 
   // Fetch messages for all customers
-  const { data: messages, error: messagesError } = await client
+  let messagesQuery = client
     .from("messages")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .order("timestamp", { ascending: true })
+  if (tenant) messagesQuery = messagesQuery.eq("tenant_id", tenant.id)
+  const { data: messages, error: messagesError } = await messagesQuery
 
   if (messagesError) {
     return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
   }
 
   // Fetch jobs for all customers
-  const { data: jobs, error: jobsError } = await client
+  let jobsQuery = client
     .from("jobs")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
+  if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const { data: jobs, error: jobsError } = await jobsQuery
 
   if (jobsError) {
     return NextResponse.json({ success: false, error: jobsError.message }, { status: 500 })
   }
 
   // Fetch calls
-  const { data: calls, error: callsError } = await client
+  let callsQuery = client
     .from("calls")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
+  if (tenant) callsQuery = callsQuery.eq("tenant_id", tenant.id)
+  const { data: calls, error: callsError } = await callsQuery
 
   if (callsError) {
     return NextResponse.json({ success: false, error: callsError.message }, { status: 500 })
   }
 
   // Fetch leads for all customers
-  const { data: leads, error: leadsError } = await client
+  let leadsQuery = client
     .from("leads")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
+  if (tenant) leadsQuery = leadsQuery.eq("tenant_id", tenant.id)
+  const { data: leads, error: leadsError } = await leadsQuery
 
   if (leadsError) {
     return NextResponse.json({ success: false, error: leadsError.message }, { status: 500 })
   }
 
   // Fetch pending scheduled tasks for lead follow-ups
-  const { data: scheduledTasks, error: tasksError } = await client
+  let tasksQuery = client
     .from("scheduled_tasks")
     .select("*")
-    .eq("tenant_id", tenant.id)
     .eq("task_type", "lead_followup")
     .in("status", ["pending", "processing"])
     .order("scheduled_for", { ascending: true })
+  if (tenant) tasksQuery = tasksQuery.eq("tenant_id", tenant.id)
+  const { data: scheduledTasks, error: tasksError } = await tasksQuery
 
   if (tasksError) {
     console.error("Error fetching scheduled tasks:", tasksError.message)

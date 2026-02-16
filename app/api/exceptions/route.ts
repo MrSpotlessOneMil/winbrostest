@@ -77,9 +77,10 @@ export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  // Get the default tenant for multi-tenant filtering
+  // Get tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all exceptions
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: true, data: [] as ExceptionItem[] })
   }
 
@@ -89,12 +90,13 @@ export async function GET(request: NextRequest) {
   const client = getSupabaseServiceClient()
 
   // "Exceptions" are derived from recent system_events that indicate problems / attention needed.
-  const { data, error } = await client
+  let exceptionsQuery = client
     .from("system_events")
     .select("id,event_type,source,message,metadata,created_at")
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
     .limit(limit)
+  if (tenant) exceptionsQuery = exceptionsQuery.eq("tenant_id", tenant.id)
+  const { data, error } = await exceptionsQuery
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message, data: [] as ExceptionItem[] }, { status: 500 })

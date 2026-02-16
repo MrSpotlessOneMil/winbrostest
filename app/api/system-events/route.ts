@@ -7,7 +7,8 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all events
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ data: [], total: 0 })
   }
 
@@ -29,7 +30,10 @@ export async function GET(request: NextRequest) {
     .order("created_at", { ascending: false })
 
   // Filter by tenant (or include null tenant_id for system-wide events)
-  query = query.or(`tenant_id.eq.${tenant.id},tenant_id.is.null`)
+  // Admin sees all events
+  if (tenant) {
+    query = query.or(`tenant_id.eq.${tenant.id},tenant_id.is.null`)
+  }
 
   if (source) query = query.eq("source", source)
   if (event_type) query = query.eq("event_type", event_type)

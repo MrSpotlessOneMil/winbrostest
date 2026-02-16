@@ -51,9 +51,10 @@ export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  // Get the default tenant for multi-tenant filtering
+  // Get tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ data: [], total: 0, page: 1, per_page: 20, total_pages: 0 })
   }
 
@@ -70,8 +71,8 @@ export async function GET(request: NextRequest) {
   let query = client
     .from("leads")
     .select("*", { count: "exact" })
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
+  if (tenant) query = query.eq("tenant_id", tenant.id)
 
   if (source) query = query.eq("source", source)
   if (status) query = query.eq("status", status)

@@ -33,13 +33,14 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  // Get the default tenant (winbros) for multi-tenant filtering
+  // Get tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json(
       {
         success: false,
-        error: "No tenant configured. Please set up the winbros tenant first.",
+        error: "No tenant configured. Please set up your tenant first.",
       } satisfies ApiResponse<never>,
       { status: 500 }
     )
@@ -49,12 +50,13 @@ export async function GET(request: NextRequest) {
   const date = searchParams.get("date") || todayISO()
 
   // Load teams and their members (cleaners) including location fields
-  const teamsRes = await client
+  let teamsQuery = client
     .from("teams")
     .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
-    .eq("tenant_id", tenant.id)
     .eq("active", true)
     .order("created_at", { ascending: true })
+  if (tenant) teamsQuery = teamsQuery.eq("tenant_id", tenant.id)
+  const teamsRes = await teamsQuery
 
   if (teamsRes.error) {
     return NextResponse.json(
@@ -67,12 +69,13 @@ export async function GET(request: NextRequest) {
   }
 
   // Preload jobs for the date to derive status + metrics
-  const jobsRes = await client
+  let jobsQuery = client
     .from("jobs")
     .select("id, date, status, price, team_id")
-    .eq("tenant_id", tenant.id)
     .eq("date", date)
     .neq("status", "cancelled")
+  if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const jobsRes = await jobsQuery
 
   const jobsByTeam = new Map<number, any[]>()
   for (const j of jobsRes.data || []) {

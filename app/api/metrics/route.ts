@@ -91,9 +91,10 @@ export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  // Get the default tenant for multi-tenant filtering
+  // Get tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }
 
@@ -106,7 +107,9 @@ export async function GET(request: NextRequest) {
   const client = getSupabaseServiceClient()
   const baseDate = date ? new Date(`${date}T00:00:00Z`) : new Date()
 
-  const cleanersRes = await client.from("cleaners").select("id").eq("tenant_id", tenant.id).eq("active", true)
+  let cleanersQuery = client.from("cleaners").select("id").eq("active", true)
+  if (tenant) cleanersQuery = cleanersQuery.eq("tenant_id", tenant.id)
+  const cleanersRes = await cleanersQuery
   const activeCrews = cleanersRes.data ? cleanersRes.data.length : 0
 
   let startDate: string
@@ -123,27 +126,30 @@ export async function GET(request: NextRequest) {
     endDate = today
   }
 
-  const jobsRes = await client
+  let jobsQuery = client
     .from("jobs")
     .select("date,status,price")
-    .eq("tenant_id", tenant.id)
     .gte("date", startDate)
     .lte("date", endDate)
     .neq("status", "cancelled")
+  if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const jobsRes = await jobsQuery
 
-  const leadsRes = await client
+  let leadsQuery = client
     .from("leads")
     .select("created_at,status")
-    .eq("tenant_id", tenant.id)
     .gte("created_at", startOfDayUTC(startDate))
     .lte("created_at", endOfDayUTC(endDate))
+  if (tenant) leadsQuery = leadsQuery.eq("tenant_id", tenant.id)
+  const leadsRes = await leadsQuery
 
-  const callsRes = await client
+  let callsQuery = client
     .from("calls")
     .select("created_at,date,started_at")
-    .eq("tenant_id", tenant.id)
     .gte("created_at", startOfDayUTC(startDate))
     .lte("created_at", endOfDayUTC(endDate))
+  if (tenant) callsQuery = callsQuery.eq("tenant_id", tenant.id)
+  const callsRes = await callsQuery
 
   const jobs: DbJob[] = (jobsRes.data || []) as any
   const leads: DbLead[] = (leadsRes.data || []) as any
