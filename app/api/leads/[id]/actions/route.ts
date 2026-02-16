@@ -39,11 +39,12 @@ export async function POST(
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
 
-  // Get the lead
+  // Get the lead (scoped to tenant)
   const { data: lead, error: leadError } = await client
     .from("leads")
     .select("*")
     .eq("id", leadId)
+    .eq("tenant_id", tenant.id)
     .single()
 
   if (leadError || !lead) {
@@ -71,6 +72,7 @@ export async function POST(
           .from("leads")
           .update({ followup_stage: stage })
           .eq("id", leadId)
+          .eq("tenant_id", tenant.id)
 
         if (updateError) {
           throw updateError
@@ -99,6 +101,7 @@ export async function POST(
           .from("leads")
           .update({ status })
           .eq("id", leadId)
+          .eq("tenant_id", tenant.id)
 
         if (updateError) {
           throw updateError
@@ -142,6 +145,7 @@ export async function POST(
             },
           })
           .eq("id", leadId)
+          .eq("tenant_id", tenant.id)
 
         if (updateError) {
           throw updateError
@@ -344,6 +348,7 @@ export async function POST(
           .from("leads")
           .update({ form_data: newFormData })
           .eq("id", leadId)
+          .eq("tenant_id", tenant.id)
           .select("id, form_data")
           .single()
 

@@ -931,12 +931,18 @@ async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
 
   if (jobIds.length === 0) return []
 
-  const { data: jobs, error: jobError } = await client
+  let jobQuery = client
     .from('jobs')
     .select('id, date, scheduled_at, hours, status')
     .in('id', jobIds)
     .is('deleted_at', null)
     .not('status', 'eq', 'cancelled')
+
+  if (tenantId) {
+    jobQuery = jobQuery.eq('tenant_id', tenantId)
+  }
+
+  const { data: jobs, error: jobError } = await jobQuery
 
   if (jobError) {
     console.error('Error fetching jobs for availability:', jobError)
