@@ -157,6 +157,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
+  // Auto-create a login user for this tenant (username = slug)
+  if (tenant) {
+    const userPassword = password || slug // Default password to slug if not provided
+    const { error: userError } = await client.rpc("create_user_with_password", {
+      p_username: slug,
+      p_password: userPassword,
+      p_display_name: slug,
+      p_email: email || null,
+      p_tenant_id: tenant.id,
+    })
+
+    if (userError) {
+      console.error("[Admin] Failed to auto-create user for tenant:", userError.message)
+    }
+  }
+
   return NextResponse.json({ success: true, data: tenant })
 }
 
@@ -191,6 +207,25 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
+  // If slug is being changed, validate and sync the user's username
+  if (updates.slug) {
+    if (!/^[a-z0-9-]+$/.test(updates.slug)) {
+      return NextResponse.json({ success: false, error: "Slug must be lowercase alphanumeric with hyphens only" }, { status: 400 })
+    }
+
+    // Check for duplicate slug
+    const { data: existingSlug } = await client
+      .from("tenants")
+      .select("id")
+      .eq("slug", updates.slug)
+      .neq("id", tenantId)
+      .single()
+
+    if (existingSlug) {
+      return NextResponse.json({ success: false, error: "A business with this slug already exists" }, { status: 400 })
+    }
+  }
+
   const { data, error } = await client
     .from("tenants")
     .update({
@@ -203,6 +238,14 @@ export async function PATCH(request: NextRequest) {
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+  }
+
+  // Sync username when slug changes
+  if (updates.slug) {
+    await client
+      .from("users")
+      .update({ username: updates.slug, display_name: updates.slug })
+      .eq("tenant_id", tenantId)
   }
 
   return NextResponse.json({ success: true, data })

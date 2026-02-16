@@ -1490,28 +1490,20 @@ export default function AdminPage() {
                 <p className="text-xs text-muted-foreground">URL-safe identifier (lowercase, no spaces)</p>
               </div>
               <div className="space-y-2">
-                <Label>Admin Email</Label>
-                <Input
-                  type="email"
-                  value={newBusiness.email}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, email: e.target.value })}
-                  placeholder="admin@example.com"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Admin Password</Label>
+                <Label>Password *</Label>
                 <Input
                   type="password"
                   value={newBusiness.password}
                   onChange={(e) => setNewBusiness({ ...newBusiness, password: e.target.value })}
                   placeholder="••••••••"
                 />
+                <p className="text-xs text-muted-foreground">A login account will be created with username = slug</p>
               </div>
               <div className="flex gap-2 pt-4">
                 <Button variant="outline" className="flex-1" onClick={() => setShowAddModal(false)}>
                   Cancel
                 </Button>
-                <Button className="flex-1" onClick={createBusiness} disabled={creating || !newBusiness.name || !newBusiness.slug}>
+                <Button className="flex-1" onClick={createBusiness} disabled={creating || !newBusiness.name || !newBusiness.slug || !newBusiness.password}>
                   {creating ? "Creating..." : "Create Business"}
                 </Button>
               </div>
