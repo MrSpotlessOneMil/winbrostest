@@ -279,6 +279,7 @@ export default function AdminPage() {
     if (!currentTenant) return
 
     const credentialFields = [
+      { label: "Slug", value: currentTenant.slug },
       { label: "Business Name", value: currentTenant.business_name },
       { label: "Short Name", value: currentTenant.business_name_short },
       { label: "Service Area", value: currentTenant.service_area },
@@ -491,7 +492,7 @@ export default function AdminPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium text-sm">{tenant.business_name || tenant.name}</span>
+                        <span className="font-medium text-sm">{tenant.slug}</span>
                       </div>
                       {smsEnabled ? (
                         <Power className="h-4 w-4 text-green-500" />
@@ -537,8 +538,7 @@ export default function AdminPage() {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>{currentTenant.business_name || currentTenant.name}</CardTitle>
-                    <CardDescription>Slug: {currentTenant.slug}</CardDescription>
+                    <CardTitle>{currentTenant.slug}</CardTitle>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={currentTenant.active ? "default" : "destructive"}>
@@ -885,7 +885,16 @@ export default function AdminPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label className="text-sm">Business Name</Label>
+                          <Label className="text-sm">Slug <span className="text-muted-foreground">(primary identifier)</span></Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "slug")}
+                            onChange={(e) => setFieldValue("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
+                            placeholder="my-business"
+                            className="font-mono"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Business Name <span className="text-muted-foreground">(customer-facing)</span></Label>
                           <Input
                             value={getFieldValue(currentTenant, "business_name")}
                             onChange={(e) => setFieldValue("business_name", e.target.value)}
@@ -893,7 +902,7 @@ export default function AdminPage() {
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-sm">Short Name</Label>
+                          <Label className="text-sm">Short Name <span className="text-muted-foreground">(SMS sender name)</span></Label>
                           <Input
                             value={getFieldValue(currentTenant, "business_name_short")}
                             onChange={(e) => setFieldValue("business_name_short", e.target.value)}
@@ -1279,6 +1288,12 @@ export default function AdminPage() {
                   <TabsContent value="info" className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
+                        <Label className="text-sm text-muted-foreground">Slug</Label>
+                        <div className="p-2 rounded border border-border bg-muted/30 font-mono text-sm">
+                          {currentTenant.slug}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
                         <Label className="text-sm text-muted-foreground">Business Name</Label>
                         <div className="p-2 rounded border border-border bg-muted/30">
                           {currentTenant.business_name || "-"}
@@ -1306,12 +1321,6 @@ export default function AdminPage() {
                         <Label className="text-sm text-muted-foreground">SDR Persona</Label>
                         <div className="p-2 rounded border border-border bg-muted/30">
                           {currentTenant.sdr_persona || "Mary"}
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-sm text-muted-foreground">Slug</Label>
-                        <div className="p-2 rounded border border-border bg-muted/30 font-mono text-sm">
-                          {currentTenant.slug}
                         </div>
                       </div>
                     </div>
@@ -1410,7 +1419,7 @@ export default function AdminPage() {
                 </Button>
               </div>
               <CardDescription>
-                This will permanently delete <strong>{currentTenant.business_name || currentTenant.name}</strong> and all associated data including customers, jobs, leads, messages, and more.
+                This will permanently delete <strong>{currentTenant.slug}</strong> and all associated data including customers, jobs, leads, messages, and more.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
