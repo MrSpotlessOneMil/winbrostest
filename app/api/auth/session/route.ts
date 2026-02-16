@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthUser } from '@/lib/auth'
-import { getTenantById } from '@/lib/tenant'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 
 const SESSION_COOKIE_NAME = 'winbros_session'
 
@@ -19,9 +19,16 @@ export async function GET(request: NextRequest) {
     const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
 
     // Look up tenant status for the online indicator
+    // NOTE: Must NOT filter by active=true — we need to READ the active status
     let tenantStatus: { active: boolean; smsEnabled: boolean } | null = null
     if (user.tenant_id) {
-      const tenant = await getTenantById(user.tenant_id)
+      const client = getSupabaseServiceClient()
+      const { data: tenant } = await client
+        .from('tenants')
+        .select('active, workflow_config')
+        .eq('id', user.tenant_id)
+        .single()
+
       if (tenant) {
         const wc = tenant.workflow_config as Record<string, any> | null
         tenantStatus = {
