@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession, setSessionCookie } from '@/lib/auth'
+import { getTenantById } from '@/lib/tenant'
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +24,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Look up tenant status for the online indicator
+    let tenantStatus: { active: boolean; smsEnabled: boolean } | null = null
+    if (result.user.tenant_id) {
+      const tenant = await getTenantById(result.user.tenant_id)
+      if (tenant) {
+        const wc = tenant.workflow_config as Record<string, any> | null
+        tenantStatus = {
+          active: tenant.active !== false,
+          smsEnabled: wc?.sms_auto_response_enabled !== false,
+        }
+      }
+    }
+
     // Create response with user data
     const response = NextResponse.json({
       success: true,
@@ -33,6 +47,7 @@ export async function POST(request: NextRequest) {
           display_name: result.user.display_name,
           email: result.user.email,
         },
+        tenantStatus,
       },
     })
 

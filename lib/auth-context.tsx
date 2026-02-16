@@ -166,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           // Update current user state
           setUser(data.data.user)
           setIsAdmin(data.data.user.username === 'admin')
+          setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
           return
         }
