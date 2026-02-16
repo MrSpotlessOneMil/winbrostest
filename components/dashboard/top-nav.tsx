@@ -2,12 +2,50 @@
 
 import { Search, PanelLeft } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/lib/auth-context"
 
 interface TopNavProps {
   onToggleSidebar?: () => void
 }
 
 export function TopNav({ onToggleSidebar }: TopNavProps) {
+  const { tenantStatus, isAdmin } = useAuth()
+
+  // Determine status indicator
+  const getStatus = () => {
+    // Admin sees all tenants — just show "Online"
+    if (isAdmin) return { label: "Online", color: "emerald", ping: true }
+    if (!tenantStatus) return { label: "Online", color: "emerald", ping: true }
+    if (!tenantStatus.active) return { label: "Inactive", color: "red", ping: false }
+    if (!tenantStatus.smsEnabled) return { label: "SMS Off", color: "amber", ping: false }
+    return { label: "Online", color: "emerald", ping: true }
+  }
+
+  const status = getStatus()
+
+  const colorMap: Record<string, { bg: string; text: string; dot: string; pingDot: string }> = {
+    emerald: {
+      bg: "bg-emerald-500/10",
+      text: "text-emerald-400",
+      dot: "bg-emerald-500",
+      pingDot: "bg-emerald-500",
+    },
+    amber: {
+      bg: "bg-amber-500/10",
+      text: "text-amber-400",
+      dot: "bg-amber-500",
+      pingDot: "bg-amber-500",
+    },
+    red: {
+      bg: "bg-red-500/10",
+      text: "text-red-400",
+      dot: "bg-red-500",
+      pingDot: "bg-red-500",
+    },
+  }
+
+  const colors = colorMap[status.color] || colorMap.emerald
+
   return (
     <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-4">
       {/* Sidebar Toggle */}
@@ -35,12 +73,14 @@ export function TopNav({ onToggleSidebar }: TopNavProps) {
       {/* Right side */}
       <div className="flex items-center gap-3">
         {/* Status Indicator */}
-        <div className="hidden sm:flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-1.5">
+        <div className={`hidden sm:flex items-center gap-2 rounded-lg ${colors.bg} px-3 py-1.5`}>
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            {status.ping && (
+              <span className={`absolute inline-flex h-full w-full animate-ping rounded-full ${colors.pingDot} opacity-75`} />
+            )}
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${colors.dot}`} />
           </span>
-          <span className="text-xs font-medium text-emerald-400">Online</span>
+          <span className={`text-xs font-medium ${colors.text}`}>{status.label}</span>
         </div>
       </div>
     </header>

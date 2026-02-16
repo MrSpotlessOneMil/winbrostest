@@ -14,11 +14,17 @@ interface StoredAccount {
   sessionToken?: string
 }
 
+interface TenantStatus {
+  active: boolean
+  smsEnabled: boolean
+}
+
 interface AuthState {
   authenticated: boolean
   loading: boolean
   isAdmin: boolean
   user: User | null
+  tenantStatus: TenantStatus | null
   accounts: StoredAccount[]
   logout: () => Promise<void>
   refresh: () => Promise<void>
@@ -32,6 +38,7 @@ const AuthContext = createContext<AuthState>({
   loading: true,
   isAdmin: false,
   user: null,
+  tenantStatus: null,
   accounts: [],
   logout: async () => {},
   refresh: async () => {},
@@ -47,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [tenantStatus, setTenantStatus] = useState<TenantStatus | null>(null)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
 
   // Load accounts from localStorage on mount
@@ -86,6 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthenticated(true)
         setUser(data.data.user)
         setIsAdmin(data.data.user.username === 'admin')
+        setTenantStatus(data.data.tenantStatus || null)
 
         const sessionToken = data.data.sessionToken
 
@@ -106,11 +115,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthenticated(false)
         setUser(null)
         setIsAdmin(false)
+        setTenantStatus(null)
       }
     } catch {
       setAuthenticated(false)
       setUser(null)
       setIsAdmin(false)
+      setTenantStatus(null)
     } finally {
       setLoading(false)
     }
@@ -214,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAdmin,
         user,
+        tenantStatus,
         accounts,
         logout,
         refresh,
