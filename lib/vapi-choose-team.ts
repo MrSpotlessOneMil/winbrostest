@@ -864,13 +864,19 @@ function findAvailableSlots(
   return slots
 }
 
-async function fetchTeams(): Promise<Team[]> {
+async function fetchTeams(tenantId: string | null): Promise<Team[]> {
   const client = getSupabaseClient()
-  const { data, error } = await client
+  let query = client
     .from('cleaners')
     .select('*')
     .eq('active', true)
     .is('deleted_at', null)
+
+  if (tenantId) {
+    query = query.eq('tenant_id', tenantId)
+  }
+
+  const { data, error } = await query
 
   if (error) {
     console.error('Error fetching cleaners for availability:', error)
@@ -892,11 +898,17 @@ async function fetchTeams(): Promise<Team[]> {
     .filter(Boolean) as Team[]
 }
 
-async function fetchJobs(): Promise<JobBlock[]> {
+async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
   const client = getSupabaseClient()
-  const { data: assignments, error: assignmentError } = await client
+  let assignmentQuery = client
     .from('cleaner_assignments')
     .select('job_id, cleaner_id, status')
+
+  if (tenantId) {
+    assignmentQuery = assignmentQuery.eq('tenant_id', tenantId)
+  }
+
+  const { data: assignments, error: assignmentError } = await assignmentQuery
 
   if (assignmentError) {
     console.error('Error fetching cleaner assignments for availability:', assignmentError)
@@ -931,10 +943,16 @@ async function fetchJobs(): Promise<JobBlock[]> {
     return []
   }
 
-  const { data: cleaners, error: cleanerError } = await client
+  let cleanerQuery = client
     .from('cleaners')
     .select('id, name')
     .is('deleted_at', null)
+
+  if (tenantId) {
+    cleanerQuery = cleanerQuery.eq('tenant_id', tenantId)
+  }
+
+  const { data: cleaners, error: cleanerError } = await cleanerQuery
   if (cleanerError) {
     console.error('Error fetching cleaners for availability:', cleanerError)
     return []
@@ -994,7 +1012,8 @@ async function fetchJobs(): Promise<JobBlock[]> {
 }
 
 export async function getVapiAvailabilityResponse(
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  tenantId?: string | null
 ): Promise<VapiAvailabilityResponse> {
   const allKeys = Object.keys(payload)
   const payloadPreview = JSON.stringify(payload).slice(0, 500)
@@ -1092,7 +1111,7 @@ export async function getVapiAvailabilityResponse(
 
   const adjustedEnd = addMinutes(adjustedStart, durationHours * 60 + BUFFER_MINUTES)
 
-  const [teams, jobs] = await Promise.all([fetchTeams(), fetchJobs()])
+  const [teams, jobs] = await Promise.all([fetchTeams(tenantId || null), fetchJobs(tenantId || null)])
 
   // Always find 2 alternative slots regardless of availability
   const alternatives = findAvailableSlots(
