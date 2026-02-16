@@ -144,6 +144,7 @@ export async function POST(request: NextRequest) {
 
   // Log routing decision as system event for debugging
   await logSystemEvent({
+    tenant_id: tenant?.id,
     source: "openphone",
     event_type: "SMS_ROUTING",
     message: `SMS from ${phone} routed to ${tenant?.slug || 'unknown'} via ${routingMethod}`,
@@ -380,6 +381,7 @@ export async function POST(request: NextRequest) {
         .eq("id", customer.id)
 
       await logSystemEvent({
+        tenant_id: tenant?.id,
         source: "openphone",
         event_type: "EMAIL_CAPTURED",
         message: `Email captured from booked customer: ${providedEmail}`,
@@ -462,6 +464,7 @@ export async function POST(request: NextRequest) {
           }
 
           await logSystemEvent({
+            tenant_id: tenant?.id,
             source: "openphone",
             event_type: "PAYMENT_LINKS_SENT",
             message: `Card-on-file link sent to ${phone}`,
@@ -718,6 +721,7 @@ export async function POST(request: NextRequest) {
                 await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
                 await logSystemEvent({
+                  tenant_id: tenant?.id,
                   source: "openphone",
                   event_type: "LEAD_ESCALATED",
                   message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
@@ -930,6 +934,7 @@ export async function POST(request: NextRequest) {
                   }
 
                   await logSystemEvent({
+                    tenant_id: tenant?.id,
                     source: "openphone",
                     event_type: "SMS_BOOKING_COMPLETED",
                     message: `SMS booking completed for ${phone} — job ${newJob?.id}, card-on-file link sent, email sent to ${finalEmail}`,
@@ -978,6 +983,7 @@ export async function POST(request: NextRequest) {
   console.log(`[OpenPhone] Intent analysis result:`, intentResult)
 
   await logSystemEvent({
+    tenant_id: tenant?.id,
     source: "openphone",
     event_type: "SMS_INTENT_ANALYZED",
     message: `SMS intent: ${intentResult.hasBookingIntent ? 'BOOKING INTENT DETECTED' : 'No booking intent'} (${intentResult.confidence})`,
@@ -1037,6 +1043,7 @@ export async function POST(request: NextRequest) {
           })
 
           await logSystemEvent({
+            tenant_id: tenant?.id,
             source: "openphone",
             event_type: "AUTO_RESPONSE_SENT",
             message: `Auto-response sent to ${phone}: "${autoResponse.response.slice(0, 50)}..."`,
@@ -1080,6 +1087,7 @@ export async function POST(request: NextRequest) {
                 await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
                 await logSystemEvent({
+                  tenant_id: tenant?.id,
                   source: "openphone",
                   event_type: "LEAD_ESCALATED",
                   message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
@@ -1160,6 +1168,7 @@ export async function POST(request: NextRequest) {
 
       // Log lead creation
       await logSystemEvent({
+        tenant_id: tenant?.id,
         source: "openphone",
         event_type: "LEAD_CREATED_FROM_SMS",
         message: `Lead created from SMS: ${fullName || phone}`,

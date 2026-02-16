@@ -169,6 +169,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsAdmin(data.data.user.username === 'admin')
           setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
+
+          // Update the stored account with fresh user data (fixes stale slug)
+          setAccounts((prev) =>
+            prev.map((a) =>
+              a.user.id === data.data.user.id
+                ? { ...a, user: data.data.user }
+                : a
+            )
+          )
           return
         }
       } catch {

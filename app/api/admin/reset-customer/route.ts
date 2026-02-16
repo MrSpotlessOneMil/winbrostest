@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
-import { getDefaultTenant } from "@/lib/tenant"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { normalizePhone, toE164 } from "@/lib/phone-utils"
 
 /**
@@ -18,10 +18,15 @@ import { normalizePhone, toE164 } from "@/lib/phone-utils"
  * Body: { phoneNumber: string }
  */
 export async function POST(request: NextRequest) {
-  const client = getSupabaseClient()
-  const tenant = await getDefaultTenant()
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
 
-  if (!tenant) {
+  const client = getSupabaseClient()
+  const tenant = await getAuthTenant(request)
+  // Admin user (no tenant_id) deletes across all tenants
+  const isAdmin = !tenant && authResult.user.username === 'admin'
+
+  if (!tenant && !isAdmin) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
 
@@ -46,33 +51,32 @@ export async function POST(request: NextRequest) {
 
   const deletionLog: string[] = []
 
-  try {
-    // 1. Find the customer (try all phone formats)
-    const { data: customers } = await client
-      .from("customers")
-      .select("id, phone_number")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+  // Helper: conditionally add tenant filter (admin deletes across all tenants)
+  function withTenant<T extends { eq: (col: string, val: string) => T }>(query: T): T {
+    return tenant ? query.eq("tenant_id", tenant.id) : query
+  }
 
-    const customer = customers?.[0] || null
+  try {
+    // 1. Find customers (try all phone formats, across all tenants for admin)
+    const { data: customers } = await withTenant(
+      client.from("customers").select("id, phone_number, tenant_id")
+    ).in("phone_number", phoneFormats)
+
+    const customerIds = customers?.map((c) => c.id) || []
     console.log(`[admin] Found ${customers?.length || 0} customers with matching phone`)
 
     // 2. Find all leads for this phone number (try all phone formats)
-    const { data: leads } = await client
-      .from("leads")
-      .select("id, phone_number")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+    const { data: leads } = await withTenant(
+      client.from("leads").select("id, phone_number")
+    ).in("phone_number", phoneFormats)
 
     const leadIds = leads?.map((l) => l.id) || []
     console.log(`[admin] Found ${leads?.length || 0} leads with matching phone`)
 
     // 3. Find all jobs for this phone number (try all phone formats)
-    const { data: jobs } = await client
-      .from("jobs")
-      .select("id, phone_number")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+    const { data: jobs } = await withTenant(
+      client.from("jobs").select("id, phone_number")
+    ).in("phone_number", phoneFormats)
 
     const jobIds = jobs?.map((j) => j.id) || []
     console.log(`[admin] Found ${jobs?.length || 0} jobs with matching phone`)
@@ -92,50 +96,38 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Count and delete system_events for this phone number (all formats)
-    const { data: events } = await client
-      .from("system_events")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+    const { data: events } = await withTenant(
+      client.from("system_events").select("id")
+    ).in("phone_number", phoneFormats)
 
     if (events && events.length > 0) {
-      await client
-        .from("system_events")
-        .delete()
-        .eq("tenant_id", tenant.id)
-        .in("phone_number", phoneFormats)
+      await withTenant(
+        client.from("system_events").delete()
+      ).in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${events.length} system events`)
     }
 
     // 6. Count and delete messages for this phone number (all formats)
-    const { data: messages } = await client
-      .from("messages")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+    const { data: messages } = await withTenant(
+      client.from("messages").select("id")
+    ).in("phone_number", phoneFormats)
 
     if (messages && messages.length > 0) {
-      await client
-        .from("messages")
-        .delete()
-        .eq("tenant_id", tenant.id)
-        .in("phone_number", phoneFormats)
+      await withTenant(
+        client.from("messages").delete()
+      ).in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${messages.length} messages`)
     }
 
     // 7. Count and delete calls for this phone number (all formats)
-    const { data: calls } = await client
-      .from("calls")
-      .select("id")
-      .eq("tenant_id", tenant.id)
-      .in("phone_number", phoneFormats)
+    const { data: calls } = await withTenant(
+      client.from("calls").select("id")
+    ).in("phone_number", phoneFormats)
 
     if (calls && calls.length > 0) {
-      await client
-        .from("calls")
-        .delete()
-        .eq("tenant_id", tenant.id)
-        .in("phone_number", phoneFormats)
+      await withTenant(
+        client.from("calls").delete()
+      ).in("phone_number", phoneFormats)
       deletionLog.push(`Deleted ${calls.length} calls`)
     }
 
@@ -190,13 +182,13 @@ export async function POST(request: NextRequest) {
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 
-    // 13. Finally, delete the customer record
-    if (customer) {
+    // 13. Finally, delete the customer records (all matching, across tenants for admin)
+    if (customerIds.length > 0) {
       await client
         .from("customers")
         .delete()
-        .eq("id", customer.id)
-      deletionLog.push(`Deleted customer record`)
+        .in("id", customerIds)
+      deletionLog.push(`Deleted ${customerIds.length} customer record(s)`)
     }
 
     console.log(`[admin] Reset complete for ${phone}:`, deletionLog)

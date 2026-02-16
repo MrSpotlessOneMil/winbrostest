@@ -109,6 +109,7 @@ export type SystemEventType =
   | 'SMS_ROUTING'
 
 export interface SystemEventInput {
+  tenant_id?: string
   event_type: SystemEventType
   source: SystemEventSource
   message: string
