@@ -184,6 +184,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
+  // Dedup: skip if an identical inbound message was already stored in the last 30 seconds
+  // (OpenPhone can fire multiple webhook events for the same message)
+  const dedupCutoff = new Date(Date.now() - 30000).toISOString()
+  const { data: existingDup } = await client
+    .from("messages")
+    .select("id")
+    .eq("phone_number", phone)
+    .eq("tenant_id", tenant?.id)
+    .eq("role", "client")
+    .eq("content", extracted.content || "")
+    .gte("timestamp", dedupCutoff)
+    .limit(1)
+    .maybeSingle()
+
+  if (existingDup) {
+    console.log(`[OpenPhone] Duplicate inbound message detected for ${phone}, skipping`)
+    return NextResponse.json({ success: true, action: "duplicate_webhook_skipped" })
+  }
+
   // Store the inbound message for dashboard display
   const receivedAt = new Date().toISOString()
   const { data: insertedMsg, error: msgErr } = await client.from("messages").insert({
@@ -230,6 +249,7 @@ export async function POST(request: NextRequest) {
 
   // After delay, check if this is still the newest inbound message
   // If a newer message arrived during the delay, let that webhook handle the response
+  // Use id as tiebreaker for deterministic ordering when timestamps match
   const { data: newestInbound } = await client
     .from("messages")
     .select("id")
@@ -237,6 +257,7 @@ export async function POST(request: NextRequest) {
     .eq("tenant_id", tenant?.id)
     .eq("role", "client")
     .order("timestamp", { ascending: false })
+    .order("id", { ascending: false })
     .limit(1)
     .single()
 
