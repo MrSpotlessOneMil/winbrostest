@@ -105,7 +105,14 @@ export function Sidebar({ collapsed }: SidebarProps) {
     setLoggingIn(false)
   }
 
-  const otherAccounts = accounts.filter((a) => a.user.id !== user?.id)
+  const otherAccounts = accounts
+    .filter((a) => a.user.id !== user?.id)
+    .sort((a, b) => {
+      // Admin always first
+      if (a.user.username === "admin") return -1
+      if (b.user.username === "admin") return 1
+      return a.user.username.localeCompare(b.user.username)
+    })
 
   // Filter navigation items based on admin status
   const filteredNavigation = navigation.filter(item => !item.adminOnly || isAdmin)
@@ -170,11 +177,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-zinc-800/50 text-left transition-colors"
             >
               <div className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
-                {user?.display_name?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase() || "U"}
+                {user?.username?.charAt(0)?.toUpperCase() || "U"}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-zinc-200 truncate">
-                  {user?.display_name || user?.username || "User"}
+                  {user?.username || "User"}
                 </div>
                 <div className="text-[11px] text-zinc-500 truncate">
                   {user?.email || ""}
@@ -185,7 +192,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
 
             {dropdownVisible && (
               <div
-                className={`absolute left-0 right-0 bottom-full mb-2 bg-zinc-900 border border-zinc-700/80 rounded-lg py-1 z-50 shadow-2xl shadow-black/50 max-h-80 overflow-y-auto transition-all duration-200 origin-bottom ${
+                className={`absolute left-0 right-0 bottom-full mb-2 bg-zinc-900 border border-zinc-700/80 rounded-lg py-1 z-50 shadow-2xl shadow-black/50 transition-all duration-200 origin-bottom ${
                   dropdownOpen
                     ? "opacity-100 scale-100 translate-y-0"
                     : "opacity-0 scale-95 translate-y-2 pointer-events-none"
@@ -197,14 +204,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 </div>
                 <div className="flex items-center gap-2.5 px-3 py-2 bg-zinc-800/50">
                   <div className="w-7 h-7 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
-                    {user?.display_name?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase() || "U"}
+                    {user?.username?.charAt(0)?.toUpperCase() || "U"}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-zinc-200 truncate">
-                      {user?.display_name || user?.username || "User"}
-                    </div>
-                    <div className="text-[10px] text-zinc-500 truncate">
-                      {user?.email || ""}
+                      {user?.username || "User"}
                     </div>
                   </div>
                   <Check className="w-4 h-4 text-purple-400" />
@@ -234,16 +238,13 @@ export function Sidebar({ collapsed }: SidebarProps) {
                               ? "bg-purple-500/25 text-purple-300"
                               : "bg-zinc-700/50 text-zinc-400"
                           }`}>
-                            {account.user.display_name?.charAt(0)?.toUpperCase() || account.user.username?.charAt(0)?.toUpperCase() || "U"}
+                            {account.user.username?.charAt(0)?.toUpperCase() || "U"}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className={`text-sm font-medium truncate transition-colors duration-150 ${
                               isSwitching ? "text-purple-200" : "text-zinc-300"
                             }`}>
-                              {account.user.display_name || account.user.username}
-                            </div>
-                            <div className="text-[10px] text-zinc-500 truncate">
-                              {account.user.email || ""}
+                              {account.user.username}
                             </div>
                           </div>
                           {isSwitching && (
@@ -343,10 +344,10 @@ export function Sidebar({ collapsed }: SidebarProps) {
           <div className="flex justify-center">
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
-              title={user?.display_name || user?.username || "User"}
+              title={user?.username || "User"}
               className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300"
             >
-              {user?.display_name?.charAt(0)?.toUpperCase() || user?.username?.charAt(0)?.toUpperCase() || "U"}
+              {user?.username?.charAt(0)?.toUpperCase() || "U"}
             </button>
           </div>
         )}
