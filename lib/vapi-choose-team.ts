@@ -1119,6 +1119,19 @@ export async function getVapiAvailabilityResponse(
 
   const [teams, jobs] = await Promise.all([fetchTeams(tenantId || null), fetchJobs(tenantId || null)])
 
+  console.log(`[VAPI choose-team] tenantId=${tenantId || 'null'}, teams=${teams.length}, jobs=${jobs.length}`)
+
+  // If no teams/cleaners exist for this tenant, return immediately
+  if (teams.length === 0) {
+    return {
+      is_available: false,
+      confirmed_datetime: null,
+      alternatives: [],
+      duration_hours: durationHours,
+      error: 'NO_TEAMS_CONFIGURED',
+    }
+  }
+
   // Always find 2 alternative slots regardless of availability
   const alternatives = findAvailableSlots(
     adjustedStart,
