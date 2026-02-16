@@ -31,8 +31,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
   }
 
-  // LOG FULL VAPI PAYLOAD to discover what metadata VAPI sends (assistant_id, call info, etc.)
-  console.log("[VAPI choose-team] FULL RAW PAYLOAD:", JSON.stringify(parsed.value, null, 2))
+  // LOG EVERYTHING VAPI sends — headers + full body — to discover assistant_id location
+  const headers: Record<string, string> = {}
+  request.headers.forEach((value, key) => { headers[key] = value })
+  console.log("[VAPI choose-team] === FULL REQUEST DUMP ===")
+  console.log("[VAPI choose-team] HEADERS:", JSON.stringify(headers, null, 2))
+  console.log("[VAPI choose-team] BODY:", JSON.stringify(parsed.value, null, 2))
+  console.log("[VAPI choose-team] TOP-LEVEL KEYS:", Object.keys(parsed.value))
+  // Also log nested keys one level deep to find call/assistant metadata
+  for (const [key, val] of Object.entries(parsed.value)) {
+    if (isRecord(val)) {
+      console.log(`[VAPI choose-team] ${key} KEYS:`, Object.keys(val))
+    }
+  }
+  console.log("[VAPI choose-team] === END DUMP ===")
 
   const payload = extractPayload(parsed.value)
   const response = await getVapiAvailabilityResponse(payload)
