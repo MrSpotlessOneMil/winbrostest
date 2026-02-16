@@ -18,18 +18,20 @@ export async function GET(request: NextRequest) {
     // Get session token from cookie for multi-account support
     const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
 
-    // Look up tenant status for the online indicator
+    // Look up tenant info for the online indicator and account label
     // NOTE: Must NOT filter by active=true — we need to READ the active status
     let tenantStatus: { active: boolean; smsEnabled: boolean } | null = null
+    let tenantSlug: string | null = null
     if (user.tenant_id) {
       const client = getSupabaseServiceClient()
       const { data: tenant } = await client
         .from('tenants')
-        .select('active, workflow_config')
+        .select('slug, active, workflow_config')
         .eq('id', user.tenant_id)
         .single()
 
       if (tenant) {
+        tenantSlug = tenant.slug
         const wc = tenant.workflow_config as Record<string, any> | null
         tenantStatus = {
           active: tenant.active !== false,
@@ -46,6 +48,7 @@ export async function GET(request: NextRequest) {
           username: user.username,
           display_name: user.display_name,
           email: user.email,
+          tenantSlug,
         },
         sessionToken, // Return token for multi-account storage
         tenantStatus,

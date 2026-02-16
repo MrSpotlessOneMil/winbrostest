@@ -24,18 +24,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Look up tenant status for the online indicator
+    // Look up tenant info for the online indicator and account label
     // NOTE: Must NOT filter by active=true — we need to READ the active status
     let tenantStatus: { active: boolean; smsEnabled: boolean } | null = null
+    let tenantSlug: string | null = null
     if (result.user.tenant_id) {
       const client = getSupabaseServiceClient()
       const { data: tenant } = await client
         .from('tenants')
-        .select('active, workflow_config')
+        .select('slug, active, workflow_config')
         .eq('id', result.user.tenant_id)
         .single()
 
       if (tenant) {
+        tenantSlug = tenant.slug
         const wc = tenant.workflow_config as Record<string, any> | null
         tenantStatus = {
           active: tenant.active !== false,
@@ -53,6 +55,7 @@ export async function POST(request: NextRequest) {
           username: result.user.username,
           display_name: result.user.display_name,
           email: result.user.email,
+          tenantSlug,
         },
         tenantStatus,
       },

@@ -105,13 +105,17 @@ export function Sidebar({ collapsed }: SidebarProps) {
     setLoggingIn(false)
   }
 
+  // Use the tenant slug as the single account identifier (fall back to username for admin)
+  const accountLabel = (u: { username: string; tenantSlug?: string | null }) =>
+    u.tenantSlug || u.username
+
   const otherAccounts = accounts
     .filter((a) => a.user.id !== user?.id)
     .sort((a, b) => {
       // Admin always first
       if (a.user.username === "admin") return -1
       if (b.user.username === "admin") return 1
-      return a.user.username.localeCompare(b.user.username)
+      return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
   // Filter navigation items based on admin status
@@ -177,14 +181,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-zinc-800/50 text-left transition-colors"
             >
               <div className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
-                {user?.username?.charAt(0)?.toUpperCase() || "U"}
+                {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-zinc-200 truncate">
-                  {user?.username || "User"}
-                </div>
-                <div className="text-[11px] text-zinc-500 truncate">
-                  {user?.email || ""}
+                  {user ? accountLabel(user) : "User"}
                 </div>
               </div>
               <ChevronsUpDown className="w-4 h-4 text-zinc-600 shrink-0" />
@@ -204,11 +205,11 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 </div>
                 <div className="flex items-center gap-2.5 px-3 py-2 bg-zinc-800/50">
                   <div className="w-7 h-7 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
-                    {user?.username?.charAt(0)?.toUpperCase() || "U"}
+                    {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-zinc-200 truncate">
-                      {user?.username || "User"}
+                      {user ? accountLabel(user) : "User"}
                     </div>
                   </div>
                   <Check className="w-4 h-4 text-purple-400" />
@@ -238,13 +239,13 @@ export function Sidebar({ collapsed }: SidebarProps) {
                               ? "bg-purple-500/25 text-purple-300"
                               : "bg-zinc-700/50 text-zinc-400"
                           }`}>
-                            {account.user.username?.charAt(0)?.toUpperCase() || "U"}
+                            {accountLabel(account.user).charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className={`text-sm font-medium truncate transition-colors duration-150 ${
                               isSwitching ? "text-purple-200" : "text-zinc-300"
                             }`}>
-                              {account.user.username}
+                              {accountLabel(account.user)}
                             </div>
                           </div>
                           {isSwitching && (
@@ -344,10 +345,10 @@ export function Sidebar({ collapsed }: SidebarProps) {
           <div className="flex justify-center">
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
-              title={user?.username || "User"}
+              title={user ? accountLabel(user) : "User"}
               className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300"
             >
-              {user?.username?.charAt(0)?.toUpperCase() || "U"}
+              {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
             </button>
           </div>
         )}
