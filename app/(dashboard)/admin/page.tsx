@@ -139,6 +139,9 @@ export default function AdminPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Copy URL state
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
+
   async function fetchTenants() {
     setLoading(true)
     setError(null)
@@ -382,6 +385,17 @@ export default function AdminPage() {
     } finally {
       setDeleting(false)
     }
+  }
+
+  function getWebhookUrl(slug: string, service: string): string {
+    const base = typeof window !== "undefined" ? window.location.origin : ""
+    return `${base}/api/webhooks/${service}/${slug}`
+  }
+
+  function copyUrl(url: string, label: string) {
+    navigator.clipboard.writeText(url)
+    setCopiedUrl(label)
+    setTimeout(() => setCopiedUrl(null), 2000)
   }
 
   function getFlowType(config: WorkflowConfig): string {
@@ -978,6 +992,25 @@ export default function AdminPage() {
                       <div className="font-medium flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
                         VAPI (Voice AI)
+                      </div>
+                      {/* Auto-generated Server URL */}
+                      <div className="space-y-2">
+                        <Label className="text-sm">Server URL <span className="text-muted-foreground">(auto-generated)</span></Label>
+                        <div className="flex gap-2">
+                          <Input
+                            readOnly
+                            value={getWebhookUrl(currentTenant.slug, "vapi")}
+                            className="bg-muted/50 font-mono text-xs"
+                          />
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, "vapi"), "vapi_url")}
+                          >
+                            {copiedUrl === "vapi_url" ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Paste this into VAPI &rarr; Assistant &rarr; Server URL</p>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
