@@ -31,6 +31,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 })
   }
 
+  // LOG FULL VAPI PAYLOAD to discover what metadata VAPI sends (assistant_id, call info, etc.)
+  console.log("[VAPI choose-team] FULL RAW PAYLOAD:", JSON.stringify(parsed.value, null, 2))
+
   const payload = extractPayload(parsed.value)
   const response = await getVapiAvailabilityResponse(payload)
   return NextResponse.json(response)
