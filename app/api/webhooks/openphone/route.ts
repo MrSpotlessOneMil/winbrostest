@@ -72,25 +72,43 @@ export async function POST(request: NextRequest) {
         .eq("tenant_id", tenant?.id)
         .maybeSingle()
 
-      // Save the outbound message
-      const { error: msgErr } = await client.from("messages").insert({
-        tenant_id: tenant?.id,
-        customer_id: customer?.id || null,
-        phone_number: toE164,
-        role: "assistant",
-        content: extracted.content,
-        direction: "outbound",
-        message_type: "sms",
-        ai_generated: false,
-        timestamp: extracted.createdAt || new Date().toISOString(),
-        source: "openphone_app",
-        metadata: payload,
-      })
+      // Dedup: check if this outbound message was already stored by our system
+      // (e.g., VAPI confirmation, auto-response, deposit flow, card-on-file, etc.)
+      const outboundDedupCutoff = new Date(Date.now() - 60000).toISOString()
+      const { data: existingOutbound } = await client
+        .from("messages")
+        .select("id")
+        .eq("phone_number", toE164)
+        .eq("tenant_id", tenant?.id)
+        .eq("role", "assistant")
+        .eq("content", extracted.content || "")
+        .gte("timestamp", outboundDedupCutoff)
+        .limit(1)
+        .maybeSingle()
 
-      if (msgErr) {
-        console.error("[OpenPhone] Failed to save outbound message:", msgErr)
+      if (existingOutbound) {
+        console.log(`[OpenPhone] Outbound message already stored for ${toPhone}, skipping duplicate`)
       } else {
-        console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${toPhone}`)
+        // Save the outbound message (only for messages sent directly from OpenPhone app)
+        const { error: msgErr } = await client.from("messages").insert({
+          tenant_id: tenant?.id,
+          customer_id: customer?.id || null,
+          phone_number: toE164,
+          role: "assistant",
+          content: extracted.content,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: extracted.createdAt || new Date().toISOString(),
+          source: "openphone_app",
+          metadata: payload,
+        })
+
+        if (msgErr) {
+          console.error("[OpenPhone] Failed to save outbound message:", msgErr)
+        } else {
+          console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${toPhone}`)
+        }
       }
     }
 

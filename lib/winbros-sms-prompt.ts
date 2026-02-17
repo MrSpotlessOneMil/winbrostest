@@ -506,8 +506,11 @@ export async function extractBookingData(
 }
 
 For price: use the price the customer agreed to (the one-time price if they chose one-time, etc.). Look for "$" amounts in Mary's messages.
-For address: combine all parts (street, city, state, zip) from the customer's messages.
+For address: Look at BOTH Mary's and the customer's messages. If Mary mentions a full address and the customer later corrects part of it (e.g., "Its Tamalpais Ave" to fix a street name), return the CORRECTED full address with the correction applied (keep house number, city, state, zip from the original).
+For names: If the customer corrects their name (e.g., "my name is grenager"), return the corrected spelling.
 For email: look for an email address in the customer's messages.
+
+IMPORTANT: If the customer corrects ANY information that was previously stated, always return the CORRECTED version, not the original.
 
 CONVERSATION:
 ${transcript}
