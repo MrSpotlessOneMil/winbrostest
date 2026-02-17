@@ -65,12 +65,21 @@ export async function generateAutoResponse(
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
 
-  // WinBros-specific SMS booking flow
+  // WinBros-specific SMS booking flow (window cleaning)
   if (tenant?.slug === 'winbros') {
     try {
       return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo)
     } catch (error) {
       console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
+    }
+  }
+
+  // House cleaning SMS booking flow (all non-WinBros tenants)
+  if (tenant && tenant.slug !== 'winbros') {
+    try {
+      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo)
+    } catch (error) {
+      console.error('[Auto-Response] House cleaning response failed, falling back to generic:', error)
     }
   }
 
@@ -498,5 +507,131 @@ async function generateWinBrosResponse(
       : `Hi! This is Mary from WinBros Window Cleaning. Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`,
     shouldSend: true,
     reason: 'WinBros template fallback',
+  }
+}
+
+// =====================================================================
+// HOUSE CLEANING SMS RESPONSE (non-WinBros tenants)
+// =====================================================================
+
+/**
+ * Generate a house cleaning SMS response using the dedicated booking prompt.
+ * Routes through a structured booking flow with [BOOKING_COMPLETE] detection.
+ */
+async function generateHouseCleaningResponse(
+  message: string,
+  tenant: Tenant,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownCustomerInfo?: KnownCustomerInfo
+): Promise<AutoResponseResult> {
+  const { buildHouseCleaningSmsSystemPrompt } = await import('./house-cleaning-sms-prompt')
+  // Reuse escalation/booking detection from WinBros (same tag format)
+  const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
+
+  const systemPrompt = buildHouseCleaningSmsSystemPrompt(tenant)
+  const sdrName = tenant.sdr_persona || 'Sarah'
+
+  const historyContext = conversationHistory?.length
+    ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
+    : '(No prior messages — this is a new conversation.)'
+
+  // Build known info context so the AI can confirm rather than re-ask
+  let knownInfoBlock = ''
+  if (knownCustomerInfo) {
+    const parts: string[] = []
+    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
+      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    }
+    if (knownCustomerInfo.address) {
+      parts.push(`Address on file: ${knownCustomerInfo.address}`)
+    }
+    if (knownCustomerInfo.email) {
+      parts.push(`Email on file: ${knownCustomerInfo.email}`)
+    }
+    if (knownCustomerInfo.source) {
+      parts.push(`Lead source: ${knownCustomerInfo.source}`)
+    }
+    if (parts.length > 0) {
+      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking. But still follow the step order — don't jump ahead to confirm these early.\n`
+    }
+  }
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (anthropicKey) {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default
+    const client = new Anthropic({ apiKey: anthropicKey })
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 500,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    })
+
+    const textContent = response.content.find(block => block.type === 'text')
+    const rawText = textContent?.type === 'text' ? textContent.text.trim() : ''
+
+    if (!rawText) {
+      throw new Error('Empty response from Claude (HouseCleaning)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'House cleaning AI-generated response',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
+    }
+  }
+
+  // OpenAI fallback
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    const OpenAI = (await import('openai')).default
+    const client = new OpenAI({ apiKey: openaiKey })
+
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 500,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    })
+
+    const rawText = response.choices[0]?.message?.content?.trim() || ''
+
+    if (!rawText) {
+      throw new Error('Empty response from OpenAI (HouseCleaning)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'House cleaning AI-generated response (OpenAI)',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
+    }
+  }
+
+  // Template fallback (no AI keys)
+  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  const hasHistory = conversationHistory && conversationHistory.length > 0
+  return {
+    response: hasHistory
+      ? `Thanks for your message! Are you looking for a Standard Cleaning, Deep Cleaning, or Move-in/Move-out Cleaning?`
+      : `Hi! This is ${sdrName} from ${businessName}. Are you looking for a Standard Cleaning, Deep Cleaning, or Move-in/Move-out Cleaning?`,
+    shouldSend: true,
+    reason: 'House cleaning template fallback',
   }
 }

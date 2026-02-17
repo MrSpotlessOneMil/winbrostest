@@ -895,9 +895,18 @@ export async function POST(request: NextRequest) {
                 .eq("id", customer.id)
 
               // Extract all booking data from conversation
-              const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
-              const bookingData = await extractBookingData(conversationHistory)
-              console.log(`[OpenPhone] Extracted booking data:`, JSON.stringify(bookingData))
+              // Use the right extractor based on tenant type
+              const isWinBrosTenant = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+              let bookingData: any
+
+              if (isWinBrosTenant) {
+                const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+                bookingData = await extractBookingData(conversationHistory)
+              } else {
+                const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
+                bookingData = await extractHouseCleaningBookingData(conversationHistory)
+              }
+              console.log(`[OpenPhone] Extracted booking data (${isWinBrosTenant ? 'winbros' : 'house_cleaning'}):`, JSON.stringify(bookingData))
 
               // Use extracted email if AI found one, otherwise use the one from booking
               const finalEmail = bookingData.email || bookingEmail
@@ -916,8 +925,8 @@ export async function POST(request: NextRequest) {
               }
 
               // Determine price using extracted data or pricebook lookup
-              let servicePrice = bookingData.price
-              if (!servicePrice && tenant?.slug === 'winbros') {
+              let servicePrice = bookingData.price || null
+              if (!servicePrice && isWinBrosTenant) {
                 try {
                   const { lookupPrice } = await import("@/lib/pricebook")
                   const priceLookup = lookupPrice({
@@ -934,24 +943,51 @@ export async function POST(request: NextRequest) {
                 }
               }
 
+              // Build job notes with OVERRIDE tags for pricing engine
+              const { mergeOverridesIntoNotes } = await import("@/lib/pricing-config")
+              let jobNotes = ''
+
+              if (isWinBrosTenant) {
+                // WinBros: scope, plan, referral info
+                jobNotes = [
+                  bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
+                  bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+                  bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+                  bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+                ].filter(Boolean).join(' | ') || ''
+              } else {
+                // House cleaning: bed/bath/sqft + pets + frequency
+                jobNotes = [
+                  bookingData.hasPets ? 'Has pets' : null,
+                  bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
+                ].filter(Boolean).join(' | ') || ''
+              }
+
+              // Add OVERRIDE tags for bed/bath/sqft so calculateJobEstimateAsync can find them
+              if (bookingData.bedrooms || bookingData.bathrooms || bookingData.squareFootage) {
+                jobNotes = mergeOverridesIntoNotes(jobNotes || null, {
+                  bedrooms: bookingData.bedrooms || undefined,
+                  bathrooms: bookingData.bathrooms || undefined,
+                  squareFootage: bookingData.squareFootage || undefined,
+                })
+              }
+
+              // Default service type based on tenant
+              const defaultServiceType = isWinBrosTenant ? 'window cleaning' : 'Standard cleaning'
+
               // Create job
               const { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
                 customer_id: customer.id,
                 phone_number: phone,
-                service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
+                service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
                 address: bookingData.address || customer.address || null,
                 price: servicePrice || null,
                 date: bookingData.preferredDate || null,
                 scheduled_at: bookingData.preferredTime || null,
                 status: 'scheduled',
                 booked: true,
-                notes: [
-                  bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
-                  bookingData.scope ? `Scope: ${bookingData.scope}` : null,
-                  bookingData.planType ? `Plan: ${bookingData.planType}` : null,
-                  bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
-                ].filter(Boolean).join(' | ') || null,
+                notes: jobNotes || null,
               }).select("id").single()
 
               if (jobError) {
@@ -972,11 +1008,8 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", existingLead.id)
 
-              // Determine payment flow based on tenant type
-              const isWinBrosBooking = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
-
               // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
-              if (!isWinBrosBooking && tenant) {
+              if (!isWinBrosTenant && tenant) {
                 const depositFlowResult = await sendDepositPaymentFlow({
                   tenant,
                   phone,
@@ -984,12 +1017,13 @@ export async function POST(request: NextRequest) {
                   customer,
                   job: {
                     id: newJob?.id,
-                    service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'cleaning',
+                    service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
                     address: bookingData.address || customer.address || null,
                     date: bookingData.preferredDate || null,
                     scheduled_at: bookingData.preferredTime || null,
                     price: servicePrice || null,
                     phone_number: phone,
+                    notes: jobNotes || null,
                   },
                   jobId: newJob?.id || null,
                   leadId: existingLead.id,
