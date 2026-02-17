@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS } from "@/lib/openphone"
+import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
@@ -434,8 +434,30 @@ export async function POST(request: NextRequest) {
         job = recentJob
       }
 
-      // Send card-on-file link (job is optional - we can still save card without it)
       const jobId = job?.id || bookedLead.converted_to_job_id || null
+      const isWinBros = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+
+      // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+      if (!isWinBros && tenant) {
+        let phoneCallServicePrice = job?.price || job?.estimated_value || null
+        const depositFlowResult = await sendDepositPaymentFlow({
+          tenant,
+          phone,
+          email: providedEmail,
+          customer,
+          job,
+          jobId,
+          leadId: bookedLead.id,
+          servicePrice: phoneCallServicePrice,
+          client,
+        })
+        if (depositFlowResult.success) {
+          return NextResponse.json({ success: true, flow: "phone_call_deposit_flow", leadId: bookedLead.id })
+        }
+        // If deposit flow failed, fall through to card-on-file as fallback
+      }
+
+      // WinBros (or fallback): Send card-on-file link
       try {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
         const cardResult = await createCardOnFileLink(
@@ -932,7 +954,57 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", existingLead.id)
 
-              // Send card-on-file link
+              // Determine payment flow based on tenant type
+              const isWinBrosBooking = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+
+              // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+              if (!isWinBrosBooking && tenant) {
+                const depositFlowResult = await sendDepositPaymentFlow({
+                  tenant,
+                  phone,
+                  email: finalEmail,
+                  customer,
+                  job: {
+                    id: newJob?.id,
+                    service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'cleaning',
+                    address: bookingData.address || customer.address || null,
+                    date: bookingData.preferredDate || null,
+                    scheduled_at: bookingData.preferredTime || null,
+                    price: servicePrice || null,
+                    phone_number: phone,
+                  },
+                  jobId: newJob?.id || null,
+                  leadId: existingLead.id,
+                  servicePrice,
+                  client,
+                })
+
+                await logSystemEvent({
+                  tenant_id: tenant?.id,
+                  source: "openphone",
+                  event_type: "SMS_BOOKING_COMPLETED",
+                  message: `SMS booking completed for ${phone} — job ${newJob?.id}, deposit flow (invoice + deposit link)`,
+                  phone_number: phone,
+                  metadata: {
+                    lead_id: existingLead.id,
+                    job_id: newJob?.id,
+                    booking_data: bookingData,
+                    flow: "deposit_payment",
+                    invoice_url: depositFlowResult.invoiceUrl,
+                    deposit_url: depositFlowResult.depositUrl,
+                    email_sent_to: finalEmail,
+                  },
+                })
+
+                return NextResponse.json({
+                  success: true,
+                  flow: "sms_booking_deposit_flow",
+                  existingLeadId: existingLead.id,
+                  jobId: newJob?.id,
+                })
+              }
+
+              // WinBros: Send card-on-file link (window cleaning flow)
               try {
                 const { createCardOnFileLink } = await import("@/lib/stripe-client")
                 const cardResult = await createCardOnFileLink(
@@ -1305,4 +1377,169 @@ function extractNameFromConversation(
     }
   }
   return null
+}
+
+/**
+ * Send Wave invoice + Stripe deposit link for remote cleaning businesses
+ * (Cedar Rapids, Spotless Scrubbers, etc. — NOT WinBros window cleaning)
+ *
+ * Flow: Wave invoice SMS → short delay → Stripe deposit link SMS → confirmation email
+ */
+async function sendDepositPaymentFlow(params: {
+  tenant: { id: string; slug: string; workflow_config?: any; [key: string]: any },
+  phone: string,
+  email: string,
+  customer: { id: string; email?: string; phone_number?: string; first_name?: string; last_name?: string; address?: string; [key: string]: any },
+  job: any | null,
+  jobId: string | null,
+  leadId: string,
+  servicePrice: number | null,
+  client: ReturnType<typeof getSupabaseClient>,
+}): Promise<{ success: boolean; invoiceUrl?: string; depositUrl?: string }> {
+  const { tenant, phone, email, customer, job, jobId, leadId, client } = params
+  let { servicePrice } = params
+
+  // Calculate price if not available using tenant-specific pricing
+  if (!servicePrice && job) {
+    try {
+      const { calculateJobEstimateAsync } = await import("@/lib/stripe-client")
+      const estimate = await calculateJobEstimateAsync(job, undefined, tenant.id)
+      servicePrice = estimate.totalPrice
+      console.log(`[OpenPhone] Calculated price for deposit flow: $${servicePrice}`)
+    } catch (err) {
+      console.error("[OpenPhone] Price calculation failed for deposit flow:", err)
+    }
+  }
+
+  let invoiceUrl: string | undefined
+  let depositUrl: string | undefined
+
+  if (!servicePrice || servicePrice <= 0) {
+    console.warn(`[OpenPhone] No valid price for deposit flow (phone: ${phone}), skipping invoice/deposit`)
+    return { success: false }
+  }
+
+  // 1. Create Wave invoice (if Wave is configured for this tenant)
+  try {
+    const { createInvoice } = await import("@/lib/invoices")
+    const invoiceResult = await createInvoice(
+      { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
+      { ...customer, email } as any
+    )
+
+    if (invoiceResult.success && invoiceResult.invoiceUrl) {
+      invoiceUrl = invoiceResult.invoiceUrl
+
+      // Send invoice SMS
+      const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
+      const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
+      if (invoiceSms.success) {
+        await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "assistant",
+          content: invoiceMsg,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "invoice",
+          metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
+        })
+      }
+      console.log(`[OpenPhone] Wave invoice sent to ${phone}: ${invoiceUrl}`)
+    } else {
+      console.warn(`[OpenPhone] Wave invoice creation failed: ${invoiceResult.error}`)
+    }
+  } catch (invoiceErr) {
+    console.error("[OpenPhone] Wave invoice error:", invoiceErr)
+  }
+
+  // Small delay between invoice and deposit messages
+  await new Promise(resolve => setTimeout(resolve, 3000))
+
+  // 2. Create Stripe deposit link (50% + 3% fee)
+  try {
+    const { createDepositPaymentLink } = await import("@/lib/stripe-client")
+    const depositResult = await createDepositPaymentLink(
+      { ...customer, email } as any,
+      { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
+      { lead_id: leadId }
+    )
+
+    if (depositResult.success && depositResult.url) {
+      depositUrl = depositResult.url
+
+      const depositMsg = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
+      const depositSms = await sendSMS(tenant as any, phone, depositMsg)
+      if (depositSms.success) {
+        await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "assistant",
+          content: depositMsg,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "deposit",
+          metadata: { lead_id: leadId, job_id: jobId, deposit_url: depositResult.url, deposit_amount: depositResult.amount },
+        })
+      }
+      console.log(`[OpenPhone] Deposit link sent to ${phone}: ${depositResult.url}`)
+    } else {
+      console.error(`[OpenPhone] Deposit link creation failed: ${depositResult.error}`)
+    }
+  } catch (depositErr) {
+    console.error("[OpenPhone] Deposit link error:", depositErr)
+  }
+
+  // 3. Mark job as invoiced/quoted (not booked yet — booked after deposit paid)
+  if (jobId) {
+    const { updateJob } = await import("@/lib/supabase")
+    await updateJob(jobId, {
+      invoice_sent: true,
+      status: 'quoted' as any,
+      booked: false,
+    })
+  }
+
+  // 4. Send confirmation email with both Wave invoice and Stripe deposit links
+  try {
+    const { sendConfirmationEmail } = await import("@/lib/gmail-client")
+    await sendConfirmationEmail({
+      customer: { ...customer, email } as any,
+      job: job || {} as any,
+      waveInvoiceUrl: invoiceUrl,
+      stripeDepositUrl: depositUrl || '',
+    })
+    console.log(`[OpenPhone] Confirmation email sent to ${email}`)
+  } catch (emailErr) {
+    console.error("[OpenPhone] Confirmation email failed:", emailErr)
+  }
+
+  // 5. Log system event
+  await logSystemEvent({
+    tenant_id: tenant.id,
+    source: "openphone",
+    event_type: "PAYMENT_LINKS_SENT",
+    message: `Invoice + deposit links sent to ${phone}`,
+    phone_number: phone,
+    metadata: {
+      lead_id: leadId,
+      job_id: jobId,
+      flow: "deposit_payment",
+      invoice_url: invoiceUrl,
+      deposit_url: depositUrl,
+      price: servicePrice,
+    },
+  })
+
+  return {
+    success: !!(invoiceUrl || depositUrl),
+    invoiceUrl,
+    depositUrl,
+  }
 }

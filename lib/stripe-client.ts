@@ -336,7 +336,8 @@ export async function createCardOnFileLink(
  */
 export async function createDepositPaymentLink(
   customer: Customer,
-  job: Job
+  job: Job,
+  extraMetadata?: Record<string, string>
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -366,6 +367,7 @@ export async function createDepositPaymentLink(
       job_id: job.id || '',
       phone_number: job.phone_number,
       payment_type: 'DEPOSIT',
+      ...extraMetadata,
     }
     if (testChargeCents) {
       metadata.test_charge_cents = String(testChargeCents)

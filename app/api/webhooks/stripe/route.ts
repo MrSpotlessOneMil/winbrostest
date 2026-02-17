@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { validateStripeWebhook } from '@/lib/stripe-client'
+import { validateStripeWebhook, createCardOnFileLink } from '@/lib/stripe-client'
 import { getSupabaseClient, updateJob, getJobById, updateGHLLead } from '@/lib/supabase'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant } from '@/lib/tenant'
-import { sendSMS } from '@/lib/openphone'
+import { getDefaultTenant, getTenantById } from '@/lib/tenant'
+import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 
 export async function POST(request: NextRequest) {
@@ -114,15 +114,91 @@ async function handleDepositPayment(
 ) {
   console.log(`[Stripe Webhook] Processing DEPOSIT payment for job: ${jobId}`)
 
-  // Update job status
+  // Update job status — mark as booked + scheduled now that deposit is paid
   const updatedJob = await updateJob(jobId, {
     payment_status: 'deposit_paid',
     confirmed_at: new Date().toISOString(),
+    booked: true,
+    status: 'scheduled' as any,
   })
 
   if (!updatedJob) {
     console.error(`[Stripe Webhook] Failed to update job ${jobId}`)
     return
+  }
+
+  // Get tenant for this job to send SMS notifications
+  const jobTenantId = (updatedJob as any).tenant_id
+  const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+
+  // Send payment confirmation SMS to customer
+  if (updatedJob.phone_number && tenant) {
+    const depositClient = getSupabaseClient()
+    const { data: depositCust } = await depositClient
+      .from('customers')
+      .select('id')
+      .eq('phone_number', updatedJob.phone_number)
+      .eq('tenant_id', tenant.id)
+      .maybeSingle()
+    const depositCustId = depositCust?.id || updatedJob.customer_id || null
+
+    const serviceType = updatedJob.service_type || 'cleaning'
+    const dateStr = updatedJob.date || 'your scheduled date'
+    const confirmMsg = SMS_TEMPLATES.paymentConfirmation(serviceType, dateStr)
+    const confirmSms = await sendSMS(tenant, updatedJob.phone_number, confirmMsg)
+
+    if (confirmSms.success) {
+      await depositClient.from('messages').insert({
+        tenant_id: tenant.id,
+        customer_id: depositCustId,
+        phone_number: updatedJob.phone_number,
+        role: 'assistant',
+        content: confirmMsg,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: false,
+        timestamp: new Date().toISOString(),
+        source: 'stripe_deposit_paid',
+      })
+      console.log(`[Stripe Webhook] Deposit confirmation SMS sent to ${updatedJob.phone_number}`)
+    }
+
+    // Send card-on-file link so customer can save card for final payment
+    try {
+      const custEmail = await getCustomerEmail(updatedJob.phone_number, tenant.id)
+      if (custEmail) {
+        const cardResult = await createCardOnFileLink(
+          { email: custEmail, phone_number: updatedJob.phone_number } as any,
+          jobId,
+        )
+
+        if (cardResult.success && cardResult.url) {
+          // Short delay between messages
+          await new Promise(resolve => setTimeout(resolve, 2000))
+
+          const cardMsg = `Additionally, go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
+          const cardSms = await sendSMS(tenant, updatedJob.phone_number, cardMsg)
+          if (cardSms.success) {
+            await depositClient.from('messages').insert({
+              tenant_id: tenant.id,
+              customer_id: depositCustId,
+              phone_number: updatedJob.phone_number,
+              role: 'assistant',
+              content: cardMsg,
+              direction: 'outbound',
+              message_type: 'sms',
+              ai_generated: false,
+              timestamp: new Date().toISOString(),
+              source: 'stripe_card_on_file',
+              metadata: { job_id: jobId, card_on_file_url: cardResult.url },
+            })
+            console.log(`[Stripe Webhook] Card-on-file link sent after deposit: ${cardResult.url}`)
+          }
+        }
+      }
+    } catch (cardErr) {
+      console.error('[Stripe Webhook] Failed to send card-on-file after deposit:', cardErr)
+    }
   }
 
   // Update lead status if lead_id is provided
@@ -151,10 +227,10 @@ async function handleDepositPayment(
   // Convert HCP lead to job (two-way sync)
   let hcpJobId: string | undefined
   if (hcpLeadId && !hcpLeadId.startsWith('vapi-') && !hcpLeadId.startsWith('sms-')) {
-    const tenant = await getDefaultTenant()
-    if (tenant) {
+    const hcpTenant = tenant || await getDefaultTenant()
+    if (hcpTenant) {
       console.log(`[Stripe Webhook] Converting HCP lead ${hcpLeadId} to job...`)
-      const hcpResult = await convertHCPLeadToJob(tenant, hcpLeadId, {
+      const hcpResult = await convertHCPLeadToJob(hcpTenant, hcpLeadId, {
         scheduledDate: updatedJob.date || undefined,
         scheduledTime: updatedJob.scheduled_at || undefined,
         address: updatedJob.address || undefined,
@@ -469,10 +545,14 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
   // WinBros (route optimization): auto-assign job to team, no accept/decline
   // Other tenants: trigger individual cleaner assignment cascade (accept/decline)
+  // If deposit was already paid, cleaner assignment was already triggered in handleDepositPayment — skip here
   const useRouteOptimization = tenant.workflow_config?.use_route_optimization === true || tenant.slug === 'winbros'
   let assignmentOutcome = 'no_job'
 
-  if (job) {
+  if (job && job.payment_status === 'deposit_paid') {
+    assignmentOutcome = 'already_assigned_via_deposit'
+    console.log(`[Stripe Webhook] Job ${actualJobId} already has deposit_paid status — skipping redundant assignment`)
+  } else if (job) {
     if (useRouteOptimization) {
       // WinBros flow: auto-assign to team (no accept/decline)
       console.log(`[Stripe Webhook] WinBros auto-assign — assigning job ${actualJobId} to team`)
@@ -699,4 +779,18 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const { job_id, phone_number, purpose } = metadata
 
   console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${phone_number}, purpose: ${purpose} — skipping (checkout.session.completed handles processing)`)
+}
+
+/**
+ * Helper to look up customer email by phone number and tenant
+ */
+async function getCustomerEmail(phoneNumber: string, tenantId: string): Promise<string | null> {
+  const client = getSupabaseClient()
+  const { data } = await client
+    .from('customers')
+    .select('email')
+    .eq('phone_number', phoneNumber)
+    .eq('tenant_id', tenantId)
+    .maybeSingle()
+  return data?.email || null
 }
