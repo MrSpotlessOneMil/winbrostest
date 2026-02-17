@@ -591,6 +591,28 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Extract corrections from conversation and update DB
+        // (e.g. customer says "It's grenager" to fix their last name)
+        try {
+          const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+          const correctedData = await extractBookingData(conversationHistory)
+          if (correctedData.firstName || correctedData.lastName || correctedData.address) {
+            const updates: Record<string, string | null> = {}
+            if (correctedData.firstName) updates.first_name = correctedData.firstName
+            if (correctedData.lastName) updates.last_name = correctedData.lastName
+            if (correctedData.address) updates.address = correctedData.address
+            await client.from("customers").update(updates).eq("id", customer.id)
+
+            // Also update the job if one exists
+            if (bookedLead.converted_to_job_id && correctedData.address) {
+              await client.from("jobs").update({ address: correctedData.address }).eq("id", bookedLead.converted_to_job_id)
+            }
+            console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
+          }
+        } catch (extractErr) {
+          console.error("[OpenPhone] Error extracting corrections:", extractErr)
+        }
+
         return NextResponse.json({ success: true, flow: "phone_call_post_booking_ai", leadId: bookedLead.id })
       }
 
@@ -611,6 +633,26 @@ export async function POST(request: NextRequest) {
           source: "openphone",
           metadata: { lead_id: bookedLead.id },
         })
+      }
+
+      // Extract corrections from conversation and update DB
+      try {
+        const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+        const correctedData = await extractBookingData(conversationHistory)
+        if (correctedData.firstName || correctedData.lastName || correctedData.address) {
+          const updates: Record<string, string | null> = {}
+          if (correctedData.firstName) updates.first_name = correctedData.firstName
+          if (correctedData.lastName) updates.last_name = correctedData.lastName
+          if (correctedData.address) updates.address = correctedData.address
+          await client.from("customers").update(updates).eq("id", customer.id)
+
+          if (bookedLead.converted_to_job_id && correctedData.address) {
+            await client.from("jobs").update({ address: correctedData.address }).eq("id", bookedLead.converted_to_job_id)
+          }
+          console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
+        }
+      } catch (extractErr) {
+        console.error("[OpenPhone] Error extracting corrections:", extractErr)
       }
 
       return NextResponse.json({ success: true, flow: "phone_call_confirm", leadId: bookedLead.id })
