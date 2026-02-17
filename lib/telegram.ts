@@ -110,6 +110,7 @@ interface InlineKeyboardMarkup {
 
 /**
  * Get bot token from tenant, string, or environment variable
+ * Priority: passed tenant > default tenant DB value (admin credentials page) > env var
  */
 async function getBotToken(tenantOrToken?: Tenant | string | null): Promise<string | null> {
   if (typeof tenantOrToken === 'string') {
@@ -118,12 +119,13 @@ async function getBotToken(tenantOrToken?: Tenant | string | null): Promise<stri
   if (tenantOrToken && typeof tenantOrToken === 'object' && 'telegram_bot_token' in tenantOrToken) {
     return tenantOrToken.telegram_bot_token
   }
-  // Fallback to env var or default tenant
-  if (process.env.TELEGRAM_BOT_TOKEN) {
-    return process.env.TELEGRAM_BOT_TOKEN
-  }
+  // Check default tenant DB value first (admin credentials page)
   const tenant = await getDefaultTenant()
-  return tenant?.telegram_bot_token || null
+  if (tenant?.telegram_bot_token) {
+    return tenant.telegram_bot_token
+  }
+  // Fall back to env var only if DB value is empty
+  return process.env.TELEGRAM_BOT_TOKEN || null
 }
 
 /**
