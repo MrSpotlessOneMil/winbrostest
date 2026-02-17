@@ -7,6 +7,7 @@ import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
+import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -264,6 +265,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
               const bookAddress = structuredData.address as string || bookingInfo.address || null
 
+              // Build notes with bed/bath/sqft overrides so pricing lookup works
+              const jobNotes = mergeOverridesIntoNotes(bookingInfo.notes || null, {
+                bedrooms: bookingInfo.bedrooms,
+                bathrooms: bookingInfo.bathrooms,
+                squareFootage: bookingInfo.squareFootage,
+              })
+
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
                 customer_id: customerId,
@@ -278,7 +286,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 status: "scheduled",
                 booked: true,
                 paid: false,
-                notes: bookingInfo.notes || null,
+                notes: jobNotes || null,
                 payment_status: "pending",
               }).select("id").single()
 
@@ -350,6 +358,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
             const bookAddress = structuredData.address as string || bookingInfo.address || null
 
+            // Build notes with bed/bath/sqft overrides so pricing lookup works
+            const existingLeadNotes = mergeOverridesIntoNotes('Booked via phone call (existing lead)', {
+              bedrooms: bookingInfo.bedrooms,
+              bathrooms: bookingInfo.bathrooms,
+              squareFootage: bookingInfo.squareFootage,
+            })
+
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
               customer_id: customerId,
@@ -360,11 +375,11 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               scheduled_at: appointmentTime || null,
               price: null,
               hours: null,
-              cleaners: 1,
+              cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
               status: "scheduled",
               booked: true,
               paid: false,
-              notes: `Booked via phone call (existing lead)`,
+              notes: existingLeadNotes,
               payment_status: "pending",
             }).select("id").single()
 
