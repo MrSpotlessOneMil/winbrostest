@@ -3,6 +3,7 @@ import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { sendSMS } from "@/lib/openphone"
+import { normalizePhoneNumber } from "@/lib/phone-utils"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -256,7 +257,8 @@ export async function POST(request: NextRequest) {
 
     const client = getSupabaseServiceClient()
 
-    const phone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
+    const rawPhone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
+    const phone = normalizePhoneNumber(rawPhone) || rawPhone
     const firstLast = String(body.customer_name || body.name || "Unknown").trim().split(" ")
     const first_name = firstLast[0] || undefined
     const last_name = firstLast.slice(1).join(" ") || undefined
@@ -304,6 +306,7 @@ export async function POST(request: NextRequest) {
         scheduled_at: scheduledAt,
         hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
         price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
+        notes: body.notes || undefined,
         status: "scheduled",
         booked: true,
       })

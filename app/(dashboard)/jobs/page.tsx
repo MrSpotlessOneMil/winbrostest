@@ -62,11 +62,16 @@ type PendingMove = {
 }
 
 type CreateForm = {
-  title: string
-  start: string
-  end: string
-  location: string
-  description: string
+  customer_phone: string
+  customer_name: string
+  email: string
+  address: string
+  service_type: string
+  date: string
+  time: string
+  duration_minutes: string
+  price: string
+  notes: string
 }
 
 type RainDayPreview = {
@@ -202,12 +207,19 @@ export default function JobsPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
   const [createForm, setCreateForm] = useState<CreateForm>({
-    title: "",
-    start: "",
-    end: "",
-    location: "",
-    description: "",
+    customer_phone: "",
+    customer_name: "",
+    email: "",
+    address: "",
+    service_type: "Standard cleaning",
+    date: "",
+    time: "",
+    duration_minutes: "120",
+    price: "",
+    notes: "",
   })
+  const [createSaving, setCreateSaving] = useState(false)
+  const [createError, setCreateError] = useState("")
 
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
@@ -283,13 +295,27 @@ export default function JobsPage() {
   }, [jobs])
 
   const handleSelect = (info: DateSelectArg) => {
+    const d = info.start
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+    const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+    // Calculate duration from selection range
+    const diffMs = info.end.getTime() - info.start.getTime()
+    const diffMin = Math.round(diffMs / 60000)
+    const duration = diffMin > 0 && diffMin < 1440 ? String(diffMin) : "120"
+
     setCreateForm({
-      title: "",
-      start: toLocalInput(info.start),
-      end: toLocalInput(info.end),
-      location: "",
-      description: "",
+      customer_phone: "",
+      customer_name: "",
+      email: "",
+      address: "",
+      service_type: "Standard cleaning",
+      date,
+      time: time === "00:00" ? "09:00" : time,
+      duration_minutes: duration,
+      price: "",
+      notes: "",
     })
+    setCreateError("")
     setCreateOpen(true)
     info.view.calendar.unselect()
   }
@@ -540,28 +566,51 @@ export default function JobsPage() {
     })
   }
 
-  const handleCreateSave = () => {
-    const calendar = calendarRef.current?.getApi()
-    const title = createForm.title.trim() || "New Event"
-    const location = createForm.location.trim()
-    const description = createForm.description.trim()
-
-    if (calendar) {
-      calendar.addEvent({
-        id: `local-${Date.now()}`,
-        title,
-        start: createForm.start,
-        end: createForm.end || undefined,
-        classNames: ["event-scheduled"],
-        extendedProps: {
-          description,
-          location,
-          resourceId: location,
-        },
-      })
+  const handleCreateSave = async () => {
+    const phone = createForm.customer_phone.trim()
+    if (!phone) {
+      setCreateError("Customer phone number is required")
+      return
+    }
+    if (!createForm.date) {
+      setCreateError("Date is required")
+      return
     }
 
-    setCreateOpen(false)
+    setCreateSaving(true)
+    setCreateError("")
+
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_phone: phone,
+          customer_name: createForm.customer_name.trim() || undefined,
+          email: createForm.email.trim() || undefined,
+          address: createForm.address.trim() || undefined,
+          service_type: createForm.service_type || "Standard cleaning",
+          scheduled_date: createForm.date,
+          scheduled_time: createForm.time || "09:00",
+          duration_minutes: Number(createForm.duration_minutes) || 120,
+          estimated_value: createForm.price ? Number(createForm.price) : undefined,
+          notes: createForm.notes.trim() || undefined,
+        }),
+      })
+
+      const data = await res.json()
+      if (!data.success) {
+        setCreateError(data.error || "Failed to create job")
+        return
+      }
+
+      setCreateOpen(false)
+      await refreshJobs()
+    } catch {
+      setCreateError("Connection error. Please try again.")
+    } finally {
+      setCreateSaving(false)
+    }
   }
 
   return (
@@ -929,16 +978,16 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* Create Event Modal */}
+      {/* Create Job Modal */}
       <div
         className={`cal-modal-backdrop${createOpen ? " open" : ""}`}
         onClick={(e) => {
           if (e.target === e.currentTarget) setCreateOpen(false)
         }}
       >
-        <div className="cal-modal">
+        <div className="cal-modal" style={{ maxWidth: 500 }}>
           <div className="cal-modal-header">
-            <h5>Create Event</h5>
+            <h5>Create Job</h5>
             <button
               className="cal-modal-close"
               onClick={() => setCreateOpen(false)}
@@ -947,71 +996,174 @@ export default function JobsPage() {
             </button>
           </div>
           <div className="cal-modal-body">
+            {/* Customer Phone (required) */}
             <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Title</label>
+              <label className="cal-form-label">Customer Phone *</label>
               <input
-                type="text"
+                type="tel"
                 className="cal-form-control"
-                placeholder="Event title"
-                value={createForm.title}
+                placeholder="(555) 123-4567"
+                value={createForm.customer_phone}
                 onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, title: e.target.value }))
+                  setCreateForm((prev) => ({ ...prev, customer_phone: e.target.value }))
                 }
               />
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+
+            {/* Customer Name */}
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label className="cal-form-label">Customer Name</label>
+              <input
+                type="text"
+                className="cal-form-control"
+                placeholder="John Smith"
+                value={createForm.customer_name}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, customer_name: e.target.value }))
+                }
+              />
+            </div>
+
+            {/* Email & Address */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
               <div>
-                <label className="cal-form-label">Start</label>
+                <label className="cal-form-label">Email</label>
                 <input
-                  type="datetime-local"
+                  type="email"
                   className="cal-form-control"
-                  value={createForm.start}
+                  placeholder="john@example.com"
+                  value={createForm.email}
                   onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, start: e.target.value }))
+                    setCreateForm((prev) => ({ ...prev, email: e.target.value }))
                   }
                 />
               </div>
               <div>
-                <label className="cal-form-label">End</label>
-                <input
-                  type="datetime-local"
+                <label className="cal-form-label">Service Type</label>
+                <select
                   className="cal-form-control"
-                  value={createForm.end}
+                  value={createForm.service_type}
                   onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, end: e.target.value }))
+                    setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
                   }
-                />
+                >
+                  <option value="Standard cleaning">Standard Cleaning</option>
+                  <option value="Deep cleaning">Deep Cleaning</option>
+                  <option value="Move-in/move-out">Move-in/Move-out</option>
+                  <option value="Window cleaning">Window Cleaning</option>
+                  <option value="Pressure washing">Pressure Washing</option>
+                  <option value="Gutter cleaning">Gutter Cleaning</option>
+                </select>
               </div>
             </div>
-            <div style={{ marginTop: "0.5rem" }}>
-              <label className="cal-form-label">Location (optional)</label>
+
+            {/* Address */}
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label className="cal-form-label">Address</label>
               <input
                 type="text"
                 className="cal-form-control"
-                value={createForm.location}
+                placeholder="123 Main St, City, State"
+                value={createForm.address}
                 onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, location: e.target.value }))
+                  setCreateForm((prev) => ({ ...prev, address: e.target.value }))
                 }
               />
             </div>
-            <div style={{ marginTop: "0.5rem" }}>
-              <label className="cal-form-label">Description</label>
+
+            {/* Date, Time, Duration */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Date *</label>
+                <input
+                  type="date"
+                  className="cal-form-control"
+                  value={createForm.date}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, date: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="cal-form-label">Start Time</label>
+                <input
+                  type="time"
+                  className="cal-form-control"
+                  value={createForm.time}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, time: e.target.value }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="cal-form-label">Duration (min)</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.duration_minutes}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, duration_minutes: e.target.value }))
+                  }
+                >
+                  <option value="60">1 hour</option>
+                  <option value="90">1.5 hours</option>
+                  <option value="120">2 hours</option>
+                  <option value="150">2.5 hours</option>
+                  <option value="180">3 hours</option>
+                  <option value="240">4 hours</option>
+                  <option value="300">5 hours</option>
+                  <option value="360">6 hours</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Price */}
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label className="cal-form-label">Price ($)</label>
+              <input
+                type="number"
+                className="cal-form-control"
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                value={createForm.price}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, price: e.target.value }))
+                }
+              />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="cal-form-label">Notes</label>
               <textarea
                 className="cal-form-control"
-                rows={3}
-                value={createForm.description}
+                rows={2}
+                placeholder="Special instructions, access codes, etc."
+                value={createForm.notes}
                 onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, description: e.target.value }))
+                  setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
                 }
               />
             </div>
+
+            {createError && (
+              <p style={{ color: "#f87171", fontSize: "0.8rem", marginTop: "0.5rem" }}>{createError}</p>
+            )}
           </div>
           <div className="cal-modal-footer">
             <button
+              className="cal-modal-btn"
+              onClick={() => setCreateOpen(false)}
+              disabled={createSaving}
+            >
+              Cancel
+            </button>
+            <button
               className="cal-modal-btn cal-modal-btn-primary"
               onClick={handleCreateSave}
+              disabled={createSaving}
             >
-              Add to calendar
+              {createSaving ? <><span className="saving-spinner" /> Creating...</> : "Create Job"}
             </button>
           </div>
         </div>
