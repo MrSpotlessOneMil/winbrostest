@@ -598,13 +598,44 @@ export async function POST(request: NextRequest) {
           `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`
         ).join('\n')
 
+        // Load customer + job data so the AI can answer questions about their booking
+        const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
+        let jobCtx = ''
+        if (bookedLead.converted_to_job_id) {
+          const { data: jobData } = await client
+            .from("jobs")
+            .select("service_type, date, scheduled_at, price, address, notes, status")
+            .eq("id", bookedLead.converted_to_job_id)
+            .maybeSingle()
+          if (jobData) {
+            const parts = [
+              jobData.service_type ? `Service: ${jobData.service_type}` : null,
+              jobData.date ? `Date: ${jobData.date}` : null,
+              jobData.scheduled_at ? `Time: ${jobData.scheduled_at}` : null,
+              jobData.price ? `Price: $${jobData.price}` : null,
+              jobData.address ? `Address: ${jobData.address}` : null,
+              jobData.notes ? `Notes: ${jobData.notes}` : null,
+              jobData.status ? `Status: ${jobData.status}` : null,
+            ].filter(Boolean)
+            jobCtx = `\n\nBooking details:\n${parts.join('\n')}`
+          }
+        }
+        const customerCtx = [
+          customer.first_name ? `Name: ${customerName}` : null,
+          customer.email ? `Email: ${customer.email}` : null,
+          customer.address ? `Address: ${customer.address}` : null,
+          (customer as any).bedrooms ? `Bedrooms: ${(customer as any).bedrooms}` : null,
+          (customer as any).bathrooms ? `Bathrooms: ${(customer as any).bathrooms}` : null,
+          (customer as any).square_footage ? `Square footage: ${(customer as any).square_footage}` : null,
+        ].filter(Boolean).join('\n')
+
         try {
           const Anthropic = (await import('@anthropic-ai/sdk')).default
           const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
           const resp = await anthropicClient.messages.create({
             model: 'claude-sonnet-4-5-20250929',
             max_tokens: 200,
-            system: `You are ${sdrName} from ${businessName}. The customer has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully. Keep it to 1-2 sentences (this is SMS). Do NOT ask booking questions or ask for their email. If they say thanks, say you're welcome and let them know to reach out if they need anything. Do NOT use emojis unless the customer uses them first. Do NOT use markdown formatting.`,
+            system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
             messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
           })
           const txt = resp.content.find(b => b.type === 'text')
@@ -675,6 +706,99 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, flow: "phone_call_confirm", leadId: bookedLead.id })
+    }
+  }
+
+  // FALLBACK: If bookedLead check didn't catch this but payment links already exist,
+  // use post-booking AI instead of the normal SMS bot flow.
+  // This prevents the bot from re-running the booking flow on post-booking messages.
+  if (smsEnabled) {
+    const { data: existingPaymentFallback } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .in("source", ["card_on_file", "deposit", "invoice"])
+      .limit(1)
+      .maybeSingle()
+
+    if (existingPaymentFallback) {
+      console.log(`[OpenPhone] Fallback post-booking: payment links already sent for ${phone}, using post-booking AI`)
+      const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
+      const sdrName = tenant?.sdr_persona || 'Mary'
+      const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
+      const historyCtx = conversationHistory.slice(-6).map(m =>
+        `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`
+      ).join('\n')
+
+      // Load job data for context
+      const { data: recentJob } = await client
+        .from("jobs")
+        .select("service_type, date, scheduled_at, price, address, notes, status")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      let jobCtx = ''
+      if (recentJob) {
+        const parts = [
+          recentJob.service_type ? `Service: ${recentJob.service_type}` : null,
+          recentJob.date ? `Date: ${recentJob.date}` : null,
+          recentJob.scheduled_at ? `Time: ${recentJob.scheduled_at}` : null,
+          recentJob.price ? `Price: $${recentJob.price}` : null,
+          recentJob.address ? `Address: ${recentJob.address}` : null,
+          recentJob.notes ? `Notes: ${recentJob.notes}` : null,
+          recentJob.status ? `Status: ${recentJob.status}` : null,
+        ].filter(Boolean)
+        jobCtx = `\n\nBooking details:\n${parts.join('\n')}`
+      }
+
+      const customerCtx = [
+        customer.first_name ? `Name: ${customerName}` : null,
+        customer.email ? `Email: ${customer.email}` : null,
+        customer.address ? `Address: ${customer.address}` : null,
+        (customer as any).bedrooms ? `Bedrooms: ${(customer as any).bedrooms}` : null,
+        (customer as any).bathrooms ? `Bathrooms: ${(customer as any).bathrooms}` : null,
+        (customer as any).square_footage ? `Square footage: ${(customer as any).square_footage}` : null,
+      ].filter(Boolean).join('\n')
+
+      try {
+        const Anthropic = (await import('@anthropic-ai/sdk')).default
+        const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+        const resp = await anthropicClient.messages.create({
+          model: 'claude-sonnet-4-5-20250929',
+          max_tokens: 200,
+          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
+          messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
+        })
+        const txt = resp.content.find(b => b.type === 'text')
+        const responseText = txt?.type === 'text' ? txt.text.trim() : ''
+
+        if (responseText) {
+          const sendResult = await sendSMS(tenant!, phone, responseText)
+          if (sendResult.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant?.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: responseText,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: true,
+              timestamp: new Date().toISOString(),
+              source: "openphone",
+              metadata: { auto_response: true, reason: 'fallback_post_booking_ai' },
+            })
+          }
+        }
+      } catch (err) {
+        console.error("[OpenPhone] Fallback post-booking AI error:", err)
+      }
+
+      return NextResponse.json({ success: true, flow: "fallback_post_booking_ai" })
     }
   }
 
@@ -864,6 +988,26 @@ export async function POST(request: NextRequest) {
           const bookingEmail = detectedEmail || fallbackEmail
 
           if (bookingEmail && autoResponse.bookingComplete) {
+            // DEDUP GUARD: Check if payment links were already sent for this phone
+            // This prevents duplicate Stripe links from race conditions or re-triggered bookings
+            const { data: alreadySentPayment } = await client
+              .from("messages")
+              .select("id")
+              .eq("phone_number", phone)
+              .eq("tenant_id", tenant?.id)
+              .in("source", ["card_on_file", "deposit", "invoice"])
+              .limit(1)
+              .maybeSingle()
+
+            if (alreadySentPayment) {
+              console.log(`[OpenPhone] Payment link already sent for ${phone}, skipping duplicate booking completion (lead ${existingLead.id})`)
+              return NextResponse.json({
+                success: true,
+                flow: "sms_booking_already_complete",
+                existingLeadId: existingLead.id,
+              })
+            }
+
             console.log(`[OpenPhone] SMS booking completion: email=${bookingEmail} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
 
             try {
