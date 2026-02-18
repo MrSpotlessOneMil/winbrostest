@@ -29,7 +29,6 @@ import {
   Copy,
   Check,
   Trash2,
-  Wrench,
   Loader2,
 } from "lucide-react"
 
@@ -544,6 +543,20 @@ export default function AdminPage() {
                     <Badge variant={currentTenant.active ? "default" : "destructive"}>
                       {currentTenant.active ? "Active" : "Inactive"}
                     </Badge>
+                    <button
+                      type="button"
+                      onClick={() => resetTestCustomers()}
+                      disabled={resetting}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 rounded-md disabled:opacity-50 transition-colors"
+                      title="Reset test customer data"
+                    >
+                      {resetting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCcw className="h-3.5 w-3.5" />
+                      )}
+                      {resetting ? "Resetting..." : "Reset Data"}
+                    </button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -574,10 +587,6 @@ export default function AdminPage() {
                     <TabsTrigger value="info" className="gap-2">
                       <Building2 className="h-4 w-4" />
                       Info
-                    </TabsTrigger>
-                    <TabsTrigger value="tools" className="gap-2">
-                      <Wrench className="h-4 w-4" />
-                      Tools
                     </TabsTrigger>
                   </TabsList>
 
@@ -1330,74 +1339,37 @@ export default function AdminPage() {
                     </div>
                   </TabsContent>
 
-                  {/* Tools Tab */}
-                  <TabsContent value="tools" className="space-y-6">
-                    {/* Reset Test Customers */}
-                    <div className="p-4 rounded-lg border border-red-500/30 bg-red-500/5 space-y-4">
-                      <div className="font-medium flex items-center gap-2 text-red-400">
-                        <Trash2 className="h-4 w-4" />
-                        Reset Test Customers
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Delete all data for test phone numbers: <code className="text-xs bg-zinc-800 px-1 rounded">(424) 275-5847</code> and <code className="text-xs bg-zinc-800 px-1 rounded">(415) 720-4580</code>
-                        <br />
-                        <strong className="text-red-400">This action cannot be undone.</strong>
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          console.log("[ADMIN] Button clicked!")
-                          resetTestCustomers()
-                        }}
-                        disabled={resetting}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                        style={{ cursor: resetting ? 'not-allowed' : 'pointer' }}
-                      >
-                        {resetting ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            Resetting...
-                          </>
-                        ) : (
-                          <>
-                            <Trash2 className="h-4 w-4" />
-                            Reset Data
-                          </>
-                        )}
-                      </button>
-
-                      {/* Result display */}
-                      {resetResult && (
-                        <div className={`p-3 rounded-lg border ${
-                          resetResult.success
-                            ? "border-green-500/30 bg-green-500/10"
-                            : "border-red-500/30 bg-red-500/10"
-                        }`}>
-                          {resetResult.success ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center gap-2 text-green-400 font-medium">
-                                <CheckCircle2 className="h-4 w-4" />
-                                Customer data reset successfully
-                              </div>
-                              {resetResult.deletions && resetResult.deletions.length > 0 && (
-                                <ul className="text-sm text-muted-foreground list-disc list-inside">
-                                  {resetResult.deletions.map((d, i) => (
-                                    <li key={i}>{d}</li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-red-400">
-                              <AlertTriangle className="h-4 w-4" />
-                              {resetResult.error}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </TabsContent>
                 </Tabs>
+
+                {/* Reset result display */}
+                {resetResult && (
+                  <div className={`mt-4 p-3 rounded-lg border ${
+                    resetResult.success
+                      ? "border-green-500/30 bg-green-500/10"
+                      : "border-red-500/30 bg-red-500/10"
+                  }`}>
+                    {resetResult.success ? (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-green-400 font-medium text-sm">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Test data reset successfully
+                        </div>
+                        {resetResult.deletions && resetResult.deletions.length > 0 && (
+                          <ul className="text-xs text-muted-foreground list-disc list-inside">
+                            {resetResult.deletions.map((d, i) => (
+                              <li key={i}>{d}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-red-400 text-sm">
+                        <AlertTriangle className="h-4 w-4" />
+                        {resetResult.error}
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}
