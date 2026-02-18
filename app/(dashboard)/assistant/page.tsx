@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { FluidBackground } from "@/components/assistant/fluid-background"
 import { ConversationSidebar, type Conversation } from "@/components/assistant/conversation-sidebar"
-import { Send, Loader2, Sparkles } from "lucide-react"
+import { Send, Loader2, Sparkles, Copy, Check } from "lucide-react"
 
 interface Message {
   role: "user" | "assistant"
@@ -44,6 +44,173 @@ function createConversation(): Conversation {
   }
 }
 
+// ─── Lightweight Markdown Renderer ───────────────────────────────────────────
+
+function CopyButton({ text, className = "" }: { text: string; className?: string }) {
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <button
+      onClick={handleCopy}
+      className={`p-1 rounded-md transition-colors ${
+        copied
+          ? "text-green-400 bg-green-500/10"
+          : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-700/50"
+      } ${className}`}
+      title={copied ? "Copied!" : "Copy"}
+    >
+      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  )
+}
+
+function AssistantMessageContent({ content }: { content: string }) {
+  // Split by code blocks first
+  const parts = content.split(/(```[\s\S]*?```)/g)
+
+  return (
+    <div className="space-y-2">
+      {parts.map((part, i) => {
+        // Code block
+        if (part.startsWith("```") && part.endsWith("```")) {
+          const inner = part.slice(3, -3)
+          const newlineIdx = inner.indexOf("\n")
+          const code = newlineIdx >= 0 ? inner.slice(newlineIdx + 1) : inner
+          return (
+            <div key={i} className="relative group/code rounded-lg bg-zinc-900/80 border border-zinc-700/50 overflow-hidden">
+              <div className="absolute top-2 right-2 opacity-0 group-hover/code:opacity-100 transition-opacity">
+                <CopyButton text={code} />
+              </div>
+              <pre className="p-3 pr-10 text-xs text-zinc-300 overflow-x-auto whitespace-pre-wrap break-words">
+                {code}
+              </pre>
+            </div>
+          )
+        }
+
+        // Regular text — parse inline markdown
+        return <InlineMarkdown key={i} text={part} />
+      })}
+    </div>
+  )
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  if (!text.trim()) return null
+
+  const lines = text.split("\n")
+  const elements: React.ReactNode[] = []
+  let listBuffer: { type: "ul" | "ol"; items: string[] } | null = null
+
+  function flushList() {
+    if (!listBuffer) return
+    const ListTag = listBuffer.type === "ul" ? "ul" : "ol"
+    elements.push(
+      <ListTag
+        key={`list-${elements.length}`}
+        className={`pl-5 space-y-0.5 ${listBuffer.type === "ul" ? "list-disc" : "list-decimal"} marker:text-purple-400`}
+      >
+        {listBuffer.items.map((item, j) => (
+          <li key={j} className="text-sm leading-relaxed">
+            <InlineText text={item} />
+          </li>
+        ))}
+      </ListTag>
+    )
+    listBuffer = null
+  }
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx]
+
+    // Bullet list item
+    const bulletMatch = line.match(/^(\s*)[-*]\s+(.+)/)
+    if (bulletMatch) {
+      if (listBuffer?.type !== "ul") {
+        flushList()
+        listBuffer = { type: "ul", items: [] }
+      }
+      listBuffer!.items.push(bulletMatch[2])
+      continue
+    }
+
+    // Numbered list item
+    const numMatch = line.match(/^(\s*)\d+[.)]\s+(.+)/)
+    if (numMatch) {
+      if (listBuffer?.type !== "ol") {
+        flushList()
+        listBuffer = { type: "ol", items: [] }
+      }
+      listBuffer!.items.push(numMatch[2])
+      continue
+    }
+
+    // Not a list line — flush any accumulated list
+    flushList()
+
+    // Empty line
+    if (!line.trim()) {
+      elements.push(<div key={`br-${idx}`} className="h-1" />)
+      continue
+    }
+
+    // Regular paragraph line
+    elements.push(
+      <p key={`p-${idx}`} className="text-sm leading-relaxed">
+        <InlineText text={line} />
+      </p>
+    )
+  }
+
+  flushList()
+  return <>{elements}</>
+}
+
+function InlineText({ text }: { text: string }) {
+  // Parse bold (**text**) and inline code (`text`)
+  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (token.startsWith("**") && token.endsWith("**")) {
+          return (
+            <strong key={i} className="font-semibold text-zinc-100">
+              {token.slice(2, -2)}
+            </strong>
+          )
+        }
+        if (token.startsWith("`") && token.endsWith("`")) {
+          return (
+            <code key={i} className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 text-xs font-mono">
+              {token.slice(1, -1)}
+            </code>
+          )
+        }
+        return <span key={i}>{token}</span>
+      })}
+    </>
+  )
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
+const SUGGESTION_CHIPS = [
+  "What's on the schedule today?",
+  "Look up a customer",
+  "Create a new job",
+  "Get a price estimate",
+  "Generate a payment link",
+  "How do I use the calendar?",
+  "Add a new cleaner",
+  "Compose a booking confirmation",
+]
+
 export default function AssistantPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [currentId, setCurrentId] = useState<string | null>(null)
@@ -51,8 +218,15 @@ export default function AssistantPage() {
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  function handleCopyMessage(text: string, idx: number) {
+    navigator.clipboard.writeText(text)
+    setCopiedIdx(idx)
+    setTimeout(() => setCopiedIdx(null), 2000)
+  }
 
   // Load conversations on mount
   useEffect(() => {
@@ -235,7 +409,7 @@ export default function AssistantPage() {
             <div>
               <h1 className="text-lg font-semibold text-zinc-100">Assistant</h1>
               <p className="text-xs text-zinc-400">
-                Reset customers, generate links, manage your system
+                Your business command center
               </p>
             </div>
           </div>
@@ -250,17 +424,12 @@ export default function AssistantPage() {
                 <div>
                   <h2 className="text-xl font-medium text-zinc-200 mb-2">How can I help?</h2>
                   <p className="text-sm text-zinc-400 max-w-md">
-                    I can reset customer data, generate Stripe payment links, or toggle your
-                    business system on/off.
+                    I can look up customers, create jobs, generate payment links, compose messages,
+                    manage your team, and more.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center max-w-lg">
-                  {[
-                    "Reset customer (424) 555-0123",
-                    "Generate a Stripe link for a customer",
-                    "Turn off the system",
-                    "Turn on the system",
-                  ].map((suggestion) => (
+                  {SUGGESTION_CHIPS.map((suggestion) => (
                     <button
                       key={suggestion}
                       onClick={() => {
@@ -281,16 +450,39 @@ export default function AssistantPage() {
                 key={i}
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  data-no-splat
-                  className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                    msg.role === "user"
-                      ? "bg-purple-500/30 backdrop-blur-md border border-purple-500/20 text-zinc-100"
-                      : "bg-zinc-800/60 backdrop-blur-md border border-zinc-700/30 text-zinc-200"
-                  }`}
-                >
-                  {msg.content}
-                </div>
+                {msg.role === "user" ? (
+                  <div
+                    data-no-splat
+                    className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap bg-purple-500/30 backdrop-blur-md border border-purple-500/20 text-zinc-100"
+                  >
+                    {msg.content}
+                  </div>
+                ) : (
+                  <div className="group relative max-w-[80%]">
+                    <div
+                      data-no-splat
+                      className="px-4 py-3 rounded-2xl bg-zinc-800/60 backdrop-blur-md border border-zinc-700/30 text-zinc-200"
+                    >
+                      <AssistantMessageContent content={msg.content} />
+                    </div>
+                    {/* Copy whole message button — visible on hover */}
+                    <button
+                      onClick={() => handleCopyMessage(msg.content, i)}
+                      className={`absolute -top-2 -right-2 p-1.5 rounded-lg border transition-all ${
+                        copiedIdx === i
+                          ? "opacity-100 bg-green-500/20 border-green-500/30 text-green-400"
+                          : "opacity-0 group-hover:opacity-100 bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-zinc-200"
+                      }`}
+                      title={copiedIdx === i ? "Copied!" : "Copy message"}
+                    >
+                      {copiedIdx === i ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
 
