@@ -149,7 +149,7 @@ export default function TeamsPage() {
 
   // Fetch messages when chatMember changes
   useEffect(() => {
-    if (!chatMember?.phone) {
+    if (!chatMember?.phone && !chatMember?.telegram_id) {
       setChatMessages([])
       return
     }
@@ -157,7 +157,11 @@ export default function TeamsPage() {
     async function fetchMessages() {
       setChatLoading(true)
       try {
-        const res = await fetch(`/api/teams/messages?phone=${encodeURIComponent(chatMember!.phone)}&limit=200`)
+        const params = new URLSearchParams()
+        if (chatMember!.phone) params.set('phone', chatMember!.phone)
+        if (chatMember!.telegram_id) params.set('telegram_id', chatMember!.telegram_id)
+        params.set('limit', '200')
+        const res = await fetch(`/api/teams/messages?${params.toString()}`)
         const json = await res.json()
         if (!cancelled && json.success) setChatMessages(json.data || [])
       } catch {
@@ -168,7 +172,7 @@ export default function TeamsPage() {
     }
     fetchMessages()
     return () => { cancelled = true }
-  }, [chatMember?.phone])
+  }, [chatMember?.phone, chatMember?.telegram_id])
 
   // Auto-scroll chat to bottom
   useEffect(() => {

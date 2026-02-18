@@ -14,24 +14,33 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const phone = searchParams.get('phone')
+  const telegramId = searchParams.get('telegram_id')
   const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
 
-  if (!phone) {
-    return NextResponse.json({ success: false, error: 'phone parameter is required' }, { status: 400 })
+  if (!phone && !telegramId) {
+    return NextResponse.json({ success: false, error: 'phone or telegram_id parameter is required' }, { status: 400 })
   }
 
-  const normalized = toE164(phone)
-  if (!normalized) {
-    return NextResponse.json({ success: false, error: 'Invalid phone number' }, { status: 400 })
-  }
+  const normalized = phone ? toE164(phone) : null
 
   const client = getSupabaseServiceClient()
 
-  const { data, error } = await client
+  // Build query: match by phone OR by telegram_chat_id in metadata
+  let query = client
     .from('messages')
     .select('id, phone_number, direction, content, timestamp, status')
     .eq('tenant_id', tenant.id)
-    .eq('phone_number', normalized)
+
+  if (normalized && telegramId) {
+    // Match either phone number or telegram chat ID in metadata
+    query = query.or(`phone_number.eq.${normalized},metadata->>telegram_chat_id.eq.${telegramId}`)
+  } else if (normalized) {
+    query = query.eq('phone_number', normalized)
+  } else if (telegramId) {
+    query = query.eq('metadata->>telegram_chat_id', telegramId)
+  }
+
+  const { data, error } = await query
     .order('timestamp', { ascending: true })
     .limit(limit)
 

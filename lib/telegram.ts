@@ -28,14 +28,14 @@ export async function logTelegramMessage(opts: {
 
     const client = getSupabaseServiceClient()
 
-    // Look up the cleaner's phone by telegram_id
+    // Look up the cleaner's phone by telegram_id (maybeSingle: 0 rows = null, not error)
     const { data: cleaner } = await client
       .from('cleaners')
       .select('phone')
       .eq('tenant_id', tenant.id)
       .eq('telegram_id', opts.telegramChatId)
       .limit(1)
-      .single()
+      .maybeSingle()
 
     // Normalize phone to E.164 for consistent querying
     const { toE164 } = await import('./phone-utils')

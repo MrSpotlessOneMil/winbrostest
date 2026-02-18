@@ -659,7 +659,7 @@ Send "join" or "I'm a new cleaner" to register.
     // Unknown message format - use AI to provide helpful response
     console.log(`[OSIRIS] Unrecognized message format: ${text}`)
 
-    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead)
+    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
     await sendTelegramMessage(chatId, aiResponse)
 
     return NextResponse.json({ success: true, action: "ai_response" })
@@ -1032,12 +1032,13 @@ async function handleBriefingCommand(
 
 /**
  * Generate AI response for unrecognized messages
- * Uses Claude to understand intent and direct user to appropriate commands
+ * Looks up the cleaner's upcoming jobs so it can answer questions about their schedule
  */
 async function generateAIResponse(
   userMessage: string,
   userName: string,
-  isTeamLead: boolean
+  isTeamLead: boolean,
+  cleanerId: string | null
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
@@ -1047,6 +1048,45 @@ async function generateAIResponse(
   }
 
   try {
+    // Look up the cleaner's upcoming jobs if we know who they are
+    let jobContext = ""
+    if (cleanerId) {
+      const supabase = getSupabaseClient()
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+
+      // Get job IDs assigned to this cleaner
+      const { data: assignments } = await supabase
+        .from("cleaner_assignments")
+        .select("job_id")
+        .eq("cleaner_id", cleanerId)
+        .in("status", ["confirmed", "pending"])
+
+      const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
+
+      if (jobIds.length > 0) {
+        // Fetch actual job details
+        const { data: jobs } = await supabase
+          .from("jobs")
+          .select("id, date, scheduled_at, address, service_type, notes, status, phone_number")
+          .in("id", jobIds)
+          .gte("date", today)
+          .order("date", { ascending: true })
+          .limit(10)
+
+        if (jobs && jobs.length > 0) {
+          const jobLines = jobs.map((j: any) => {
+            const dateStr = j.date || 'TBD'
+            const timeStr = j.scheduled_at || 'TBD'
+            const addr = j.address || 'Address not set'
+            const service = j.service_type || 'Cleaning'
+            return `- ${dateStr} at ${timeStr}: ${service} at ${addr} (Job #${j.id}, Status: ${j.status || 'scheduled'})`
+          })
+
+          jobContext = `\n\nTHIS CLEANER'S UPCOMING JOBS:\n${jobLines.join('\n')}\n\nUse this job info to answer questions about their schedule, addresses, times, etc. If they ask about "my cleaning" or "my job", refer to the closest upcoming job.`
+        }
+      }
+    }
+
     const client = new Anthropic({ apiKey: anthropicKey })
 
     const teamLeadCommands = isTeamLead
@@ -1056,23 +1096,21 @@ async function generateAIResponse(
 - /briefing - Get your daily briefing`
       : ""
 
-    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. Your job is to understand what the user is trying to do and direct them to the right command or action.
+    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. You can answer questions about upcoming jobs and direct users to the right commands.
 
-Available commands and actions:
-- "join" or "I'm a new cleaner" - Register as a new cleaner
-- /start - See welcome message and all commands
-- /myid - Get your Telegram chat ID
-- "tip job [number] - $[amount]" - Report a tip (e.g., "tip job 123 - $20")
-- "upsell job [number] - [description]" - Report an upsell (e.g., "upsell job 123 - deep clean")
-- Accept/Decline buttons appear when you're offered a job${teamLeadCommands}
+Available commands:
+- "tip job [number] - $[amount]" - Report a tip
+- "upsell job [number] - [description]" - Report an upsell
+- /start - See all commands
+- /myid - Get Telegram chat ID${teamLeadCommands}
 
-The user's name is ${userName}.${isTeamLead ? " They are a team lead." : ""}
+The user's name is ${userName}.${isTeamLead ? " They are a team lead." : ""}${jobContext}
 
-Respond in a friendly, concise way (2-3 sentences max). Help them understand what command they should use. Use simple language. Don't use markdown formatting - use plain text only.`
+Respond in a friendly, concise way (2-4 sentences max). If they're asking about their schedule or job details, give them the info directly from the job data above. Use simple language. Don't use markdown formatting - use plain text only.`
 
     const response = await client.messages.create({
       model: "claude-3-5-haiku-20241022",
-      max_tokens: 200,
+      max_tokens: 300,
       messages: [
         {
           role: "user",
