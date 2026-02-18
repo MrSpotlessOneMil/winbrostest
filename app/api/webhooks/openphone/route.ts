@@ -1047,9 +1047,9 @@ export async function POST(request: NextRequest) {
                   .eq("id", customer.id)
               }
 
-              // Determine price using extracted data or pricebook lookup
-              let servicePrice = bookingData.price || null
-              if (!servicePrice && isWinBrosTenant) {
+              // Determine price — for WinBros, ALWAYS use pricebook (AI-extracted prices are unreliable)
+              let servicePrice: number | null = null
+              if (isWinBrosTenant) {
                 try {
                   const { lookupPrice } = await import("@/lib/pricebook")
                   const priceLookup = lookupPrice({
@@ -1059,11 +1059,20 @@ export async function POST(request: NextRequest) {
                   })
                   if (priceLookup) {
                     servicePrice = priceLookup.price
-                    console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} = $${priceLookup.price}`)
+                    console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} = $${priceLookup.price} (tier: ${priceLookup.tier || 'flat'})`)
+                    if (bookingData.price && bookingData.price !== priceLookup.price) {
+                      console.warn(`[OpenPhone] Price mismatch: AI extracted $${bookingData.price}, pricebook says $${priceLookup.price} — using pricebook`)
+                    }
                   }
                 } catch (pbErr) {
                   console.error("[OpenPhone] Pricebook lookup error:", pbErr)
                 }
+                // Fallback to AI-extracted price only if pricebook returned nothing
+                if (!servicePrice) {
+                  servicePrice = bookingData.price || null
+                }
+              } else {
+                servicePrice = bookingData.price || null
               }
 
               // Build job notes with OVERRIDE tags for pricing engine
@@ -1113,17 +1122,26 @@ export async function POST(request: NextRequest) {
                 notes: jobNotes || null,
               }).select("id").single()
 
-              if (jobError) {
-                console.error(`[OpenPhone] Job creation failed:`, jobError)
+              if (jobError || !newJob?.id) {
+                console.error(`[OpenPhone] Job creation failed for ${phone}:`, jobError || 'no job returned')
+                console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
+                // Don't proceed with Stripe link — we need a valid job first
+                return NextResponse.json({
+                  success: false,
+                  error: "job_creation_failed",
+                  flow: "sms_booking_job_error",
+                  existingLeadId: existingLead.id,
+                  details: jobError?.message || "Job insert returned no data",
+                })
               }
-              console.log(`[OpenPhone] Job created from SMS booking: ${newJob?.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
 
               // Update lead to booked
               await client
                 .from("leads")
                 .update({
                   status: "booked",
-                  converted_to_job_id: newJob?.id || null,
+                  converted_to_job_id: newJob.id,
                   form_data: {
                     ...parseFormData(existingLead.form_data),
                     booking_data: bookingData,

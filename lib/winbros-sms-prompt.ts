@@ -513,7 +513,8 @@ export async function extractBookingData(
   "email": "string" | null
 }
 
-For price: use the price the customer agreed to (the one-time price if they chose one-time, etc.). Look for "$" amounts in Mary's messages.
+For scope: This is what the CUSTOMER chose, not what was offered. Mary asks "just exterior or interior and exterior?" — look at the CUSTOMER'S reply. If they said "just exterior", "exterior only", "outside only", etc., scope is "exterior". Only use "interior_and_exterior" if the customer explicitly said they want BOTH interior and exterior.
+For price: Do NOT extract a price. Always set price to null — the system will calculate it from the pricebook.
 For address: Look at BOTH Mary's and the customer's messages. If Mary mentions a full address and the customer later corrects part of it (e.g., "Its Tamalpais Ave" to fix a street name), return the CORRECTED full address with the correction applied (keep house number, city, state, zip from the original).
 For names: If the customer corrects their name (e.g., "my name is grenager"), return the corrected spelling.
 For email: look for an email address in the customer's messages.
@@ -587,14 +588,8 @@ function extractBookingDataRegex(
   const sqftMatch = allText.match(/(\d[\d,]+)\s*(?:sq\.?\s*ft|square\s*f(?:ee|oo)t|sqft)/i)
   if (sqftMatch) squareFootage = parseInt(sqftMatch[1].replace(/,/g, ''), 10)
 
-  // Price from assistant messages
+  // Price: always null — pricebook calculates the authoritative price
   let price: number | null = null
-  const assistantMessages = conversationHistory
-    .filter(m => m.role === 'assistant')
-    .map(m => m.content)
-    .join(' ')
-  const priceMatches = assistantMessages.match(/One-Time:\s*\$(\d[\d,.]+)/i)
-  if (priceMatches) price = parseFloat(priceMatches[1].replace(/,/g, ''))
 
   // Email
   let email: string | null = null
