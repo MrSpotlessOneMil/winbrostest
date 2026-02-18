@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { ApiResponse, Tip, Upsell } from "@/lib/types"
 import {
-  getSupabaseClient,
   getSupabaseServiceClient,
   getJobById,
   getCustomerByPhone,
@@ -35,12 +34,64 @@ import Anthropic from "@anthropic-ai/sdk"
  * - decline:{jobId}:{assignmentId} - Cleaner declines job assignment
  */
 
-// Onboarding state machine - stored in memory (consider Redis for production scale)
-const onboardingStates = new Map<string, {
+// Onboarding state helpers - stored in Supabase system_events for serverless compatibility
+interface OnboardingState {
   step: 'name' | 'phone' | 'availability' | 'confirm'
   data: { name?: string; phone?: string; availability?: string }
   startedAt: number
-}>()
+}
+
+async function getOnboardingState(chatId: string): Promise<OnboardingState | null> {
+  const client = getSupabaseServiceClient()
+  const { data } = await client
+    .from('system_events')
+    .select('metadata')
+    .eq('event_type', 'TELEGRAM_ONBOARDING')
+    .eq('source', 'telegram')
+    .eq('metadata->>chat_id', chatId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!data?.metadata) return null
+  const meta = data.metadata as Record<string, unknown>
+  const state = meta.onboarding_state as OnboardingState | undefined
+  if (!state) return null
+  // Timeout: 30 minutes
+  if (Date.now() - state.startedAt > 30 * 60 * 1000) {
+    await deleteOnboardingState(chatId)
+    return null
+  }
+  return state
+}
+
+async function setOnboardingState(chatId: string, state: OnboardingState): Promise<void> {
+  const client = getSupabaseServiceClient()
+  // Delete any existing onboarding state for this chat
+  await client
+    .from('system_events')
+    .delete()
+    .eq('event_type', 'TELEGRAM_ONBOARDING')
+    .eq('source', 'telegram')
+    .eq('metadata->>chat_id', chatId)
+  // Insert new state
+  await client.from('system_events').insert({
+    event_type: 'TELEGRAM_ONBOARDING',
+    source: 'telegram',
+    message: `Onboarding step: ${state.step}`,
+    metadata: { chat_id: chatId, onboarding_state: state },
+    created_at: new Date().toISOString(),
+  })
+}
+
+async function deleteOnboardingState(chatId: string): Promise<void> {
+  const client = getSupabaseServiceClient()
+  await client
+    .from('system_events')
+    .delete()
+    .eq('event_type', 'TELEGRAM_ONBOARDING')
+    .eq('source', 'telegram')
+    .eq('metadata->>chat_id', chatId)
+}
 
 interface TelegramMessage {
   message_id: number
@@ -80,11 +131,16 @@ const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
 
-// Patterns for new cleaner onboarding
+// Patterns for new cleaner onboarding (handles smart quotes, curly apostrophes, etc.)
 const JOIN_PATTERNS = [
-  /^(hi|hello|hey|join|register|sign\s*up|new\s+cleaner|i('m| am) a (new )?cleaner)/i,
+  /^(join|register|sign\s*up)/i,
+  /^new\s+cleaner/i,
+  /i[''`"']m\s+a\s+(new\s+)?cleaner/i,
+  /i\s+am\s+a\s+(new\s+)?cleaner/i,
   /^i\s+want\s+to\s+(join|work|clean)/i,
-  /^(start|begin|onboard)/i,
+  /^(onboard|enroll)/i,
+  /new\s+(here|employee|hire|team\s*member)/i,
+  /how\s+(do\s+i|can\s+i|to)\s+(join|register|sign\s*up)/i,
 ]
 
 // Phone number validation
@@ -214,7 +270,7 @@ async function handleAcceptCallback(
           // Log the outbound message to the database
           const tenant = await getDefaultTenant()
           if (tenant) {
-            const client = getSupabaseClient()
+            const client = getSupabaseServiceClient()
             client.from("messages").insert({
               tenant_id: tenant.id,
               customer_id: customer.id || null,
@@ -478,10 +534,10 @@ Send "join" or "I'm a new cleaner" to register.
       return NextResponse.json({ success: true, action: "chat_id_sent", chat_id: chatId })
     }
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
 
-    // Check if user is in onboarding flow
-    const onboardingState = onboardingStates.get(chatId)
+    // Check if user is in onboarding flow (stored in DB, not memory)
+    const onboardingState = await getOnboardingState(chatId)
     if (onboardingState) {
       return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState)
     }
@@ -504,8 +560,8 @@ Send "join" or "I'm a new cleaner" to register.
         return NextResponse.json({ success: true, action: "already_registered" })
       }
 
-      // Start onboarding flow
-      onboardingStates.set(chatId, {
+      // Start onboarding flow (persisted to DB for serverless)
+      await setOnboardingState(chatId, {
         step: 'name',
         data: {},
         startedAt: Date.now()
@@ -682,23 +738,13 @@ async function handleOnboardingStep(
   telegramUserId: string,
   from: { first_name: string; username?: string },
   text: string,
-  state: { step: string; data: { name?: string; phone?: string; availability?: string }; startedAt: number }
+  state: OnboardingState
 ): Promise<NextResponse> {
-  const client = getSupabaseClient()
-
-  // Timeout check - 30 minutes
-  if (Date.now() - state.startedAt > 30 * 60 * 1000) {
-    onboardingStates.delete(chatId)
-    await sendTelegramMessage(
-      chatId,
-      `Your registration session has expired. Send "join" to start again.`
-    )
-    return NextResponse.json({ success: true, action: "onboarding_expired" })
-  }
+  const client = getSupabaseServiceClient()
 
   // Handle cancel
   if (text.toLowerCase() === "cancel" || text.toLowerCase() === "/cancel") {
-    onboardingStates.delete(chatId)
+    await deleteOnboardingState(chatId)
     await sendTelegramMessage(
       chatId,
       `Registration cancelled. Send "join" anytime to start again.`
@@ -719,7 +765,7 @@ async function handleOnboardingStep(
 
       state.data.name = text.trim()
       state.step = 'phone'
-      onboardingStates.set(chatId, state as typeof state & { step: 'phone' })
+      await setOnboardingState(chatId, state)
 
       await sendTelegramMessage(
         chatId,
@@ -740,7 +786,7 @@ async function handleOnboardingStep(
 
       state.data.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
       state.step = 'availability'
-      onboardingStates.set(chatId, state as typeof state & { step: 'availability' })
+      await setOnboardingState(chatId, state)
 
       await sendTelegramMessage(
         chatId,
@@ -751,7 +797,7 @@ async function handleOnboardingStep(
     case 'availability':
       state.data.availability = text.trim()
       state.step = 'confirm'
-      onboardingStates.set(chatId, state as typeof state & { step: 'confirm' })
+      await setOnboardingState(chatId, state)
 
       await sendTelegramMessage(
         chatId,
@@ -769,7 +815,7 @@ async function handleOnboardingStep(
         const tenant = await getDefaultTenant()
         if (!tenant) {
           await sendTelegramMessage(chatId, `Registration error. Please contact support.`)
-          onboardingStates.delete(chatId)
+          await deleteOnboardingState(chatId)
           return NextResponse.json({ success: false, error: "No tenant configured" })
         }
 
@@ -794,11 +840,11 @@ async function handleOnboardingStep(
             chatId,
             `There was an error registering you. Please try again or contact support.`
           )
-          onboardingStates.delete(chatId)
+          await deleteOnboardingState(chatId)
           return NextResponse.json({ success: false, error: "Failed to create cleaner" })
         }
 
-        onboardingStates.delete(chatId)
+        await deleteOnboardingState(chatId)
 
         await sendTelegramMessage(
           chatId,
@@ -827,7 +873,7 @@ async function handleOnboardingStep(
         return NextResponse.json({ success: true, action: "cleaner_registered", cleaner_id: newCleaner.id })
       } else if (text.toLowerCase() === 'no' || text.toLowerCase() === 'n') {
         // Start over
-        onboardingStates.set(chatId, {
+        await setOnboardingState(chatId, {
           step: 'name',
           data: {},
           startedAt: Date.now()
@@ -847,7 +893,7 @@ async function handleOnboardingStep(
       }
 
     default:
-      onboardingStates.delete(chatId)
+      await deleteOnboardingState(chatId)
       return NextResponse.json({ success: true, action: "invalid_state" })
   }
 }
@@ -858,7 +904,7 @@ async function handleOnboardingStep(
 async function handleTeamCommand(
   chatId: string,
   cleaner: { id: string; name: string; is_team_lead?: boolean },
-  client: ReturnType<typeof getSupabaseClient>
+  client: ReturnType<typeof getSupabaseServiceClient>
 ): Promise<NextResponse> {
   // Get all cleaners (team members)
   const { data: teamMembers, error } = await client
@@ -893,7 +939,7 @@ async function handleTeamCommand(
 async function handleLeaderboardCommand(
   chatId: string,
   cleaner: { id: string; name: string },
-  client: ReturnType<typeof getSupabaseClient>
+  client: ReturnType<typeof getSupabaseServiceClient>
 ): Promise<NextResponse> {
   // Get job completion stats for the past 30 days
   const thirtyDaysAgo = new Date()
@@ -956,7 +1002,7 @@ async function handleLeaderboardCommand(
 async function handleBriefingCommand(
   chatId: string,
   cleaner: { id: string; name: string },
-  client: ReturnType<typeof getSupabaseClient>
+  client: ReturnType<typeof getSupabaseServiceClient>
 ): Promise<NextResponse> {
   const today = new Date().toISOString().split('T')[0]
 

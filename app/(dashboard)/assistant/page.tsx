@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { FluidBackground } from "@/components/assistant/fluid-background"
 import { ConversationSidebar, type Conversation } from "@/components/assistant/conversation-sidebar"
 import { Send, Loader2, Sparkles, Copy, Check } from "lucide-react"
 
@@ -382,12 +381,9 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="relative flex flex-col h-full -m-4 overflow-hidden">
-      {/* Fluid simulation background */}
-      <FluidBackground className="z-0" />
-
-      {/* Chat overlay with sidebar */}
-      <div className="relative z-10 flex h-full">
+    <div className="relative flex flex-col h-full -m-4 overflow-hidden bg-zinc-900">
+      {/* Chat with sidebar */}
+      <div className="relative flex h-full">
         {/* Conversation sidebar */}
         <ConversationSidebar
           conversations={conversations}

@@ -107,6 +107,8 @@ export type SystemEventType =
   | 'LEAD_STAGE_CHANGED'
   | 'PAYMENT_LINK_SENT'
   | 'SMS_ROUTING'
+  // Telegram Onboarding
+  | 'TELEGRAM_ONBOARDING'
 
 export interface SystemEventInput {
   tenant_id?: string
