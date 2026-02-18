@@ -381,7 +381,7 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="relative flex flex-col h-full -m-4 overflow-hidden bg-zinc-900">
+    <div className="relative flex flex-col h-full -m-4 overflow-hidden bg-card">
       {/* Chat with sidebar */}
       <div className="relative flex h-full">
         {/* Conversation sidebar */}
@@ -399,7 +399,7 @@ export default function AssistantPage() {
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
           <div data-no-splat className={`flex items-center gap-3 px-6 py-4 ${!sidebarOpen ? "pl-16" : ""}`}>
-            <div className="p-2 rounded-lg bg-purple-500/20 backdrop-blur-sm">
+            <div className="p-2 rounded-lg bg-purple-500/20">
               <Sparkles className="w-5 h-5 text-purple-400" />
             </div>
             <div>
@@ -414,7 +414,7 @@ export default function AssistantPage() {
           <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-                <div className="p-4 rounded-2xl bg-purple-500/10 backdrop-blur-sm border border-purple-500/20">
+                <div className="p-4 rounded-2xl bg-purple-500/10 border border-purple-500/20">
                   <Sparkles className="w-10 h-10 text-purple-400" />
                 </div>
                 <div>
@@ -432,7 +432,7 @@ export default function AssistantPage() {
                         setInput(suggestion)
                         inputRef.current?.focus()
                       }}
-                      className="px-3 py-1.5 text-xs rounded-lg bg-zinc-800/60 backdrop-blur-sm border border-zinc-700/40 text-zinc-300 hover:bg-zinc-700/60 hover:text-zinc-100 transition-colors"
+                      className="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 border border-zinc-700/40 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
                     >
                       {suggestion}
                     </button>
@@ -449,7 +449,7 @@ export default function AssistantPage() {
                 {msg.role === "user" ? (
                   <div
                     data-no-splat
-                    className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap bg-purple-500/30 backdrop-blur-md border border-purple-500/20 text-zinc-100"
+                    className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap bg-purple-500/20 border border-purple-500/20 text-zinc-100"
                   >
                     {msg.content}
                   </div>
@@ -457,7 +457,7 @@ export default function AssistantPage() {
                   <div className="group relative max-w-[80%]">
                     <div
                       data-no-splat
-                      className="px-4 py-3 rounded-2xl bg-zinc-800/60 backdrop-blur-md border border-zinc-700/30 text-zinc-200"
+                      className="px-4 py-3 rounded-2xl bg-zinc-800 border border-zinc-700/30 text-zinc-200"
                     >
                       <AssistantMessageContent content={msg.content} />
                     </div>
@@ -484,7 +484,7 @@ export default function AssistantPage() {
 
             {loading && (
               <div className="flex justify-start">
-                <div className="px-4 py-3 rounded-2xl bg-zinc-800/60 backdrop-blur-md border border-zinc-700/30">
+                <div className="px-4 py-3 rounded-2xl bg-zinc-800 border border-zinc-700/30">
                   <div className="flex items-center gap-2 text-zinc-400 text-sm">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Thinking...
@@ -498,7 +498,7 @@ export default function AssistantPage() {
 
           {/* Input area */}
           <div className="px-6 pb-6 pt-2" data-no-splat>
-            <div className="flex items-end gap-3 p-3 rounded-2xl bg-zinc-800/60 backdrop-blur-md border border-zinc-700/40">
+            <div className="flex items-end gap-3 p-3 rounded-2xl bg-zinc-800 border border-zinc-700/40">
               <textarea
                 ref={inputRef}
                 value={input}
