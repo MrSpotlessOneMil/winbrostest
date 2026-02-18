@@ -8,7 +8,6 @@ import {
   CalendarDays,
   Users,
   Sparkles,
-  Settings,
   Bug,
   ShieldCheck,
   UserCircle,
@@ -316,16 +315,6 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 )}
 
                 <div className="border-t border-zinc-800 mt-1" />
-
-                {/* Settings */}
-                <Link
-                  href="/settings"
-                  onClick={() => closeDropdown()}
-                  className="flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  Settings
-                </Link>
 
                 {/* Logout */}
                 <button
