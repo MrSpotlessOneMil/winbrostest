@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
-import { getTenantServiceDescription } from "@/lib/tenant"
+import { getTenantServiceDescription, getTenantById } from "@/lib/tenant"
 import { cancelTask, scheduleTask } from "@/lib/scheduler"
 import { sendSMS } from "@/lib/openphone"
 import { initiateOutboundCall } from "@/lib/vapi"
@@ -33,7 +33,19 @@ export async function POST(
   }
 
   const client = getSupabaseClient()
-  const tenant = await getAuthTenant(request)
+  let tenant = await getAuthTenant(request)
+
+  // Admin user (no tenant_id) — derive tenant from the lead itself
+  if (!tenant && authResult.user.username === 'admin') {
+    const { data: leadRow } = await client
+      .from("leads")
+      .select("tenant_id")
+      .eq("id", leadId)
+      .single()
+    if (leadRow?.tenant_id) {
+      tenant = await getTenantById(leadRow.tenant_id)
+    }
+  }
 
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })

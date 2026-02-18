@@ -579,84 +579,63 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, flow: "phone_call_email_capture", leadId: bookedLead.id })
 
     } else {
-      // No email in this message — check if customer is past the booking stage
-      // (already has email on file or job already created). If so, use AI for
-      // a natural contextual response instead of the canned email request.
-      const customerAlreadyHasEmail = !!customer.email
-      const jobAlreadyCreated = !!bookedLead.converted_to_job_id
+      // Check if payment/invoice links were already sent for this booking
+      const { data: existingPayment } = await client
+        .from("messages")
+        .select("id")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .in("source", ["card_on_file", "deposit", "invoice"])
+        .limit(1)
+        .maybeSingle()
 
-      if (customerAlreadyHasEmail || jobAlreadyCreated) {
-        // Customer is past booking — respond naturally with AI
-        console.log(`[OpenPhone] Booked lead ${bookedLead.id} already has email/job, using AI response`)
+      if (existingPayment) {
+        // Payment links already sent — respond naturally (NOT the booking flow prompt)
+        console.log(`[OpenPhone] Booked lead ${bookedLead.id} has payment links sent, using post-booking AI`)
+        const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
+        const sdrName = tenant?.sdr_persona || 'Mary'
+        const historyCtx = conversationHistory.slice(-6).map(m =>
+          `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`
+        ).join('\n')
 
-        const leadFormData = parseFormData(bookedLead.form_data)
-        const knownInfo: KnownCustomerInfo = {
-          firstName: customer.first_name || leadFormData.first_name || null,
-          lastName: customer.last_name || leadFormData.last_name || null,
-          address: customer.address || leadFormData.address || null,
-          email: customer.email || leadFormData.email || null,
-          phone: phone,
-          source: "phone",
-        }
-
-        const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
-        const autoResponse = await generateAutoResponse(
-          combinedMessage,
-          quickIntent,
-          tenant,
-          conversationHistory,
-          knownInfo
-        )
-
-        if (autoResponse.shouldSend && autoResponse.response) {
-          const sendResult = await sendSMS(tenant!, phone, autoResponse.response)
-          if (sendResult.success) {
-            await client.from("messages").insert({
-              tenant_id: tenant?.id,
-              customer_id: customer.id,
-              phone_number: phone,
-              role: "assistant",
-              content: autoResponse.response,
-              direction: "outbound",
-              message_type: "sms",
-              ai_generated: true,
-              timestamp: new Date().toISOString(),
-              source: "openphone",
-              metadata: {
-                auto_response: true,
-                booked_lead_id: bookedLead.id,
-                reason: autoResponse.reason,
-              },
-            })
-          }
-        }
-
-        // Extract corrections from conversation and update DB
-        // (e.g. customer says "It's grenager" to fix their last name)
         try {
-          const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
-          const correctedData = await extractBookingData(conversationHistory)
-          if (correctedData.firstName || correctedData.lastName || correctedData.address) {
-            const updates: Record<string, string | null> = {}
-            if (correctedData.firstName) updates.first_name = correctedData.firstName
-            if (correctedData.lastName) updates.last_name = correctedData.lastName
-            if (correctedData.address) updates.address = correctedData.address
-            await client.from("customers").update(updates).eq("id", customer.id)
+          const Anthropic = (await import('@anthropic-ai/sdk')).default
+          const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+          const resp = await anthropicClient.messages.create({
+            model: 'claude-sonnet-4-5-20250929',
+            max_tokens: 200,
+            system: `You are ${sdrName} from ${businessName}. The customer has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully. Keep it to 1-2 sentences (this is SMS). Do NOT ask booking questions or ask for their email. If they say thanks, say you're welcome and let them know to reach out if they need anything. Do NOT use emojis unless the customer uses them first. Do NOT use markdown formatting.`,
+            messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
+          })
+          const txt = resp.content.find(b => b.type === 'text')
+          const responseText = txt?.type === 'text' ? txt.text.trim() : ''
 
-            // Also update the job if one exists
-            if (bookedLead.converted_to_job_id && correctedData.address) {
-              await client.from("jobs").update({ address: correctedData.address }).eq("id", bookedLead.converted_to_job_id)
+          if (responseText) {
+            const sendResult = await sendSMS(tenant!, phone, responseText)
+            if (sendResult.success) {
+              await client.from("messages").insert({
+                tenant_id: tenant?.id,
+                customer_id: customer.id,
+                phone_number: phone,
+                role: "assistant",
+                content: responseText,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: true,
+                timestamp: new Date().toISOString(),
+                source: "openphone",
+                metadata: { auto_response: true, booked_lead_id: bookedLead.id, reason: 'post_booking_ai' },
+              })
             }
-            console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
           }
-        } catch (extractErr) {
-          console.error("[OpenPhone] Error extracting corrections:", extractErr)
+        } catch (err) {
+          console.error("[OpenPhone] Post-booking AI response error:", err)
         }
 
         return NextResponse.json({ success: true, flow: "phone_call_post_booking_ai", leadId: bookedLead.id })
       }
 
-      // Customer hasn't provided email yet — ask for it to complete booking
+      // No payment links sent yet — ask for email to complete booking
       const confirmMsg = `Thanks for confirming! To send you the confirmed pricing and secure your booking, could you send me your best email address?`
       const confirmResult = await sendSMS(tenant!, phone, confirmMsg)
       if (confirmResult.success) {
