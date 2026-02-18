@@ -39,7 +39,7 @@ export interface Job {
   bedrooms?: number
   bathrooms?: number
   square_footage?: number
-  status?: 'lead' | 'quoted' | 'scheduled' | 'in_progress' | 'completed' | 'cancelled'
+  status?: 'lead' | 'quoted' | 'scheduled' | 'assigned' | 'in_progress' | 'completed' | 'cancelled'
   price?: number
   hours?: number
   cleaners?: number

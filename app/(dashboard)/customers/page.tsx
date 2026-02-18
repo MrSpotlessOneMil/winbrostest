@@ -719,6 +719,8 @@ export default function CustomersPage() {
                                         ? "bg-emerald-400/10 text-emerald-400"
                                         : job.status === "cancelled"
                                         ? "bg-red-400/10 text-red-400"
+                                        : job.status === "assigned"
+                                        ? "bg-purple-400/10 text-purple-400"
                                         : job.status === "scheduled"
                                         ? "bg-blue-400/10 text-blue-400"
                                         : "bg-yellow-400/10 text-yellow-400"

@@ -174,8 +174,8 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
-    // 5. Update job.cleaner_confirmed = true
-    await updateJob(jobId, { cleaner_confirmed: true } as Record<string, unknown>)
+    // 5. Update job status to assigned + cleaner_confirmed
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
 
     // 6. Get customer info and send notification SMS
     let customerNotified = false

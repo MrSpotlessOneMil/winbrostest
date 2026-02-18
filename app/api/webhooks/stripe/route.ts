@@ -584,10 +584,11 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
             responded_at: new Date().toISOString(),
           })
 
-          // Update job with team assignment
+          // Update job with team assignment + status
           await updateJob(actualJobId!, {
             team_id: team.id,
             cleaner_confirmed: true,
+            status: 'assigned',
           } as Record<string, unknown>)
 
           console.log(`[Stripe Webhook] Job ${actualJobId} auto-assigned to team "${team.name}" (cleaner ${lead.cleaner_id})`)
