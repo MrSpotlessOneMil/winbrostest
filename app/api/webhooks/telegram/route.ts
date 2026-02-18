@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ApiResponse, Tip, Upsell } from "@/lib/types"
 import {
   getSupabaseClient,
+  getSupabaseServiceClient,
   getJobById,
   getCustomerByPhone,
   getCleanerById,
@@ -782,8 +783,7 @@ async function handleOnboardingStep(
             telegram_id: telegramUserId,
             telegram_username: from.username || null,
             active: true,
-            is_team_lead: false,
-            availability: { general: state.data.availability }
+            is_team_lead: false
           })
           .select("id, name")
           .single()
@@ -1051,7 +1051,7 @@ async function generateAIResponse(
     // Look up the cleaner's upcoming jobs if we know who they are
     let jobContext = ""
     if (cleanerId) {
-      const supabase = getSupabaseClient()
+      const supabase = getSupabaseServiceClient()
       const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
       // Get job IDs assigned to this cleaner
