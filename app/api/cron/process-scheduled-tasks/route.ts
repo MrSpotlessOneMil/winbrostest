@@ -206,13 +206,14 @@ async function processLeadFollowup(
     return
   }
 
-  // Skip follow-up if lead has been contacted recently (within 5 minutes)
+  // Skip follow-up if lead has been contacted recently (within 12 minutes)
   // This prevents follow-up from firing when customer is actively texting
-  // Applies to ALL stages including stage 1 (the auto-response serves as initial contact)
+  // or when another path (HCP webhook, auto-response) already sent a message
+  // 12-minute window covers the shortest text-to-text gap (stage 1→2 = 10 min)
   if (lead.last_contact_at) {
     const lastContact = new Date(lead.last_contact_at)
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
-    if (lastContact > fiveMinutesAgo) {
+    const twelveMinutesAgo = new Date(Date.now() - 12 * 60 * 1000)
+    if (lastContact > twelveMinutesAgo) {
       console.log(`[lead-followup] Lead ${leadId} contacted recently (${lead.last_contact_at}), skipping stage ${stage}`)
       return
     }
@@ -276,6 +277,30 @@ async function processLeadFollowup(
   }
 
   if (action === 'text') {
+    // Message-based dedup: skip if ANY outbound text was already sent to this phone recently
+    // This prevents duplicates regardless of source (HCP webhook, OpenPhone auto-response, etc.)
+    const dedupWindow = new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 minutes
+    const { data: recentOutbound } = await client
+      .from('messages')
+      .select('id, source, timestamp')
+      .eq('phone_number', leadPhone)
+      .eq('tenant_id', tenant?.id)
+      .eq('role', 'assistant')
+      .eq('direction', 'outbound')
+      .gte('timestamp', dedupWindow)
+      .limit(1)
+      .maybeSingle()
+
+    if (recentOutbound) {
+      console.log(`[lead-followup] Skipping stage ${stage} text for ${leadPhone} — outbound message already sent at ${recentOutbound.timestamp} (source: ${recentOutbound.source}). Advancing followup_stage only.`)
+      // Still advance followup_stage so the task doesn't retry
+      await client
+        .from('leads')
+        .update({ followup_stage: stage })
+        .eq('id', leadId)
+      return
+    }
+
     let message: string
 
     if (stage === 1) {
@@ -445,10 +470,13 @@ async function processLeadFollowup(
     }
   }
 
-  // Update lead's followup_stage
+  // Update lead's followup_stage + last_contact_at (so dedup checks work for subsequent stages)
   await client
     .from('leads')
-    .update({ followup_stage: stage })
+    .update({
+      followup_stage: stage,
+      last_contact_at: new Date().toISOString(),
+    })
     .eq('id', leadId)
 
   // Log the event

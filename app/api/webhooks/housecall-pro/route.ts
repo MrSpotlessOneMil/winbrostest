@@ -364,10 +364,10 @@ export async function POST(request: NextRequest) {
                 console.log(`[OSIRIS] HCP Webhook: Message saved successfully to DB for ${phone}`)
               }
 
-              // Update lead to stage 1
+              // Update lead to stage 1 + mark as contacted so dedup checks work
               await client
                 .from("leads")
-                .update({ followup_stage: 1 })
+                .update({ followup_stage: 1, last_contact_at: new Date().toISOString() })
                 .eq("id", leadRecord?.id)
 
               // Log the event
