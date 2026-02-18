@@ -598,7 +598,7 @@ export async function POST(request: NextRequest) {
           `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`
         ).join('\n')
 
-        // Load customer + job data so the AI can answer questions about their booking
+        // Load customer + job + lead data so the AI can answer questions about their booking
         const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
         let jobCtx = ''
         if (bookedLead.converted_to_job_id) {
@@ -620,13 +620,30 @@ export async function POST(request: NextRequest) {
             jobCtx = `\n\nBooking details:\n${parts.join('\n')}`
           }
         }
+
+        // Load lead form_data — this has sqft, scope, booking_data etc.
+        const leadFormData = parseFormData(bookedLead.form_data)
+        const bookingData = leadFormData.booking_data as Record<string, any> || {}
+
         const customerCtx = [
           customer.first_name ? `Name: ${customerName}` : null,
           customer.email ? `Email: ${customer.email}` : null,
           customer.address ? `Address: ${customer.address}` : null,
-          (customer as any).bedrooms ? `Bedrooms: ${(customer as any).bedrooms}` : null,
-          (customer as any).bathrooms ? `Bathrooms: ${(customer as any).bathrooms}` : null,
-          (customer as any).square_footage ? `Square footage: ${(customer as any).square_footage}` : null,
+          leadFormData.square_footage ? `Square footage: ${leadFormData.square_footage}` : null,
+          leadFormData.exterior_windows !== undefined ? `Exterior windows: ${leadFormData.exterior_windows ? 'Yes' : 'No'}` : null,
+          leadFormData.interior_windows !== undefined ? `Interior windows: ${leadFormData.interior_windows ? 'Yes' : 'No'}` : null,
+          leadFormData.french_panes !== undefined ? `French panes: ${leadFormData.french_panes ? 'Yes' : 'No'}` : null,
+          leadFormData.storm_windows !== undefined ? `Storm windows: ${leadFormData.storm_windows ? 'Yes' : 'No'}` : null,
+          leadFormData.frequency ? `Frequency: ${leadFormData.frequency}` : null,
+          leadFormData.bedrooms ? `Bedrooms: ${leadFormData.bedrooms}` : null,
+          leadFormData.bathrooms ? `Bathrooms: ${leadFormData.bathrooms}` : null,
+          bookingData.serviceType ? `Service type: ${bookingData.serviceType}` : null,
+          bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+          bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+          bookingData.preferredDate ? `Preferred date: ${bookingData.preferredDate}` : null,
+          bookingData.preferredTime ? `Preferred time: ${bookingData.preferredTime}` : null,
+          bookingData.address ? `Cleaning address: ${bookingData.address}` : null,
+          bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
         ].filter(Boolean).join('\n')
 
         try {
@@ -755,13 +772,38 @@ export async function POST(request: NextRequest) {
         jobCtx = `\n\nBooking details:\n${parts.join('\n')}`
       }
 
+      // Load lead form_data — has sqft, scope, booking_data etc. even when jobs table is empty
+      const { data: fallbackLead } = await client
+        .from("leads")
+        .select("id, form_data")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const fbFormData = fallbackLead ? parseFormData(fallbackLead.form_data) : {} as Record<string, any>
+      const fbBookingData = fbFormData.booking_data as Record<string, any> || {}
+
       const customerCtx = [
         customer.first_name ? `Name: ${customerName}` : null,
         customer.email ? `Email: ${customer.email}` : null,
         customer.address ? `Address: ${customer.address}` : null,
-        (customer as any).bedrooms ? `Bedrooms: ${(customer as any).bedrooms}` : null,
-        (customer as any).bathrooms ? `Bathrooms: ${(customer as any).bathrooms}` : null,
-        (customer as any).square_footage ? `Square footage: ${(customer as any).square_footage}` : null,
+        fbFormData.square_footage ? `Square footage: ${fbFormData.square_footage}` : null,
+        fbFormData.exterior_windows !== undefined ? `Exterior windows: ${fbFormData.exterior_windows ? 'Yes' : 'No'}` : null,
+        fbFormData.interior_windows !== undefined ? `Interior windows: ${fbFormData.interior_windows ? 'Yes' : 'No'}` : null,
+        fbFormData.french_panes !== undefined ? `French panes: ${fbFormData.french_panes ? 'Yes' : 'No'}` : null,
+        fbFormData.storm_windows !== undefined ? `Storm windows: ${fbFormData.storm_windows ? 'Yes' : 'No'}` : null,
+        fbFormData.frequency ? `Frequency: ${fbFormData.frequency}` : null,
+        fbFormData.bedrooms ? `Bedrooms: ${fbFormData.bedrooms}` : null,
+        fbFormData.bathrooms ? `Bathrooms: ${fbFormData.bathrooms}` : null,
+        fbBookingData.serviceType ? `Service type: ${fbBookingData.serviceType}` : null,
+        fbBookingData.scope ? `Scope: ${fbBookingData.scope}` : null,
+        fbBookingData.planType ? `Plan: ${fbBookingData.planType}` : null,
+        fbBookingData.preferredDate ? `Preferred date: ${fbBookingData.preferredDate}` : null,
+        fbBookingData.preferredTime ? `Preferred time: ${fbBookingData.preferredTime}` : null,
+        fbBookingData.address ? `Cleaning address: ${fbBookingData.address}` : null,
+        fbBookingData.referralSource ? `Referral: ${fbBookingData.referralSource}` : null,
       ].filter(Boolean).join('\n')
 
       try {

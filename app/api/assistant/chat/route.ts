@@ -26,6 +26,21 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "search_customers",
+    description:
+      "Search for customers by name. Returns matching customers with their details and property info from leads. Use this when someone asks about a customer by name instead of phone number.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: {
+          type: "string",
+          description: "Customer name to search for (first name, last name, or both)",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
     name: "create_customer",
     description:
       "Create a new customer in the system. Phone number is required. Can also include their name, email, and address.",
@@ -307,14 +322,31 @@ async function executeTool(
         .order("created_at", { ascending: false })
         .limit(5)
 
+      // Load lead form_data for property details (sqft, scope, etc.)
+      const { data: lead } = await client
+        .from("leads")
+        .select("form_data")
+        .eq("phone_number", customer.phone_number)
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const formData = lead?.form_data as Record<string, any> || {}
+      const bookingData = formData.booking_data as Record<string, any> || {}
+
       const name = `${customer.first_name || ""} ${customer.last_name || ""}`.trim() || "Unknown"
       return JSON.stringify({
         name,
         phone: customer.phone_number,
         email: customer.email || "Not on file",
-        address: customer.address || "Not on file",
-        bedrooms: customer.bedrooms ?? "Unknown",
-        bathrooms: customer.bathrooms ?? "Unknown",
+        address: customer.address || bookingData.address || "Not on file",
+        square_footage: formData.square_footage || bookingData.squareFootage || "Unknown",
+        bedrooms: formData.bedrooms || bookingData.bedrooms || "Unknown",
+        bathrooms: formData.bathrooms || bookingData.bathrooms || "Unknown",
+        exterior_windows: formData.exterior_windows ?? null,
+        french_panes: formData.french_panes ?? null,
+        frequency: formData.frequency || bookingData.planType || null,
+        scope: bookingData.scope || null,
         recent_jobs: (jobs || []).map((j: any) => ({
           id: j.id,
           service: j.service_type || "Cleaning",
@@ -326,6 +358,69 @@ async function executeTool(
       })
     } catch (err: any) {
       return `Error looking up customer: ${err.message}`
+    }
+  }
+
+  // ----- SEARCH CUSTOMERS BY NAME -----
+  if (toolName === "search_customers") {
+    try {
+      const searchName = (toolInput.name as string).trim()
+      const parts = searchName.split(/\s+/)
+      const firstName = parts[0]
+      const lastName = parts.length > 1 ? parts.slice(1).join(" ") : null
+
+      // Search by first name OR last name using ILIKE for case-insensitive match
+      let query = client.from("customers").select("id, first_name, last_name, phone_number, email, address")
+      if (tenantId) query = query.eq("tenant_id", tenantId)
+
+      if (lastName) {
+        // Full name provided — match both
+        query = query.ilike("first_name", `%${firstName}%`).ilike("last_name", `%${lastName}%`)
+      } else {
+        // Single name — search first_name OR last_name
+        query = query.or(`first_name.ilike.%${firstName}%,last_name.ilike.%${firstName}%`)
+      }
+
+      const { data: customers } = await query.limit(10)
+
+      if (!customers || customers.length === 0) {
+        return `No customers found matching "${searchName}". Try a different name or look them up by phone number.`
+      }
+
+      // For each match, load lead form_data for property details
+      const results = await Promise.all(customers.map(async (c: any) => {
+        const { data: lead } = await client
+          .from("leads")
+          .select("form_data")
+          .eq("phone_number", c.phone_number)
+          .eq("tenant_id", tenantId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        const formData = lead?.form_data as Record<string, any> || {}
+        const bookingData = formData.booking_data as Record<string, any> || {}
+
+        return {
+          name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || "Unknown",
+          phone: c.phone_number,
+          email: c.email || "Not on file",
+          address: c.address || bookingData.address || "Not on file",
+          square_footage: formData.square_footage || bookingData.squareFootage || "Unknown",
+          bedrooms: formData.bedrooms || bookingData.bedrooms || null,
+          bathrooms: formData.bathrooms || bookingData.bathrooms || null,
+          exterior_windows: formData.exterior_windows ?? null,
+          french_panes: formData.french_panes ?? null,
+          frequency: formData.frequency || bookingData.planType || null,
+          scope: bookingData.scope || null,
+        }
+      }))
+
+      if (results.length === 1) {
+        return JSON.stringify({ match: "exact", customer: results[0] })
+      }
+      return JSON.stringify({ match: "multiple", count: results.length, customers: results })
+    } catch (err: any) {
+      return `Error searching customers: ${err.message}`
     }
   }
 
@@ -742,14 +837,20 @@ Today is ${dayOfWeek}, ${today}.
 
 ## PERSONALITY
 - Be warm, encouraging, and professional — never curt or robotic
-- When you need info (like a phone number), ask kindly: "I'd love to help with that! Could you share the customer's phone number?"
 - After completing actions, give a brief, positive confirmation
 - Use the customer's first name when you know it
 - If something fails, be empathetic and suggest next steps
 - Use markdown: **bold** for key info, bullet lists for summaries, \`code\` for links/IDs
 
+## SMART LOOKUPS
+- When the user mentions a customer by name (e.g. "Sarah" or "John Smith"), use search_customers FIRST — don't ask for a phone number
+- If search_customers returns exactly 1 match, use that customer's info directly to answer the question
+- If it returns multiple matches, show a brief list (name + phone) and ask which one
+- Only ask for a phone number if no name was given or the search returned 0 results
+
 ## CAPABILITIES
 1. **Look up a customer** — Find details and job history by phone number
+1b. **Search customers by name** — Find a customer by first/last name. If there's exactly one match, use it directly. If there are multiple matches, list them briefly (name + phone) and ask which one they mean.
 2. **Create a customer** — Add someone new to the system
 3. **Price estimate** — Calculate pricing by service type, bedrooms, bathrooms
 4. **Create a job** — Set up a job with auto-pricing
