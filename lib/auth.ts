@@ -233,8 +233,15 @@ export async function requireAuthWithApiKeys(
  */
 export async function getAuthTenant(request: NextRequest): Promise<Tenant | null> {
   const user = await getAuthUser(request)
-  if (!user?.tenant_id) return null
-  return getTenantById(user.tenant_id)
+  if (!user?.tenant_id) {
+    console.warn(`[Auth] getAuthTenant: user ${user?.username || 'unknown'} has no tenant_id`)
+    return null
+  }
+  const tenant = await getTenantById(user.tenant_id)
+  if (!tenant) {
+    console.error(`[Auth] getAuthTenant: tenant_id=${user.tenant_id} not found in tenants table for user ${user.username}`)
+  }
+  return tenant
 }
 
 /**

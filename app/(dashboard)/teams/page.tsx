@@ -78,6 +78,7 @@ export default function TeamsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [unassignedCleaners, setUnassignedCleaners] = useState<MemberDetail[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [editingMember, setEditingMember] = useState<{
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
   } | null>(null)
@@ -99,10 +100,17 @@ export default function TeamsPage() {
 
   async function loadTeams() {
     setLoading(true)
+    setLoadError(null)
     try {
       const today = new Date().toISOString().slice(0, 10)
       const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
       const json = (await res.json()) as ApiResponse<any[]> & { unassigned_cleaners?: any[] }
+      if (!json.success && json.error) {
+        setLoadError(json.error)
+        setTeams([])
+        setUnassignedCleaners([])
+        return
+      }
       const rows = Array.isArray(json.data) ? json.data : []
       const mapped: UiTeam[] = rows.map((t: any) => {
         const members = Array.isArray(t.members) ? t.members : []
@@ -485,7 +493,12 @@ export default function TeamsPage() {
           )}
 
           {loading && <p className="text-sm text-muted-foreground">Loading teams...</p>}
-          {!loading && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
+          {!loading && loadError && (
+            <Card className="border-destructive/50">
+              <CardContent className="p-4 text-sm text-destructive">{loadError}</CardContent>
+            </Card>
+          )}
+          {!loading && !loadError && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}

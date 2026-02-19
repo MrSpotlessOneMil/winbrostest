@@ -167,7 +167,7 @@ export async function getTenantById(tenantId: string, activeOnly = false): Promi
       // Don't log error for activeOnly — tenant may just be inactive
       return null
     }
-    console.error("[Tenant] Error fetching tenant by ID:", error)
+    console.error(`[Tenant] Error fetching tenant by ID '${tenantId}' (activeOnly=${activeOnly}):`, error?.message || error)
     return null
   }
 
