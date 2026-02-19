@@ -27,6 +27,14 @@
     {
       "path": "/api/cron/monthly-reengagement",
       "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/seasonal-reminders",
+      "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/frequency-nudge",
+      "schedule": "30 18 * * *"
     }
   ]
 }

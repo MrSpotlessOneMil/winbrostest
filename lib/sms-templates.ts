@@ -106,6 +106,28 @@ export function monthlyReengagement(name: string, discount: string, daysSince: n
 }
 
 /**
+ * Seasonal reminder with tenant-customized message
+ * Customer name is prepended to the tenant's campaign message
+ */
+export function seasonalReminder(name: string, campaignMessage: string): string {
+  return `Hi ${name}! ${campaignMessage}`
+}
+
+/**
+ * Review-only follow-up (when no invoice/payment exists for the job)
+ */
+export function reviewOnlyFollowup(customerName: string, reviewLink: string): string {
+  return `Hi ${customerName}! Thanks for choosing us. A quick review really helps our small business grow: ${reviewLink}`
+}
+
+/**
+ * Service frequency nudge for returning customers
+ */
+export function frequencyNudge(name: string, daysSince: number, businessName: string): string {
+  return `Hi ${name}! It's been about ${Math.round(daysSince / 7)} weeks since your last ${businessName} visit. Ready for another? Reply YES to book!`
+}
+
+/**
  * All SMS templates exported as a single object
  */
 export const SMS_TEMPLATES = {
@@ -120,4 +142,7 @@ export const SMS_TEMPLATES = {
   postJobFollowup,
   monthlyFollowup,
   monthlyReengagement,
+  seasonalReminder,
+  reviewOnlyFollowup,
+  frequencyNudge,
 } as const

@@ -338,6 +338,27 @@ export async function POST(request: NextRequest) {
   })) || []
 
   // ============================================
+  // SEASONAL REPLY DETECTION: Check if customer is replying to a seasonal campaign
+  // If so, flag them as a returning customer for warmer AI treatment
+  // ============================================
+  const seasonalCutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+  const { data: recentSeasonal } = await client
+    .from('messages')
+    .select('id, metadata')
+    .eq('phone_number', phone)
+    .eq('tenant_id', tenant?.id)
+    .eq('source', 'seasonal_reminder')
+    .gte('timestamp', seasonalCutoff)
+    .order('timestamp', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const isSeasonalReply = !!recentSeasonal
+  if (isSeasonalReply) {
+    console.log(`[OpenPhone] Customer ${phone} is replying to a seasonal reminder campaign`)
+  }
+
+  // ============================================
   // FLOW ROUTING: Check for existing leads to determine response flow
   // - "booked" leads → phone-call flow (email capture → payment link)
   // - "new"/"contacted"/"qualified" leads → continue follow-up conversation
@@ -906,7 +927,8 @@ export async function POST(request: NextRequest) {
           quickIntent,
           tenant,
           conversationHistory,
-          knownInfo
+          knownInfo,
+          { isReturningCustomer: isSeasonalReply }
         )
 
         if (autoResponse.shouldSend && autoResponse.response) {
@@ -1383,7 +1405,8 @@ export async function POST(request: NextRequest) {
         intentResult,
         tenant,
         conversationHistory,
-        knownInfoNew
+        knownInfoNew,
+        { isReturningCustomer: isSeasonalReply }
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {
@@ -1492,6 +1515,10 @@ export async function POST(request: NextRequest) {
     const lastName = customer.last_name || intentResult.extractedInfo.name?.split(' ').slice(1).join(' ') || null
     const fullName = [firstName, lastName].filter(Boolean).join(' ') || null
 
+    const seasonalMeta = isSeasonalReply && recentSeasonal?.metadata
+      ? { seasonal_reply: true, campaign_id: (recentSeasonal.metadata as any)?.campaign_id }
+      : {}
+
     const { data: lead, error: leadErr } = await client.from("leads").insert({
       tenant_id: tenant?.id,
       source_id: `sms-${Date.now()}`,
@@ -1499,12 +1526,13 @@ export async function POST(request: NextRequest) {
       customer_id: customer.id,
       first_name: firstName,
       last_name: lastName,
-      source: "sms",
+      source: isSeasonalReply ? "seasonal_reminder" : "sms",
       status: "new",
       form_data: {
         original_message: combinedMessage,
         intent_analysis: intentResult,
         extracted_info: intentResult.extractedInfo,
+        ...seasonalMeta,
       },
       followup_stage: 0,
       followup_started_at: new Date().toISOString(),

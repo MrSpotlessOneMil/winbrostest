@@ -228,7 +228,9 @@ When you deploy to Vercel, cron jobs are automatically configured via `vercel.js
 | `process-scheduled-tasks` | Every minute | Executes delayed tasks from the `scheduled_tasks` table |
 | `ghl-followups` | Every 2 minutes | Processes GHL lead follow-up sequences |
 | `check-timeouts` | Every 5 minutes | Handles cleaner acceptance timeouts |
-| `post-cleaning-followup` | Every 15 minutes | Sends review requests after job completion |
+| `post-job-followup` | Every 15 minutes | Sends review + recurring + tip after job completion |
+| `seasonal-reminders` | Daily at 10am PST | Sends seasonal campaign SMS to targeted customers |
+| `frequency-nudge` | Daily at 10:30am PST | Nudges customers due for repeat service |
 | `unified-daily` | Daily at 7am PST | Consolidates daily maintenance jobs |
 | `send-reminders` | Daily at 8am PST | Customer and cleaner reminders |
 | `monthly-followup` | Daily at 10am PST | Re-engagement for past customers |

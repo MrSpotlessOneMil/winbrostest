@@ -11,7 +11,7 @@ import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
  * - logistics/optimize-day: Optimize tomorrow's routes (WinBros)
  * - logistics/rain-day: Check tomorrow's weather for rain day (WinBros)
  *
- * Note: Frequent crons (ghl-followups, check-timeouts, post-cleaning-followup)
+ * Note: Frequent crons (ghl-followups, check-timeouts)
  * are handled by process-scheduled-tasks which runs every minute.
  */
 export async function GET(request: NextRequest) {
