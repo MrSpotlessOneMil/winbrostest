@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getDefaultTenant } from "@/lib/tenant"
+import { requireAdmin } from "@/lib/auth"
 
 type Scenario =
   | "seed_all"
@@ -39,6 +40,10 @@ async function generateFakeSummary(kind: string): Promise<string> {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await requireAdmin(request))) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+  }
+
   const client = getSupabaseServiceClient()
   const body = await request.json().catch(() => ({}))
   const scenario: Scenario = body.scenario || "seed_all"
