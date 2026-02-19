@@ -898,6 +898,49 @@ async function handleOnboardingStep(
           return NextResponse.json({ success: false, error: "Failed to create cleaner" })
         }
 
+        // Add cleaner to a team so they show up in the teams tab
+        // Find the first active team for this tenant, or create a default one
+        let { data: existingTeam } = await client
+          .from("teams")
+          .select("id")
+          .eq("tenant_id", tenant.id)
+          .eq("active", true)
+          .limit(1)
+          .maybeSingle()
+
+        if (!existingTeam) {
+          const { data: newTeam } = await client
+            .from("teams")
+            .insert({ tenant_id: tenant.id, name: "Crew 1", active: true })
+            .select("id")
+            .single()
+          existingTeam = newTeam
+        }
+
+        if (existingTeam) {
+          const { error: tmError } = await client
+            .from("team_members")
+            .insert({
+              tenant_id: tenant.id,
+              team_id: existingTeam.id,
+              cleaner_id: newCleaner.id,
+              role: "member",
+              is_active: true,
+            })
+          if (tmError) {
+            console.error("[OSIRIS] Failed to add cleaner to team:", tmError)
+          } else {
+            console.log(`[OSIRIS] Cleaner ${newCleaner.id} added to team ${existingTeam.id}`)
+          }
+        }
+
+        // Backfill onboarding messages with the cleaner's phone so they show up in teams tab
+        await client
+          .from("messages")
+          .update({ phone_number: state.data.phone })
+          .eq("metadata->>telegram_chat_id", chatId)
+          .is("phone_number", null)
+
         await deleteOnboardingState(chatId)
 
         await sendTelegramMessage(
@@ -905,7 +948,7 @@ async function handleOnboardingStep(
           `<b>Welcome aboard, ${state.data.name}!</b> 🎉\n\n` +
           `You're now registered and will receive job notifications here.\n\n` +
           `<b>Quick tips:</b>\n` +
-          `• When you get a job, tap "Available" or "Not Available"\n` +
+          `• You'll get notified here when you're assigned a job\n` +
           `• Report tips: "tip job 123 - $20"\n` +
           `• Report upsells: "upsell job 123 - deep clean"\n\n` +
           `Questions? Reply here and a team lead will help.`
