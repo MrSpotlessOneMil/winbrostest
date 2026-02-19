@@ -93,9 +93,10 @@ export async function GET(request: NextRequest) {
     const teamId = String(t.id)
     const rawMembers = Array.isArray(t.team_members) ? t.team_members : []
     const members = rawMembers
+      .filter((tm: any) => Boolean(tm.is_active)) // Only active memberships
       .map((tm: any) => {
         const c = tm.cleaners
-        if (!c) return null
+        if (!c || !c.active) return null
         assignedCleanerIds.add(Number(c.id))
         return {
           id: String(c.id),
@@ -104,8 +105,7 @@ export async function GET(request: NextRequest) {
           telegram_id: c.telegram_id || undefined,
           role: tm.role === "lead" ? "lead" : "technician",
           team_id: teamId,
-          is_active: Boolean(tm.is_active) && Boolean(c.active),
-          // extra fields for UI (not typed in TeamMember, but kept for consumers that want it)
+          is_active: true,
           last_location_lat: c.last_location_lat ?? null,
           last_location_lng: c.last_location_lng ?? null,
           last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
@@ -149,7 +149,12 @@ export async function GET(request: NextRequest) {
   if (tenant) unassignedQuery = unassignedQuery.eq("tenant_id", tenant.id)
   const unassignedRes = await unassignedQuery
 
-  const unassignedCleaners = (unassignedRes.data || [])
+  if (unassignedRes.error) {
+    console.error(`[Teams API] Failed to load unassigned cleaners:`, unassignedRes.error.message)
+  }
+
+  const allCleaners = unassignedRes.data || []
+  const unassignedCleaners = allCleaners
     .filter((c: any) => !assignedCleanerIds.has(Number(c.id)))
     .map((c: any) => ({
       id: String(c.id),
@@ -164,6 +169,8 @@ export async function GET(request: NextRequest) {
       last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
       last_location_updated_at: c.last_location_updated_at ?? null,
     }))
+
+  console.log(`[Teams API] tenant=${tenant?.slug || 'admin'} teams=${teamsBase.length} assigned=${assignedCleanerIds.size} allCleaners=${allCleaners.length} unassigned=${unassignedCleaners.length}`)
 
   let teamsWithMetrics: any[] = teamsBase
   if (include_metrics) {
