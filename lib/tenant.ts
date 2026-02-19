@@ -148,19 +148,25 @@ export interface TenantSummary {
 // ============================================================================
 
 /**
- * Get tenant by ID
+ * Get tenant by ID.
+ * By default returns both active and inactive tenants (needed for dashboard access).
+ * Pass activeOnly=true for webhook/cron paths that should only process active businesses.
  */
-export async function getTenantById(tenantId: string): Promise<Tenant | null> {
+export async function getTenantById(tenantId: string, activeOnly = false): Promise<Tenant | null> {
   const client = getAdminClient()
 
-  const { data, error } = await client
+  let query = client
     .from("tenants")
     .select("*")
     .eq("id", tenantId)
-    .eq("active", true)
-    .single()
+  if (activeOnly) query = query.eq("active", true)
+  const { data, error } = await query.single()
 
   if (error || !data) {
+    if (activeOnly) {
+      // Don't log error for activeOnly — tenant may just be inactive
+      return null
+    }
     console.error("[Tenant] Error fetching tenant by ID:", error)
     return null
   }
