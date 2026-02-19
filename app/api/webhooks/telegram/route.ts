@@ -549,11 +549,13 @@ Send "join" or "I'm a new cleaner" to register.
     const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
     if (isJoinRequest) {
       // Check if they're already registered
-      const { data: existingCleaner } = await client
+      // Use .limit(1) — same telegram_id can exist across multiple tenants
+      const { data: existingCleanerRows } = await client
         .from("cleaners")
         .select("id, name")
         .eq("telegram_id", telegramUserId)
-        .maybeSingle()
+        .limit(1)
+      const existingCleaner = existingCleanerRows?.[0] || null
 
       if (existingCleaner) {
         await sendTelegramMessage(
@@ -578,11 +580,15 @@ Send "join" or "I'm a new cleaner" to register.
     }
 
     // Best-effort lookup: map telegram user to cleaner by telegram_id
-    const { data: cleaner, error: cleanerLookupError } = await client
+    // Use .limit(1) instead of .maybeSingle() because the same telegram_id
+    // can exist across multiple tenants, and maybeSingle() errors on >1 row
+    const { data: cleanerRows, error: cleanerLookupError } = await client
       .from("cleaners")
       .select("id,name,active,is_team_lead,phone,email")
       .eq("telegram_id", telegramUserId)
-      .maybeSingle()
+      .eq("active", true)
+      .limit(1)
+    const cleaner = cleanerRows?.[0] || null
 
     if (cleanerLookupError) {
       console.error(`[OSIRIS] Cleaner lookup FAILED for telegram_id=${telegramUserId}:`, cleanerLookupError)
