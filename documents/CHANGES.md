@@ -36,6 +36,22 @@
 ### Phase 6: Frequency Nudge Cron Job (2026-02-18)
 - **CREATED** `app/api/cron/frequency-nudge/route.ts` - Daily cron that nudges customers whose last completed job was within the tenant's configurable nudge window (default 21 days), with dedup via frequency_nudge_sent_at column and conflict avoidance with monthly re-engagement
 
+### Phase 7: Tenant Self-Serve Campaigns Page (2026-02-18)
+- **CREATED** `app/(dashboard)/campaigns/page.tsx` - Full tenant-facing campaigns page (not admin-only) with:
+  - Seasonal Reminders master toggle
+  - Service Frequency Nudge settings (toggle + configurable days)
+  - Review-only follow-up toggle
+  - Campaign list with create/edit/delete, status badges, character counter
+  - Uses `/api/tenant/campaigns` API so each tenant can only modify their own data
+- **CREATED** `app/api/tenant/campaigns/route.ts` - Secure tenant API (GET + PATCH) using `getAuthTenant()` auth, whitelisted to only lifecycle messaging fields
+- **MODIFIED** `components/dashboard/sidebar.tsx` - Added "Campaigns" nav item visible to all tenants (not admin-only)
+
+### Database Migration (2026-02-18)
+- **RAN** `scripts/migrations/20260218_lifecycle_messaging.sql` in Supabase - Added `seasonal_reminder_tracker` JSONB to customers, `frequency_nudge_sent_at` to jobs, backfilled tenant workflow_config defaults, created indexes
+
+### Testing (2026-02-18)
+- Manually triggered seasonal-reminders cron via curl - returned `success: true, totalSent: 0` (no customers with phone numbers in winbros tenant yet, but no errors - pipeline is working)
+
 ---
 
 ## How to Use

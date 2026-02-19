@@ -15,6 +15,8 @@ import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
+import { distributeTip } from "@/lib/tips"
+import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
 
 /**
@@ -130,6 +132,7 @@ interface TelegramUpdate {
 const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d{2})?)/i
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
+const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 
 // Patterns for new cleaner onboarding (handles smart quotes, curly apostrophes, etc.)
 const JOIN_PATTERNS = [
@@ -605,6 +608,41 @@ Send "join" or "I'm a new cleaner" to register.
       return await handleBriefingCommand(chatId, cleaner, client)
     }
 
+    // Parse review confirmation from team leads: "review job 123"
+    const reviewMatch = text.match(REVIEW_PATTERN)
+    if (reviewMatch) {
+      if (!cleaner?.is_team_lead) {
+        await sendTelegramMessage(chatId, `Review confirmation is only available to team leads.`)
+        return NextResponse.json({ success: true, action: "not_team_lead" })
+      }
+
+      const reviewJobId = Number(reviewMatch[1])
+      const { data: reviewJob } = await client
+        .from("jobs")
+        .select("id, phone_number, team_id")
+        .eq("id", reviewJobId)
+        .single()
+
+      if (!reviewJob?.phone_number) {
+        await sendTelegramMessage(chatId, `❌ Job #${reviewJobId} not found or has no customer phone. Check the job ID and try again.`)
+        return NextResponse.json({ success: false, error: "Job not found" })
+      }
+
+      const reviewResult = await recordReviewReceived(reviewJob.phone_number, 5)
+
+      if (!reviewResult.success) {
+        // No attribution found — still record directly
+        await sendTelegramMessage(chatId, `⚠️ Review logged for Job #${reviewJobId}, but no follow-up attribution was found for this customer. The $10 credit may need to be applied manually.`)
+        return NextResponse.json({ success: true, action: "review_logged_no_attribution" })
+      }
+
+      const bonusDollars = reviewResult.bonusCents ? (reviewResult.bonusCents / 100).toFixed(2) : "10.00"
+      await sendTelegramMessage(chatId, `✅ Review confirmed for Job #${reviewJobId} — $${bonusDollars} credit added to the crew leaderboard.`)
+
+      console.log(`[OSIRIS] Review confirmed by team lead for job ${reviewJobId}`)
+      return NextResponse.json({ success: true, action: "review_confirmed", job_id: reviewJobId })
+    }
+
     // Non-team lead trying team lead commands
     if (["/team", "/leaderboard", "/briefing"].includes(text.toLowerCase()) && !cleaner?.is_team_lead) {
       await sendTelegramMessage(
@@ -618,39 +656,40 @@ Send "join" or "I'm a new cleaner" to register.
     const tipMatch = text.match(TIP_PATTERN)
     if (tipMatch) {
       const [, jobId, amount] = tipMatch
-      
-      // Store tip in Supabase
       const numericJobId = Number(jobId)
       const tipAmount = parseFloat(amount)
-      const { data: tipRow, error: tipErr } = await client.from("tips").insert({
-        job_id: Number.isFinite(numericJobId) ? numericJobId : null,
-        team_id: teamId,
-        cleaner_id: cleaner?.id ?? null,
-        amount: Number.isFinite(tipAmount) ? tipAmount : 0,
-        reported_via: "telegram",
-        notes: `telegram_chat_id=${chat.id}`,
-      }).select("*").single()
-      if (tipErr) {
-        console.error("[OSIRIS] Failed to insert tip:", tipErr)
-        return NextResponse.json({ success: false, error: "Failed to store tip" }, { status: 500 })
-      }
-      
-      const tip: Partial<Tip> = {
-        job_id: `job-${jobId}`,
-        amount: parseFloat(amount),
-        reported_via: "telegram",
-        created_at: new Date().toISOString(),
+
+      if (!Number.isFinite(numericJobId) || !Number.isFinite(tipAmount)) {
+        await sendTelegramMessage(chatId, `Invalid tip format. Use: tip job 123 - $20`)
+        return NextResponse.json({ success: false, error: "Invalid tip format" })
       }
 
-      console.log(`[OSIRIS] Tip recorded: Job ${jobId}, Amount $${amount}`)
-
-      // Send confirmation back to chat
-      await sendTelegramMessage(
-        chatId,
-        `<b>Tip Recorded!</b>\n\nJob #${jobId}: $${amount}\n\nThank you for reporting this tip.`
+      // Distribute tip equally among assigned cleaners
+      const result = await distributeTip(
+        numericJobId,
+        tipAmount,
+        teamId ?? null,
+        "telegram",
+        `telegram_chat_id=${chat.id}`
       )
 
-      return NextResponse.json({ success: true, action: "tip_recorded", data: { ...tip, db_id: tipRow.id } })
+      if (!result.success) {
+        console.error("[OSIRIS] Failed to distribute tip:", result.error)
+        return NextResponse.json({ success: false, error: "Failed to store tip" }, { status: 500 })
+      }
+
+      console.log(`[OSIRIS] Tip distributed: Job ${jobId}, Amount $${amount}, Split ${result.splitCount} way(s)`)
+
+      const splitNote = result.splitCount > 1
+        ? ` (split $${result.amountEach.toFixed(2)} each among ${result.splitCount} cleaners)`
+        : ''
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Tip Recorded!</b>\n\nJob #${jobId}: $${amount}${splitNote}\n\nThank you for reporting this tip.`
+      )
+
+      return NextResponse.json({ success: true, action: "tip_recorded", data: { job_id: jobId, amount: tipAmount, split_count: result.splitCount } })
     }
 
     // Parse upsell report
