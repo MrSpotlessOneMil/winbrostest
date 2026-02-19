@@ -1168,8 +1168,14 @@ async function generateAIResponse(
           })
 
           jobContext = `\n\nTHIS CLEANER'S UPCOMING JOBS:\n${jobLines.join('\n')}\n\nUse this job info to answer questions about their schedule, addresses, times, etc. If they ask about "my cleaning" or "my job", refer to the closest upcoming job.`
+        } else {
+          jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
         }
+      } else {
+        jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
       }
+    } else {
+      jobContext = `\n\nIMPORTANT: This user is NOT registered as a cleaner in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a cleaner so they can receive job assignments and view their schedule.`
     }
 
     const client = new Anthropic({ apiKey: anthropicKey })
