@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
-import { cookies } from "next/headers"
+import { requireAdmin } from "@/lib/auth"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -9,32 +9,10 @@ function getAdminClient() {
   return createClient(supabaseUrl, supabaseServiceKey)
 }
 
-// Check if user is admin
-async function isAdmin(request: NextRequest): Promise<boolean> {
-  const cookieStore = await cookies()
-  // Use the correct session cookie name from auth.ts
-  const sessionToken = cookieStore.get("winbros_session")?.value
-
-  if (!sessionToken) return false
-
-  const client = getAdminClient()
-  const { data: session } = await client
-    .from("sessions")
-    .select("user_id, users!inner(username)")
-    .eq("token", sessionToken)
-    .gt("expires_at", new Date().toISOString())
-    .single()
-
-  if (!session) return false
-
-  // Check if user is admin
-  const user = session.users as { username: string }
-  return user.username === "admin"
-}
 
 // GET - List all tenants with all credential fields
 export async function GET(request: NextRequest) {
-  if (!(await isAdmin(request))) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
@@ -89,7 +67,7 @@ export async function GET(request: NextRequest) {
 
 // POST - Create new tenant
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin(request))) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
@@ -178,7 +156,7 @@ export async function POST(request: NextRequest) {
 
 // PATCH - Update tenant settings
 export async function PATCH(request: NextRequest) {
-  if (!(await isAdmin(request))) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
@@ -253,7 +231,7 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE - Remove a tenant and all associated data
 export async function DELETE(request: NextRequest) {
-  if (!(await isAdmin(request))) {
+  if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 

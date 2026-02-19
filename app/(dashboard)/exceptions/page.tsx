@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -71,6 +72,7 @@ function formatTimestamp(ts: string): string {
 }
 
 export default function ExceptionsPage() {
+  const { isAdmin } = useAuth()
   const [busy, setBusy] = useState<string | null>(null)
   const [lastResult, setLastResult] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
@@ -180,10 +182,12 @@ export default function ExceptionsPage() {
             <AlertTriangle className="h-4 w-4" />
             Exceptions
           </TabsTrigger>
-          <TabsTrigger value="demo" className="gap-2">
-            <Beaker className="h-4 w-4" />
-            Demonstration
-          </TabsTrigger>
+          {isAdmin && (
+            <TabsTrigger value="demo" className="gap-2">
+              <Beaker className="h-4 w-4" />
+              Demonstration
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* System Events Tab */}
@@ -377,8 +381,8 @@ export default function ExceptionsPage() {
           </Card>
         </TabsContent>
 
-        {/* Demo Tab */}
-        <TabsContent value="demo">
+        {/* Demo Tab — admin only */}
+        {isAdmin && <TabsContent value="demo">
           <Alert className="border-primary/20 bg-primary/5">
             <AlertTitle className="flex items-center gap-2">
               <Beaker className="h-4 w-4 text-primary" />
@@ -453,7 +457,7 @@ export default function ExceptionsPage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   )
