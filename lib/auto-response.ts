@@ -32,12 +32,17 @@ export interface KnownCustomerInfo {
   source?: string | null // "housecall_pro", "ghl", etc.
 }
 
+export interface AutoResponseOptions {
+  isReturningCustomer?: boolean
+}
+
 export async function generateAutoResponse(
   incomingMessage: string,
   intentAnalysis: IntentAnalysis,
   tenant: Tenant | null,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
-  knownCustomerInfo?: KnownCustomerInfo
+  knownCustomerInfo?: KnownCustomerInfo,
+  options?: AutoResponseOptions
 ): Promise<AutoResponseResult> {
   // Don't respond to obvious opt-outs
   const lowerMessage = incomingMessage.toLowerCase().trim()
@@ -68,7 +73,7 @@ export async function generateAutoResponse(
   // WinBros-specific SMS booking flow (window cleaning)
   if (tenant?.slug === 'winbros') {
     try {
-      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo)
+      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
       console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
     }
@@ -77,7 +82,7 @@ export async function generateAutoResponse(
   // House cleaning SMS booking flow (all non-WinBros tenants)
   if (tenant && tenant.slug !== 'winbros') {
     try {
-      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo)
+      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
       console.error('[Auto-Response] House cleaning response failed, falling back to generic:', error)
     }
@@ -402,7 +407,8 @@ async function generateWinBrosResponse(
   message: string,
   tenant: Tenant,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
-  knownCustomerInfo?: KnownCustomerInfo
+  knownCustomerInfo?: KnownCustomerInfo,
+  isReturningCustomer?: boolean
 ): Promise<AutoResponseResult> {
   const { buildWinBrosSmsSystemPrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
@@ -433,7 +439,12 @@ async function generateWinBrosResponse(
     }
   }
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
+  let returningCustomerBlock = ''
+  if (isReturningCustomer) {
+    returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
+  }
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -522,7 +533,8 @@ async function generateHouseCleaningResponse(
   message: string,
   tenant: Tenant,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
-  knownCustomerInfo?: KnownCustomerInfo
+  knownCustomerInfo?: KnownCustomerInfo,
+  isReturningCustomer?: boolean
 ): Promise<AutoResponseResult> {
   const { buildHouseCleaningSmsSystemPrompt } = await import('./house-cleaning-sms-prompt')
   // Reuse escalation/booking detection from WinBros (same tag format)
@@ -556,7 +568,12 @@ async function generateHouseCleaningResponse(
     }
   }
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  let returningCustomerBlock = ''
+  if (isReturningCustomer) {
+    returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
+  }
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {

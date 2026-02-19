@@ -59,6 +59,25 @@ export interface WorkflowConfig {
 
   // Kill switches
   sms_auto_response_enabled: boolean
+
+  // Lifecycle messaging
+  seasonal_reminders_enabled?: boolean
+  frequency_nudge_enabled?: boolean
+  frequency_nudge_days?: number
+  review_only_followup_enabled?: boolean
+  seasonal_campaigns?: SeasonalCampaign[]
+}
+
+export interface SeasonalCampaign {
+  id: string
+  name: string
+  message: string
+  start_date: string
+  end_date: string
+  target_segment: 'all' | 'inactive_30' | 'inactive_60' | 'inactive_90' | 'completed_customers'
+  enabled: boolean
+  created_at: string
+  last_sent_at: string | null
 }
 
 export interface Tenant {

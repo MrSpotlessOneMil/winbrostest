@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { postJobFollowup } from '@/lib/sms-templates'
+import { postJobFollowup, reviewOnlyFollowup } from '@/lib/sms-templates'
 import { logSystemEvent } from '@/lib/system-events'
 import { getDefaultTenant } from '@/lib/tenant'
 
@@ -42,6 +42,8 @@ export async function GET(request: NextRequest) {
       team_id,
       completed_at,
       followup_sent_at,
+      paid,
+      stripe_payment_link,
       customers (
         id,
         first_name,
@@ -103,14 +105,25 @@ export async function GET(request: NextRequest) {
       const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.id}`
       const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
-      // Send the combined follow-up message
-      const message = postJobFollowup(
-        customerName,
-        cleanerName,
-        reviewLink,
-        tipLink,
-        recurringDiscount
-      )
+      // Check if this job has payment info - if not and review-only is enabled, send simpler message
+      const hasPaymentInfo = !!(job as any).paid || !!(job as any).stripe_payment_link
+      const reviewOnlyEnabled = tenant.workflow_config?.review_only_followup_enabled
+
+      let message: string
+      if (!hasPaymentInfo && reviewOnlyEnabled) {
+        // Review-only: no tip link or recurring offer since there's no invoice context
+        message = reviewOnlyFollowup(customerName, reviewLink)
+        console.log(`[Post-Job Followup] Using review-only template for job ${job.id} (no payment info)`)
+      } else {
+        // Full combined message with review + recurring + tip
+        message = postJobFollowup(
+          customerName,
+          cleanerName,
+          reviewLink,
+          tipLink,
+          recurringDiscount
+        )
+      }
 
       const smsResult = await sendSMS(phone, message)
 

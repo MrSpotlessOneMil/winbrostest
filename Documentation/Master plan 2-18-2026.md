@@ -141,10 +141,11 @@ Refactor to separate:
 |-------------|--------|
 | Missed call follow-up | ✅ Done |
 | Non-booked follow-ups | ✅ Done |
-| Seasonal reminders | ⚠ Partial |
-| Service frequency nudges | ⚠ Partial |
-| Review follow-ups | ⚠ Partial |
-| Review-only logic | ❌ Not Done |
+| Seasonal reminders | ✅ Done (tenant self-serve campaign UI + cron) |
+| Service frequency nudges | ✅ Done (configurable nudge window, cron) |
+| Review follow-ups | ✅ Done |
+| Review-only logic | ✅ Done (conditional on invoice status) |
+| Seasonal reply warm handling | ✅ Done (tags replies, warm AI context) |
 
 ---
 
