@@ -236,3 +236,25 @@ export async function getAuthTenant(request: NextRequest): Promise<Tenant | null
   if (!user?.tenant_id) return null
   return getTenantById(user.tenant_id)
 }
+
+/**
+ * Check if the request is from an admin user.
+ * Verifies the session cookie against the database (expiry-checked).
+ * Use this as a single source of truth for all admin-only API routes.
+ */
+export async function requireAdmin(request: NextRequest): Promise<boolean> {
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  if (!token) return false
+
+  const client = getSupabaseServiceClient()
+  const { data: session } = await client
+    .from('sessions')
+    .select('user_id, users!inner(username)')
+    .eq('token', token)
+    .gt('expires_at', new Date().toISOString())
+    .single()
+
+  if (!session) return false
+  const user = session.users as { username: string }
+  return user.username === 'admin'
+}
