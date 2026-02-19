@@ -238,10 +238,9 @@ export async function getTenantScopedClient(tenantId: string): Promise<SupabaseC
     throw new Error('Missing SUPABASE_URL or SUPABASE_ANON_KEY for tenant-scoped client')
   }
 
-  const token = await createTenantJwt(tenantId)
   const client = createClient(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    global: { headers: { Authorization: `Bearer ${token}` } },
+    accessToken: async () => createTenantJwt(tenantId),
   })
 
   return client
