@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       monthly_followup: { success: false, error: null as string | null },
       logistics_optimize: { success: false, error: null as string | null },
       logistics_rain_day: { success: false, error: null as string | null },
+      crew_briefing: { success: false, error: null as string | null },
       timestamp: new Date().toISOString(),
     }
 
@@ -130,6 +131,28 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       results.logistics_rain_day.error = String(error)
       console.error('[unified-daily] ✗ rain day check error:', error)
+    }
+
+    // 5. Send crew briefings to team leads + run daily alert checks
+    try {
+      console.log('[unified-daily] Sending crew briefings...')
+      const briefingResponse = await fetch(`${domain}/api/cron/crew-briefing`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${cronSecret}`,
+        },
+      })
+
+      if (briefingResponse.ok) {
+        results.crew_briefing.success = true
+        console.log('[unified-daily] ✓ crew briefings sent')
+      } else {
+        results.crew_briefing.error = `Status ${briefingResponse.status}`
+        console.error('[unified-daily] ✗ crew briefings failed:', briefingResponse.status)
+      }
+    } catch (error) {
+      results.crew_briefing.error = String(error)
+      console.error('[unified-daily] ✗ crew briefings error:', error)
     }
 
     return NextResponse.json({

@@ -20,6 +20,7 @@ import {
 import { normalizePhone } from '@/lib/phone-utils'
 import { logSystemEvent } from '@/lib/system-events'
 import { getClientConfig } from '@/lib/client-config'
+import { checkStackedReschedules } from '@/lib/winbros-alerts'
 
 // Lazy-initialize Supabase client (avoid build-time env var access)
 function getSupabase() {
@@ -182,7 +183,7 @@ async function handleJobUpdated(
 
   const { data: existingJob, error: fetchError } = await getSupabase()
     .from('jobs')
-    .select('id, status')
+    .select('id, status, customer_id')
     .eq('housecall_pro_job_id', hcpJob.id)
     .single()
 
@@ -213,6 +214,13 @@ async function handleJobUpdated(
   if (error) {
     console.error('[HCP Webhook] Failed to update job:', error)
     return { success: false, message: `Database error: ${error.message}` }
+  }
+
+  // Check for stacked reschedules when a job is cancelled
+  if (internalStatus === 'cancelled' && existingJob.status !== 'cancelled' && existingJob.customer_id) {
+    await checkStackedReschedules(String(existingJob.customer_id)).catch(err =>
+      console.error('[HCP Webhook] Stacked reschedule check failed:', err)
+    )
   }
 
   return { success: true, message: `Job ${existingJob.id} updated` }
