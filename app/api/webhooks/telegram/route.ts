@@ -905,7 +905,7 @@ async function handleOnboardingStep(
           `<b>Welcome aboard, ${state.data.name}!</b> 🎉\n\n` +
           `You're now registered and will receive job notifications here.\n\n` +
           `<b>Quick tips:</b>\n` +
-          `• When you get a job, tap "Available" or "Not Available"\n` +
+          `• You'll get notified here when you're assigned a job\n` +
           `• Report tips: "tip job 123 - $20"\n` +
           `• Report upsells: "upsell job 123 - deep clean"\n\n` +
           `Questions? Reply here and a team lead will help.`
