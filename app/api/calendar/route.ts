@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ jobs: [] }, { status: 403 })
     }
 
-    const client = getSupabaseClient()
+    const client = await getTenantScopedClient(tenant.id)
     const { data, error } = await client
       .from("jobs")
       .select("*, customers (*), cleaners (*)")

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type NotificationItem = {
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   }
 
   const limit = Math.min(20, Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "10")))
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
 
   const { data, error } = await client
     .from("system_events")
