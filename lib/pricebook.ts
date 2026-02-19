@@ -64,6 +64,8 @@ export interface PriceLookupInput {
   serviceType?: string | null
   squareFootage?: number | null
   notes?: string | null
+  /** Explicit scope override — when set, takes priority over keyword sniffing from notes */
+  scope?: 'exterior' | 'interior' | 'interior_and_exterior' | string | null
 }
 
 export interface PriceLookupResult {
@@ -100,8 +102,20 @@ export function lookupPrice(input: PriceLookupInput): PriceLookupResult | null {
 
   if (isWindow) {
     const tier = getWindowTier(input.squareFootage)
-    const isInterior = combined.includes("interior") || combined.includes("inside")
-    const isExterior = combined.includes("exterior") || combined.includes("outside")
+
+    // Use explicit scope if provided, otherwise sniff from notes (less reliable)
+    const scopeNorm = normalizeText(input.scope || "")
+    let isInterior: boolean
+    let isExterior: boolean
+    if (scopeNorm) {
+      // Explicit scope: only trust exact values
+      isInterior = scopeNorm === "interior_and_exterior" || scopeNorm === "interior"
+      isExterior = scopeNorm === "interior_and_exterior" || scopeNorm === "exterior" || scopeNorm === ""
+    } else {
+      // Fallback: sniff from notes, but default to exterior-only (most common)
+      isInterior = combined.includes("interior and exterior") || combined.includes("inside and out")
+      isExterior = true // Default to exterior
+    }
     const hasTrack = combined.includes("track")
 
     let price = 0

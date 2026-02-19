@@ -540,7 +540,8 @@ Return ONLY the JSON object, nothing else.`
         scope: parsed.scope || null,
         buildingType: parsed.buildingType || null,
         squareFootage: parsed.squareFootage ? Number(parsed.squareFootage) : null,
-        price: parsed.price ? Number(parsed.price) : null,
+        // NEVER use AI-extracted price — always null. Pricebook calculates it.
+        price: null,
         planType: parsed.planType || null,
         fullName: parsed.fullName || null,
         firstName: parsed.firstName || null,

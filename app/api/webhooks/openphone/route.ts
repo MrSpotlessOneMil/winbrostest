@@ -505,25 +505,34 @@ export async function POST(request: NextRequest) {
         )
 
         if (cardResult.success && cardResult.url) {
-          // Determine service price: use job price if set, otherwise look up from pricebook
-          let servicePrice = job?.price || job?.estimated_value || null
-          if (!servicePrice && tenant?.slug === "winbros") {
+          // Determine service price
+          let servicePrice: number | null = null
+          if (tenant?.slug === "winbros") {
+            // WinBros: ALWAYS use pricebook — never trust job.price or AI-extracted prices
             try {
               const { lookupPrice } = await import("@/lib/pricebook")
               const { parseFormData } = await import("@/lib/utils")
               const formData = parseFormData((bookedLead as any)?.form_data)
-              const priceLookup = lookupPrice({
+              const scope = (formData.scope as string) || null
+              const lookupInput = {
                 serviceType: (formData.serviceType as string) || job?.service_type || null,
                 squareFootage: (formData.squareFootage as number) || job?.square_footage || null,
-                notes: (formData.notes as string) || job?.notes || null,
-              })
+                scope: scope || null,
+              }
+              console.log(`[OpenPhone] Pricebook lookup inputs (phone call):`, JSON.stringify(lookupInput))
+              const priceLookup = lookupPrice(lookupInput)
               if (priceLookup) {
                 servicePrice = priceLookup.price
-                console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} ${priceLookup.tier ? `(${priceLookup.tier})` : ""} = $${priceLookup.price}`)
+                console.log(`[OpenPhone] Pricebook result: ${priceLookup.serviceName} ${priceLookup.tier ? `(${priceLookup.tier})` : ""} = $${priceLookup.price}`)
+              } else {
+                console.warn(`[OpenPhone] Pricebook returned null — no price will be shown`)
               }
             } catch (pbErr) {
               console.error("[OpenPhone] Pricebook lookup error:", pbErr)
             }
+          } else {
+            // Non-WinBros: use job price
+            servicePrice = job?.price || job?.estimated_value || null
           }
           const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
           const cardMessage = `Thanks! ${priceStr}Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
@@ -1111,30 +1120,29 @@ export async function POST(request: NextRequest) {
                   .eq("id", customer.id)
               }
 
-              // Determine price — for WinBros, ALWAYS use pricebook (AI-extracted prices are unreliable)
+              // Determine price — for WinBros, ALWAYS use pricebook, NEVER AI-extracted prices
               let servicePrice: number | null = null
               if (isWinBrosTenant) {
                 try {
                   const { lookupPrice } = await import("@/lib/pricebook")
-                  const priceLookup = lookupPrice({
+                  const lookupInput = {
                     serviceType: bookingData.serviceType || null,
                     squareFootage: bookingData.squareFootage || null,
-                    notes: bookingData.scope || null,
-                  })
+                    scope: bookingData.scope || null,
+                  }
+                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}"`)
+                  const priceLookup = lookupPrice(lookupInput)
                   if (priceLookup) {
                     servicePrice = priceLookup.price
-                    console.log(`[OpenPhone] Pricebook lookup: ${priceLookup.serviceName} = $${priceLookup.price} (tier: ${priceLookup.tier || 'flat'})`)
-                    if (bookingData.price && bookingData.price !== priceLookup.price) {
-                      console.warn(`[OpenPhone] Price mismatch: AI extracted $${bookingData.price}, pricebook says $${priceLookup.price} — using pricebook`)
-                    }
+                    console.log(`[OpenPhone] Pricebook result: ${priceLookup.serviceName} = $${priceLookup.price} (tier: ${priceLookup.tier || 'flat'})`)
+                  } else {
+                    console.warn(`[OpenPhone] Pricebook returned null for inputs — no price will be shown`)
                   }
                 } catch (pbErr) {
                   console.error("[OpenPhone] Pricebook lookup error:", pbErr)
                 }
-                // Fallback to AI-extracted price only if pricebook returned nothing
-                if (!servicePrice) {
-                  servicePrice = bookingData.price || null
-                }
+                // NO fallback — if pricebook can't determine price, don't show one
+                // AI-extracted prices are unreliable and have caused wrong quotes
               } else {
                 servicePrice = bookingData.price || null
               }
