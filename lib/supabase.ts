@@ -240,16 +240,7 @@ export async function getTenantScopedClient(tenantId: string): Promise<SupabaseC
 
   const client = createClient(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-    accessToken: async () => {
-      try {
-        const token = await createTenantJwt(tenantId)
-        console.log('[RLS-DEBUG] JWT ok, starts:', token.substring(0, 10))
-        return token
-      } catch (err) {
-        console.error('[RLS-DEBUG] JWT failed:', err)
-        throw err
-      }
-    },
+    accessToken: async () => createTenantJwt(tenantId),
   })
 
   return client
