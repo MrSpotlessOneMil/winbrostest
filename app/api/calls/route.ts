@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Call, PaginatedResponse } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function mapOutcome(value: unknown): Call["outcome"] | undefined {
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
 
   let query = client
     .from("calls")

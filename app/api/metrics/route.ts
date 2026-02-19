@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { DailyMetrics, ApiResponse } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function isoDate(d: Date): string {
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
 
   let responseData: DailyMetrics | DailyMetrics[]
 
-  const client = getSupabaseServiceClient()
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
   const baseDate = date ? new Date(`${date}T00:00:00Z`) : new Date()
 
   let cleanersQuery = client.from("cleaners").select("id").eq("active", true)

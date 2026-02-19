@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type ExceptionType = "no-confirm" | "high-value" | "routing" | "scheduling" | "system"
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
   const url = request.nextUrl
   const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "25")))
 
-  const client = getSupabaseServiceClient()
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
 
   // "Exceptions" are derived from recent system_events that indicate problems / attention needed.
   let exceptionsQuery = client

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Lead, ApiResponse, PaginatedResponse } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function mapLead(row: any): Lead {
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1")
   const per_page = parseInt(searchParams.get("per_page") || "20")
 
-  const client = getSupabaseServiceClient()
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    const client = getSupabaseServiceClient()
+    const client = await getTenantScopedClient(tenant.id)
 
     const name = String(body.name || "").trim()
     const parts = name ? name.split(" ") : []
