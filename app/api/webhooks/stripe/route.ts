@@ -8,6 +8,7 @@ import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
 import { getDefaultTenant, getTenantById } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
+import { distributeTip } from '@/lib/tips'
 
 export async function POST(request: NextRequest) {
   try {
@@ -346,18 +347,37 @@ async function handleTipPayment(session: Stripe.Checkout.Session) {
     }
   }
 
-  // Get job phone number for logging
+  // Get job and phone number
   let phoneNumber: string | undefined
+  let teamId: number | null = null
   if (job_id) {
     const job = await getJobById(job_id)
     phoneNumber = job?.phone_number
+    teamId = job?.team_id ?? null
+  }
+
+  const tipDollars = tip_amount
+    ? parseFloat(tip_amount)
+    : session.amount_total
+      ? session.amount_total / 100
+      : 0
+
+  // Distribute tip equally among assigned cleaners
+  if (job_id && tipDollars > 0) {
+    await distributeTip(
+      Number(job_id),
+      tipDollars,
+      teamId,
+      'stripe',
+      `stripe_session=${session.id}`
+    ).catch(err => console.error('[Stripe Webhook] Failed to distribute tip:', err))
   }
 
   // Log the tip payment
   await logSystemEvent({
     source: 'stripe',
     event_type: 'INVOICE_PAID',
-    message: `Tip of $${tip_amount || (session.amount_total ? session.amount_total / 100 : 0)} received for ${cleanerName}`,
+    message: `Tip of $${tipDollars.toFixed(2)} received for ${cleanerName}`,
     job_id: job_id || undefined,
     cleaner_id: cleaner_id || undefined,
     phone_number: phoneNumber,
@@ -371,7 +391,7 @@ async function handleTipPayment(session: Stripe.Checkout.Session) {
     },
   })
 
-  console.log(`[Stripe Webhook] TIP payment processed - $${tip_amount} for ${cleanerName}`)
+  console.log(`[Stripe Webhook] TIP payment processed - $${tipDollars.toFixed(2)} for ${cleanerName}`)
 }
 
 /**
