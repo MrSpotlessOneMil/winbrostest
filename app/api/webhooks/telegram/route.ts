@@ -15,6 +15,7 @@ import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
+import { geocodeAddress } from "@/lib/google-maps"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
@@ -36,10 +37,119 @@ import Anthropic from "@anthropic-ai/sdk"
  * - decline:{jobId}:{assignmentId} - Cleaner declines job assignment
  */
 
+// Day code constants for availability
+const DAY_CODES = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'] as const
+const DAY_LABELS: Record<string, string> = {
+  MO: 'Monday', TU: 'Tuesday', WE: 'Wednesday', TH: 'Thursday',
+  FR: 'Friday', SA: 'Saturday', SU: 'Sunday'
+}
+
+/**
+ * Parse a natural-language days input into day codes.
+ * Handles: "mon-fri", "weekdays", "every day", "mon, wed, fri", etc.
+ */
+function parseDaysInput(text: string): string[] | null {
+  const lower = text.toLowerCase().trim()
+
+  if (/every\s*day|all\s*days|any\s*day|7\s*days/i.test(lower)) {
+    return [...DAY_CODES]
+  }
+  if (/weekdays|mon\s*-\s*fri|monday\s*-\s*friday|m\s*-\s*f/i.test(lower)) {
+    return ['MO', 'TU', 'WE', 'TH', 'FR']
+  }
+  if (/weekends?/i.test(lower)) {
+    return ['SA', 'SU']
+  }
+
+  // Handle ranges like "mon-sat", "tue-fri"
+  const rangeMatch = lower.match(/^(mon|tue|wed|thu|fri|sat|sun)\w*\s*[-–to]+\s*(mon|tue|wed|thu|fri|sat|sun)\w*$/i)
+  if (rangeMatch) {
+    const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+    const codeOrder = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU']
+    const startIdx = dayOrder.findIndex(d => rangeMatch[1].toLowerCase().startsWith(d))
+    const endIdx = dayOrder.findIndex(d => rangeMatch[2].toLowerCase().startsWith(d))
+    if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+      return codeOrder.slice(startIdx, endIdx + 1)
+    }
+  }
+
+  // Handle comma/space-separated days like "mon, wed, fri"
+  const dayMap: Record<string, string> = {
+    mon: 'MO', monday: 'MO', mo: 'MO',
+    tue: 'TU', tuesday: 'TU', tu: 'TU', tues: 'TU',
+    wed: 'WE', wednesday: 'WE', we: 'WE',
+    thu: 'TH', thursday: 'TH', th: 'TH', thur: 'TH', thurs: 'TH',
+    fri: 'FR', friday: 'FR', fr: 'FR',
+    sat: 'SA', saturday: 'SA', sa: 'SA',
+    sun: 'SU', sunday: 'SU', su: 'SU',
+  }
+
+  const tokens = lower.split(/[\s,&+]+/).filter(Boolean)
+  const days: string[] = []
+  for (const token of tokens) {
+    const code = dayMap[token]
+    if (code && !days.includes(code)) days.push(code)
+  }
+
+  if (days.length > 0) {
+    days.sort((a, b) => DAY_CODES.indexOf(a as any) - DAY_CODES.indexOf(b as any))
+    return days
+  }
+  return null
+}
+
+/**
+ * Parse a time string like "8am", "8:00 AM", "17:00", "5pm" into "HH:MM" 24hr format.
+ */
+function parseTimeInput(text: string): string | null {
+  const lower = text.toLowerCase().trim()
+  const match = lower.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/)
+  if (!match) return null
+
+  let hours = parseInt(match[1])
+  const minutes = match[2] ? parseInt(match[2]) : 0
+  const period = match[3]
+
+  if (period === 'pm' && hours < 12) hours += 12
+  if (period === 'am' && hours === 12) hours = 0
+  if (!period && hours <= 12 && hours >= 1) return null // Ambiguous without am/pm
+  if (hours > 23 || minutes > 59) return null
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+}
+
+/**
+ * Parse a time range like "8am-5pm", "8:00 AM - 5:00 PM", "9am to 5pm"
+ */
+function parseTimeRange(text: string): [string, string] | null {
+  const rangeMatch = text.match(/^(.+?)[\s]*[-–to]+[\s]*(.+)$/i)
+  if (rangeMatch) {
+    const start = parseTimeInput(rangeMatch[1].trim())
+    const end = parseTimeInput(rangeMatch[2].trim())
+    if (start && end) return [start, end]
+  }
+  return null
+}
+
+/** Format "HH:MM" to "8:00 AM" style */
+function formatTime12h(time24: string): string {
+  const [h, m] = time24.split(':').map(Number)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`
+}
+
 // Onboarding state helpers - stored in Supabase system_events for serverless compatibility
 interface OnboardingState {
-  step: 'name' | 'phone' | 'availability' | 'confirm'
-  data: { name?: string; phone?: string; availability?: string }
+  step: 'name' | 'phone' | 'address' | 'days' | 'hours' | 'confirm'
+  data: {
+    name?: string
+    phone?: string
+    home_address?: string
+    availableDays?: string[]
+    startTime?: string
+    endTime?: string
+  }
   startedAt: number
 }
 
@@ -549,12 +659,14 @@ Send "join" or "I'm a new cleaner" to register.
     // Check if this is a new cleaner trying to join
     const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
     if (isJoinRequest) {
-      // Check if they're already registered
+      // Check if they're already registered (only active, non-deleted cleaners)
       // Use .limit(1) — same telegram_id can exist across multiple tenants
       const { data: existingCleanerRows } = await client
         .from("cleaners")
         .select("id, name")
         .eq("telegram_id", telegramUserId)
+        .eq("active", true)
+        .is("deleted_at", null)
         .limit(1)
       const existingCleaner = existingCleanerRows?.[0] || null
 
@@ -575,7 +687,7 @@ Send "join" or "I'm a new cleaner" to register.
 
       await sendTelegramMessage(
         chatId,
-        `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/3:</b> What's your full name?`
+        `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/5:</b> What's your full name?`
       )
       return NextResponse.json({ success: true, action: "onboarding_started" })
     }
@@ -831,7 +943,7 @@ async function handleOnboardingStep(
 
       await sendTelegramMessage(
         chatId,
-        `<b>Step 2/3:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
+        `<b>Step 2/5:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
       )
       return NextResponse.json({ success: true, action: "name_collected" })
 
@@ -847,29 +959,99 @@ async function handleOnboardingStep(
       }
 
       state.data.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
-      state.step = 'availability'
+      state.step = 'address'
       await setOnboardingState(chatId, state)
 
       await sendTelegramMessage(
         chatId,
-        `<b>Step 3/3:</b> What's your general availability?\n\n(e.g., "Weekdays 9am-5pm" or "Mon-Fri anytime")`
+        `<b>Step 3/5:</b> What's your home address?\n\nThis is where you'll be starting your day from. We use it to plan efficient routes.\n\n(e.g., "123 Main St, Cedar Rapids, IA 52401")`
       )
       return NextResponse.json({ success: true, action: "phone_collected" })
 
-    case 'availability':
-      state.data.availability = text.trim()
+    case 'address':
+      // Validate address has some substance
+      if (text.trim().length < 5) {
+        await sendTelegramMessage(
+          chatId,
+          `Please enter a valid street address (e.g., "123 Main St, Cedar Rapids, IA 52401").`
+        )
+        return NextResponse.json({ success: true, action: "invalid_address" })
+      }
+
+      state.data.home_address = text.trim()
+      state.step = 'days'
+      await setOnboardingState(chatId, state)
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Step 4/5:</b> Which days are you available to work?\n\n` +
+        `Examples:\n` +
+        `• "Weekdays" (Mon-Fri)\n` +
+        `• "Mon-Sat"\n` +
+        `• "Mon, Wed, Fri"\n` +
+        `• "Every day"`
+      )
+      return NextResponse.json({ success: true, action: "address_collected" })
+
+    case 'days': {
+      const parsedDays = parseDaysInput(text)
+      if (!parsedDays || parsedDays.length === 0) {
+        await sendTelegramMessage(
+          chatId,
+          `I couldn't understand that. Please enter your available days.\n\n` +
+          `Examples: "Weekdays", "Mon-Fri", "Mon, Wed, Fri", "Every day"`
+        )
+        return NextResponse.json({ success: true, action: "invalid_days" })
+      }
+
+      state.data.availableDays = parsedDays
+      state.step = 'hours'
+      await setOnboardingState(chatId, state)
+
+      const daysList = parsedDays.map(d => DAY_LABELS[d]).join(', ')
+      await sendTelegramMessage(
+        chatId,
+        `Got it: <b>${daysList}</b>\n\n` +
+        `<b>Step 5/5:</b> What hours are you available on those days?\n\n` +
+        `Examples:\n` +
+        `• "8am-5pm"\n` +
+        `• "9:00am-6:00pm"\n` +
+        `• "7am-3pm"`
+      )
+      return NextResponse.json({ success: true, action: "days_collected" })
+    }
+
+    case 'hours': {
+      const timeRange = parseTimeRange(text)
+      if (!timeRange) {
+        await sendTelegramMessage(
+          chatId,
+          `I couldn't understand that time range. Please enter your hours like:\n\n` +
+          `• "8am-5pm"\n` +
+          `• "9:00am-6:00pm"\n` +
+          `• "7am-3pm"`
+        )
+        return NextResponse.json({ success: true, action: "invalid_hours" })
+      }
+
+      state.data.startTime = timeRange[0]
+      state.data.endTime = timeRange[1]
       state.step = 'confirm'
       await setOnboardingState(chatId, state)
 
+      const daysList = (state.data.availableDays || []).map(d => DAY_LABELS[d]).join(', ')
       await sendTelegramMessage(
         chatId,
         `<b>Please confirm your details:</b>\n\n` +
         `Name: ${state.data.name}\n` +
         `Phone: ${state.data.phone}\n` +
-        `Availability: ${state.data.availability}\n\n` +
+        `Home Address: ${state.data.home_address}\n` +
+        `Available Days: ${daysList}\n` +
+        `Hours: ${formatTime12h(state.data.startTime!)} - ${formatTime12h(state.data.endTime!)}\n\n` +
         `Type <b>YES</b> to confirm or <b>NO</b> to start over.`
       )
-      return NextResponse.json({ success: true, action: "availability_collected" })
+      return NextResponse.json({ success: true, action: "hours_collected" })
+    }
 
     case 'confirm':
       if (text.toLowerCase() === 'yes' || text.toLowerCase() === 'y') {
@@ -881,6 +1063,33 @@ async function handleOnboardingStep(
           return NextResponse.json({ success: false, error: "No tenant configured" })
         }
 
+        // Geocode the home address for route optimization
+        let homeLat: number | null = null
+        let homeLng: number | null = null
+        let formattedAddress: string | null = state.data.home_address || null
+
+        if (state.data.home_address) {
+          const geo = await geocodeAddress(state.data.home_address)
+          if (geo) {
+            homeLat = geo.lat
+            homeLng = geo.lng
+            formattedAddress = geo.formattedAddress
+          } else {
+            console.warn(`[OSIRIS] Could not geocode address: ${state.data.home_address}`)
+          }
+        }
+
+        // Build structured availability object
+        const availabilityData = (state.data.availableDays && state.data.startTime && state.data.endTime)
+          ? {
+              rules: [{
+                days: state.data.availableDays,
+                start: state.data.startTime,
+                end: state.data.endTime,
+              }],
+            }
+          : null
+
         // Create cleaner record
         const { data: newCleaner, error: insertError } = await client
           .from("cleaners")
@@ -890,6 +1099,10 @@ async function handleOnboardingStep(
             phone: state.data.phone,
             telegram_id: telegramUserId,
             telegram_username: from.username || null,
+            home_address: formattedAddress,
+            home_lat: homeLat,
+            home_lng: homeLng,
+            availability: availabilityData,
             active: true,
             is_team_lead: false
           })
@@ -986,7 +1199,7 @@ async function handleOnboardingStep(
 
         await sendTelegramMessage(
           chatId,
-          `No problem, let's start over.\n\n<b>Step 1/3:</b> What's your full name?`
+          `No problem, let's start over.\n\n<b>Step 1/5:</b> What's your full name?`
         )
         return NextResponse.json({ success: true, action: "onboarding_restart" })
       } else {

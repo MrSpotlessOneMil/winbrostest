@@ -8,6 +8,7 @@ import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
+import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 
 export async function POST(request: NextRequest) {
   const signature =
@@ -1254,6 +1255,23 @@ export async function POST(request: NextRequest) {
                 })
               }
               console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
+
+              // Sync to HouseCall Pro
+              if (tenant) {
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: newJob.id,
+                  phone,
+                  firstName: customer.first_name,
+                  lastName: customer.last_name,
+                  address: bookingData.address || customer.address || null,
+                  serviceType: bookingData.serviceType || null,
+                  scheduledDate: bookingData.preferredDate || null,
+                  scheduledTime: bookingData.preferredTime || null,
+                  price: servicePrice,
+                  notes: `Booked via SMS`,
+                })
+              }
 
               // Update lead to booked
               await client

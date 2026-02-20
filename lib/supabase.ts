@@ -148,28 +148,18 @@ export const supabase = {
   rpc: (...args: Parameters<SupabaseClient['rpc']>) => getSupabaseClient().rpc(...args),
 }
 
+/**
+ * Returns the service-role Supabase client for server-side helper functions.
+ *
+ * All callers of getSupabaseClient() run server-side (webhooks, crons, lib helpers).
+ * The anon key has no tenant_id JWT claim, so RLS tenant_isolation policies block
+ * every query. Using the service-role client here unblocks server-side operations.
+ *
+ * RLS is still enforced for dashboard routes via getTenantScopedClient(), which
+ * mints a per-tenant JWT that the RLS policies can verify.
+ */
 export function getSupabaseClient(): SupabaseClient {
-  if (!supabaseClient) {
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      process.env.SUPABASE_URL ||
-      process.env.PUBLIC_SUPABASE_URL
-
-    const supabaseKey =
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseKey) {
-      const missing = [
-        !supabaseUrl ? 'SUPABASE_URL' : null,
-        !supabaseKey ? 'SUPABASE_ANON_KEY' : null,
-      ].filter(Boolean)
-      throw new Error(`Missing Supabase environment variables: ${missing.join(', ')}`)
-    }
-
-    supabaseClient = createClient(supabaseUrl, supabaseKey)
-  }
-  return supabaseClient
+  return getSupabaseServiceClient()
 }
 
 /**

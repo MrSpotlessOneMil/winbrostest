@@ -412,8 +412,15 @@ export default function CustomersPage() {
       items.push({ type: "call", timestamp: call.created_at, data: call })
     })
 
-    // Sort by timestamp ascending
-    items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    // Sort by timestamp ascending; calls before messages when timestamps tie
+    items.sort((a, b) => {
+      const diff = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      if (diff !== 0) return diff
+      // Same timestamp: calls come before messages (call triggers the text)
+      if (a.type === "call" && b.type !== "call") return -1
+      if (a.type !== "call" && b.type === "call") return 1
+      return 0
+    })
     return items
   }
 

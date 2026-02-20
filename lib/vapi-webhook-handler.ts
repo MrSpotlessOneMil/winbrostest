@@ -10,6 +10,7 @@ import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
+import { lookupPrice } from "@/lib/pricebook"
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -219,7 +220,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               firstName: firstName || undefined,
               lastName: lastName || undefined,
               phone,
-              email: bookingInfo.email || undefined,
+              email: undefined,
               address: address || undefined,
               notes: `VAPI Call - ${bookingInfo.serviceType || 'Cleaning inquiry'}. ${bookingInfo.notes || ''}`.trim(),
               source: "vapi",
@@ -254,7 +255,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               },
             })
 
-            if (data.outcome !== "booked") {
+            // Treat as booked if outcome says so, OR if structuredData has appointment info
+            const isBooked =
+              data.outcome === "booked" ||
+              !!(structuredData.appointment_date && structuredData.appointment_time) ||
+              !!(structuredData.confirmed_datetime)
+
+            if (!isBooked) {
               try {
                 await scheduleLeadFollowUp(
                   tenant.id,
@@ -269,14 +276,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.log(`${tag} Call outcome was 'booked', skipping follow-up sequence`)
 
-              const rawDate = (typeof structuredData.appointment_date === 'string' ? structuredData.appointment_date : null) || bookingInfo.requestedDate || null
-              // Normalize date to YYYY-MM-DD (VAPI may return natural language like "February 21st")
-              const appointmentDate = rawDate
-                ? (/^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : parseNaturalDate(rawDate).date)
-                : null
-              const appointmentTime = (typeof structuredData.appointment_time === 'string' ? structuredData.appointment_time : null) || bookingInfo.requestedTime || null
-              const serviceType = (typeof structuredData.service_type === 'string' ? structuredData.service_type : null) || bookingInfo.serviceType || "Cleaning"
-              const bookAddress = (typeof structuredData.address === 'string' ? structuredData.address : null) || bookingInfo.address || null
+              let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+              const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
+              const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
+              const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+
+              // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+              if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+                appointmentDate = parseNaturalDate(appointmentDate).date
+              }
 
               // Build notes — use WinBros-specific helper for window/pressure/gutter services
               const isWinBros = tenant.slug === 'winbros'
@@ -299,6 +307,18 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     squareFootage: bookingInfo.squareFootage,
                   })
 
+              // Look up price from pricebook
+              const priceResult = lookupPrice({
+                serviceType: bookingInfo.serviceType || serviceType,
+                squareFootage: bookingInfo.squareFootage || null,
+                notes: jobNotes || null,
+                scope: bookingInfo.scope || null,
+                pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                propertyType: bookingInfo.propertyType || null,
+              })
+              const jobPrice = priceResult?.price || null
+              if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
+
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
                 customer_id: customerId,
@@ -307,7 +327,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 service_type: serviceType,
                 date: appointmentDate,
                 scheduled_at: appointmentTime,
-                price: null,
+                price: jobPrice,
                 hours: null,
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
                 status: "scheduled",
@@ -321,6 +341,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 console.error(`${tag} Failed to create job:`, jobErr.message)
               } else if (job?.id) {
                 console.log(`${tag} Job created from booked call: ${job.id}`)
+
+                // Sync to HouseCall Pro
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: job.id,
+                  phone,
+                  firstName,
+                  lastName,
+                  address: bookAddress,
+                  serviceType,
+                  scheduledDate: appointmentDate,
+                  scheduledTime: appointmentTime,
+                  price: jobPrice,
+                  notes: jobNotes || `Booked via VAPI call`,
+                })
 
                 await logSystemEvent({
                   source: "vapi",
@@ -377,17 +412,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         } else {
           console.log(`${tag} Lead already exists for ${phone} (id: ${existingLead.id})`)
 
-          if (data.outcome === "booked") {
+          // Also treat as booked if structuredData has appointment info
+          const existingLeadIsBooked =
+            data.outcome === "booked" ||
+            !!(structuredData.appointment_date && structuredData.appointment_time) ||
+            !!(structuredData.confirmed_datetime)
+
+          if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
 
-            const rawDateExisting = (typeof structuredData.appointment_date === 'string' ? structuredData.appointment_date : null) || bookingInfo.requestedDate || null
-            // Normalize date to YYYY-MM-DD (VAPI may return natural language like "February 21st")
-            const appointmentDate = rawDateExisting
-              ? (/^\d{4}-\d{2}-\d{2}$/.test(rawDateExisting) ? rawDateExisting : parseNaturalDate(rawDateExisting).date)
-              : null
-            const appointmentTime = (typeof structuredData.appointment_time === 'string' ? structuredData.appointment_time : null) || bookingInfo.requestedTime || null
-            const serviceType = (typeof structuredData.service_type === 'string' ? structuredData.service_type : null) || bookingInfo.serviceType || "Cleaning"
-            const bookAddress = (typeof structuredData.address === 'string' ? structuredData.address : null) || bookingInfo.address || null
+            let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+            const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
+            const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
+            const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+
+            // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+            if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+              appointmentDate = parseNaturalDate(appointmentDate).date
+            }
 
             // Build notes — use WinBros-specific helper for window/pressure/gutter services
             const isWinBrosExisting = tenant.slug === 'winbros'
@@ -410,6 +452,17 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   squareFootage: bookingInfo.squareFootage,
                 })
 
+            // Look up price from pricebook
+            const existingPriceResult = lookupPrice({
+              serviceType: bookingInfo.serviceType || serviceType,
+              squareFootage: bookingInfo.squareFootage || null,
+              notes: existingLeadNotes || null,
+              scope: bookingInfo.scope || null,
+              pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+              propertyType: bookingInfo.propertyType || null,
+            })
+            const existingJobPrice = existingPriceResult?.price || null
+
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
               customer_id: customerId,
@@ -418,7 +471,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               service_type: serviceType,
               date: appointmentDate || null,
               scheduled_at: appointmentTime || null,
-              price: null,
+              price: existingJobPrice,
               hours: null,
               cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
               status: "scheduled",
@@ -432,6 +485,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
             } else if (job?.id) {
               console.log(`${tag} Job created for existing lead: ${job.id}`)
+
+              // Sync to HouseCall Pro
+              await syncNewJobToHCP({
+                tenant,
+                jobId: job.id,
+                phone,
+                firstName,
+                lastName,
+                address: bookAddress,
+                serviceType,
+                scheduledDate: appointmentDate,
+                scheduledTime: appointmentTime,
+                price: existingJobPrice,
+                notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
+              })
             }
 
             await client

@@ -230,17 +230,34 @@ function buildInvoiceDescription(job: Job): string {
 }
 
 /**
- * Validate Stripe webhook signature
+ * Validate Stripe webhook signature.
+ *
+ * Multi-tenant: tries the global STRIPE_WEBHOOK_SECRET env var first,
+ * then each tenant's stripe_webhook_secret from the DB.
+ * Pass `tenantSecrets` from the webhook route to enable per-tenant fallback.
  */
 export function validateStripeWebhook(
   payload: string,
   signature: string | null,
-  secretOverride?: string
+  tenantSecrets?: string[]
 ): Stripe.Event | null {
-  const webhookSecret = secretOverride || process.env.STRIPE_WEBHOOK_SECRET
+  if (!signature) {
+    console.error('No Stripe signature provided')
+    return null
+  }
 
-  if (!webhookSecret) {
-    console.warn('STRIPE_WEBHOOK_SECRET not configured - parsing without validation')
+  // Build ordered list of secrets to try
+  const secrets: string[] = []
+  const envSecret = process.env.STRIPE_WEBHOOK_SECRET
+  if (envSecret) secrets.push(envSecret)
+  if (tenantSecrets) {
+    for (const s of tenantSecrets) {
+      if (s && !secrets.includes(s)) secrets.push(s)
+    }
+  }
+
+  if (secrets.length === 0) {
+    console.warn('No Stripe webhook secrets configured - parsing without validation')
     try {
       return JSON.parse(payload) as Stripe.Event
     } catch {
@@ -248,18 +265,17 @@ export function validateStripeWebhook(
     }
   }
 
-  if (!signature) {
-    console.error('No Stripe signature provided')
-    return null
+  const stripe = getStripeClient()
+  for (const secret of secrets) {
+    try {
+      return stripe.webhooks.constructEvent(payload, signature, secret)
+    } catch {
+      // Try next secret
+    }
   }
 
-  try {
-    const stripe = getStripeClient()
-    return stripe.webhooks.constructEvent(payload, signature, webhookSecret)
-  } catch (error) {
-    console.error('Stripe webhook validation failed:', error)
-    return null
-  }
+  console.error('Stripe webhook validation failed: no matching secret found')
+  return null
 }
 
 /**

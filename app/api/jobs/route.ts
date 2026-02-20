@@ -5,6 +5,7 @@ import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { getTenantById } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
+import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -409,6 +410,21 @@ export async function POST(request: NextRequest) {
       created_at: row.created_at ? String(row.created_at) : new Date().toISOString(),
       updated_at: row.updated_at ? String(row.updated_at) : new Date().toISOString(),
     }
+
+    // Sync to HouseCall Pro
+    await syncNewJobToHCP({
+      tenant: tenant as any,
+      jobId: row.id,
+      phone,
+      firstName: first_name,
+      lastName: last_name,
+      address: body.address || null,
+      serviceType: body.service_type || null,
+      scheduledDate: scheduledDate || null,
+      scheduledTime: scheduledAt || null,
+      price: body.estimated_value != null ? Number(body.estimated_value) : null,
+      notes: `Created from dashboard`,
+    })
 
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })

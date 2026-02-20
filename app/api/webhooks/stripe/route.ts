@@ -5,7 +5,7 @@ import { getSupabaseClient, updateJob, getJobById, updateGHLLead } from '@/lib/s
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById } from '@/lib/tenant'
+import { getDefaultTenant, getTenantById, getAllActiveTenants } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
@@ -48,8 +48,14 @@ export async function POST(request: NextRequest) {
     const payload = await request.text()
     const signature = request.headers.get('stripe-signature')
 
-    // Validate the webhook signature
-    const event = validateStripeWebhook(payload, signature)
+    // Collect per-tenant webhook secrets for multi-tenant validation
+    const tenants = await getAllActiveTenants()
+    const tenantSecrets = tenants
+      .map(t => t.stripe_webhook_secret)
+      .filter((s): s is string => !!s)
+
+    // Validate the webhook signature (tries env var, then each tenant secret)
+    const event = validateStripeWebhook(payload, signature, tenantSecrets)
 
     if (!event) {
       console.error('[Stripe Webhook] Invalid webhook signature')
@@ -556,6 +562,21 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         actualJobId = retryJob.id
         job = await getJobById(retryJob.id)
         console.log(`[Stripe Webhook] Job created from lead retry: ${retryJob.id}`)
+
+        // Sync to HouseCall Pro
+        await syncNewJobToHCP({
+          tenant,
+          jobId: retryJob.id,
+          phone: custPhone || '',
+          firstName: lead.first_name,
+          lastName: lead.last_name,
+          address: bookingData.address || custAddress,
+          serviceType: bookingData.serviceType || null,
+          scheduledDate: bookingData.preferredDate || null,
+          scheduledTime: bookingData.preferredTime || null,
+          price: bookingData.price || null,
+          notes: `Booked via Stripe payment`,
+        })
 
         // Update lead with the real job ID
         await client
