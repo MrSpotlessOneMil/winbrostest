@@ -3,10 +3,12 @@
  *
  * Runs hourly. For each tenant with route optimization enabled:
  *
- * 1. At 3 AM local time: safety-net optimize + dispatch for today's jobs
- * 2. At 5 PM local time (EVENING_SCHEDULE_HOUR): final optimization for
- *    TOMORROW's jobs and send full route schedules (with addresses) to
- *    team leads via Telegram. This is the primary schedule notification.
+ * At 5 PM local time (EVENING_SCHEDULE_HOUR): final optimization for
+ * TOMORROW's jobs and send full route schedules (with addresses) to
+ * team leads via Telegram. This is the primary schedule notification.
+ *
+ * New bookings are assigned in real-time by the Stripe webhook via
+ * optimizeRoutesIncremental — no morning safety-net dispatch needed.
  *
  * Schedule: Every hour at :00 (0 * * * *)
  * Endpoint: GET /api/cron/route-dispatch
@@ -18,7 +20,6 @@ import { getAllActiveTenants } from '@/lib/tenant'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 import { dispatchRoutes } from '@/lib/dispatch'
 
-const DISPATCH_HOUR = 3          // 3 AM local time — safety-net morning dispatch
 const EVENING_SCHEDULE_HOUR = 17 // 5 PM local time — send next-day schedule to teams
 
 export async function GET(request: NextRequest) {
@@ -45,57 +46,6 @@ export async function GET(request: NextRequest) {
 
     const tz = tenant.timezone || 'America/Chicago'
     const localHour = getLocalHour(now, tz)
-
-    // ── 3 AM: Morning safety-net dispatch for TODAY ──
-    if (localHour === DISPATCH_HOUR) {
-      const todayLocal = getLocalDate(now, tz)
-
-      console.log(
-        `[route-dispatch] Running morning optimize+dispatch for "${tenant.name}" (${tz}), date: ${todayLocal}`
-      )
-
-      try {
-        const optimization = await optimizeRoutesForDate(todayLocal, tenant.id)
-
-        if (optimization.stats.assignedJobs === 0) {
-          results.push({
-            tenant: tenant.slug,
-            type: 'morning_dispatch',
-            dispatched: false,
-            reason: optimization.warnings.join('; ') || 'No jobs for this date',
-          })
-          continue
-        }
-
-        const dispatchResult = await dispatchRoutes(optimization, tenant.id)
-
-        results.push({
-          tenant: tenant.slug,
-          type: 'morning_dispatch',
-          dispatched: true,
-          reason: `${dispatchResult.jobsUpdated} jobs dispatched to ${optimization.stats.activeTeams} teams`,
-          stats: {
-            jobs: dispatchResult.jobsUpdated,
-            assignments: dispatchResult.assignmentsCreated,
-            telegrams: dispatchResult.telegramsSent,
-            sms: dispatchResult.smsSent,
-            errors: dispatchResult.errors.length,
-          },
-        })
-
-        console.log(
-          `[route-dispatch] ${tenant.slug} morning: ${dispatchResult.jobsUpdated} jobs dispatched, ${dispatchResult.telegramsSent} Telegram routes sent`
-        )
-      } catch (error) {
-        console.error(`[route-dispatch] Morning dispatch error for ${tenant.slug}:`, error)
-        results.push({
-          tenant: tenant.slug,
-          type: 'morning_dispatch',
-          dispatched: false,
-          reason: error instanceof Error ? error.message : 'Unknown error',
-        })
-      }
-    }
 
     // ── 5 PM: Evening schedule for TOMORROW ──
     if (localHour === EVENING_SCHEDULE_HOUR) {

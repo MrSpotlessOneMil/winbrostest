@@ -69,13 +69,24 @@ export async function dispatchRoutes(
         continue
       }
 
+      // Fetch existing scheduled_at — never overwrite a time already set by a user or prior booking
+      const { data: existingJob } = await client
+        .from('jobs')
+        .select('scheduled_at')
+        .eq('id', stop.jobId)
+        .maybeSingle()
+
+      const jobUpdate: Record<string, unknown> = {
+        team_id: route.teamId,
+        updated_at: new Date().toISOString(),
+      }
+      if (!existingJob?.scheduled_at) {
+        jobUpdate.scheduled_at = stop.estimatedArrival
+      }
+
       const { error: updateErr } = await client
         .from('jobs')
-        .update({
-          team_id: route.teamId,
-          scheduled_at: stop.estimatedArrival,
-          updated_at: new Date().toISOString(),
-        })
+        .update(jobUpdate)
         .eq('id', stop.jobId)
 
       if (updateErr) {
