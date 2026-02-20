@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { extractVapiCallData, parseTranscript } from "@/lib/vapi"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -54,7 +54,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
   const phone = normalizePhoneNumber(data.phone || "") || data.phone || ""
   console.log(`${tag} Normalized phone: ${phone} (from raw: ${data.phone})`)
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   // Resolve tenant
   const tenant = tenantSlug

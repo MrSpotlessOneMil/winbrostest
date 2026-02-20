@@ -93,6 +93,7 @@ export interface Tenant {
   service_area: string | null
   sdr_persona: string
   service_description: string | null // e.g., "window cleaning", "house cleaning", "carpet cleaning"
+  timezone: string // IANA timezone, e.g. "America/Chicago"
 
   // API Keys
   openphone_api_key: string | null
@@ -148,20 +149,26 @@ export interface TenantSummary {
 // ============================================================================
 
 /**
- * Get tenant by ID
+ * Get tenant by ID.
+ * By default returns both active and inactive tenants (needed for dashboard access).
+ * Pass activeOnly=true for webhook/cron paths that should only process active businesses.
  */
-export async function getTenantById(tenantId: string): Promise<Tenant | null> {
+export async function getTenantById(tenantId: string, activeOnly = false): Promise<Tenant | null> {
   const client = getAdminClient()
 
-  const { data, error } = await client
+  let query = client
     .from("tenants")
     .select("*")
     .eq("id", tenantId)
-    .eq("active", true)
-    .single()
+  if (activeOnly) query = query.eq("active", true)
+  const { data, error } = await query.single()
 
   if (error || !data) {
-    console.error("[Tenant] Error fetching tenant by ID:", error)
+    if (activeOnly) {
+      // Don't log error for activeOnly — tenant may just be inactive
+      return null
+    }
+    console.error(`[Tenant] Error fetching tenant by ID '${tenantId}' (activeOnly=${activeOnly}):`, error?.message || error)
     return null
   }
 
@@ -169,19 +176,25 @@ export async function getTenantById(tenantId: string): Promise<Tenant | null> {
 }
 
 /**
- * Get tenant by slug (used for webhook routing)
+ * Get tenant by slug (used for webhook routing).
+ * By default requires active=true (webhooks should only process active tenants).
+ * Pass activeOnly=false for dashboard/auth paths that need inactive tenants too.
  */
-export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
+export async function getTenantBySlug(slug: string, activeOnly = true): Promise<Tenant | null> {
   const client = getAdminClient()
 
-  const { data, error } = await client
+  let query = client
     .from("tenants")
     .select("*")
     .eq("slug", slug)
-    .eq("active", true)
-    .single()
+  if (activeOnly) query = query.eq("active", true)
+  const { data, error } = await query.single()
 
   if (error || !data) {
+    if (!activeOnly) {
+      // Don't log for dashboard/auth fallback lookups
+      return null
+    }
     console.error(`[Tenant] Error fetching tenant by slug '${slug}':`, error)
     return null
   }

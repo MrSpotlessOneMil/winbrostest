@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
+import { getTenantById } from "@/lib/tenant"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -70,6 +71,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Username already exists" }, { status: 400 })
   }
 
+  // Validate tenant_id exists before creating user
+  if (tenant_id) {
+    const tenant = await getTenantById(tenant_id)
+    if (!tenant) {
+      return NextResponse.json({ success: false, error: `Tenant ${tenant_id} does not exist` }, { status: 400 })
+    }
+  }
+
   // Create the user with hashed password using Postgres crypt function
   const { data: user, error } = await client.rpc("create_user_with_password", {
     p_username: username,
@@ -128,6 +137,14 @@ export async function PATCH(request: NextRequest) {
 
   // Don't allow updating password_hash directly - use a separate endpoint
   const { password_hash, ...safeUpdates } = updates
+
+  // Validate tenant_id exists before updating
+  if (safeUpdates.tenant_id) {
+    const tenant = await getTenantById(safeUpdates.tenant_id)
+    if (!tenant) {
+      return NextResponse.json({ success: false, error: `Tenant ${safeUpdates.tenant_id} does not exist` }, { status: 400 })
+    }
+  }
 
   const { data, error } = await client
     .from("users")

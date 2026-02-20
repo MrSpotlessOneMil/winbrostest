@@ -9,6 +9,8 @@ import { getDefaultTenant, getTenantById } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
+import { geocodeAddress } from '@/lib/google-maps'
+import { calculateDistance } from '@/lib/cleaner-assignment'
 
 export async function POST(request: NextRequest) {
   try {
@@ -578,20 +580,52 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
       console.log(`[Stripe Webhook] WinBros auto-assign — assigning job ${actualJobId} to team`)
       assignmentOutcome = 'auto_assigned'
 
-      // Find an active team for this tenant
+      // Find the closest active team based on job address proximity
       const { data: teams } = await client
         .from('teams')
-        .select('id, name, active, team_members ( cleaner_id, role, is_active, cleaners ( id, name, telegram_id ) )')
+        .select('id, name, active, team_members ( cleaner_id, role, is_active, cleaners ( id, name, telegram_id, home_lat, home_lng ) )')
         .eq('tenant_id', tenant.id)
         .eq('active', true)
-        .limit(5)
 
-      const team = teams?.[0]
+      // Pick the closest team by geocoding the job address
+      let team = teams?.[0]
+      if (teams && teams.length > 1 && job.address) {
+        try {
+          const jobGeo = await geocodeAddress(job.address)
+          if (jobGeo) {
+            let bestTeam = teams[0]
+            let bestDistance = Infinity
+
+            for (const t of teams) {
+              const members = (t.team_members || []) as any[]
+              const lead = members.find((m: any) => m.role === 'lead' && m.is_active && m.cleaners?.home_lat != null && m.cleaners?.home_lng != null)
+              if (!lead?.cleaners?.home_lat || !lead?.cleaners?.home_lng) continue
+
+              const dist = calculateDistance(
+                lead.cleaners.home_lat,
+                lead.cleaners.home_lng,
+                jobGeo.lat,
+                jobGeo.lng
+              )
+
+              if (dist < bestDistance) {
+                bestDistance = dist
+                bestTeam = t
+              }
+            }
+
+            team = bestTeam
+            console.log(`[Stripe Webhook] Proximity pick: team "${team.name}" (${bestDistance === Infinity ? 'no coords' : bestDistance.toFixed(1) + ' mi'} from job)`)
+          }
+        } catch (geoErr) {
+          console.warn(`[Stripe Webhook] Geocoding failed for proximity pick, using first team:`, geoErr)
+        }
+      }
       if (team) {
         // Find team lead (or first active member)
-        const members = (team.team_members || []) as Array<{ cleaner_id: string; role: string; is_active: boolean; cleaners: { id: string; name: string; telegram_id: string | null } | null }>
-        const lead = members.find(m => m.role === 'lead' && m.is_active)
-          || members.find(m => m.is_active)
+        const members = (team.team_members || []) as any[]
+        const lead = members.find((m: any) => m.role === 'lead' && m.is_active)
+          || members.find((m: any) => m.is_active)
 
         if (lead?.cleaner_id) {
           // Create assignment directly as confirmed (no accept/decline cascade)

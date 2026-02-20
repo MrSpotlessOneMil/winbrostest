@@ -38,6 +38,8 @@ export default function ManageTeamsPage() {
   const [newCleanerTelegramId, setNewCleanerTelegramId] = useState("")
   const [newCleanerIsTeamLead, setNewCleanerIsTeamLead] = useState(false)
   const [editingCleaner, setEditingCleaner] = useState<Cleaner | null>(null)
+  const [dragOverTarget, setDragOverTarget] = useState<number | "unassigned" | null>(null)
+  const [draggingId, setDraggingId] = useState<number | null>(null)
 
   async function load() {
     setLoading(true)
@@ -82,25 +84,52 @@ export default function ManageTeamsPage() {
   function onDragStart(e: React.DragEvent, cleanerId: number) {
     e.dataTransfer.setData("text/plain", String(cleanerId))
     e.dataTransfer.effectAllowed = "move"
+    setDraggingId(cleanerId)
+  }
+
+  function onDragEnd() {
+    setDraggingId(null)
+    setDragOverTarget(null)
   }
 
   async function onDrop(e: React.DragEvent, teamId: number | null) {
     e.preventDefault()
+    setDragOverTarget(null)
+    setDraggingId(null)
     const raw = e.dataTransfer.getData("text/plain")
     const cleanerId = Number(raw)
     if (!Number.isFinite(cleanerId)) return
+
+    // Skip if dropping into the same team
+    const cleaner = cleaners.find((c) => c.id === cleanerId)
+    if (cleaner && cleaner.team_id === teamId) return
+
+    // Optimistic update — move cleaner in local state immediately
+    setCleaners((prev) =>
+      prev.map((c) => (c.id === cleanerId ? { ...c, team_id: teamId } : c))
+    )
+
     try {
       setError(null)
       await api("move_cleaner", { cleaner_id: cleanerId, team_id: teamId })
-      await load()
     } catch (err: any) {
       setError(err?.message || "Move failed")
+      // Revert on failure
+      await load()
     }
   }
 
-  function allowDrop(e: React.DragEvent) {
+  function onDragOver(e: React.DragEvent, target: number | "unassigned") {
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
+    if (dragOverTarget !== target) setDragOverTarget(target)
+  }
+
+  function onDragLeave(e: React.DragEvent, target: number | "unassigned") {
+    // Only clear if actually leaving the container (not entering a child)
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      if (dragOverTarget === target) setDragOverTarget(null)
+    }
   }
 
   async function createTeam() {
@@ -256,7 +285,12 @@ export default function ManageTeamsPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card onDragOver={allowDrop} onDrop={(e) => onDrop(e, null)} className="min-h-[240px]">
+        <Card
+          onDragOver={(e) => onDragOver(e, "unassigned")}
+          onDragLeave={(e) => onDragLeave(e, "unassigned")}
+          onDrop={(e) => onDrop(e, null)}
+          className={`min-h-[240px] transition-colors ${dragOverTarget === "unassigned" ? "border-primary bg-primary/5 ring-2 ring-primary/20" : ""}`}
+        >
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
               <span>Unassigned</span>
@@ -270,7 +304,8 @@ export default function ManageTeamsPage() {
                 key={c.id}
                 draggable
                 onDragStart={(e) => onDragStart(e, c.id)}
-                className="flex items-center justify-between rounded-md border border-border bg-muted/30 p-2"
+                onDragEnd={onDragEnd}
+                className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 cursor-grab active:cursor-grabbing ${draggingId === c.id ? "opacity-50" : ""}`}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
@@ -299,7 +334,13 @@ export default function ManageTeamsPage() {
         {teams.map((t) => {
           const list = cleanersByTeam.get(t.id) || []
           return (
-            <Card key={t.id} onDragOver={allowDrop} onDrop={(e) => onDrop(e, t.id)} className="min-h-[240px]">
+            <Card
+              key={t.id}
+              onDragOver={(e) => onDragOver(e, t.id)}
+              onDragLeave={(e) => onDragLeave(e, t.id)}
+              onDrop={(e) => onDrop(e, t.id)}
+              className={`min-h-[240px] transition-colors ${dragOverTarget === t.id ? "border-primary bg-primary/5 ring-2 ring-primary/20" : ""}`}
+            >
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
                   <span className="truncate">{t.name}</span>
@@ -318,7 +359,8 @@ export default function ManageTeamsPage() {
                     key={c.id}
                     draggable
                     onDragStart={(e) => onDragStart(e, c.id)}
-                    className="flex items-center justify-between rounded-md border border-border bg-muted/30 p-2"
+                    onDragEnd={onDragEnd}
+                    className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 cursor-grab active:cursor-grabbing ${draggingId === c.id ? "opacity-50" : ""}`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">

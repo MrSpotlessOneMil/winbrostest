@@ -130,24 +130,24 @@ export async function POST(request: NextRequest) {
     const team_id = body.team_id == null ? null : Number(body.team_id)
     if (!Number.isFinite(cleaner_id)) return jsonError("cleaner_id is required")
 
-    // Deactivate any existing memberships for this cleaner (scoped to tenant's cleaners)
-    const deactivate = await client.from("team_members").update({ is_active: false }).eq("tenant_id", tenant.id).eq("cleaner_id", cleaner_id)
-    if (deactivate.error) return jsonError(deactivate.error.message, 500)
+    // Remove ALL existing memberships for this cleaner (clean slate prevents duplicates)
+    const del = await client.from("team_members").delete().eq("tenant_id", tenant.id).eq("cleaner_id", cleaner_id)
+    if (del.error) return jsonError(del.error.message, 500)
 
     // If moving to "Unassigned", we're done
     if (team_id == null || !Number.isFinite(team_id)) {
       return NextResponse.json({ success: true, data: { cleaner_id, team_id: null } })
     }
 
-    // Ensure active membership row exists
-    const upsert = await client
+    // Insert single membership row
+    const insert = await client
       .from("team_members")
-      .upsert({ tenant_id: tenant.id, team_id, cleaner_id, role: "technician", is_active: true }, { onConflict: "team_id,cleaner_id" })
+      .insert({ tenant_id: tenant.id, team_id, cleaner_id, role: "technician", is_active: true })
       .select("id,team_id,cleaner_id,role,is_active")
       .single()
 
-    if (upsert.error) return jsonError(upsert.error.message, 500)
-    return NextResponse.json({ success: true, data: upsert.data })
+    if (insert.error) return jsonError(insert.error.message, 500)
+    return NextResponse.json({ success: true, data: insert.data })
   }
 
   if (action === "delete_team") {

@@ -493,7 +493,7 @@ export async function POST(request: NextRequest) {
     const telegramUserId = from.id.toString()
     const chatId = chat.id.toString()
 
-    console.log(`[OSIRIS] Telegram message from ${from.username || from.first_name}: ${text}`)
+    console.log(`[OSIRIS] Telegram message from ${from.username || from.first_name} (telegram_id=${telegramUserId}, chat_id=${chatId}): "${text}"`)
 
     // Log inbound message to DB (fire-and-forget)
     logTelegramMessage({
@@ -549,11 +549,13 @@ Send "join" or "I'm a new cleaner" to register.
     const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
     if (isJoinRequest) {
       // Check if they're already registered
-      const { data: existingCleaner } = await client
+      // Use .limit(1) — same telegram_id can exist across multiple tenants
+      const { data: existingCleanerRows } = await client
         .from("cleaners")
         .select("id, name")
         .eq("telegram_id", telegramUserId)
-        .maybeSingle()
+        .limit(1)
+      const existingCleaner = existingCleanerRows?.[0] || null
 
       if (existingCleaner) {
         await sendTelegramMessage(
@@ -578,11 +580,23 @@ Send "join" or "I'm a new cleaner" to register.
     }
 
     // Best-effort lookup: map telegram user to cleaner by telegram_id
-    const { data: cleaner } = await client
+    // Use .limit(1) instead of .maybeSingle() because the same telegram_id
+    // can exist across multiple tenants, and maybeSingle() errors on >1 row
+    const { data: cleanerRows, error: cleanerLookupError } = await client
       .from("cleaners")
       .select("id,name,active,is_team_lead,phone,email")
       .eq("telegram_id", telegramUserId)
-      .maybeSingle()
+      .eq("active", true)
+      .limit(1)
+    const cleaner = cleanerRows?.[0] || null
+
+    if (cleanerLookupError) {
+      console.error(`[OSIRIS] Cleaner lookup FAILED for telegram_id=${telegramUserId}:`, cleanerLookupError)
+    } else if (cleaner) {
+      console.log(`[OSIRIS] Cleaner found: id=${cleaner.id}, name=${cleaner.name}, active=${cleaner.active}`)
+    } else {
+      console.log(`[OSIRIS] No cleaner found for telegram_id=${telegramUserId} — user is NOT registered`)
+    }
 
     let teamId: number | null = null
     if (cleaner?.id != null) {
@@ -753,9 +767,10 @@ Send "join" or "I'm a new cleaner" to register.
     }
 
     // Unknown message format - use AI to provide helpful response
-    console.log(`[OSIRIS] Unrecognized message format: ${text}`)
+    console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, cleanerName=${cleaner?.name || 'UNKNOWN'}, text="${text}"`)
 
     const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
+    console.log(`[OSIRIS] AI response generated: "${aiResponse.substring(0, 200)}"`)
     await sendTelegramMessage(chatId, aiResponse)
 
     return NextResponse.json({ success: true, action: "ai_response" })
@@ -883,6 +898,49 @@ async function handleOnboardingStep(
           return NextResponse.json({ success: false, error: "Failed to create cleaner" })
         }
 
+        // Add cleaner to a team so they show up in the teams tab
+        // Find the first active team for this tenant, or create a default one
+        let { data: existingTeam } = await client
+          .from("teams")
+          .select("id")
+          .eq("tenant_id", tenant.id)
+          .eq("active", true)
+          .limit(1)
+          .maybeSingle()
+
+        if (!existingTeam) {
+          const { data: newTeam } = await client
+            .from("teams")
+            .insert({ tenant_id: tenant.id, name: "Crew 1", active: true })
+            .select("id")
+            .single()
+          existingTeam = newTeam
+        }
+
+        if (existingTeam) {
+          const { error: tmError } = await client
+            .from("team_members")
+            .insert({
+              tenant_id: tenant.id,
+              team_id: existingTeam.id,
+              cleaner_id: newCleaner.id,
+              role: "member",
+              is_active: true,
+            })
+          if (tmError) {
+            console.error("[OSIRIS] Failed to add cleaner to team:", tmError)
+          } else {
+            console.log(`[OSIRIS] Cleaner ${newCleaner.id} added to team ${existingTeam.id}`)
+          }
+        }
+
+        // Backfill onboarding messages with the cleaner's phone so they show up in teams tab
+        await client
+          .from("messages")
+          .update({ phone_number: state.data.phone })
+          .eq("metadata->>telegram_chat_id", chatId)
+          .is("phone_number", null)
+
         await deleteOnboardingState(chatId)
 
         await sendTelegramMessage(
@@ -890,7 +948,7 @@ async function handleOnboardingStep(
           `<b>Welcome aboard, ${state.data.name}!</b> 🎉\n\n` +
           `You're now registered and will receive job notifications here.\n\n` +
           `<b>Quick tips:</b>\n` +
-          `• When you get a job, tap "Available" or "Not Available"\n` +
+          `• You'll get notified here when you're assigned a job\n` +
           `• Report tips: "tip job 123 - $20"\n` +
           `• Report upsells: "upsell job 123 - deep clean"\n\n` +
           `Questions? Reply here and a team lead will help.`
@@ -1127,8 +1185,11 @@ async function generateAIResponse(
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
+  console.log(`[OSIRIS] generateAIResponse called — cleanerId=${cleanerId || 'NULL'}, userName=${userName}, isTeamLead=${isTeamLead}`)
+
   // Fallback if no API key
   if (!anthropicKey) {
+    console.log(`[OSIRIS] No ANTHROPIC_API_KEY set — returning fallback response`)
     return getDefaultFallbackResponse(isTeamLead)
   }
 
@@ -1147,6 +1208,7 @@ async function generateAIResponse(
         .in("status", ["confirmed", "pending"])
 
       const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
+      console.log(`[OSIRIS] Cleaner ${cleanerId} has ${jobIds.length} assignment(s) with status confirmed/pending. jobIds=${JSON.stringify(jobIds)}`)
 
       if (jobIds.length > 0) {
         // Fetch actual job details
@@ -1158,6 +1220,8 @@ async function generateAIResponse(
           .order("date", { ascending: true })
           .limit(10)
 
+        console.log(`[OSIRIS] Jobs query returned ${jobs?.length || 0} upcoming jobs for cleaner ${cleanerId} (today=${today})`)
+
         if (jobs && jobs.length > 0) {
           const jobLines = jobs.map((j: any) => {
             const dateStr = j.date || 'TBD'
@@ -1168,8 +1232,14 @@ async function generateAIResponse(
           })
 
           jobContext = `\n\nTHIS CLEANER'S UPCOMING JOBS:\n${jobLines.join('\n')}\n\nUse this job info to answer questions about their schedule, addresses, times, etc. If they ask about "my cleaning" or "my job", refer to the closest upcoming job.`
+        } else {
+          jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
         }
+      } else {
+        jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
       }
+    } else {
+      jobContext = `\n\nIMPORTANT: This user is NOT registered as a cleaner in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a cleaner so they can receive job assignments and view their schedule.`
     }
 
     const client = new Anthropic({ apiKey: anthropicKey })
@@ -1192,6 +1262,8 @@ Available commands:
 The user's name is ${userName}.${isTeamLead ? " They are a team lead." : ""}${jobContext}
 
 Respond in a friendly, concise way (2-4 sentences max). If they're asking about their schedule or job details, give them the info directly from the job data above. Use simple language. Don't use markdown formatting - use plain text only.`
+
+    console.log(`[OSIRIS] Job context status: ${cleanerId ? (jobContext.includes('UPCOMING JOBS') ? 'HAS_JOBS' : jobContext.includes('NO upcoming') ? 'NO_JOBS' : 'NOT_REGISTERED') : 'NO_CLEANER_ID'}`)
 
     const response = await client.messages.create({
       model: "claude-3-5-haiku-20241022",
