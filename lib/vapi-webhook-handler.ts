@@ -262,14 +262,14 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.log(`${tag} Call outcome was 'booked', skipping follow-up sequence`)
 
-              const rawDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+              const rawDate = (typeof structuredData.appointment_date === 'string' ? structuredData.appointment_date : null) || bookingInfo.requestedDate || null
               // Normalize date to YYYY-MM-DD (VAPI may return natural language like "February 21st")
               const appointmentDate = rawDate
                 ? (/^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : parseNaturalDate(rawDate).date)
                 : null
-              const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
-              const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-              const bookAddress = structuredData.address as string || bookingInfo.address || null
+              const appointmentTime = (typeof structuredData.appointment_time === 'string' ? structuredData.appointment_time : null) || bookingInfo.requestedTime || null
+              const serviceType = (typeof structuredData.service_type === 'string' ? structuredData.service_type : null) || bookingInfo.serviceType || "Cleaning"
+              const bookAddress = (typeof structuredData.address === 'string' ? structuredData.address : null) || bookingInfo.address || null
 
               // Build notes — use WinBros-specific helper for window/pressure/gutter services
               const isWinBros = tenant.slug === 'winbros'
@@ -373,14 +373,14 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
           if (data.outcome === "booked") {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
 
-            const rawDateExisting = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+            const rawDateExisting = (typeof structuredData.appointment_date === 'string' ? structuredData.appointment_date : null) || bookingInfo.requestedDate || null
             // Normalize date to YYYY-MM-DD (VAPI may return natural language like "February 21st")
             const appointmentDate = rawDateExisting
               ? (/^\d{4}-\d{2}-\d{2}$/.test(rawDateExisting) ? rawDateExisting : parseNaturalDate(rawDateExisting).date)
               : null
-            const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
-            const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-            const bookAddress = structuredData.address as string || bookingInfo.address || null
+            const appointmentTime = (typeof structuredData.appointment_time === 'string' ? structuredData.appointment_time : null) || bookingInfo.requestedTime || null
+            const serviceType = (typeof structuredData.service_type === 'string' ? structuredData.service_type : null) || bookingInfo.serviceType || "Cleaning"
+            const bookAddress = (typeof structuredData.address === 'string' ? structuredData.address : null) || bookingInfo.address || null
 
             // Build notes — use WinBros-specific helper for window/pressure/gutter services
             const isWinBrosExisting = tenant.slug === 'winbros'
