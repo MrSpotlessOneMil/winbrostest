@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSupabaseServiceClient } from './supabase'
 import { getUserApiKeys, type UserApiKeys } from './user-api-keys'
-import { getTenantById, type Tenant } from './tenant'
+import { getTenantById, getTenantBySlug, type Tenant } from './tenant'
 
 const SESSION_COOKIE_NAME = 'winbros_session'
 const SESSION_DURATION_DAYS = 30
@@ -233,8 +233,29 @@ export async function requireAuthWithApiKeys(
  */
 export async function getAuthTenant(request: NextRequest): Promise<Tenant | null> {
   const user = await getAuthUser(request)
-  if (!user?.tenant_id) return null
-  return getTenantById(user.tenant_id)
+  if (!user) return null
+
+  // Primary lookup: by tenant_id
+  if (user.tenant_id) {
+    const tenant = await getTenantById(user.tenant_id)
+    if (tenant) return tenant
+    console.warn(`[Auth] getAuthTenant: tenant_id=${user.tenant_id} not found for user ${user.username}, trying slug fallback`)
+  }
+
+  // Fallback: match username to tenant slug (auto-created users use slug as username)
+  if (user.username && user.username !== 'admin') {
+    const tenant = await getTenantBySlug(user.username, false)
+    if (tenant) {
+      // Self-heal: update the user's tenant_id to the correct value
+      console.warn(`[Auth] getAuthTenant: self-healing tenant_id for user ${user.username} → ${tenant.id}`)
+      const client = getSupabaseServiceClient()
+      await client.from('users').update({ tenant_id: tenant.id }).eq('id', user.id)
+      return tenant
+    }
+  }
+
+  console.error(`[Auth] getAuthTenant: no tenant found for user ${user.username} (tenant_id=${user.tenant_id})`)
+  return null
 }
 
 /**

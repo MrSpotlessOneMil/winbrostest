@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type TeamRow = { id: number; name: string; active: boolean; deleted_at?: string | null }
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
   }
 
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
 
   const [teamsRes, cleanersRes, membersRes] = await Promise.all([
     client.from("teams").select("id,name,active,deleted_at").eq("tenant_id", tenant.id).is("deleted_at", null).order("created_at", { ascending: true }),
@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
   }
 
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
   const body = await request.json().catch(() => ({}))
   const action = String(body.action || "")
 

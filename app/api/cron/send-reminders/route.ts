@@ -43,12 +43,14 @@ export async function GET(request: NextRequest) {
     let startTimeSent = 0
     const errors: string[] = []
 
-    // 1. Send daily 8am PST notifications (run if current time is 8:00-8:14 PST)
+    // 1. Send daily 8am PST route/schedule — team leads only
     if (currentHour === 8 && currentMinute < 15) {
       const cleaners = await getCleaners()
 
       for (const cleaner of cleaners) {
         if (!cleaner.id || !cleaner.telegram_id) continue
+        // Only team leads get the full day's route schedule
+        if (!cleaner.is_team_lead) continue
 
         const jobsData = await getCleanerJobsForDate(cleaner.id, todayPST)
 

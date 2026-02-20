@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { getTenantServiceDescription, getTenantById } from "@/lib/tenant"
 import { cancelTask, scheduleTask } from "@/lib/scheduler"
@@ -32,12 +32,12 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Lead ID required" }, { status: 400 })
   }
 
-  const client = getSupabaseClient()
   let tenant = await getAuthTenant(request)
 
-  // Admin user (no tenant_id) — derive tenant from the lead itself
+  // Admin user (no tenant_id) — derive tenant from the lead itself using service role
   if (!tenant && authResult.user.username === 'admin') {
-    const { data: leadRow } = await client
+    const adminClient = getSupabaseServiceClient()
+    const { data: leadRow } = await adminClient
       .from("leads")
       .select("tenant_id")
       .eq("id", leadId)
@@ -50,6 +50,9 @@ export async function POST(
   if (!tenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
+
+  // All subsequent DB operations use the tenant-scoped client (RLS enforced)
+  const client = await getTenantScopedClient(tenant.id)
 
   // Get the lead (scoped to tenant)
   const { data: lead, error: leadError } = await client

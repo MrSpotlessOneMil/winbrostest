@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, getAuthTenant } from '@/lib/auth'
-import { getSupabaseServiceClient } from '@/lib/supabase'
+import { getTenantScopedClient } from '@/lib/supabase'
 import { toE164 } from '@/lib/phone-utils'
 
 export async function GET(request: NextRequest) {
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
   const normalized = phone ? toE164(phone) : null
 
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
 
   // Build query: match by phone OR by telegram_chat_id in metadata
   let query = client

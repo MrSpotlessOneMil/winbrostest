@@ -8,11 +8,19 @@
 import { createClient } from '@supabase/supabase-js'
 import { REVIEW_BONUS_CONFIG } from '@/integrations/housecall-pro/constants'
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Lazy Supabase client — created on first call, not at module load time.
+// Top-level createClient() crashes during `next build` because env vars
+// aren't available when Vercel collects page data.
+let _supabase: ReturnType<typeof createClient> | null = null
+function getSupabase() {
+  if (!_supabase) {
+    _supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+  }
+  return _supabase
+}
 
 // Crew performance record
 export interface CrewPerformance {
@@ -73,7 +81,7 @@ async function getOrCreatePerformanceRecord(
   const periodEnd = getWeekEnd(date)
 
   // Try to find existing record
-  const { data: existing } = await supabase
+  const { data: existing } = await getSupabase()
     .from('crew_performance')
     .select('*')
     .eq('crew_id', crewId)
@@ -86,7 +94,7 @@ async function getOrCreatePerformanceRecord(
   }
 
   // Create new record
-  const { data: newRecord, error } = await supabase
+  const { data: newRecord, error } = await getSupabase()
     .from('crew_performance')
     .insert({
       crew_id: crewId,
@@ -317,7 +325,7 @@ export async function markBonusesPaid(
   crewId: string,
   throughDate: string
 ): Promise<{ success: boolean; paidCount: number; totalCents: number }> {
-  const { data: unpaid, error: fetchError } = await supabase
+  const { data: unpaid, error: fetchError } = await getSupabase()
     .from('review_attributions')
     .select('id, bonus_cents')
     .eq('crew_id', crewId)
@@ -337,7 +345,7 @@ export async function markBonusesPaid(
     return { success: true, paidCount: 0, totalCents: 0 }
   }
 
-  const { error } = await supabase
+  const { error } = await getSupabase()
     .from('review_attributions')
     .update({
       bonus_paid: true,
@@ -363,7 +371,7 @@ export async function getCrewPerformance(
   const periodStart = period === 'week' ? getWeekStart(now) : getMonthStart(now)
   const periodEnd = period === 'week' ? getWeekEnd(now) : getMonthEnd(now)
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('crew_performance')
     .select('*')
     .eq('crew_id', crewId)
@@ -425,7 +433,7 @@ export async function getPerformanceLeaderboard(
   const now = new Date()
   const periodStart = period === 'week' ? getWeekStart(now) : getMonthStart(now)
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabase()
     .from('crew_performance')
     .select('crew_id, jobs_completed, upsells_accepted, google_reviews_earned, tips_collected_cents')
     .eq('brand', 'winbros')

@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
-import { appendToTextingTranscript, getSupabaseClient } from '@/lib/supabase'
+import { appendToTextingTranscript, getTenantScopedClient, getSupabaseServiceClient } from '@/lib/supabase'
 import { getClientConfig } from '@/lib/client-config'
 import { requireAuth, getAuthTenant } from '@/lib/auth'
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save outbound message to messages table for UI display
-    const client = getSupabaseClient()
+    const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
     const e164Phone = toE164(phoneNumber)
 
     // Find customer by phone number

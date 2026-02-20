@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { SignJWT } from 'jose'
 import { toE164 } from './phone-utils'
 import { getClientConfig } from './client-config'
 import { syncHubSpotContact, syncHubSpotDeal } from './hubspot'
@@ -154,16 +155,13 @@ export function getSupabaseClient(): SupabaseClient {
       process.env.PUBLIC_SUPABASE_URL
 
     const supabaseKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY ||
-      process.env.SUPABASE_SERVICE_KEY ||
-      process.env.SUPABASE_SERVICE_ROLE ||
       process.env.SUPABASE_ANON_KEY ||
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
     if (!supabaseUrl || !supabaseKey) {
       const missing = [
         !supabaseUrl ? 'SUPABASE_URL' : null,
-        !supabaseKey ? 'SUPABASE_SERVICE_ROLE_KEY' : null,
+        !supabaseKey ? 'SUPABASE_ANON_KEY' : null,
       ].filter(Boolean)
       throw new Error(`Missing Supabase environment variables: ${missing.join(', ')}`)
     }
@@ -201,6 +199,51 @@ export function getSupabaseServiceClient(): SupabaseClient {
   }
 
   return supabaseServiceClient
+}
+
+/**
+ * Creates a short-lived JWT scoped to a specific tenant.
+ * Signed with SUPABASE_JWT_SECRET so Supabase can verify it.
+ * RLS policies read `auth.jwt() ->> 'tenant_id'` to enforce row isolation.
+ */
+export async function createTenantJwt(tenantId: string): Promise<string> {
+  const secret = process.env.SUPABASE_JWT_SECRET
+  if (!secret) throw new Error('SUPABASE_JWT_SECRET is not set')
+
+  return new SignJWT({ tenant_id: tenantId, role: 'authenticated' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(new TextEncoder().encode(secret))
+}
+
+/**
+ * Returns an anon-key Supabase client authenticated as a specific tenant.
+ * RLS policies are enforced — the client can only see that tenant's rows.
+ * Use this for all tenant-scoped API routes (customers, jobs, leads, etc.).
+ *
+ * Do NOT use this for admin, cron, or webhook routes — use getSupabaseServiceClient() there.
+ */
+export async function getTenantScopedClient(tenantId: string): Promise<SupabaseClient> {
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    process.env.PUBLIC_SUPABASE_URL
+
+  const anonKey =
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_ANON_KEY for tenant-scoped client')
+  }
+
+  const client = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    accessToken: async () => createTenantJwt(tenantId),
+  })
+
+  return client
 }
 
 async function updateCustomerHubSpotId(customerId: string, contactId: string): Promise<void> {

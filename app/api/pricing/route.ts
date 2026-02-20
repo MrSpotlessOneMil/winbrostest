@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import {
   getPricingTiers,
   getPricingAddons,
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const { data: session } = await client
       .from('sessions')
       .select('user_id, expires_at')
@@ -173,7 +173,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const { data: session } = await client
       .from('sessions')
       .select('user_id, expires_at')

@@ -32,6 +32,19 @@ import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-backg
 import { MessageBubble } from "@/components/message-bubble"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
+type MemberDetail = {
+  id: string
+  name: string
+  phone: string
+  telegram_id?: string
+  role: "lead" | "technician"
+  is_active: boolean
+  last_location_lat?: number | null
+  last_location_lng?: number | null
+  last_location_accuracy_meters?: number | null
+  last_location_updated_at?: string | null
+}
+
 type UiTeam = Team & {
   daily_metrics?: TeamDailyMetrics
   currentJob?: {
@@ -42,18 +55,7 @@ type UiTeam = Team & {
   } | null
   leadName: string
   memberNames: string[]
-  membersDetailed: Array<{
-    id: string
-    name: string
-    phone: string
-    telegram_id?: string
-    role: "lead" | "technician"
-    is_active: boolean
-    last_location_lat?: number | null
-    last_location_lng?: number | null
-    last_location_accuracy_meters?: number | null
-    last_location_updated_at?: string | null
-  }>
+  membersDetailed: MemberDetail[]
 }
 
 interface ChatMessage {
@@ -74,7 +76,9 @@ const statusConfig = {
 
 export default function TeamsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
+  const [unassignedCleaners, setUnassignedCleaners] = useState<MemberDetail[]>([])
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [editingMember, setEditingMember] = useState<{
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
   } | null>(null)
@@ -96,10 +100,17 @@ export default function TeamsPage() {
 
   async function loadTeams() {
     setLoading(true)
+    setLoadError(null)
     try {
       const today = new Date().toISOString().slice(0, 10)
       const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
-      const json = (await res.json()) as ApiResponse<any[]>
+      const json = (await res.json()) as ApiResponse<any[]> & { unassigned_cleaners?: any[] }
+      if (!json.success && json.error) {
+        setLoadError(json.error)
+        setTeams([])
+        setUnassignedCleaners([])
+        return
+      }
       const rows = Array.isArray(json.data) ? json.data : []
       const mapped: UiTeam[] = rows.map((t: any) => {
         const members = Array.isArray(t.members) ? t.members : []
@@ -128,6 +139,20 @@ export default function TeamsPage() {
         }
       })
       setTeams(mapped)
+      // Unassigned cleaners (not in any team)
+      const unassigned = Array.isArray(json.unassigned_cleaners) ? json.unassigned_cleaners : []
+      setUnassignedCleaners(unassigned.map((c: any) => ({
+        id: String(c.id),
+        name: String(c.name || "Cleaner"),
+        phone: String(c.phone || ""),
+        telegram_id: c.telegram_id || undefined,
+        role: c.role === "lead" ? "lead" : "technician",
+        is_active: Boolean(c.is_active),
+        last_location_lat: c.last_location_lat ?? null,
+        last_location_lng: c.last_location_lng ?? null,
+        last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
+        last_location_updated_at: c.last_location_updated_at ?? null,
+      })))
     } catch {
       setTeams([])
     } finally {
@@ -402,8 +427,78 @@ export default function TeamsPage() {
             )
           })}
 
+          {/* Unassigned cleaners (not in any team) */}
+          {unassignedCleaners.length > 0 && (
+            <Card className="border-dashed">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">Unassigned</CardTitle>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                    {unassignedCleaners.length}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="px-4 pb-3 pt-1">
+                <div className="space-y-1">
+                  {unassignedCleaners.map((m) => {
+                    const isSelected = chatMember?.id === m.id
+                    return (
+                      <div
+                        key={m.id}
+                        className={cn(
+                          "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
+                          isSelected
+                            ? "bg-purple-500/10 border border-purple-500/30"
+                            : "hover:bg-muted/50"
+                        )}
+                        onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span className={cn(
+                            "text-sm font-medium truncate",
+                            isSelected ? "text-purple-300" : "text-foreground"
+                          )}>
+                            {m.name}
+                          </span>
+                          {m.telegram_id && (
+                            <MessageCircle className="h-3 w-3 text-muted-foreground shrink-0" />
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5 ml-2 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setEditingMember({
+                                id: m.id,
+                                name: m.name,
+                                phone: m.phone,
+                                email: "",
+                                telegram_id: m.telegram_id || "",
+                                is_team_lead: m.role === "lead",
+                              })
+                            }}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {loading && <p className="text-sm text-muted-foreground">Loading teams...</p>}
-          {!loading && teams.length === 0 && <p className="text-sm text-muted-foreground">No teams found.</p>}
+          {!loading && loadError && (
+            <Card className="border-destructive/50">
+              <CardContent className="p-4 text-sm text-destructive">{loadError}</CardContent>
+            </Card>
+          )}
+          {!loading && !loadError && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}
