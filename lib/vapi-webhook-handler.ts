@@ -268,10 +268,28 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.log(`${tag} Call outcome was 'booked', skipping follow-up sequence`)
 
-              const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+              let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
               const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-              const bookAddress = structuredData.address as string || bookingInfo.address || null
+              const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+
+              // Convert human-readable dates like "tomorrow" to YYYY-MM-DD
+              if (appointmentDate) {
+                const lower = appointmentDate.toLowerCase().trim()
+                if (lower === 'tomorrow') {
+                  const tomorrow = new Date()
+                  tomorrow.setDate(tomorrow.getDate() + 1)
+                  appointmentDate = tomorrow.toISOString().slice(0, 10)
+                } else if (lower === 'today') {
+                  appointmentDate = new Date().toISOString().slice(0, 10)
+                } else if (!/^\d{4}-\d{2}-\d{2}/.test(appointmentDate)) {
+                  // Try to parse other date formats
+                  const parsed = new Date(appointmentDate)
+                  if (!isNaN(parsed.getTime())) {
+                    appointmentDate = parsed.toISOString().slice(0, 10)
+                  }
+                }
+              }
 
               // Build notes — use WinBros-specific helper for window/pressure/gutter services
               const isWinBros = tenant.slug === 'winbros'
@@ -395,10 +413,27 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
           if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
 
-            const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+            let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
             const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
             const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-            const bookAddress = structuredData.address as string || bookingInfo.address || null
+            const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+
+            // Convert human-readable dates like "tomorrow" to YYYY-MM-DD
+            if (appointmentDate) {
+              const lower = appointmentDate.toLowerCase().trim()
+              if (lower === 'tomorrow') {
+                const tomorrow = new Date()
+                tomorrow.setDate(tomorrow.getDate() + 1)
+                appointmentDate = tomorrow.toISOString().slice(0, 10)
+              } else if (lower === 'today') {
+                appointmentDate = new Date().toISOString().slice(0, 10)
+              } else if (!/^\d{4}-\d{2}-\d{2}/.test(appointmentDate)) {
+                const parsed = new Date(appointmentDate)
+                if (!isNaN(parsed.getTime())) {
+                  appointmentDate = parsed.toISOString().slice(0, 10)
+                }
+              }
+            }
 
             // Build notes — use WinBros-specific helper for window/pressure/gutter services
             const isWinBrosExisting = tenant.slug === 'winbros'

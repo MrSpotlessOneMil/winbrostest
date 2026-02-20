@@ -183,16 +183,20 @@ export async function createHCPCustomerAlways(
     address?: string
   }
 ): Promise<{ success: boolean; customerId?: string; error?: string }> {
-  console.log(`[HCP API] Creating new customer: ${customerData.firstName || ''} ${customerData.lastName || ''} (${customerData.phone})`)
+  console.log(`[HCP API] Creating new customer: ${customerData.firstName || ''} ${customerData.lastName || ''} (${customerData.phone}) addr=${customerData.address || 'none'}`)
+  const body: Record<string, unknown> = {
+    first_name: customerData.firstName || '',
+    last_name: customerData.lastName || '',
+    mobile_number: customerData.phone,
+    email: customerData.email || undefined,
+  }
+  // HCP expects addresses as an array of objects
+  if (customerData.address) {
+    body.addresses = [{ street: customerData.address, type: 'service' }]
+  }
   const createResult = await hcpRequest<HCPCustomer>(tenant, '/customers', {
     method: 'POST',
-    body: {
-      first_name: customerData.firstName || '',
-      last_name: customerData.lastName || '',
-      mobile_number: customerData.phone,
-      email: customerData.email || undefined,
-      address: customerData.address || undefined,
-    },
+    body,
   })
 
   if (createResult.success && createResult.data?.id) {
@@ -268,13 +272,34 @@ export async function createHCPJob(
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
 
+  // Build scheduled_start in ISO format
+  let scheduledStart: string | undefined
+  if (jobData.scheduledDate) {
+    let timeStr = '09:00:00'
+    if (jobData.scheduledTime) {
+      // Convert "10 AM", "2:30 PM", "14:00" etc to HH:MM:SS
+      const raw = jobData.scheduledTime.trim()
+      const match12 = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)$/i)
+      const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+      if (match12) {
+        let h = parseInt(match12[1])
+        const m = match12[2] ? parseInt(match12[2]) : 0
+        const ampm = match12[3].toUpperCase()
+        if (ampm === 'PM' && h < 12) h += 12
+        if (ampm === 'AM' && h === 12) h = 0
+        timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
+      } else if (match24) {
+        timeStr = `${String(parseInt(match24[1])).padStart(2, '0')}:${match24[2]}:00`
+      }
+    }
+    scheduledStart = `${jobData.scheduledDate}T${timeStr}`
+  }
+
   const result = await hcpRequest<HCPJob>(tenant, '/jobs', {
     method: 'POST',
     body: {
       customer_id: jobData.customerId,
-      scheduled_start: jobData.scheduledDate && jobData.scheduledTime
-        ? `${jobData.scheduledDate}T${jobData.scheduledTime}`
-        : undefined,
+      scheduled_start: scheduledStart,
       address: jobData.address || undefined,
       description: jobData.serviceType || 'Cleaning Service',
       total: jobData.price || undefined,
