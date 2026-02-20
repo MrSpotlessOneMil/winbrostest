@@ -428,6 +428,15 @@ export default function CustomersPage() {
         setTimeout(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
         }, 100)
+        // Reset followup timer: push pending tasks 30 min from now so the bot doesn't double-text
+        const lead = getCustomerLead(selectedCustomer.phone_number)
+        if (lead?.id) {
+          fetch(`/api/leads/${lead.id}/actions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "reschedule_after_contact" }),
+          }).catch(() => {})
+        }
       } else {
         alert(json.error || "Failed to send message")
       }

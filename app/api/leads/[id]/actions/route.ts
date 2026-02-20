@@ -396,6 +396,40 @@ export async function POST(
         })
       }
 
+      case "reschedule_after_contact": {
+        // Push all pending followup tasks for this lead forward 30 minutes from now.
+        // Called whenever a manual message is sent so the bot doesn't double-text too soon.
+        const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
+        const now = Date.now()
+        const svc = getSupabaseServiceClient()
+
+        const { data: pendingTasks } = await svc
+          .from("scheduled_tasks")
+          .select("id, scheduled_for")
+          .eq("status", "pending")
+          .eq("task_type", "lead_followup")
+          .like("task_key", `lead-${leadId}-stage-%`)
+          .order("scheduled_for", { ascending: true })
+
+        if (pendingTasks && pendingTasks.length > 0) {
+          // Shift so the earliest task is 30 min from now; keep relative gaps intact
+          const firstMs = new Date(pendingTasks[0].scheduled_for).getTime()
+          const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
+
+          for (const task of pendingTasks) {
+            const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
+            await svc
+              .from("scheduled_tasks")
+              .update({ scheduled_for: newTime.toISOString() })
+              .eq("id", task.id)
+          }
+
+          console.log(`[lead_actions] Rescheduled ${pendingTasks.length} task(s) for lead ${leadId} by +${Math.round(shift / 60000)}min`)
+        }
+
+        return NextResponse.json({ success: true, rescheduled: pendingTasks?.length ?? 0 })
+      }
+
       default:
         return NextResponse.json({ success: false, error: "Invalid action" }, { status: 400 })
     }
