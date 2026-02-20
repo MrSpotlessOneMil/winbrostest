@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
 import { appendToTextingTranscript, getTenantScopedClient, getSupabaseServiceClient } from '@/lib/supabase'
-import { getClientConfig } from '@/lib/client-config'
+import { getTenantBusinessName } from '@/lib/tenant'
 import { requireAuth, getAuthTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -45,8 +45,10 @@ export async function POST(request: NextRequest) {
     // Get tenant for proper phone formatting
     const tenant = await getAuthTenant(request)
 
-    // Send the SMS
-    const result = await sendSMS(phoneNumber, message)
+    // Send the SMS (use tenant for proper OpenPhone routing)
+    const result = tenant
+      ? await sendSMS(tenant, phoneNumber, message)
+      : await sendSMS(phoneNumber, message)
 
     if (!result.success) {
       return NextResponse.json(
@@ -88,10 +90,10 @@ export async function POST(request: NextRequest) {
 
     // Update texting transcript (legacy)
     const timestamp = new Date().toISOString()
-    const config = getClientConfig()
+    const businessNameShort = tenant ? getTenantBusinessName(tenant, true) : 'Team'
     await appendToTextingTranscript(
       phoneNumber,
-      `[${timestamp}] ${config.businessNameShort}: ${message}`
+      `[${timestamp}] ${businessNameShort}: ${message}`
     )
 
     return NextResponse.json({

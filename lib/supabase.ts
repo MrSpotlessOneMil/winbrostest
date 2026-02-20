@@ -31,6 +31,7 @@ export interface Customer {
 
 export interface Job {
   id?: string
+  tenant_id?: string
   customer_id?: string
   phone_number: string
   service_type?: string

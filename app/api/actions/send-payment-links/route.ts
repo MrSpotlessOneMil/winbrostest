@@ -22,7 +22,7 @@ import {
 import { logSystemEvent } from '@/lib/system-events'
 import { mergeEstimateIntoNotes } from '@/lib/pricing-config'
 import { alertOwner } from '@/lib/owner-alert'
-import { getClientConfig } from '@/lib/client-config'
+import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuth } from '@/lib/auth'
 
 const PAYMENT_LINK_DELAY_MS = Number(process.env.SMS_PAYMENT_LINK_DELAY_MS || '60000')
@@ -50,6 +50,10 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Look up tenant for dynamic business name and proper SMS routing
+    const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+    const businessNameShort = tenant ? getTenantBusinessName(tenant, true) : 'Team'
 
     // Get customer details
     const customer = await getCustomerByPhone(job.phone_number)
@@ -98,13 +102,14 @@ export async function POST(request: NextRequest) {
     }
 
     const timestamp = new Date().toISOString()
-    const config = getClientConfig()
     if (PAYMENT_LINK_DELAY_MS > 0) {
       await new Promise(resolve => setTimeout(resolve, PAYMENT_LINK_DELAY_MS))
     }
 
     const depositMessage = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
-    const depositSms = await sendSMS(customer.phone_number, depositMessage)
+    const depositSms = tenant
+      ? await sendSMS(tenant, customer.phone_number, depositMessage)
+      : await sendSMS(customer.phone_number, depositMessage)
     if (!depositSms.success) {
       await alertOwner('Failed to send deposit SMS to customer.', {
         jobId,
@@ -113,7 +118,7 @@ export async function POST(request: NextRequest) {
     }
     await appendToTextingTranscript(
       customer.phone_number,
-      `[${timestamp}] ${config.businessNameShort}: ${depositMessage}`
+      `[${timestamp}] ${businessNameShort}: ${depositMessage}`
     )
 
     // Update job status

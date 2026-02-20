@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantScopedClient } from "@/lib/supabase"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -8,14 +8,17 @@ export async function GET(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }
 
   const searchParams = request.nextUrl.searchParams
   const range = searchParams.get("range") || "month"
 
-  const client = await getTenantScopedClient(tenant.id)
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
 
   const now = new Date()
   const start = new Date(now)
@@ -26,13 +29,20 @@ export async function GET(request: NextRequest) {
 
   const startIso = start.toISOString()
 
-  const [tipsRes, upsellsRes, jobsRes, teamsRes, reviewsRes] = await Promise.all([
-    client.from("tips").select("amount,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
-    client.from("upsells").select("value,team_id,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
-    client.from("jobs").select("id,team_id,status,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
-    client.from("teams").select("id,name").eq("tenant_id", tenant.id).eq("active", true),
-    client.from("reviews").select("id,team_id,rating,created_at").eq("tenant_id", tenant.id).gte("created_at", startIso),
-  ])
+  let tipsQ = client.from("tips").select("amount,team_id,created_at").gte("created_at", startIso)
+  let upsellsQ = client.from("upsells").select("value,team_id,created_at").gte("created_at", startIso)
+  let jobsQ = client.from("jobs").select("id,team_id,status,created_at").gte("created_at", startIso)
+  let teamsQ = client.from("teams").select("id,name").eq("active", true)
+  let reviewsQ = client.from("reviews").select("id,team_id,rating,created_at").gte("created_at", startIso)
+  if (tenant) {
+    tipsQ = tipsQ.eq("tenant_id", tenant.id)
+    upsellsQ = upsellsQ.eq("tenant_id", tenant.id)
+    jobsQ = jobsQ.eq("tenant_id", tenant.id)
+    teamsQ = teamsQ.eq("tenant_id", tenant.id)
+    reviewsQ = reviewsQ.eq("tenant_id", tenant.id)
+  }
+
+  const [tipsRes, upsellsRes, jobsRes, teamsRes, reviewsRes] = await Promise.all([tipsQ, upsellsQ, jobsQ, teamsQ, reviewsQ])
 
   if (tipsRes.error) return NextResponse.json({ success: false, error: tipsRes.error.message }, { status: 500 })
   if (upsellsRes.error) return NextResponse.json({ success: false, error: upsellsRes.error.message }, { status: 500 })

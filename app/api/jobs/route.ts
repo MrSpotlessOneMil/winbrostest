@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { getTenantById } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
@@ -140,7 +141,8 @@ export async function PATCH(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  const isAdmin = !tenant && authResult.user.username === 'admin'
+  if (!tenant && !isAdmin) {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }
 
@@ -152,33 +154,39 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Job ID is required" }, { status: 400 })
     }
 
-    const client = await getTenantScopedClient(tenant.id)
+    const client = tenant
+      ? await getTenantScopedClient(tenant.id)
+      : getSupabaseServiceClient()
 
     // Fetch old job to detect time changes for SMS notification
-    const { data: oldJob } = await client
+    let oldJobQuery = client
       .from("jobs")
       .select("*, customers (*)")
       .eq("id", Number(id))
-      .eq("tenant_id", tenant.id)
-      .single()
+    if (tenant) oldJobQuery = oldJobQuery.eq("tenant_id", tenant.id)
+    const { data: oldJob } = await oldJobQuery.single()
 
     const updates: Record<string, any> = { updated_at: new Date().toISOString() }
     if (date !== undefined) updates.date = date
     if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
     if (hours !== undefined) updates.hours = hours
 
-    const { data, error } = await client
+    let updateQuery = client
       .from("jobs")
       .update(updates)
       .eq("id", Number(id))
-      .eq("tenant_id", tenant.id)
+    if (tenant) updateQuery = updateQuery.eq("tenant_id", tenant.id)
+
+    const { data, error } = await updateQuery
       .select("*, customers (*), cleaners (*)")
       .single()
 
     if (error) throw error
 
     // Send SMS notification if date or time changed
-    if (oldJob && (date !== undefined || scheduled_at !== undefined)) {
+    // For admin, look up the job's tenant for business name
+    const jobTenant = tenant || (oldJob?.tenant_id ? await getTenantById(oldJob.tenant_id) : null)
+    if (oldJob && jobTenant && (date !== undefined || scheduled_at !== undefined)) {
       const oldDate = oldJob.date
       const oldTime = oldJob.scheduled_at
       const timeChanged = (date !== undefined && date !== oldDate) || (scheduled_at !== undefined && scheduled_at !== oldTime)
@@ -187,7 +195,7 @@ export async function PATCH(request: NextRequest) {
         const customer = Array.isArray(oldJob.customers) ? oldJob.customers[0] : oldJob.customers
         const customerPhone = customer?.phone_number || oldJob.phone_number
         const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
-        const businessName = (tenant as any).business_name_short || (tenant as any).name || "us"
+        const businessName = (jobTenant as any).business_name_short || (jobTenant as any).name || "us"
 
         if (customerPhone) {
           const newDate = date || oldDate
@@ -210,13 +218,14 @@ export async function PATCH(request: NextRequest) {
 
           const smsMessage = `Hi ${customerName}! Your ${businessName} cleaning has been rescheduled to ${dateFormatted} at ${timeFormatted}. Reply with any questions!`
 
-          sendSMS(tenant as any, customerPhone, smsMessage).catch((err) =>
+          sendSMS(jobTenant as any, customerPhone, smsMessage).catch((err) =>
             console.error("[Jobs PATCH] Failed to send reschedule SMS:", err)
           )
 
           // Log the outbound message to the database
-          client.from("messages").insert({
-            tenant_id: tenant.id,
+          const svcClient = getSupabaseServiceClient()
+          svcClient.from("messages").insert({
+            tenant_id: jobTenant.id,
             customer_id: customer?.id || oldJob.customer_id || null,
             phone_number: customerPhone,
             role: "assistant",
@@ -249,8 +258,12 @@ export async function POST(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) can't create without tenant context
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "Switch to a tenant account to create jobs" }, { status: 400 })
   }
 
   try {

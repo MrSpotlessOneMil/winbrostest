@@ -254,7 +254,10 @@ export async function getAuthTenant(request: NextRequest): Promise<Tenant | null
     }
   }
 
-  console.error(`[Auth] getAuthTenant: no tenant found for user ${user.username} (tenant_id=${user.tenant_id})`)
+  // Admin user intentionally has no tenant — not an error
+  if (user.username !== 'admin') {
+    console.error(`[Auth] getAuthTenant: no tenant found for user ${user.username} (tenant_id=${user.tenant_id})`)
+  }
   return null
 }
 

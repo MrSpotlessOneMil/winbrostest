@@ -470,6 +470,15 @@ export interface WinBrosBookingData {
   preferredDate: string | null // YYYY-MM-DD
   preferredTime: string | null // HH:MM (24h)
   email: string | null
+
+  // Pressure washing fields
+  pressureWashingSurfaces: string[] | null // ["house_wash", "driveway", "patio", etc.]
+  areaSize: string | null // "small" | "medium" | "large"
+  conditionType: string | null // "mold_mildew" | "general_cleanup"
+
+  // Gutter cleaning fields
+  propertyType: string | null // "single_story" | "two_story" | "larger_two_story"
+  gutterConditions: string | null // "heavy_clogging" | "none"
 }
 
 /**
@@ -502,7 +511,7 @@ export async function extractBookingData(
   "scope": "exterior" | "interior_and_exterior" | null,
   "buildingType": "home" | "commercial" | null,
   "squareFootage": number | null,
-  "price": number | null,
+  "price": null,
   "planType": "one_time" | "biannual" | "quarterly" | null,
   "fullName": "string" | null,
   "firstName": "string" | null,
@@ -510,7 +519,12 @@ export async function extractBookingData(
   "address": "string" | null,
   "referralSource": "string" | null,
   "preferredDate": "string" | null,
-  "email": "string" | null
+  "email": "string" | null,
+  "pressureWashingSurfaces": ["house_wash","driveway","patio","sidewalk","deck","fence","pool_deck","retaining_wall","stone"] | null,
+  "areaSize": "small" | "medium" | "large" | null,
+  "conditionType": "mold_mildew" | "general_cleanup" | null,
+  "propertyType": "single_story" | "two_story" | "larger_two_story" | null,
+  "gutterConditions": "heavy_clogging" | "none" | null
 }
 
 For scope: This is what the CUSTOMER chose, not what was offered. Mary asks "just exterior or interior and exterior?" — look at the CUSTOMER'S reply. If they said "just exterior", "exterior only", "outside only", etc., scope is "exterior". Only use "interior_and_exterior" if the customer explicitly said they want BOTH interior and exterior.
@@ -518,6 +532,11 @@ For price: Do NOT extract a price. Always set price to null — the system will 
 For address: Look at BOTH Mary's and the customer's messages. If Mary mentions a full address and the customer later corrects part of it (e.g., "Its Tamalpais Ave" to fix a street name), return the CORRECTED full address with the correction applied (keep house number, city, state, zip from the original).
 For names: If the customer corrects their name (e.g., "my name is grenager"), return the corrected spelling.
 For email: look for an email address in the customer's messages.
+For pressureWashingSurfaces: If serviceType is pressure_washing, list all surfaces the customer wants washed using snake_case names from the list above. null if not pressure washing.
+For areaSize: If pressure washing, the customer's answer about small/medium/large area. null otherwise.
+For conditionType: If pressure washing, "mold_mildew" if they mentioned mold, mildew, or algae; "general_cleanup" for general curb appeal cleanup. null otherwise.
+For propertyType: If gutter cleaning, "single_story", "two_story", or "larger_two_story" (bigger/larger two-story home). null otherwise.
+For gutterConditions: If gutter cleaning, "heavy_clogging" if heavy clogging/overflowing mentioned, "none" otherwise. null if not gutter cleaning.
 
 IMPORTANT: If the customer corrects ANY information that was previously stated, always return the CORRECTED version, not the original.
 
@@ -551,6 +570,13 @@ Return ONLY the JSON object, nothing else.`
         preferredDate: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).date : null,
         preferredTime: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).time : null,
         email: parsed.email || null,
+        // Pressure washing fields
+        pressureWashingSurfaces: Array.isArray(parsed.pressureWashingSurfaces) ? parsed.pressureWashingSurfaces : null,
+        areaSize: parsed.areaSize || null,
+        conditionType: parsed.conditionType || null,
+        // Gutter cleaning fields
+        propertyType: parsed.propertyType || null,
+        gutterConditions: parsed.gutterConditions || null,
       }
     } catch (err) {
       console.error('[WinBros] AI booking data extraction failed:', err)
@@ -643,6 +669,52 @@ function extractBookingDataRegex(
   else if (/biannual|bi-annual/i.test(allTextLower)) planType = 'biannual'
   else if (/one.?time/i.test(allTextLower)) planType = 'one_time'
 
+  // Pressure washing surfaces
+  let pressureWashingSurfaces: string[] | null = null
+  if (serviceType === 'pressure_washing') {
+    const surfaces: string[] = []
+    if (/house\s*wash|siding|soft\s*wash/i.test(allTextLower)) surfaces.push('house_wash')
+    if (/driveway/i.test(allTextLower)) surfaces.push('driveway')
+    if (/\bpatio\b/i.test(allTextLower)) surfaces.push('patio')
+    if (/sidewalk/i.test(allTextLower)) surfaces.push('sidewalk')
+    if (/\bdeck\b/i.test(allTextLower) && !/pool\s*deck/i.test(allTextLower)) surfaces.push('deck')
+    if (/\bfence\b/i.test(allTextLower)) surfaces.push('fence')
+    if (/pool\s*deck|pool\s*area/i.test(allTextLower)) surfaces.push('pool_deck')
+    if (/retaining\s*wall/i.test(allTextLower)) surfaces.push('retaining_wall')
+    if (/stone\s*clean/i.test(allTextLower)) surfaces.push('stone')
+    if (surfaces.length > 0) pressureWashingSurfaces = surfaces
+  }
+
+  // Area size (pressure washing)
+  let areaSize: string | null = null
+  if (serviceType === 'pressure_washing') {
+    if (/\bsmall\b/i.test(allTextLower)) areaSize = 'small'
+    else if (/\bmedium\b/i.test(allTextLower)) areaSize = 'medium'
+    else if (/\blarge\b/i.test(allTextLower)) areaSize = 'large'
+  }
+
+  // Condition type (pressure washing)
+  let conditionType: string | null = null
+  if (serviceType === 'pressure_washing') {
+    if (/mold|mildew|algae/i.test(allTextLower)) conditionType = 'mold_mildew'
+    else if (/general|curb\s*appeal|clean.?up/i.test(allTextLower)) conditionType = 'general_cleanup'
+  }
+
+  // Property type (gutter cleaning)
+  let propertyType: string | null = null
+  if (serviceType === 'gutter_cleaning') {
+    if (/single.?story|one.?story|ranch|1.?story/i.test(allTextLower)) propertyType = 'single_story'
+    else if (/larger\s*two.?story|big\s*two.?story|big.*2.?story/i.test(allTextLower)) propertyType = 'larger_two_story'
+    else if (/two.?story|2.?story/i.test(allTextLower)) propertyType = 'two_story'
+  }
+
+  // Gutter conditions
+  let gutterConditions: string | null = null
+  if (serviceType === 'gutter_cleaning') {
+    if (/heavy\s*clog|overflowing|backed\s*up/i.test(allTextLower)) gutterConditions = 'heavy_clogging'
+    else gutterConditions = 'none'
+  }
+
   // Preferred date — parse natural language into YYYY-MM-DD
   let preferredDate: string | null = null
   let preferredTime: string | null = null
@@ -692,5 +764,45 @@ function extractBookingDataRegex(
     preferredDate,
     preferredTime,
     email,
+    pressureWashingSurfaces,
+    areaSize,
+    conditionType,
+    propertyType,
+    gutterConditions,
   }
+}
+
+// =====================================================================
+// JOB NOTES HELPER
+// =====================================================================
+
+/**
+ * Build service-specific job notes from WinBros booking data.
+ * Used by OpenPhone webhook, Stripe webhook, and VAPI webhook handler.
+ */
+export function buildWinBrosJobNotes(bookingData: Partial<WinBrosBookingData>): string {
+  if (bookingData.serviceType === 'pressure_washing') {
+    return [
+      bookingData.pressureWashingSurfaces?.length ? `Surfaces: ${bookingData.pressureWashingSurfaces.join(', ')}` : null,
+      bookingData.areaSize ? `Area: ${bookingData.areaSize}` : null,
+      bookingData.conditionType ? `Condition: ${bookingData.conditionType}` : null,
+      bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+    ].filter(Boolean).join(' | ') || ''
+  }
+
+  if (bookingData.serviceType === 'gutter_cleaning') {
+    return [
+      bookingData.propertyType ? `Property: ${bookingData.propertyType}` : null,
+      bookingData.gutterConditions ? `Conditions: ${bookingData.gutterConditions}` : null,
+      bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+    ].filter(Boolean).join(' | ') || ''
+  }
+
+  // Window cleaning (default)
+  return [
+    bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
+    bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+    bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+    bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+  ].filter(Boolean).join(' | ') || ''
 }

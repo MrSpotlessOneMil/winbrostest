@@ -680,6 +680,7 @@ export default function JobsPage() {
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
               initialView={getSavedView()}
               initialDate={getSavedDate()}
+              height="100%"
               headerToolbar={{
                 left: "prev,next today",
                 center: "title",

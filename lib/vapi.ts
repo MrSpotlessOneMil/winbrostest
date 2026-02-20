@@ -25,6 +25,14 @@ export interface BookingInfo {
   notes?: string
   frequency?: string
   freeCouchCleaningRequested?: boolean | null
+  // WinBros-specific fields (window cleaning, pressure washing, gutter cleaning)
+  scope?: string | null // "exterior" | "interior" | "interior_and_exterior"
+  planType?: string | null // "one_time" | "monthly" | "quarterly"
+  pressureWashingSurfaces?: string[] | null // ["house_wash", "driveway", "patio", ...]
+  areaSize?: string | null // "small" | "medium" | "large"
+  conditionType?: string | null // "mold_mildew" | "general_cleanup"
+  propertyType?: string | null // "single_story" | "two_story" | "larger_two_story"
+  gutterConditions?: string | null // "heavy_clogging" | "none"
 }
 
 export interface VapiCallData {
@@ -100,15 +108,22 @@ Return a JSON object with these fields (use null for missing info):
 - firstName: customer's first name
 - lastName: customer's last name
 - address: full street address
-- bedrooms: number of bedrooms (integer)
-- bathrooms: number of bathrooms (allow .5 increments)
+- bedrooms: number of bedrooms (integer) — house cleaning calls only
+- bathrooms: number of bathrooms (allow .5 increments) — house cleaning calls only
 - squareFootage: square footage (integer)
-- serviceType: "Standard cleaning", "Deep cleaning", or "Move in/out"
+- serviceType: For house cleaning calls use "Standard cleaning", "Deep cleaning", or "Move in/out". For window/exterior calls use "window_cleaning", "pressure_washing", or "gutter_cleaning"
 - requestedDate: date in YYYY-MM-DD format (calculate from today if relative, use FINAL date if customer changes)
 - requestedTime: time in HH:MM AM/PM format
-- notes: any special requests, add-ons (inside fridge/oven/cabinets, windows), pet info, access instructions
+- notes: any special requests, add-ons (inside fridge/oven/cabinets, windows, screens, construction residue), pet info, access instructions
 - frequency: "One-time", "Weekly", "Bi-weekly", or "Monthly"
 - freeCouchCleaningRequested: true if customer explicitly wants to redeem the free couch cleaning for this booking, false if they explicitly decline, null if not mentioned or they want to save it for later
+- scope: for window cleaning — "exterior", "interior", or "interior_and_exterior" (null if not window cleaning)
+- planType: "one_time", "monthly", or "quarterly" (null if not mentioned)
+- pressureWashingSurfaces: for pressure washing — array of surfaces like ["house_wash", "driveway", "patio", "sidewalk", "deck", "fence", "pool_deck", "retaining_wall", "stone"] (null if not pressure washing)
+- areaSize: for pressure washing — "small", "medium", or "large" (null if not pressure washing)
+- conditionType: for pressure washing — "mold_mildew" or "general_cleanup" (null if not pressure washing)
+- propertyType: for gutter cleaning — "single_story", "two_story", or "larger_two_story" (null if not gutter cleaning)
+- gutterConditions: for gutter cleaning — "heavy_clogging" or "none" (null if not gutter cleaning)
 
 TRANSCRIPT:
 ${transcript}
@@ -179,11 +194,18 @@ When the customer says "tomorrow", "next week", "next Monday", etc., calculate t
 CRITICAL: If the customer mentions MULTIPLE dates or changes their mind during the call, use ONLY the FINAL/LAST date they confirmed. Look for phrases like "actually", "wait", "change that", "no make it", "instead" - these indicate the customer is correcting themselves. Always extract the most recent date mentioned at the end of the conversation.
 
 Return a JSON object with these fields (use null for missing info):
-- firstName, lastName, address, bedrooms, bathrooms (allow .5), squareFootage
-- serviceType: "Standard cleaning", "Deep cleaning", or "Move in/out"
+- firstName, lastName, address, bedrooms (house cleaning only), bathrooms (allow .5, house cleaning only), squareFootage
+- serviceType: For house cleaning use "Standard cleaning", "Deep cleaning", or "Move in/out". For window/exterior use "window_cleaning", "pressure_washing", or "gutter_cleaning"
 - requestedDate (YYYY-MM-DD, calculate from today if relative, use FINAL date if changed), requestedTime (HH:MM AM/PM)
-- notes (include add-ons like inside fridge/oven/cabinets, windows), frequency
-- freeCouchCleaningRequested (true if they want to redeem the free couch cleaning for this booking, false if they explicitly decline, null if not mentioned or they want to save it for later)`
+- notes (include add-ons like inside fridge/oven/cabinets, windows, screens, construction residue), frequency
+- freeCouchCleaningRequested (true if they want to redeem the free couch cleaning for this booking, false if they explicitly decline, null if not mentioned or they want to save it for later)
+- scope: for window cleaning — "exterior", "interior", or "interior_and_exterior" (null otherwise)
+- planType: "one_time", "monthly", or "quarterly" (null if not mentioned)
+- pressureWashingSurfaces: for pressure washing — array like ["house_wash", "driveway", "patio", "sidewalk", "deck", "fence", "pool_deck", "retaining_wall", "stone"] (null otherwise)
+- areaSize: for pressure washing — "small", "medium", or "large" (null otherwise)
+- conditionType: for pressure washing — "mold_mildew" or "general_cleanup" (null otherwise)
+- propertyType: for gutter cleaning — "single_story", "two_story", or "larger_two_story" (null otherwise)
+- gutterConditions: for gutter cleaning — "heavy_clogging" or "none" (null otherwise)`
         },
         {
           role: 'user',

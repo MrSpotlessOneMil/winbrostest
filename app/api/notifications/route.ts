@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantScopedClient } from "@/lib/supabase"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type NotificationItem = {
@@ -44,19 +44,24 @@ export async function GET(req: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(req)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: true, data: [] })
   }
 
   const limit = Math.min(20, Math.max(1, parseInt(req.nextUrl.searchParams.get("limit") || "10")))
-  const client = await getTenantScopedClient(tenant.id)
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
 
-  const { data, error } = await client
+  let query = client
     .from("system_events")
     .select("id,event_type,source,message,created_at")
-    .eq("tenant_id", tenant.id)
     .order("created_at", { ascending: false })
     .limit(limit)
+  if (tenant) query = query.eq("tenant_id", tenant.id)
+
+  const { data, error } = await query
 
   if (error) {
     return NextResponse.json({ success: false, error: error.message, data: [] }, { status: 500 })

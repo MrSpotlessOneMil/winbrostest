@@ -519,6 +519,8 @@ export async function POST(request: NextRequest) {
                 serviceType: (formData.serviceType as string) || job?.service_type || null,
                 squareFootage: (formData.squareFootage as number) || job?.square_footage || null,
                 scope: scope || null,
+                pressureWashingSurfaces: (formData.pressureWashingSurfaces as string[]) || null,
+                propertyType: (formData.propertyType as string) || null,
               }
               console.log(`[OpenPhone] Pricebook lookup inputs (phone call):`, JSON.stringify(lookupInput))
               const priceLookup = lookupPrice(lookupInput)
@@ -1130,8 +1132,10 @@ export async function POST(request: NextRequest) {
                     serviceType: bookingData.serviceType || null,
                     squareFootage: bookingData.squareFootage || null,
                     scope: bookingData.scope || null,
+                    pressureWashingSurfaces: bookingData.pressureWashingSurfaces || null,
+                    propertyType: bookingData.propertyType || null,
                   }
-                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}"`)
+                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}", surfaces=${JSON.stringify(bookingData.pressureWashingSurfaces)}, propertyType=${bookingData.propertyType}`)
                   const priceLookup = lookupPrice(lookupInput)
                   if (priceLookup) {
                     servicePrice = priceLookup.price
@@ -1150,16 +1154,12 @@ export async function POST(request: NextRequest) {
 
               // Build job notes with OVERRIDE tags for pricing engine
               const { mergeOverridesIntoNotes } = await import("@/lib/pricing-config")
+              const { buildWinBrosJobNotes } = await import("@/lib/winbros-sms-prompt")
               let jobNotes = ''
 
               if (isWinBrosTenant) {
-                // WinBros: scope, plan, referral info
-                jobNotes = [
-                  bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
-                  bookingData.scope ? `Scope: ${bookingData.scope}` : null,
-                  bookingData.planType ? `Plan: ${bookingData.planType}` : null,
-                  bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
-                ].filter(Boolean).join(' | ') || ''
+                // WinBros: service-specific notes (window/pressure/gutter)
+                jobNotes = buildWinBrosJobNotes(bookingData)
               } else {
                 // House cleaning: bed/bath/sqft + pets + frequency
                 jobNotes = [
@@ -1177,8 +1177,10 @@ export async function POST(request: NextRequest) {
                 })
               }
 
-              // Default service type based on tenant
-              const defaultServiceType = isWinBrosTenant ? 'window cleaning' : 'Standard cleaning'
+              // Default service type based on tenant and booking data
+              const defaultServiceType = isWinBrosTenant
+                ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
+                : 'Standard cleaning'
 
               // Create job
               const { data: newJob, error: jobError } = await client.from("jobs").insert({

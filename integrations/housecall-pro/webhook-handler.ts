@@ -20,6 +20,7 @@ import {
 import { normalizePhone } from '@/lib/phone-utils'
 import { logSystemEvent } from '@/lib/system-events'
 import { getClientConfig } from '@/lib/client-config'
+import { getTenantBySlug, getTenantBusinessName, getTenantSdrName } from '@/lib/tenant'
 import { checkStackedReschedules } from '@/lib/winbros-alerts'
 
 // Lazy-initialize Supabase client (avoid build-time env var access)
@@ -614,11 +615,15 @@ async function handleLeadCreated(
     }
 
     // 4. Send initial SMS immediately via OpenPhone
-    const config = getClientConfig('winbros')
+    const winbrosTenant = await getTenantBySlug('winbros')
+    const hcpBusinessName = winbrosTenant ? getTenantBusinessName(winbrosTenant) : 'our team'
+    const hcpSdrName = winbrosTenant ? getTenantSdrName(winbrosTenant) : 'the team'
     const firstName = leadFirstName || 'there'
-    const initialMessage = `Hey ${firstName}! This is ${config.sdrPersona || 'the team'} from WinBros Window Cleaning. Thanks for reaching out! When would be a good time to get your windows sparkling clean?`
+    const initialMessage = `Hey ${firstName}! This is ${hcpSdrName} from ${hcpBusinessName}. Thanks for reaching out! When would be a good time to get your windows sparkling clean?`
 
-    const smsResult = await sendSMS(phoneNumber, initialMessage, 'winbros')
+    const smsResult = winbrosTenant
+      ? await sendSMS(winbrosTenant, phoneNumber, initialMessage)
+      : await sendSMS(phoneNumber, initialMessage, 'winbros')
 
     if (smsResult.success) {
       // Update lead status
