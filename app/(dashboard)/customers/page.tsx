@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2 } from "lucide-react"
+import { Send, Loader2, Trash2 } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -118,6 +118,7 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [smsMessage, setSmsMessage] = useState("")
   const [sendingSms, setSendingSms] = useState(false)
+  const [deletingCustomer, setDeletingCustomer] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -298,6 +299,35 @@ export default function CustomersPage() {
     } catch (error) {
       console.error("Failed to move to stage:", error)
       alert("Failed to move to stage")
+    }
+  }
+
+  // Handle delete customer
+  const handleDeleteCustomer = async () => {
+    if (!selectedCustomer) return
+    const name = getCustomerName(selectedCustomer)
+    if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return
+
+    setDeletingCustomer(true)
+    try {
+      const res = await fetch(`/api/customers?id=${selectedCustomer.id}`, { method: "DELETE" })
+      const json = await res.json()
+      if (!json.success) {
+        alert(json.error || "Failed to delete customer")
+        return
+      }
+      // Remove from local state
+      const remaining = customers.filter((c) => c.id !== selectedCustomer.id)
+      setCustomers(remaining)
+      setMessages((prev) => prev.filter((m) => normalizePhone(m.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setCalls((prev) => prev.filter((c) => normalizePhone(c.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setLeads((prev) => prev.filter((l) => normalizePhone(l.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setSelectedCustomer(remaining.length > 0 ? remaining[0] : null)
+    } catch (error) {
+      console.error("Failed to delete customer:", error)
+      alert("Failed to delete customer")
+    } finally {
+      setDeletingCustomer(false)
     }
   }
 
@@ -597,6 +627,16 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Delete Customer */}
+                      <button
+                        onClick={handleDeleteCustomer}
+                        disabled={deletingCustomer}
+                        className="p-1.5 rounded text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                        title="Delete customer"
+                      >
+                        {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+
                       {/* Auto-Response Toggle */}
                       {getCustomerLead(selectedCustomer.phone_number) && (
                         <div className="flex items-center gap-2">

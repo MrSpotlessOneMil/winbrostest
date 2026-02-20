@@ -2,6 +2,55 @@ import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
+export async function DELETE(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  const tenant = await getAuthTenant(request)
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const customerId = searchParams.get("id")
+  if (!customerId) {
+    return NextResponse.json({ success: false, error: "Missing customer id" }, { status: 400 })
+  }
+
+  const client = await getTenantScopedClient(tenant.id)
+
+  // Fetch the customer first to get phone_number (for related data cleanup)
+  const { data: customer, error: fetchError } = await client
+    .from("customers")
+    .select("phone_number")
+    .eq("id", customerId)
+    .single()
+
+  if (fetchError || !customer) {
+    return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 })
+  }
+
+  const phone = customer.phone_number
+
+  // Delete related records
+  await client.from("messages").delete().eq("phone_number", phone)
+  await client.from("calls").delete().eq("phone_number", phone)
+  await client.from("leads").delete().eq("phone_number", phone)
+  await client.from("jobs").delete().eq("customer_phone", phone)
+
+  // Delete the customer
+  const { error: deleteError } = await client
+    .from("customers")
+    .delete()
+    .eq("id", customerId)
+
+  if (deleteError) {
+    return NextResponse.json({ success: false, error: deleteError.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}
+
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
