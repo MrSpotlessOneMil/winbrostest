@@ -54,6 +54,33 @@ interface HCPCustomer {
   address?: string
 }
 
+function toHcpMoneyCents(value?: number | null): number | undefined {
+  if (value === null || value === undefined) return undefined
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return undefined
+  return Math.round(numeric * 100)
+}
+
+function toHcpLineItems(
+  lineItems?: Array<{
+    name: string
+    quantity: number
+    unit_price: number
+    description?: string
+  }>
+): Array<{
+  name: string
+  quantity: number
+  unit_price: number
+  description?: string
+}> | undefined {
+  if (!lineItems?.length) return undefined
+  return lineItems.map((item) => ({
+    ...item,
+    unit_price: toHcpMoneyCents(item.unit_price) ?? 0,
+  }))
+}
+
 /**
  * Make authenticated request to HousecallPro API
  */
@@ -233,6 +260,7 @@ export async function convertHCPLeadToJob(
   }
 ): Promise<{ success: boolean; jobId?: string; customerId?: string; error?: string }> {
   console.log(`[HCP API] Converting lead ${leadId} to job`)
+  const totalCents = toHcpMoneyCents(jobData.price)
 
   // HCP's lead conversion endpoint
   const result = await hcpRequest<{ job: HCPJob; customer: HCPCustomer }>(
@@ -246,7 +274,7 @@ export async function convertHCPLeadToJob(
           : undefined,
         address: jobData.address || undefined,
         description: jobData.serviceType || 'Cleaning Service',
-        total: jobData.price || undefined,
+        total: totalCents,
         notes: jobData.notes || undefined,
       },
     }
@@ -288,6 +316,8 @@ export async function createHCPJob(
   }
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
+  const totalCents = toHcpMoneyCents(jobData.price)
+  const lineItemsCents = toHcpLineItems(jobData.lineItems)
 
   // Build scheduled_start in ISO format
   let scheduledStart: string | undefined
@@ -334,9 +364,9 @@ export async function createHCPJob(
       scheduled_end: scheduledEnd,
       address: jobData.address || undefined,
       description: jobData.serviceType || 'Cleaning Service',
-      total: jobData.price || undefined,
+      total: totalCents,
       notes: jobData.notes || undefined,
-      line_items: jobData.lineItems?.length ? jobData.lineItems : undefined,
+      line_items: lineItemsCents,
       assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
     },
   })
@@ -372,6 +402,8 @@ export async function updateHCPJob(
     durationHours?: number
   }
 ): Promise<{ success: boolean; error?: string }> {
+  const totalCents = toHcpMoneyCents(jobData.price)
+  const lineItemsCents = toHcpLineItems(jobData.lineItems)
   let scheduledStart: string | undefined
   if (jobData.scheduledDate) {
     let timeStr = '09:00:00'
@@ -410,9 +442,9 @@ export async function updateHCPJob(
       scheduled_end: scheduledEnd,
       address: jobData.address || undefined,
       description: jobData.serviceType || undefined,
-      total: jobData.price || undefined,
+      total: totalCents,
       notes: jobData.notes || undefined,
-      line_items: jobData.lineItems?.length ? jobData.lineItems : undefined,
+      line_items: lineItemsCents,
       assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
     },
   })
