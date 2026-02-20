@@ -88,6 +88,19 @@ type RainDayResult = {
   spread_summary: Record<string, number>
 }
 
+const CLEANER_COLORS = [
+  "#3b82f6", // blue
+  "#22c55e", // green
+  "#ef4444", // red
+  "#f97316", // orange
+  "#a855f7", // purple
+  "#14b8a6", // teal
+  "#ec4899", // pink
+  "#eab308", // yellow
+  "#6366f1", // indigo
+  "#06b6d4", // cyan
+]
+
 const emptyValue = "\u2014"
 
 function resolveCustomer(job: CalendarJob) {
@@ -259,6 +272,17 @@ export default function JobsPage() {
     fetchJobs()
   }, [])
 
+  const cleanerColorMap = useMemo(() => {
+    const names = [...new Set(
+      jobs.map(j => resolveCleanerName(j)).filter(Boolean)
+    )] as string[]
+    const map = new Map<string, string>()
+    names.sort().forEach((name, i) => {
+      map.set(name, CLEANER_COLORS[i % CLEANER_COLORS.length])
+    })
+    return map
+  }, [jobs])
+
   const baseEvents = useMemo<EventInput[]>(() => {
     return jobs.map((job) => {
       const start = resolveStart(job)
@@ -271,6 +295,7 @@ export default function JobsPage() {
         ? `${customerName} (${cleanerName})`
         : job.title || job.service_type || customerName
       const className = eventClassForStatus(job.status)
+      const cleanerColor = cleanerName ? cleanerColorMap.get(cleanerName) : undefined
 
       return {
         id: String(job.id),
@@ -278,6 +303,8 @@ export default function JobsPage() {
         start,
         end,
         classNames: [className],
+        backgroundColor: cleanerColor,
+        borderColor: cleanerColor,
         extendedProps: {
           description,
           location,
@@ -292,7 +319,7 @@ export default function JobsPage() {
         },
       }
     })
-  }, [jobs])
+  }, [jobs, cleanerColorMap])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -627,6 +654,24 @@ export default function JobsPage() {
             Rainy Day Reschedule
           </button>
         </div>
+
+        {cleanerColorMap.size >= 2 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            {[...cleanerColorMap.entries()].map(([name, color]) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                <span style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  backgroundColor: color,
+                  display: "inline-block",
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="calendar-card">
           <div id="calendar">
