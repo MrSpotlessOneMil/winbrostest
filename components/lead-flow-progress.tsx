@@ -251,17 +251,13 @@ export function LeadFlowProgress({
                     <div className="text-[10px] text-yellow-500 ml-4">
                       ⏸ Paused
                     </div>
-                  ) : showTimer ? (
-                    <div className="text-[10px] text-amber-400 ml-4">
-                      Next: {timeRemaining}
-                    </div>
                   ) : isMoving ? (
                     <div className="text-[10px] text-blue-400 ml-4 animate-pulse">
                       Scheduling...
                     </div>
-                  ) : currentStage >= 1 && currentStage <= 4 ? (
-                    <div className="text-[10px] text-zinc-500 ml-4">
-                      Loading timer...
+                  ) : showTimer ? (
+                    <div className="text-[10px] text-amber-400 ml-4">
+                      {timeRemaining === "now" ? "⏳ Sending..." : `Next: ${timeRemaining}`}
                     </div>
                   ) : null}
                 </div>
