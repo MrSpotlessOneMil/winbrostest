@@ -11,9 +11,17 @@ import { parseFormData } from "@/lib/utils"
 
 export async function POST(request: NextRequest) {
   const signature =
+    request.headers.get("openphone-signature") ||
     request.headers.get("x-openphone-signature") ||
     request.headers.get("X-OpenPhone-Signature")
-  const timestamp = request.headers.get("x-openphone-timestamp")
+
+  // OpenPhone embeds the timestamp in the signature header: "t=1234567890,v1=abc..."
+  // Extract it from there, or fall back to a dedicated timestamp header
+  let timestamp = request.headers.get("openphone-timestamp") || request.headers.get("x-openphone-timestamp")
+  if (!timestamp && signature) {
+    const tMatch = signature.match(/(?:^|,)\s*t=(\d+)/)
+    if (tMatch) timestamp = tMatch[1]
+  }
 
   const rawBody = await request.text()
   // Pass null for tenant - uses global webhook secret from env
