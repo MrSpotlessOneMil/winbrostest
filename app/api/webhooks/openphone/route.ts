@@ -15,12 +15,19 @@ export async function POST(request: NextRequest) {
     request.headers.get("x-openphone-signature") ||
     request.headers.get("X-OpenPhone-Signature")
 
-  // OpenPhone embeds the timestamp in the signature header: "t=1234567890,v1=abc..."
-  // Extract it from there, or fall back to a dedicated timestamp header
+  // OpenPhone signature format: "hmac;1;{timestamp};{digest}"
+  // Fall back to dedicated timestamp header, or Stripe-style "t=xxx,v1=xxx"
   let timestamp = request.headers.get("openphone-timestamp") || request.headers.get("x-openphone-timestamp")
   if (!timestamp && signature) {
-    const tMatch = signature.match(/(?:^|,)\s*t=(\d+)/)
-    if (tMatch) timestamp = tMatch[1]
+    // OpenPhone style: hmac;{version};{timestamp};{digest}
+    const semicolonParts = signature.split(';')
+    if (semicolonParts.length >= 4 && semicolonParts[0].toLowerCase() === 'hmac') {
+      timestamp = semicolonParts[2]
+    } else {
+      // Stripe-style fallback: t=1234,v1=abc
+      const tMatch = signature.match(/(?:^|,)\s*t=(\d+)/)
+      if (tMatch) timestamp = tMatch[1]
+    }
   }
 
   const rawBody = await request.text()
