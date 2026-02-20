@@ -10,6 +10,7 @@ import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes } from "@/lib/winbros-sms-prompt"
+import { lookupPrice } from "@/lib/pricebook"
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -312,6 +313,18 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     squareFootage: bookingInfo.squareFootage,
                   })
 
+              // Look up price from pricebook
+              const priceResult = lookupPrice({
+                serviceType: bookingInfo.serviceType || serviceType,
+                squareFootage: bookingInfo.squareFootage || null,
+                notes: jobNotes || null,
+                scope: bookingInfo.scope || null,
+                pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                propertyType: bookingInfo.propertyType || null,
+              })
+              const jobPrice = priceResult?.price || null
+              if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
+
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
                 customer_id: customerId,
@@ -320,7 +333,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 service_type: serviceType,
                 date: appointmentDate,
                 scheduled_at: appointmentTime,
-                price: null,
+                price: jobPrice,
                 hours: null,
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
                 status: "scheduled",
@@ -346,6 +359,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   serviceType,
                   scheduledDate: appointmentDate,
                   scheduledTime: appointmentTime,
+                  price: jobPrice,
                   notes: jobNotes || `Booked via VAPI call`,
                 })
 
@@ -456,6 +470,17 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   squareFootage: bookingInfo.squareFootage,
                 })
 
+            // Look up price from pricebook
+            const existingPriceResult = lookupPrice({
+              serviceType: bookingInfo.serviceType || serviceType,
+              squareFootage: bookingInfo.squareFootage || null,
+              notes: existingLeadNotes || null,
+              scope: bookingInfo.scope || null,
+              pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+              propertyType: bookingInfo.propertyType || null,
+            })
+            const existingJobPrice = existingPriceResult?.price || null
+
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
               customer_id: customerId,
@@ -464,7 +489,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               service_type: serviceType,
               date: appointmentDate || null,
               scheduled_at: appointmentTime || null,
-              price: null,
+              price: existingJobPrice,
               hours: null,
               cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
               status: "scheduled",
@@ -490,6 +515,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 serviceType,
                 scheduledDate: appointmentDate,
                 scheduledTime: appointmentTime,
+                price: existingJobPrice,
                 notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
             }
