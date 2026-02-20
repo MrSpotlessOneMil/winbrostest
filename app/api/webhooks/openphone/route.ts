@@ -12,9 +12,17 @@ import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 
 export async function POST(request: NextRequest) {
   const signature =
+    request.headers.get("openphone-signature") ||
     request.headers.get("x-openphone-signature") ||
     request.headers.get("X-OpenPhone-Signature")
-  const timestamp = request.headers.get("x-openphone-timestamp")
+
+  // OpenPhone embeds the timestamp in the signature header: "t=1234567890,v1=abc..."
+  // Extract it from there, or fall back to a dedicated timestamp header
+  let timestamp = request.headers.get("openphone-timestamp") || request.headers.get("x-openphone-timestamp")
+  if (!timestamp && signature) {
+    const tMatch = signature.match(/(?:^|,)\s*t=(\d+)/)
+    if (tMatch) timestamp = tMatch[1]
+  }
 
   const rawBody = await request.text()
   // Pass null for tenant - uses global webhook secret from env
@@ -939,18 +947,8 @@ export async function POST(request: NextRequest) {
         }
         console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
       } else {
-        // No pending tasks — create a fresh nudge 30 min from now
-        const nudgeTime = new Date(now + RESCHEDULE_DELAY_MS)
-        const currentStage = existingLead.followup_stage || 1
-        await client.from("scheduled_tasks").insert({
-          tenant_id: tenant?.id,
-          task_type: "lead_followup",
-          task_key: `lead-${existingLead.id}-stage-${currentStage}-nudge-${now}`,
-          scheduled_for: nudgeTime.toISOString(),
-          status: "pending",
-          payload: { leadId: String(existingLead.id), stage: currentStage, action: "text" },
-        })
-        console.log(`[OpenPhone] Created fresh nudge task for lead ${existingLead.id} at ${nudgeTime.toISOString()}`)
+        // All 5 follow-up stages already fired — sequence is complete, nothing to reschedule
+        console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
       }
     } catch (rescheduleErr) {
       console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
