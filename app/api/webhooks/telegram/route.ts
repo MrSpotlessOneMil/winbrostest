@@ -15,6 +15,7 @@ import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
+import { geocodeAddress } from "@/lib/google-maps"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
@@ -38,8 +39,8 @@ import Anthropic from "@anthropic-ai/sdk"
 
 // Onboarding state helpers - stored in Supabase system_events for serverless compatibility
 interface OnboardingState {
-  step: 'name' | 'phone' | 'availability' | 'confirm'
-  data: { name?: string; phone?: string; availability?: string }
+  step: 'name' | 'phone' | 'address' | 'availability' | 'confirm'
+  data: { name?: string; phone?: string; home_address?: string; availability?: string }
   startedAt: number
 }
 
@@ -576,7 +577,7 @@ Send "join" or "I'm a new cleaner" to register.
 
       await sendTelegramMessage(
         chatId,
-        `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/3:</b> What's your full name?`
+        `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/4:</b> What's your full name?`
       )
       return NextResponse.json({ success: true, action: "onboarding_started" })
     }
@@ -825,7 +826,7 @@ async function handleOnboardingStep(
 
       await sendTelegramMessage(
         chatId,
-        `<b>Step 2/3:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
+        `<b>Step 2/4:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
       )
       return NextResponse.json({ success: true, action: "name_collected" })
 
@@ -841,14 +842,34 @@ async function handleOnboardingStep(
       }
 
       state.data.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
+      state.step = 'address'
+      await setOnboardingState(chatId, state)
+
+      await sendTelegramMessage(
+        chatId,
+        `<b>Step 3/4:</b> What's your home address?\n\nThis is where you'll be starting your day from. We use it to plan efficient routes.\n\n(e.g., "123 Main St, Cedar Rapids, IA 52401")`
+      )
+      return NextResponse.json({ success: true, action: "phone_collected" })
+
+    case 'address':
+      // Validate address has some substance
+      if (text.trim().length < 5) {
+        await sendTelegramMessage(
+          chatId,
+          `Please enter a valid street address (e.g., "123 Main St, Cedar Rapids, IA 52401").`
+        )
+        return NextResponse.json({ success: true, action: "invalid_address" })
+      }
+
+      state.data.home_address = text.trim()
       state.step = 'availability'
       await setOnboardingState(chatId, state)
 
       await sendTelegramMessage(
         chatId,
-        `<b>Step 3/3:</b> What's your general availability?\n\n(e.g., "Weekdays 9am-5pm" or "Mon-Fri anytime")`
+        `<b>Step 4/4:</b> What's your general availability?\n\n(e.g., "Weekdays 9am-5pm" or "Mon-Fri anytime")`
       )
-      return NextResponse.json({ success: true, action: "phone_collected" })
+      return NextResponse.json({ success: true, action: "address_collected" })
 
     case 'availability':
       state.data.availability = text.trim()
@@ -860,6 +881,7 @@ async function handleOnboardingStep(
         `<b>Please confirm your details:</b>\n\n` +
         `Name: ${state.data.name}\n` +
         `Phone: ${state.data.phone}\n` +
+        `Home Address: ${state.data.home_address}\n` +
         `Availability: ${state.data.availability}\n\n` +
         `Type <b>YES</b> to confirm or <b>NO</b> to start over.`
       )
@@ -875,6 +897,22 @@ async function handleOnboardingStep(
           return NextResponse.json({ success: false, error: "No tenant configured" })
         }
 
+        // Geocode the home address for route optimization
+        let homeLat: number | null = null
+        let homeLng: number | null = null
+        let formattedAddress: string | null = state.data.home_address || null
+
+        if (state.data.home_address) {
+          const geo = await geocodeAddress(state.data.home_address)
+          if (geo) {
+            homeLat = geo.lat
+            homeLng = geo.lng
+            formattedAddress = geo.formattedAddress
+          } else {
+            console.warn(`[OSIRIS] Could not geocode address: ${state.data.home_address}`)
+          }
+        }
+
         // Create cleaner record
         const { data: newCleaner, error: insertError } = await client
           .from("cleaners")
@@ -884,6 +922,9 @@ async function handleOnboardingStep(
             phone: state.data.phone,
             telegram_id: telegramUserId,
             telegram_username: from.username || null,
+            home_address: formattedAddress,
+            home_lat: homeLat,
+            home_lng: homeLng,
             active: true,
             is_team_lead: false
           })
@@ -980,7 +1021,7 @@ async function handleOnboardingStep(
 
         await sendTelegramMessage(
           chatId,
-          `No problem, let's start over.\n\n<b>Step 1/3:</b> What's your full name?`
+          `No problem, let's start over.\n\n<b>Step 1/4:</b> What's your full name?`
         )
         return NextResponse.json({ success: true, action: "onboarding_restart" })
       } else {
