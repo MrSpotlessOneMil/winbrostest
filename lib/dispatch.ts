@@ -13,6 +13,7 @@
 import { getSupabaseServiceClient } from './supabase'
 import { sendTelegramMessage } from './telegram'
 import { sendSMS } from './openphone'
+import { syncNewJobToHCP } from './hcp-job-sync'
 import type { Tenant } from './tenant'
 import { getTenantById, getTenantBusinessName } from './tenant'
 import type { OptimizationResult, OptimizedRoute, OptimizedStop, TeamForRouting } from './route-optimizer'
@@ -82,6 +83,13 @@ export async function dispatchRoutes(
         errors.push(`Failed to update job ${stop.jobId}: ${updateErr.message}`)
       } else {
         jobsUpdated++
+
+        // Keep HCP calendar in sync with OSIRIS team/time assignment changes.
+        await syncNewJobToHCP({
+          tenant,
+          jobId: stop.jobId,
+          phone: stop.customerPhone || undefined,
+        })
       }
 
       // 2. Create cleaner_assignments with 'confirmed' status (no accept/decline)

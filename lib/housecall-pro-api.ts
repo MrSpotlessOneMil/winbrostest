@@ -36,6 +36,15 @@ interface HCPJob {
   status?: string
 }
 
+interface HCPEmployee {
+  id: string
+  first_name?: string
+  last_name?: string
+  email?: string
+  mobile_number?: string
+  phone?: string
+}
+
 interface HCPCustomer {
   id: string
   first_name?: string
@@ -268,6 +277,14 @@ export async function createHCPJob(
     serviceType?: string
     price?: number
     notes?: string
+    lineItems?: Array<{
+      name: string
+      quantity: number
+      unit_price: number
+      description?: string
+    }>
+    assignedEmployeeIds?: string[]
+    durationHours?: number
   }
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
@@ -300,7 +317,10 @@ export async function createHCPJob(
   let scheduledEnd: string | undefined
   if (scheduledStart && jobData.scheduledDate) {
     const startDate = new Date(scheduledStart)
-    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000)
+    const durationHours = Number.isFinite(jobData.durationHours) && (jobData.durationHours as number) > 0
+      ? (jobData.durationHours as number)
+      : 2
+    const endDate = new Date(startDate.getTime() + durationHours * 60 * 60 * 1000)
     scheduledEnd = endDate.toISOString()
   }
 
@@ -316,6 +336,8 @@ export async function createHCPJob(
       description: jobData.serviceType || 'Cleaning Service',
       total: jobData.price || undefined,
       notes: jobData.notes || undefined,
+      line_items: jobData.lineItems?.length ? jobData.lineItems : undefined,
+      assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
     },
   })
 
@@ -325,6 +347,97 @@ export async function createHCPJob(
   }
 
   return { success: false, error: result.error }
+}
+
+/**
+ * Update an existing HCP job with latest scheduling/details/assignment.
+ */
+export async function updateHCPJob(
+  tenant: Tenant,
+  jobId: string,
+  jobData: {
+    scheduledDate?: string
+    scheduledTime?: string
+    address?: string
+    serviceType?: string
+    price?: number
+    notes?: string
+    lineItems?: Array<{
+      name: string
+      quantity: number
+      unit_price: number
+      description?: string
+    }>
+    assignedEmployeeIds?: string[]
+    durationHours?: number
+  }
+): Promise<{ success: boolean; error?: string }> {
+  let scheduledStart: string | undefined
+  if (jobData.scheduledDate) {
+    let timeStr = '09:00:00'
+    if (jobData.scheduledTime) {
+      const raw = jobData.scheduledTime.trim()
+      const match12 = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)$/i)
+      const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+      if (match12) {
+        let h = parseInt(match12[1])
+        const m = match12[2] ? parseInt(match12[2]) : 0
+        const ampm = match12[3].toUpperCase()
+        if (ampm === 'PM' && h < 12) h += 12
+        if (ampm === 'AM' && h === 12) h = 0
+        timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
+      } else if (match24) {
+        timeStr = `${String(parseInt(match24[1])).padStart(2, '0')}:${match24[2]}:00`
+      }
+    }
+    scheduledStart = `${jobData.scheduledDate}T${timeStr}-08:00`
+  }
+
+  let scheduledEnd: string | undefined
+  if (scheduledStart && jobData.scheduledDate) {
+    const startDate = new Date(scheduledStart)
+    const durationHours = Number.isFinite(jobData.durationHours) && (jobData.durationHours as number) > 0
+      ? (jobData.durationHours as number)
+      : 2
+    const endDate = new Date(startDate.getTime() + durationHours * 60 * 60 * 1000)
+    scheduledEnd = endDate.toISOString()
+  }
+
+  const result = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
+    method: 'PATCH',
+    body: {
+      scheduled_start: scheduledStart,
+      scheduled_end: scheduledEnd,
+      address: jobData.address || undefined,
+      description: jobData.serviceType || undefined,
+      total: jobData.price || undefined,
+      notes: jobData.notes || undefined,
+      line_items: jobData.lineItems?.length ? jobData.lineItems : undefined,
+      assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
+    },
+  })
+
+  return result.success ? { success: true } : { success: false, error: result.error }
+}
+
+/**
+ * List HCP employees for assignment mapping.
+ */
+export async function listHCPEmployees(
+  tenant: Tenant
+): Promise<{ success: boolean; employees?: HCPEmployee[]; error?: string }> {
+  const result = await hcpRequest<{ employees?: HCPEmployee[] } | HCPEmployee[]>(
+    tenant,
+    '/employees'
+  )
+
+  if (!result.success) {
+    return { success: false, error: result.error }
+  }
+
+  const data = result.data
+  const employees = Array.isArray(data) ? data : (data?.employees || [])
+  return { success: true, employees }
 }
 
 /**
