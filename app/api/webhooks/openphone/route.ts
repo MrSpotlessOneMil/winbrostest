@@ -1598,22 +1598,29 @@ export async function POST(request: NextRequest) {
     } else if (lead?.id) {
       console.log(`[OpenPhone] Lead created: ${lead.id}`)
 
-      // Create lead in HousecallPro for two-way sync
+      // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
       const hcpResult = await createLeadInHCP({
         firstName: firstName || undefined,
         lastName: lastName || undefined,
         phone,
+        email: customer.email || undefined,
         address: intentResult.extractedInfo.address || customer.address || undefined,
         notes: `SMS Inquiry: "${combinedMessage}"`,
         source: "sms",
-      })
+      }, tenant)
 
       if (hcpResult.success) {
         console.log(`[OpenPhone] Lead synced to HCP: ${hcpResult.leadId}`)
-        // Update lead with HCP ID
+        // Update lead with HCP ID and HCP customer ID
+        const updateData: Record<string, string> = {
+          source_id: hcpResult.leadId || `sms-${Date.now()}`,
+        }
+        if (hcpResult.customerId) {
+          updateData.hcp_customer_id = hcpResult.customerId
+        }
         await client
           .from("leads")
-          .update({ source_id: hcpResult.leadId || `sms-${Date.now()}` })
+          .update(updateData)
           .eq("id", lead.id)
       } else {
         console.warn("[OpenPhone] Failed to sync lead to HCP:", hcpResult.error)

@@ -214,21 +214,28 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
           } else if (lead?.id) {
             console.log(`${tag} Lead created: ${lead.id}`)
 
-            // Create lead in HousecallPro for two-way sync
+            // Create lead in HousecallPro for two-way sync (pass tenant directly)
             const hcpResult = await createLeadInHCP({
               firstName: firstName || undefined,
               lastName: lastName || undefined,
               phone,
+              email: bookingInfo.email || undefined,
               address: address || undefined,
               notes: `VAPI Call - ${bookingInfo.serviceType || 'Cleaning inquiry'}. ${bookingInfo.notes || ''}`.trim(),
               source: "vapi",
-            })
+            }, tenant)
 
             if (hcpResult.success) {
               console.log(`${tag} Lead synced to HCP: ${hcpResult.leadId}`)
+              const updateData: Record<string, string> = {
+                source_id: hcpResult.leadId || `vapi-${providerCallId}`,
+              }
+              if (hcpResult.customerId) {
+                updateData.hcp_customer_id = hcpResult.customerId
+              }
               await client
                 .from("leads")
-                .update({ source_id: hcpResult.leadId || `vapi-${providerCallId}` })
+                .update(updateData)
                 .eq("id", lead.id)
             } else {
               console.warn(`${tag} Failed to sync lead to HCP:`, hcpResult.error)

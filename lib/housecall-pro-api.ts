@@ -61,12 +61,19 @@ async function hcpRequest<T>(
   }
 
   try {
+    const headers: Record<string, string> = {
+      'Authorization': `Token ${apiKey}`,
+      'Content-Type': 'application/json',
+    }
+
+    // Add company ID header if available
+    if (tenant.housecall_pro_company_id) {
+      headers['X-Company-ID'] = tenant.housecall_pro_company_id
+    }
+
     const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
       method: options.method || 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     })
 
@@ -87,6 +94,9 @@ async function hcpRequest<T>(
 
 /**
  * Create a lead in HousecallPro
+ *
+ * HCP's /leads endpoint requires a customer_id for an existing customer.
+ * This function first finds or creates the customer, then creates the lead.
  */
 export async function createHCPLead(
   tenant: Tenant,
@@ -99,17 +109,30 @@ export async function createHCPLead(
     notes?: string
     source?: string
   }
-): Promise<{ success: boolean; leadId?: string; error?: string }> {
+): Promise<{ success: boolean; leadId?: string; customerId?: string; error?: string }> {
   console.log(`[HCP API] Creating lead for ${leadData.phone}`)
 
+  // Step 1: Find or create customer in HCP (required for lead creation)
+  const customerResult = await findOrCreateHCPCustomer(tenant, {
+    firstName: leadData.firstName,
+    lastName: leadData.lastName,
+    phone: leadData.phone,
+    email: leadData.email,
+    address: leadData.address,
+  })
+
+  if (!customerResult.success || !customerResult.customerId) {
+    console.error(`[HCP API] Failed to find/create customer for lead: ${customerResult.error}`)
+    return { success: false, error: `Customer creation failed: ${customerResult.error}` }
+  }
+
+  console.log(`[HCP API] Using customer ${customerResult.customerId} for lead`)
+
+  // Step 2: Create lead with customer_id
   const result = await hcpRequest<HCPLead>(tenant, '/leads', {
     method: 'POST',
     body: {
-      first_name: leadData.firstName || '',
-      last_name: leadData.lastName || '',
-      mobile_number: leadData.phone,
-      email: leadData.email || undefined,
-      address: leadData.address || undefined,
+      customer_id: customerResult.customerId,
       notes: leadData.notes || `Source: ${leadData.source || 'API'}`,
       source: leadData.source || 'api',
     },
@@ -117,7 +140,7 @@ export async function createHCPLead(
 
   if (result.success && result.data?.id) {
     console.log(`[HCP API] Lead created: ${result.data.id}`)
-    return { success: true, leadId: result.data.id }
+    return { success: true, leadId: result.data.id, customerId: customerResult.customerId }
   }
 
   return { success: false, error: result.error }
@@ -136,10 +159,10 @@ export async function findOrCreateHCPCustomer(
     address?: string
   }
 ): Promise<{ success: boolean; customerId?: string; error?: string }> {
-  // First, try to find existing customer by phone
+  // First, try to find existing customer by phone (use ?q= general search)
   const searchResult = await hcpRequest<{ customers: HCPCustomer[] }>(
     tenant,
-    `/customers?mobile_number=${encodeURIComponent(customerData.phone)}`
+    `/customers?q=${encodeURIComponent(customerData.phone)}`
   )
 
   if (searchResult.success && searchResult.data?.customers?.length) {
@@ -153,11 +176,13 @@ export async function findOrCreateHCPCustomer(
   const createResult = await hcpRequest<HCPCustomer>(tenant, '/customers', {
     method: 'POST',
     body: {
-      first_name: customerData.firstName || '',
+      first_name: customerData.firstName || 'Unknown',
       last_name: customerData.lastName || '',
-      mobile_number: customerData.phone,
       email: customerData.email || undefined,
-      address: customerData.address || undefined,
+      mobile_number: customerData.phone,
+      phone_numbers: [{ type: 'mobile', number: customerData.phone }],
+      notifications_enabled: true,
+      lead_source: 'api',
     },
   })
 
@@ -304,7 +329,7 @@ export async function updateHCPLeadStatus(
 }
 
 /**
- * Convenience wrapper that gets the default tenant
+ * Convenience wrapper — uses provided tenant or falls back to default
  */
 export async function createLeadInHCP(
   leadData: {
@@ -315,12 +340,19 @@ export async function createLeadInHCP(
     address?: string
     notes?: string
     source?: string
-  }
-): Promise<{ success: boolean; leadId?: string; error?: string }> {
-  const tenant = await getDefaultTenant()
+  },
+  existingTenant?: Tenant | null
+): Promise<{ success: boolean; leadId?: string; customerId?: string; error?: string }> {
+  const tenant = existingTenant || await getDefaultTenant()
   if (!tenant) {
     return { success: false, error: 'No tenant configured' }
   }
+
+  if (!tenant.housecall_pro_api_key) {
+    console.log(`[HCP API] No HCP API key for tenant ${tenant.slug}, skipping lead sync`)
+    return { success: true } // Not an error — HCP integration just not configured
+  }
+
   return createHCPLead(tenant, leadData)
 }
 
