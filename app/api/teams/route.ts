@@ -86,13 +86,20 @@ export async function GET(request: NextRequest) {
     jobsByTeam.set(teamId, arr)
   }
 
+  // Track assigned cleaners to prevent duplicates and identify unassigned
+  const assignedCleanerIds = new Set<number>()
+
   const teamsBase: Team[] = (teamsRes.data || []).map((t: any) => {
     const teamId = String(t.id)
     const rawMembers = Array.isArray(t.team_members) ? t.team_members : []
     const members = rawMembers
+      .filter((tm: any) => Boolean(tm.is_active))
       .map((tm: any) => {
         const c = tm.cleaners
-        if (!c) return null
+        if (!c || !c.active) return null
+        // Skip if already assigned to another team (handles stale duplicate rows)
+        if (assignedCleanerIds.has(Number(c.id))) return null
+        assignedCleanerIds.add(Number(c.id))
         return {
           id: String(c.id),
           name: String(c.name || "Cleaner"),
@@ -100,8 +107,7 @@ export async function GET(request: NextRequest) {
           telegram_id: c.telegram_id || undefined,
           role: tm.role === "lead" ? "lead" : "technician",
           team_id: teamId,
-          is_active: Boolean(tm.is_active) && Boolean(c.active),
-          // extra fields for UI (not typed in TeamMember, but kept for consumers that want it)
+          is_active: true,
           last_location_lat: c.last_location_lat ?? null,
           last_location_lng: c.last_location_lng ?? null,
           last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
@@ -135,6 +141,37 @@ export async function GET(request: NextRequest) {
     }
   })
 
+  // Load unassigned cleaners (active cleaners not in any team)
+  let unassignedQuery = client
+    .from("cleaners")
+    .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
+    .eq("active", true)
+    .is("deleted_at", null)
+    .order("name")
+  if (tenant) unassignedQuery = unassignedQuery.eq("tenant_id", tenant.id)
+  const unassignedRes = await unassignedQuery
+
+  if (unassignedRes.error) {
+    console.error(`[Teams API] Failed to load unassigned cleaners:`, unassignedRes.error.message)
+  }
+
+  const allCleaners = unassignedRes.data || []
+  const unassignedCleaners = allCleaners
+    .filter((c: any) => !assignedCleanerIds.has(Number(c.id)))
+    .map((c: any) => ({
+      id: String(c.id),
+      name: String(c.name || "Cleaner"),
+      phone: String(c.phone || ""),
+      telegram_id: c.telegram_id || undefined,
+      role: c.is_team_lead ? "lead" : "technician",
+      team_id: null,
+      is_active: Boolean(c.active),
+      last_location_lat: c.last_location_lat ?? null,
+      last_location_lng: c.last_location_lng ?? null,
+      last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
+      last_location_updated_at: c.last_location_updated_at ?? null,
+    }))
+
   let teamsWithMetrics: any[] = teamsBase
   if (include_metrics) {
     teamsWithMetrics = teamsBase.map((team) => {
@@ -158,6 +195,5 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  const response: ApiResponse<typeof teamsWithMetrics> = { success: true, data: teamsWithMetrics }
-  return NextResponse.json(response)
+  return NextResponse.json({ success: true, data: teamsWithMetrics, unassigned_cleaners: unassignedCleaners })
 }
