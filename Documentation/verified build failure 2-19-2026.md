@@ -1,8 +1,9 @@
-# Fix: Vercel Build Failure — Top-Level createClient()
+# Verified: Vercel Build Failure — Top-Level createClient()
 
-**Date:** 2026-02-19
+**Fix Date:** 2026-02-19
+**Verified:** 2026-02-19
 **Severity:** Medium (blocks all Vercel deployments)
-**Status:** Resolved
+**Outcome:** Build passes, all routes compile
 
 ---
 
@@ -31,19 +32,13 @@ const supabase = createClient(
 )
 ```
 
-Any route that imports these files (directly or transitively) crashes during the build's page collection phase.
-
 **Affected routes:**
 - `/api/cron/crew-briefing` → imports `winbros-alerts.ts`
-- `/api/webhooks/telegram/winbros` → imports `crew-performance.ts` via `telegram/route.ts`
+- `/api/webhooks/telegram/winbros` → imports `crew-performance.ts`
 
----
+### Origin
 
-## Origin
-
-Introduced in commit `5b69a2e` ("Priority 2 contract features: alerts, tips, reviews, crew briefing") merged via PR #5 from `feature/DominicsBranch`. The bug existed in `Test` and `main` but was not caught because:
-1. PR #7 (which merged `feature/new_security_updates` into `Test`) likely had the same failed Vercel check but was merged anyway — `Test` has no required status checks.
-2. Direct pushes to `main` bypass PR checks entirely.
+Introduced in commit `5b69a2e` ("Priority 2 contract features: alerts, tips, reviews, crew briefing") merged via PR #5. The bug existed in `Test` and `main` but was not caught because PR #7 was merged without required status checks.
 
 ---
 

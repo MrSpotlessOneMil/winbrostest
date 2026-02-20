@@ -1,28 +1,20 @@
 /**
  * Monthly Re-engagement Follow-up Cron Job
  *
- * Vercel Cron endpoint that runs daily to send re-engagement SMS messages
- * to customers 30 days after their last completed service.
+ * Sends re-engagement SMS to customers 30 days after their last completed service.
+ * Skips customers who have booked another job since.
  *
- * Triggered by: Vercel Cron (daily)
- *
- * Logic:
- * 1. Find completed jobs where completed_at < NOW() - 30 days
- * 2. Ensure monthly_followup_sent_at IS NULL
- * 3. Ensure customer hasn't booked another job since
- * 4. Send re-engagement SMS with configurable discount
- * 5. Update job.monthly_followup_sent_at timestamp
- * 6. Log system event
+ * Race-condition safe: Uses claim_jobs_for_monthly_followup() RPC with
+ * SELECT FOR UPDATE SKIP LOCKED to prevent duplicate SMS.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getSupabaseClient, getCustomerByPhone, updateJob } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 import { sendSMS } from '@/lib/openphone'
 import { monthlyFollowup } from '@/lib/sms-templates'
 
-// Default discount if not configured in environment
 const DEFAULT_DISCOUNT = '15%'
 
 export async function GET(request: NextRequest) {
@@ -36,8 +28,8 @@ export async function GET(request: NextRequest) {
 async function executeMonthlyFollowup() {
   try {
     const now = new Date()
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     const discount = process.env.MONTHLY_FOLLOWUP_DISCOUNT || DEFAULT_DISCOUNT
+    const client = getSupabaseServiceClient()
 
     const results = {
       timestamp: now.toISOString(),
@@ -47,21 +39,11 @@ async function executeMonthlyFollowup() {
       errors: [] as Array<{ jobId: string; error: string }>,
     }
 
-    const client = getSupabaseClient()
-
-    // Query completed jobs where:
-    // - completed_at < NOW() - 30 days
-    // - monthly_followup_sent_at IS NULL
-    // - deleted_at IS NULL
-    const { data: eligibleJobs, error: queryError } = await client
-      .from('jobs')
-      .select('*')
-      .eq('status', 'completed')
-      .lt('completed_at', thirtyDaysAgo.toISOString())
-      .is('monthly_followup_sent_at', null)
-      .is('deleted_at', null)
-      .order('completed_at', { ascending: true })
-      .limit(100) // Process in batches to avoid timeout
+    // Atomically claim eligible jobs using FOR UPDATE SKIP LOCKED
+    const { data: eligibleJobs, error: queryError } = await client.rpc(
+      'claim_jobs_for_monthly_followup',
+      { p_batch_size: 100 }
+    )
 
     if (queryError) {
       console.error('[Monthly Follow-up Cron] Query error:', queryError)
@@ -71,74 +53,67 @@ async function executeMonthlyFollowup() {
       )
     }
 
-    console.log(`[Monthly Follow-up Cron] Found ${eligibleJobs?.length || 0} potential jobs`)
+    console.log(`[Monthly Follow-up Cron] Claimed ${eligibleJobs?.length || 0} jobs`)
 
     for (const job of eligibleJobs || []) {
       results.processed++
 
       try {
         // Check if customer has booked another job since this one was completed
-        // (jobs with status 'scheduled' or 'completed' created after this job's completed_at)
         const { data: subsequentJobs, error: subqueryError } = await client
           .from('jobs')
           .select('id')
           .eq('customer_id', job.customer_id)
           .in('status', ['scheduled', 'completed'])
           .gt('created_at', job.completed_at)
-          .is('deleted_at', null)
           .limit(1)
 
         if (subqueryError) {
-          console.error(`[Monthly Follow-up Cron] Subquery error for job ${job.id}:`, subqueryError)
-          results.errors.push({ jobId: job.id, error: subqueryError.message })
+          console.error(`[Monthly Follow-up Cron] Subquery error for job ${job.job_id}:`, subqueryError)
+          results.errors.push({ jobId: job.job_id, error: subqueryError.message })
           continue
         }
 
-        // If customer has booked another job, skip sending followup
+        // If customer has booked another job, skip sending (already claimed/marked)
         if (subsequentJobs && subsequentJobs.length > 0) {
-          console.log(`[Monthly Follow-up Cron] Skipping job ${job.id} - customer has subsequent booking`)
+          console.log(`[Monthly Follow-up Cron] Skipping job ${job.job_id} - customer has subsequent booking`)
           results.skipped++
-
-          // Mark as processed so we don't check again
-          await updateJob(job.id, {
-            monthly_followup_sent_at: now.toISOString(),
-          })
           continue
         }
 
-        // Get customer info
-        const customer = await getCustomerByPhone(job.phone_number)
-        if (!customer) {
-          console.warn(`[Monthly Follow-up Cron] Customer not found for job ${job.id}`)
-          results.errors.push({ jobId: job.id, error: 'Customer not found' })
+        const phone = job.customer_phone || job.job_phone_number
+        const customerName = job.customer_first_name || 'there'
+
+        if (!phone) {
+          console.warn(`[Monthly Follow-up Cron] No phone for job ${job.job_id}`)
+          results.errors.push({ jobId: job.job_id, error: 'No phone number' })
           continue
         }
-
-        const customerName = customer.first_name || 'there'
 
         // Send re-engagement SMS
         const message = monthlyFollowup(customerName, discount)
-        const smsResult = await sendSMS(job.phone_number, message)
+        const smsResult = await sendSMS(phone, message)
 
         if (!smsResult.success) {
-          console.error(`[Monthly Follow-up Cron] SMS failed for job ${job.id}:`, smsResult.error)
-          results.errors.push({ jobId: job.id, error: smsResult.error || 'SMS failed' })
+          // SMS failed — reset so it gets retried
+          await client
+            .from('jobs')
+            .update({ monthly_followup_sent_at: null })
+            .eq('id', job.job_id)
+
+          console.error(`[Monthly Follow-up Cron] SMS failed for job ${job.job_id}:`, smsResult.error)
+          results.errors.push({ jobId: job.job_id, error: smsResult.error || 'SMS failed' })
           continue
         }
 
-        // Update job.monthly_followup_sent_at
-        await updateJob(job.id, {
-          monthly_followup_sent_at: now.toISOString(),
-        })
-
-        // Log system event
+        // monthly_followup_sent_at already set by RPC
         await logSystemEvent({
           source: 'cron',
-          event_type: 'REVIEW_REQUEST_SENT', // Using existing event type for re-engagement
-          message: `Monthly re-engagement SMS sent to ${customerName} (${job.phone_number}) with ${discount} discount`,
-          job_id: job.id,
+          event_type: 'REVIEW_REQUEST_SENT',
+          message: `Monthly re-engagement SMS sent to ${customerName} (${phone}) with ${discount} discount`,
+          job_id: job.job_id,
           customer_id: job.customer_id,
-          phone_number: job.phone_number,
+          phone_number: phone,
           metadata: {
             followup_type: 'monthly_reengagement',
             discount,
@@ -150,11 +125,11 @@ async function executeMonthlyFollowup() {
         })
 
         results.sent++
-        console.log(`[Monthly Follow-up Cron] Sent re-engagement SMS for job ${job.id} to ${job.phone_number}`)
+        console.log(`[Monthly Follow-up Cron] Sent re-engagement SMS for job ${job.job_id} to ${phone}`)
       } catch (error) {
-        console.error(`[Monthly Follow-up Cron] Error processing job ${job.id}:`, error)
+        console.error(`[Monthly Follow-up Cron] Error processing job ${job.job_id}:`, error)
         results.errors.push({
-          jobId: job.id,
+          jobId: job.job_id,
           error: error instanceof Error ? error.message : 'Unknown error',
         })
       }
@@ -180,7 +155,7 @@ async function executeMonthlyFollowup() {
   }
 }
 
-// POST method for QStash (QStash uses POST by default)
+// POST method for QStash
 export async function POST(request: NextRequest) {
   return GET(request)
 }

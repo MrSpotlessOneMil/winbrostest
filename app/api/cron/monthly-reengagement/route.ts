@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth } from '@/lib/cron-auth'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { monthlyReengagement } from '@/lib/sms-templates'
 import { logSystemEvent } from '@/lib/system-events'
@@ -11,16 +11,18 @@ import { getDefaultTenant } from '@/lib/tenant'
  *
  * Runs daily at 10am to check for customers who had a job completed 30+ days ago
  * and haven't booked again. Sends a re-engagement offer with discount.
+ *
+ * Race-condition safe: Uses claim_jobs_for_monthly_reengagement() RPC with
+ * SELECT FOR UPDATE SKIP LOCKED to prevent duplicate SMS.
  */
 export async function GET(request: NextRequest) {
-  // Verify this is a legitimate cron request
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   console.log('[Monthly Reengagement] Starting cron job...')
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const tenant = await getDefaultTenant()
 
   if (!tenant) {
@@ -31,39 +33,20 @@ export async function GET(request: NextRequest) {
   const reengagementDays = tenant.workflow_config?.monthly_followup_days || 30
   const discount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
-  // Calculate the date range: completed between 30-31 days ago
-  // This ensures we only message once (daily cron catches the 30-day mark)
-  const thirtyDaysAgo = new Date(Date.now() - reengagementDays * 24 * 60 * 60 * 1000)
-  const thirtyOneDaysAgo = new Date(Date.now() - (reengagementDays + 1) * 24 * 60 * 60 * 1000)
+  // Calculate the date range window
+  const windowEnd = new Date(Date.now() - reengagementDays * 24 * 60 * 60 * 1000).toISOString()
+  const windowStart = new Date(Date.now() - (reengagementDays + 1) * 24 * 60 * 60 * 1000).toISOString()
 
-  // Find customers with completed jobs in the target window
-  // who haven't already received monthly follow-up
-  // and don't have any jobs scheduled after that
-  const { data: candidates, error } = await client
-    .from('jobs')
-    .select(`
-      id,
-      customer_id,
-      phone_number,
-      completed_at,
-      monthly_followup_sent_at,
-      customers (
-        id,
-        first_name,
-        last_name,
-        phone_number
-      )
-    `)
-    .eq('tenant_id', tenant.id)
-    .eq('status', 'completed')
-    .is('monthly_followup_sent_at', null)
-    .not('completed_at', 'is', null)
-    .gte('completed_at', thirtyOneDaysAgo.toISOString())
-    .lte('completed_at', thirtyDaysAgo.toISOString())
-    .limit(30) // Process in batches
+  // Atomically claim eligible jobs using FOR UPDATE SKIP LOCKED
+  const { data: candidates, error } = await client.rpc('claim_jobs_for_monthly_reengagement', {
+    p_tenant_id: tenant.id,
+    p_window_start: windowStart,
+    p_window_end: windowEnd,
+    p_batch_size: 30,
+  })
 
   if (error) {
-    console.error('[Monthly Reengagement] Failed to fetch jobs:', error.message)
+    console.error('[Monthly Reengagement] Failed to claim jobs:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -72,7 +55,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, processed: 0 })
   }
 
-  console.log(`[Monthly Reengagement] Found ${candidates.length} potential customers`)
+  console.log(`[Monthly Reengagement] Claimed ${candidates.length} jobs`)
 
   let processed = 0
   let skipped = 0
@@ -80,13 +63,12 @@ export async function GET(request: NextRequest) {
 
   for (const job of candidates) {
     try {
-      const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers
-      const customerId = customer?.id || job.customer_id
-      const phone = customer?.phone_number || job.phone_number
-      const customerName = customer?.first_name || 'there'
+      const phone = job.customer_phone || job.job_phone_number
+      const customerName = job.customer_first_name || 'there'
+      const customerId = job.customer_id
 
       if (!phone) {
-        console.warn(`[Monthly Reengagement] No phone for job ${job.id}, skipping`)
+        console.warn(`[Monthly Reengagement] No phone for job ${job.job_id}, skipping`)
         skipped++
         continue
       }
@@ -96,16 +78,12 @@ export async function GET(request: NextRequest) {
         .from('jobs')
         .select('id')
         .eq('customer_id', customerId)
-        .gt('created_at', job.completed_at) // Jobs created after the completed one
+        .gt('created_at', job.completed_at)
         .limit(1)
 
       if (recentJobs && recentJobs.length > 0) {
         console.log(`[Monthly Reengagement] Customer ${customerId} has recent booking, skipping`)
-        // Mark as sent so we don't check again
-        await client
-          .from('jobs')
-          .update({ monthly_followup_sent_at: new Date().toISOString() })
-          .eq('id', job.id)
+        // Already claimed/marked by RPC — no duplicate risk
         skipped++
         continue
       }
@@ -115,24 +93,18 @@ export async function GET(request: NextRequest) {
         (Date.now() - new Date(job.completed_at!).getTime()) / (24 * 60 * 60 * 1000)
       )
 
-      // Send re-engagement message
       const message = monthlyReengagement(customerName, discount, daysSince)
       const smsResult = await sendSMS(phone, message)
 
       if (smsResult.success) {
-        // Mark follow-up as sent
-        await client
-          .from('jobs')
-          .update({ monthly_followup_sent_at: new Date().toISOString() })
-          .eq('id', job.id)
-
+        // monthly_followup_sent_at already set by RPC
         await logSystemEvent({
           source: 'cron',
           event_type: 'MONTHLY_REENGAGEMENT_SENT',
           message: `Monthly re-engagement sent to ${customerName} (${phone})`,
           phone_number: phone,
           metadata: {
-            job_id: job.id,
+            job_id: job.job_id,
             customer_id: customerId,
             days_since_last_clean: daysSince,
             discount,
@@ -142,11 +114,23 @@ export async function GET(request: NextRequest) {
         processed++
         console.log(`[Monthly Reengagement] Sent re-engagement to ${phone} (${daysSince} days since last clean)`)
       } else {
+        // SMS failed — reset so it gets retried
+        await client
+          .from('jobs')
+          .update({ monthly_followup_sent_at: null })
+          .eq('id', job.job_id)
+
         console.error(`[Monthly Reengagement] Failed to send SMS to ${phone}:`, smsResult.error)
         errors++
       }
     } catch (err) {
-      console.error(`[Monthly Reengagement] Error processing job ${job.id}:`, err)
+      // Unexpected error — reset so it gets retried
+      await client
+        .from('jobs')
+        .update({ monthly_followup_sent_at: null })
+        .eq('id', job.job_id)
+
+      console.error(`[Monthly Reengagement] Error processing job ${job.job_id}:`, err)
       errors++
     }
   }
