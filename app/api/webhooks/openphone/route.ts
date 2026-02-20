@@ -946,18 +946,8 @@ export async function POST(request: NextRequest) {
         }
         console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
       } else {
-        // No pending tasks — create a fresh nudge 30 min from now
-        const nudgeTime = new Date(now + RESCHEDULE_DELAY_MS)
-        const currentStage = existingLead.followup_stage || 1
-        await client.from("scheduled_tasks").insert({
-          tenant_id: tenant?.id,
-          task_type: "lead_followup",
-          task_key: `lead-${existingLead.id}-stage-${currentStage}-nudge-${now}`,
-          scheduled_for: nudgeTime.toISOString(),
-          status: "pending",
-          payload: { leadId: String(existingLead.id), stage: currentStage, action: "text" },
-        })
-        console.log(`[OpenPhone] Created fresh nudge task for lead ${existingLead.id} at ${nudgeTime.toISOString()}`)
+        // All 5 follow-up stages already fired — sequence is complete, nothing to reschedule
+        console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
       }
     } catch (rescheduleErr) {
       console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
