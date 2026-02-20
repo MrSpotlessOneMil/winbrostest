@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
     const query = client
       .from("jobs")
-      .select("*, customers (*), cleaners (*)")
+      .select("*, customers (*), cleaners (*), cleaner_assignments ( cleaner_id, status, cleaners ( id, name ) )")
 
     if (tenant) {
       query.eq("tenant_id", tenant.id)

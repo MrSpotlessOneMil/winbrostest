@@ -171,6 +171,26 @@ export async function PATCH(request: NextRequest) {
     if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
     if (hours !== undefined) updates.hours = hours
 
+    // Handle cleaner reassignment
+    const { cleaner_id } = body
+    if (cleaner_id !== undefined) {
+      const tenantId = tenant?.id || (oldJob as any)?.tenant_id
+      if (tenantId) {
+        // Clear all existing assignments for this job and insert the new one
+        await getSupabaseServiceClient().from("cleaner_assignments").delete().eq("job_id", Number(id))
+        if (cleaner_id) {
+          await getSupabaseServiceClient().from("cleaner_assignments").insert({
+            job_id: Number(id),
+            cleaner_id: Number(cleaner_id),
+            status: "confirmed",
+            tenant_id: tenantId,
+            assigned_at: new Date().toISOString(),
+            responded_at: new Date().toISOString(),
+          })
+        }
+      }
+    }
+
     let updateQuery = client
       .from("jobs")
       .update(updates)
@@ -247,6 +267,42 @@ export async function PATCH(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Failed to update job" },
+      { status: 400 }
+    )
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  const tenant = await getAuthTenant(request)
+  const isAdmin = !tenant && authResult.user.username === "admin"
+  if (!tenant && !isAdmin) {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+
+  const id = request.nextUrl.searchParams.get("id")
+  if (!id) {
+    return NextResponse.json({ success: false, error: "Job ID is required" }, { status: 400 })
+  }
+
+  try {
+    const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
+
+    // Delete cleaner assignments first (FK constraint)
+    await getSupabaseServiceClient().from("cleaner_assignments").delete().eq("job_id", Number(id))
+
+    let deleteQuery = client.from("jobs").delete().eq("id", Number(id))
+    if (tenant) deleteQuery = deleteQuery.eq("tenant_id", tenant.id)
+
+    const { error } = await deleteQuery
+    if (error) throw error
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Failed to delete job" },
       { status: 400 }
     )
   }
