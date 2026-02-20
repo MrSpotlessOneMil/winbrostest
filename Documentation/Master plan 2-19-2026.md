@@ -4,7 +4,7 @@
 **Agreement Signed:** 1/20/2026
 **Target Completion:** ~2/10/2026
 **Live Trial:** 2 weeks post-build
-**Current Completion:** ~90%
+**Current Completion:** ~93%
 **Last Updated:** 2-19-2026
 
 ---
@@ -54,6 +54,15 @@
 - System event logging / audit trail
 - Dead code cleanup — orphaned `post-cleaning-followup` cron removed
 
+## Cron Race Condition Fix (NEW — completed 2-19-2026)
+- **Distributed locking via Postgres RPC** — 4 `SELECT FOR UPDATE SKIP LOCKED` functions atomically claim rows, preventing duplicate SMS when Vercel spins up multiple cron instances
+- **Migration:** `scripts/06-cron-locking.sql` — `claim_jobs_for_followup`, `claim_jobs_for_monthly_followup`, `claim_jobs_for_monthly_reengagement`, `claim_jobs_for_frequency_nudge`
+- **Retry on failure** — If SMS send fails, `sent_at` is reset to NULL so the job retries on the next cron run
+- **Crons fixed:** post-job-followup, monthly-followup, monthly-reengagement, frequency-nudge
+- **Service client fix** — All 7 cron routes switched from `getSupabaseClient()` (anon key, blocked by RLS) to `getSupabaseServiceClient()` (service role)
+- **Column bug fix** — `post-job-followup` referenced `stripe_payment_link` (doesn't exist on jobs table), corrected to `stripe_payment_intent_id`
+- **Verified:** RPC functions exist, all 7 crons return 200, concurrent execution test confirms SKIP LOCKED prevents duplicates, retry on SMS failure confirmed
+
 ## Security (Completed 2-17 through 2-19)
 - **RLS Enforcement** — Tenant isolation enforced at the database level via signed JWTs and Supabase RLS policies (verified 2-19-2026)
 - **Demo Seed Auth** — `/api/demo/seed` guarded with `requireAdmin()`, UI hidden for non-admins (verified 2-18-2026)
@@ -68,6 +77,8 @@
 - Teams: only active `team_members` counted as assigned, inactive shown as unassigned
 - Teams: unassigned cleaners now visible, routes for leads only, smoother DnD
 - Tenant: inactive tenants can access dashboard
+- **Cron service client fix** — All 7 crons were using `getSupabaseClient()` (anon key), silently returning 0 rows after RLS enforcement. Switched to `getSupabaseServiceClient()`
+- **post-job-followup column fix** — Referenced `stripe_payment_link` (exists on leads, not jobs). Corrected to `stripe_payment_intent_id`
 
 ---
 
@@ -78,7 +89,7 @@
 ## Reliability
 - Weather API returns fake data (crew briefing cron works but uses mock 72F/10% precip)
 - Payment retry + card update flow needs verification
-- Cron race conditions (no distributed locking)
+- ~~Cron race conditions (no distributed locking)~~ — **DONE** (Postgres RPC + SKIP LOCKED, verified 2-19-2026)
 - Debug logging still in production code
 
 ## Polish
@@ -239,7 +250,7 @@
 
 ## Priority 4 — Operational Hardening
 
-16. Fix Cron Race Conditions (`SELECT FOR UPDATE SKIP LOCKED`)
+16. ~~Fix Cron Race Conditions (`SELECT FOR UPDATE SKIP LOCKED`)~~ — **DONE** (4 RPC functions + service client fix, verified 2-19-2026)
 17. Replace 3-Second Polling with Realtime Subscriptions
 
 ---
@@ -284,6 +295,12 @@ After completion:
 - Verify frequency nudge respects configurable window
 - Verify tenant campaigns page saves/loads correctly
 
+### Cron Race Conditions
+- ~~Verify RPC functions exist in Supabase~~ — **VERIFIED** (all 4 `claim_jobs_*` functions present)
+- ~~Verify all crons return 200~~ — **VERIFIED** (7/7 crons functional after service client fix)
+- ~~Concurrent execution test~~ — **VERIFIED** (Instance A locked row, Instance B got 0 via SKIP LOCKED)
+- ~~Retry on SMS failure~~ — **VERIFIED** (`sent_at` reset to NULL on failure, job retries next run)
+
 ### Security
 - ~~Confirm tenant isolation~~ — **VERIFIED** (RESTRICTIVE policy test, 2-19-2026)
 - ~~Verify RLS enforcement after refactor~~ — **VERIFIED** (2-19-2026)
@@ -306,14 +323,18 @@ After completion:
 | 2-19-2026 | RLS enforcement deployed & verified | `getTenantScopedClient()` + RLS policies on 16 tables, RESTRICTIVE test passed |
 | 2-19-2026 | Inactive tenant fix | Dashboard access allowed for inactive tenants |
 | 2-19-2026 | Master plan updated | Completion raised to ~90%, Priority 1 + 2 fully complete |
+| 2-19-2026 | Cron service client bug fixed | All 7 crons switched from anon key to service role client — were silently broken since RLS enforcement |
+| 2-19-2026 | post-job-followup column fix | `stripe_payment_link` → `stripe_payment_intent_id` (wrong table reference) |
+| 2-19-2026 | Cron race condition fix deployed & verified | 4 Postgres RPC functions with `SELECT FOR UPDATE SKIP LOCKED`, concurrent execution test passed, retry on failure confirmed |
 
 ---
 
 # Summary
 
-**Current State:** ~90% complete
+**Current State:** ~93% complete
 **Priority 1 (Security):** COMPLETE — RLS enforced, demo seed locked down
 **Priority 2 (Contract Features):** COMPLETE — All 8 items delivered
-**Remaining:** Priority 3 (reliability/polish) + Priority 4 (operational hardening)
+**Priority 4 (Partial):** Cron race conditions FIXED — distributed locking via Postgres RPC verified
+**Remaining:** Priority 3 (reliability/polish) + Priority 4 item 17 (realtime subscriptions)
 **Before Trial:** Verify Stripe retry flow, add real weather API, strip debug logging
 **After Completion:** System ready for controlled 2-week live trial
