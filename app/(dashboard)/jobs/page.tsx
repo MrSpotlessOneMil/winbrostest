@@ -195,11 +195,25 @@ function resolveStart(job: CalendarJob) {
   // If it's already a full ISO timestamp, use it directly
   if (rawDate.includes("T")) return new Date(rawDate)
 
-  // Use scheduled_at as the time component (e.g. "09:00 AM PST", "14:30", etc.)
-  const timeStr = job.scheduled_at || job.scheduled_time || ""
-  const timeMatch = String(timeStr).match(/^(\d{1,2}):(\d{2})/)
-  if (timeMatch) {
-    return new Date(`${rawDate}T${timeMatch[0]}:00`)
+  // Use scheduled_at as the time component (e.g. "09:00 AM PST", "14:30", "4:00 PM", etc.)
+  const timeStr = String(job.scheduled_at || job.scheduled_time || "")
+
+  // Handle 12-hour format: "4:00 PM", "10:30 AM", "4:00 PM PST"
+  const twelveHrMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+  if (twelveHrMatch) {
+    let hours = parseInt(twelveHrMatch[1], 10)
+    const minutes = twelveHrMatch[2]
+    const meridiem = twelveHrMatch[3].toUpperCase()
+    if (meridiem === "PM" && hours !== 12) hours += 12
+    if (meridiem === "AM" && hours === 12) hours = 0
+    return new Date(`${rawDate}T${String(hours).padStart(2, "0")}:${minutes}:00`)
+  }
+
+  // Handle 24-hour format: "14:00", "09:00"
+  const twentyFourHrMatch = timeStr.match(/^(\d{1,2}):(\d{2})/)
+  if (twentyFourHrMatch) {
+    const hh = String(parseInt(twentyFourHrMatch[1], 10)).padStart(2, "0")
+    return new Date(`${rawDate}T${hh}:${twentyFourHrMatch[2]}:00`)
   }
 
   // Default to 9am
