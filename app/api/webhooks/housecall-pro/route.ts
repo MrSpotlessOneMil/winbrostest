@@ -8,6 +8,7 @@ import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
+import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
 /**
  * Webhook handler for Housecall Pro events
@@ -81,7 +82,8 @@ export async function POST(request: NextRequest) {
 
     // Best-effort field extraction (HCP payload shapes vary by event)
     // For leads, phone is often in lead.customer.mobile_number
-    const phoneRaw =
+    // For jobs, phone may be nested in job.customer or require an API lookup
+    let phoneRaw =
       // Lead customer fields (most common for lead.created)
       lead?.customer?.mobile_number ||
       lead?.customer?.phone_number ||
@@ -92,6 +94,11 @@ export async function POST(request: NextRequest) {
       customer?.phone_number ||
       customer?.phone ||
       customer?.phone_numbers?.[0]?.number ||
+      // Job-level customer fields (HCP may nest customer in job)
+      (job as any)?.customer?.mobile_number ||
+      (job as any)?.customer?.phone_number ||
+      (job as any)?.customer?.phone ||
+      (job as any)?.customer?.phone_numbers?.[0]?.number ||
       // Nested data.customer fields
       (data as any)?.customer?.mobile_number ||
       (data as any)?.customer?.phone ||
@@ -100,35 +107,61 @@ export async function POST(request: NextRequest) {
       (data as any)?.phone ||
       (data as any)?.phone_number ||
       ""
-    const phone = normalizePhoneNumber(String(phoneRaw)) || String(phoneRaw)
 
-    console.log(`[OSIRIS] HCP Webhook phone extraction: raw="${phoneRaw}", normalized="${phone}"`)
-
-    const firstName =
+    let firstName =
       lead?.customer?.first_name ||
       lead?.first_name ||
       customer?.first_name ||
+      (job as any)?.customer?.first_name ||
       (data as any)?.customer?.first_name ||
       (data as any)?.customer?.firstName ||
       (data as any)?.first_name ||
       (data as any)?.firstName ||
       null
-    const lastName =
+    let lastName =
       lead?.customer?.last_name ||
       lead?.last_name ||
       customer?.last_name ||
+      (job as any)?.customer?.last_name ||
       (data as any)?.customer?.last_name ||
       (data as any)?.customer?.lastName ||
       (data as any)?.last_name ||
       (data as any)?.lastName ||
       null
-    const email =
+    let email =
       lead?.customer?.email ||
       lead?.email ||
       customer?.email ||
+      (job as any)?.customer?.email ||
       (data as any)?.customer?.email ||
       (data as any)?.email ||
       null
+
+    // If no phone found and we have a customer_id on the job, fetch from HCP API
+    const hcpCustomerId = job?.customer_id || (job as any)?.customer?.id || (data as any)?.job?.customer_id
+    if (!phoneRaw && hcpCustomerId) {
+      console.log(`[OSIRIS] HCP Webhook: No phone in payload, fetching customer ${hcpCustomerId} from HCP API`)
+      try {
+        const hcpResult = await getHCPCustomer(hcpCustomerId)
+        if (hcpResult.success && hcpResult.data) {
+          const hcpCust = hcpResult.data
+          phoneRaw = hcpCust.phone_numbers?.[0]?.number || ""
+          if (!firstName) firstName = hcpCust.first_name || null
+          if (!lastName) lastName = hcpCust.last_name || null
+          if (!email) email = hcpCust.email || null
+          console.log(`[OSIRIS] HCP Webhook: Fetched customer from HCP - phone="${phoneRaw}", name="${firstName} ${lastName}"`)
+        } else {
+          console.warn(`[OSIRIS] HCP Webhook: Failed to fetch customer ${hcpCustomerId} from HCP:`, hcpResult.error)
+        }
+      } catch (hcpErr) {
+        console.error(`[OSIRIS] HCP Webhook: Error fetching customer from HCP:`, hcpErr)
+      }
+    }
+
+    const phone = normalizePhoneNumber(String(phoneRaw)) || String(phoneRaw)
+
+    console.log(`[OSIRIS] HCP Webhook phone extraction: raw="${phoneRaw}", normalized="${phone}"`)
+
     const address =
       lead?.address ||
       job?.address ||
@@ -152,29 +185,43 @@ export async function POST(request: NextRequest) {
             .select("id")
             .single()
 
+          // Extract schedule from top-level job object (HCP sends scheduled_start)
+          // then fallback to nested data paths
+          const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
           const scheduledDate =
+            (scheduledStart ? new Date(scheduledStart).toISOString().split('T')[0] : null) ||
             (data as any)?.job?.scheduled_date ||
             (data as any)?.job?.date ||
-            (data as any)?.scheduled_date ||
-            (data as any)?.date ||
             null
           const scheduledTime =
+            (scheduledStart ? new Date(scheduledStart).toTimeString().slice(0, 5) : null) ||
             (data as any)?.job?.scheduled_time ||
             (data as any)?.job?.scheduled_at ||
-            (data as any)?.scheduled_time ||
-            (data as any)?.scheduled_at ||
             null
 
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id
+          const jobAddress = address || ((job as any)?.address ? formatHCPAddress((job as any).address) : null)
+
           await client.from("jobs").insert({
+            tenant_id: tenant?.id,
             customer_id: customer?.id,
             phone_number: phone,
-            address,
-            service_type: (data as any)?.job?.service_type || (data as any)?.service_type || "Service",
+            address: jobAddress,
+            service_type: (job as any)?.line_items?.[0]?.name || (data as any)?.job?.service_type || "Service",
             date: scheduledDate,
             scheduled_at: scheduledTime,
             status: "scheduled",
             booked: true,
+            housecall_pro_job_id: hcpJobId || null,
+            housecall_pro_customer_id: hcpCustomerId || null,
+            price: (job as any)?.total_amount || null,
+            notes: (job as any)?.notes || null,
+            brand: 'winbros',
           })
+
+          console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${phone})`)
+        } else {
+          console.warn(`[OSIRIS] HCP Webhook: Skipping job.created - no phone number resolved (customer_id: ${hcpCustomerId})`)
         }
         break
 
@@ -468,4 +515,15 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     )
   }
+}
+
+/** Format an HCP address object to a single string */
+function formatHCPAddress(addr: { street?: string; street_line_2?: string; city?: string; state?: string; zip?: string }): string | null {
+  if (!addr?.street) return null
+  const parts = [addr.street]
+  if (addr.street_line_2) parts.push(addr.street_line_2)
+  if (addr.city || addr.state || addr.zip) {
+    parts.push(`${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`.trim())
+  }
+  return parts.join(', ')
 }
