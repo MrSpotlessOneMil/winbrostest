@@ -422,12 +422,18 @@ function extractSignatureCandidates(signature: string): string[] {
   const raw = signature.trim()
   if (!raw) return []
 
-  const cleaned = raw.replace(/^sha256=/i, '')
   candidates.add(raw)
-  candidates.add(cleaned)
+  candidates.add(raw.replace(/^sha256=/i, ''))
 
-  const parts = raw.split(',')
-  for (const part of parts) {
+  // OpenPhone format: "hmac;{version};{timestamp};{digest}"
+  const semicolonParts = raw.split(';')
+  if (semicolonParts.length >= 4 && semicolonParts[0].toLowerCase() === 'hmac') {
+    candidates.add(semicolonParts[3])
+  }
+
+  // Stripe-style format: "t=1234,v1=abc..."
+  const commaParts = raw.split(',')
+  for (const part of commaParts) {
     const segment = part.trim()
     if (!segment) continue
 
