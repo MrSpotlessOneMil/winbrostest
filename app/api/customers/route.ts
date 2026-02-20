@@ -31,12 +31,33 @@ export async function DELETE(request: NextRequest) {
   }
 
   const phone = customer.phone_number
+  const custId = parseInt(customerId)
 
-  // Delete related records
-  await client.from("messages").delete().eq("phone_number", phone)
-  await client.from("calls").delete().eq("phone_number", phone)
-  await client.from("leads").delete().eq("phone_number", phone)
-  await client.from("jobs").delete().eq("customer_phone", phone)
+  // Get all job IDs for this customer (needed to clean up job-dependent tables)
+  const { data: customerJobs } = await client
+    .from("jobs")
+    .select("id")
+    .or(`customer_id.eq.${custId},customer_phone.eq.${phone}`)
+  const jobIds = (customerJobs || []).map((j: { id: number }) => j.id)
+
+  // Delete in FK-safe order: deepest dependencies first
+  if (jobIds.length > 0) {
+    await client.from("reviews").delete().in("job_id", jobIds)
+    await client.from("tips").delete().in("job_id", jobIds)
+    await client.from("upsells").delete().in("job_id", jobIds)
+  }
+  // Also delete reviews linked directly to customer
+  await client.from("reviews").delete().eq("customer_id", custId)
+
+  // Delete messages and calls (reference customer_id, job_id, lead_id)
+  await client.from("messages").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+  await client.from("calls").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+
+  // Delete leads (references customer_id and converted_to_job_id)
+  await client.from("leads").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+
+  // Delete jobs
+  await client.from("jobs").delete().or(`customer_id.eq.${custId},customer_phone.eq.${phone}`)
 
   // Delete the customer
   const { error: deleteError } = await client
