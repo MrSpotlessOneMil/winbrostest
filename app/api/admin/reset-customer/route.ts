@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { normalizePhone, toE164 } from "@/lib/phone-utils"
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const tenant = await getAuthTenant(request)
   // Admin user (no tenant_id) deletes across all tenants
   const isAdmin = !tenant && authResult.user.username === 'admin'
