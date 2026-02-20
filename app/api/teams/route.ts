@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Team, TeamDailyMetrics, ApiResponse } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 function todayISO(): string {
@@ -20,18 +20,6 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const include_metrics = searchParams.get("include_metrics") === "true"
 
-  // If the server is accidentally running with the anon key (no service role),
-  // RLS will block reads after a schema reset. Fail loudly with a clear message.
-  if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_KEY) {
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          "Server Supabase service role key is missing. Set SUPABASE_SERVICE_ROLE_KEY in .env.local and restart `npm run dev`.",
-      } satisfies ApiResponse<never>,
-      { status: 500 }
-    )
-  }
 
   // Get tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
@@ -46,7 +34,7 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const client = getSupabaseServiceClient()
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
   const date = searchParams.get("date") || todayISO()
 
   // Load teams and their members (cleaners) including location fields

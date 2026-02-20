@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   const page = parseInt(searchParams.get("page") || "1")
   const per_page = parseInt(searchParams.get("per_page") || "20")
 
-  const client = getSupabaseServiceClient()
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
   const start = (page - 1) * per_page
   const end = start + per_page - 1
 
@@ -151,7 +151,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Job ID is required" }, { status: 400 })
     }
 
-    const client = getSupabaseServiceClient()
+    const client = await getTenantScopedClient(tenant.id)
 
     // Fetch old job to detect time changes for SMS notification
     const { data: oldJob } = await client
@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
 
-    const client = getSupabaseServiceClient()
+    const client = await getTenantScopedClient(tenant.id)
 
     const rawPhone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
     const phone = normalizePhoneNumber(rawPhone) || rawPhone

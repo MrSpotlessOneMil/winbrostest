@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import {
-  getSupabaseClient,
+  getSupabaseServiceClient,
   getJobById,
   getCleanerById,
   getCustomerByPhone,
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 async function executeCheckTimeouts(request: NextRequest) {
 
   try {
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const now = new Date()
     const cutoffTime = new Date(now.getTime() - URGENT_TIMEOUT_MINUTES * 60 * 1000).toISOString()
 
@@ -387,7 +387,7 @@ function getOldestPendingCreatedAt(
 }
 
 async function hasSystemEvent(
-  client: ReturnType<typeof getSupabaseClient>,
+  client: ReturnType<typeof getSupabaseServiceClient>,
   eventType: 'OWNER_ALERT' | 'CUSTOMER_DELAY_NOTICE' | 'CLEANER_BROADCAST',
   jobId: string,
   metadataFilter?: { key: string; value: string },
@@ -418,7 +418,7 @@ async function hasSystemEvent(
 }
 
 async function getLatestSystemEvent(
-  client: ReturnType<typeof getSupabaseClient>,
+  client: ReturnType<typeof getSupabaseServiceClient>,
   eventType: 'CLEANER_CANCELLED',
   jobId: string
 ): Promise<{ created_at: string; cleaner_id?: string | null } | null> {
@@ -455,7 +455,7 @@ function minutesSince(timestamp: string, now: Date): number {
 }
 
 async function handleCancelReassign(
-  client: ReturnType<typeof getSupabaseClient>,
+  client: ReturnType<typeof getSupabaseServiceClient>,
   job: Job,
   cancelEvent: { created_at: string; cleaner_id?: string | null },
   now: Date

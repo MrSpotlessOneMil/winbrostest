@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RainDayReschedule, ApiResponse, Job } from "@/lib/types"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
+import type { SupabaseClient } from "@supabase/supabase-js"
 import { requireAuth, getAuthTenant, AuthUser } from "@/lib/auth"
 import { updateJob as updateHCPJob } from "@/integrations/housecall-pro/hcp-client"
 import { sendSMS } from "@/lib/openphone"
@@ -49,8 +50,7 @@ function toTimeHHMM(value: unknown): string {
   return "09:00"
 }
 
-async function getAffectedJobs(date: string, tenantId: string): Promise<Job[]> {
-  const client = getSupabaseServiceClient()
+async function getAffectedJobs(date: string, tenantId: string, client: SupabaseClient): Promise<Job[]> {
   const { data, error } = await client
     .from("jobs")
     .select("*, customers (*), cleaner_assignments (*, cleaners (*))")
@@ -106,7 +106,7 @@ async function rescheduleJob(
   targetDate: string,
   affectedDate: string,
   tenant: any,
-  client: ReturnType<typeof getSupabaseServiceClient>,
+  client: SupabaseClient,
 ): Promise<{ success: boolean; notifications: number }> {
   let notifications = 0
   const numericId = Number(job.id)
@@ -231,7 +231,7 @@ function getCandidateDates(afterDate: string, count: number): string[] {
 async function getJobCountsByDate(
   dates: string[],
   tenantId: string,
-  client: ReturnType<typeof getSupabaseServiceClient>,
+  client: SupabaseClient,
 ): Promise<Record<string, number>> {
   const counts: Record<string, number> = {}
   for (const d of dates) counts[d] = 0
@@ -280,7 +280,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const affectedJobs = await getAffectedJobs(affected_date, tenant.id)
+    const client = await getTenantScopedClient(tenant.id)
+    const affectedJobs = await getAffectedJobs(affected_date, tenant.id, client)
     if (affectedJobs.length === 0) {
       return NextResponse.json({
         success: true,
@@ -288,8 +289,6 @@ export async function POST(request: NextRequest) {
         message: "No jobs found on this date",
       })
     }
-
-    const client = getSupabaseServiceClient()
     const successfullyRescheduled: string[] = []
     const failedJobs: string[] = []
     let notificationsSent = 0
@@ -386,7 +385,8 @@ export async function GET(request: NextRequest) {
   }
 
   // Get preview of jobs that would be affected
-  const affectedJobs = await getAffectedJobs(date, tenant.id)
+  const previewClient = await getTenantScopedClient(tenant.id)
+  const affectedJobs = await getAffectedJobs(date, tenant.id, previewClient)
   const totalRevenue = affectedJobs.reduce((sum, job) => sum + job.estimated_value, 0)
 
   return NextResponse.json({

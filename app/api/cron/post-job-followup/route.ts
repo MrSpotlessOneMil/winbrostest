@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth } from '@/lib/cron-auth'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { postJobFollowup, reviewOnlyFollowup } from '@/lib/sms-templates'
 import { logSystemEvent } from '@/lib/system-events'
@@ -13,16 +13,18 @@ import { getDefaultTenant } from '@/lib/tenant'
  * Sends combined message: review request + recurring offer + tip prompt
  *
  * Timing: 2 hours after job completion
+ *
+ * Race-condition safe: Uses claim_jobs_for_followup() RPC with
+ * SELECT FOR UPDATE SKIP LOCKED to prevent duplicate SMS.
  */
 export async function GET(request: NextRequest) {
-  // Verify this is a legitimate cron request
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   console.log('[Post-Job Followup] Starting cron job...')
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const tenant = await getDefaultTenant()
 
   if (!tenant) {
@@ -30,36 +32,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No tenant configured' }, { status: 500 })
   }
 
-  // Find jobs completed more than 2 hours ago that haven't had followup sent
-  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-
-  const { data: jobs, error } = await client
-    .from('jobs')
-    .select(`
-      id,
-      customer_id,
-      phone_number,
-      team_id,
-      completed_at,
-      followup_sent_at,
-      paid,
-      stripe_payment_link,
-      customers (
-        id,
-        first_name,
-        last_name,
-        phone_number
-      )
-    `)
-    .eq('tenant_id', tenant.id)
-    .eq('status', 'completed')
-    .is('followup_sent_at', null)
-    .not('completed_at', 'is', null)
-    .lt('completed_at', twoHoursAgo)
-    .limit(20) // Process in batches to avoid timeout
+  // Atomically claim eligible jobs using FOR UPDATE SKIP LOCKED
+  // This prevents duplicate SMS when multiple cron instances fire simultaneously
+  const { data: jobs, error } = await client.rpc('claim_jobs_for_followup', {
+    p_tenant_id: tenant.id,
+    p_batch_size: 20,
+  })
 
   if (error) {
-    console.error('[Post-Job Followup] Failed to fetch jobs:', error.message)
+    console.error('[Post-Job Followup] Failed to claim jobs:', error.message)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -68,19 +49,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, processed: 0 })
   }
 
-  console.log(`[Post-Job Followup] Found ${jobs.length} jobs to follow up`)
+  console.log(`[Post-Job Followup] Claimed ${jobs.length} jobs to follow up`)
 
   let processed = 0
   let errors = 0
 
   for (const job of jobs) {
     try {
-      const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers
-      const phone = customer?.phone_number || job.phone_number
-      const customerName = customer?.first_name || 'there'
+      const phone = job.customer_phone || job.job_phone_number
+      const customerName = job.customer_first_name || 'there'
 
       if (!phone) {
-        console.warn(`[Post-Job Followup] No phone for job ${job.id}, skipping`)
+        console.warn(`[Post-Job Followup] No phone for job ${job.job_id}, skipping`)
         continue
       }
 
@@ -102,20 +82,18 @@ export async function GET(request: NextRequest) {
 
       // Get review link and tip link from tenant config
       const reviewLink = tenant.google_review_link || 'https://g.page/review'
-      const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.id}`
+      const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.job_id}`
       const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
       // Check if this job has payment info - if not and review-only is enabled, send simpler message
-      const hasPaymentInfo = !!(job as any).paid || !!(job as any).stripe_payment_link
+      const hasPaymentInfo = !!job.paid || !!job.stripe_payment_intent_id
       const reviewOnlyEnabled = tenant.workflow_config?.review_only_followup_enabled
 
       let message: string
       if (!hasPaymentInfo && reviewOnlyEnabled) {
-        // Review-only: no tip link or recurring offer since there's no invoice context
         message = reviewOnlyFollowup(customerName, reviewLink)
-        console.log(`[Post-Job Followup] Using review-only template for job ${job.id} (no payment info)`)
+        console.log(`[Post-Job Followup] Using review-only template for job ${job.job_id} (no payment info)`)
       } else {
-        // Full combined message with review + recurring + tip
         message = postJobFollowup(
           customerName,
           cleanerName,
@@ -128,17 +106,12 @@ export async function GET(request: NextRequest) {
       const smsResult = await sendSMS(phone, message)
 
       if (smsResult.success) {
-        // Mark follow-up as sent
-        await client
-          .from('jobs')
-          .update({ followup_sent_at: new Date().toISOString() })
-          .eq('id', job.id)
-
+        // followup_sent_at already set by the RPC function (atomic claim)
         await logSystemEvent({
           source: 'cron',
           event_type: 'POST_JOB_FOLLOWUP_SENT',
-          message: `Post-job follow-up sent for job ${job.id}`,
-          job_id: String(job.id),
+          message: `Post-job follow-up sent for job ${job.job_id}`,
+          job_id: String(job.job_id),
           phone_number: phone,
           metadata: {
             customer_name: customerName,
@@ -147,13 +120,25 @@ export async function GET(request: NextRequest) {
         })
 
         processed++
-        console.log(`[Post-Job Followup] Sent follow-up for job ${job.id}`)
+        console.log(`[Post-Job Followup] Sent follow-up for job ${job.job_id}`)
       } else {
-        console.error(`[Post-Job Followup] Failed to send SMS for job ${job.id}:`, smsResult.error)
+        // SMS failed — reset followup_sent_at so it gets retried next run
+        await client
+          .from('jobs')
+          .update({ followup_sent_at: null })
+          .eq('id', job.job_id)
+
+        console.error(`[Post-Job Followup] Failed to send SMS for job ${job.job_id}:`, smsResult.error)
         errors++
       }
     } catch (err) {
-      console.error(`[Post-Job Followup] Error processing job ${job.id}:`, err)
+      // Unexpected error — reset followup_sent_at so it gets retried next run
+      await client
+        .from('jobs')
+        .update({ followup_sent_at: null })
+        .eq('id', job.job_id)
+
+      console.error(`[Post-Job Followup] Error processing job ${job.job_id}:`, err)
       errors++
     }
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getApiKey } from '@/lib/user-api-keys'
 import { getClientConfig } from '@/lib/client-config'
 
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
 
     // Get job with cleaner info
     const { data: job, error: jobError } = await client

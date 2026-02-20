@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getDefaultTenant } from '@/lib/tenant'
 
 /**
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
 
     // Get job with cleaner info
     const { data: job, error: jobError } = await client

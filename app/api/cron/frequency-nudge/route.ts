@@ -6,13 +6,15 @@
  *
  * Avoids double-sending with monthly re-engagement by checking monthly_followup_sent_at.
  *
+ * Race-condition safe: Uses claim_jobs_for_frequency_nudge() RPC with
+ * SELECT FOR UPDATE SKIP LOCKED to prevent duplicate SMS.
+ *
  * Schedule: Daily at 6:30pm UTC (10:30am Pacific)
- * Endpoint: GET /api/cron/frequency-nudge
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { frequencyNudge } from '@/lib/sms-templates'
 import { getAllActiveTenants, getTenantBusinessName } from '@/lib/tenant'
@@ -25,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   console.log('[Frequency Nudge] Starting cron job...')
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const tenants = await getAllActiveTenants()
 
   let totalSent = 0
@@ -41,28 +43,13 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Frequency Nudge] Tenant '${tenant.slug}': checking jobs completed ${nudgeDays}-${nudgeDays + 7} days ago`)
 
-    // Find completed jobs in the nudge window that haven't been nudged or monthly-followed-up
-    const { data: jobs, error } = await client
-      .from('jobs')
-      .select(`
-        id,
-        customer_id,
-        phone_number,
-        completed_at,
-        customers (
-          id,
-          first_name,
-          phone_number
-        )
-      `)
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'completed')
-      .is('frequency_nudge_sent_at', null)
-      .is('monthly_followup_sent_at', null)
-      .not('completed_at', 'is', null)
-      .gte('completed_at', nudgeWindowStart)
-      .lte('completed_at', nudgeWindowEnd)
-      .limit(30)
+    // Atomically claim eligible jobs using FOR UPDATE SKIP LOCKED
+    const { data: jobs, error } = await client.rpc('claim_jobs_for_frequency_nudge', {
+      p_tenant_id: tenant.id,
+      p_window_start: nudgeWindowStart,
+      p_window_end: nudgeWindowEnd,
+      p_batch_size: 30,
+    })
 
     if (error) {
       console.error(`[Frequency Nudge] Query error for ${tenant.slug}:`, error.message)
@@ -75,16 +62,15 @@ export async function GET(request: NextRequest) {
       continue
     }
 
-    console.log(`[Frequency Nudge] Found ${jobs.length} jobs to nudge for ${tenant.slug}`)
+    console.log(`[Frequency Nudge] Claimed ${jobs.length} jobs for ${tenant.slug}`)
 
     for (const job of jobs) {
       try {
-        const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers
-        const phone = customer?.phone_number || job.phone_number
-        const customerName = customer?.first_name || 'there'
+        const phone = job.customer_phone || job.job_phone_number
+        const customerName = job.customer_first_name || 'there'
 
         if (!phone) {
-          console.warn(`[Frequency Nudge] No phone for job ${job.id}, skipping`)
+          console.warn(`[Frequency Nudge] No phone for job ${job.job_id}, skipping`)
           continue
         }
 
@@ -98,11 +84,7 @@ export async function GET(request: NextRequest) {
           .limit(1)
 
         if (newerJobs && newerJobs.length > 0) {
-          // Customer already booked again - mark as nudged to skip in future
-          await client
-            .from('jobs')
-            .update({ frequency_nudge_sent_at: new Date().toISOString() })
-            .eq('id', job.id)
+          // Customer already booked again — already claimed by RPC, no action needed
           continue
         }
 
@@ -112,16 +94,12 @@ export async function GET(request: NextRequest) {
         const smsResult = await sendSMS(tenant, phone, message)
 
         if (smsResult.success) {
-          await client
-            .from('jobs')
-            .update({ frequency_nudge_sent_at: new Date().toISOString() })
-            .eq('id', job.id)
-
+          // frequency_nudge_sent_at already set by RPC
           await logSystemEvent({
             source: 'cron',
             event_type: 'FREQUENCY_NUDGE_SENT',
             message: `Frequency nudge sent to ${customerName} (${daysSince} days since last service)`,
-            job_id: String(job.id),
+            job_id: String(job.job_id),
             phone_number: phone,
             metadata: {
               tenant_slug: tenant.slug,
@@ -131,13 +109,25 @@ export async function GET(request: NextRequest) {
           })
 
           totalSent++
-          console.log(`[Frequency Nudge] Sent nudge for job ${job.id} (${daysSince} days)`)
+          console.log(`[Frequency Nudge] Sent nudge for job ${job.job_id} (${daysSince} days)`)
         } else {
-          console.error(`[Frequency Nudge] SMS failed for job ${job.id}:`, smsResult.error)
+          // SMS failed — reset so it gets retried
+          await client
+            .from('jobs')
+            .update({ frequency_nudge_sent_at: null })
+            .eq('id', job.job_id)
+
+          console.error(`[Frequency Nudge] SMS failed for job ${job.job_id}:`, smsResult.error)
           totalErrors++
         }
       } catch (err) {
-        console.error(`[Frequency Nudge] Error processing job ${job.id}:`, err)
+        // Unexpected error — reset so it gets retried
+        await client
+          .from('jobs')
+          .update({ frequency_nudge_sent_at: null })
+          .eq('id', job.job_id)
+
+        console.error(`[Frequency Nudge] Error processing job ${job.job_id}:`, err)
         totalErrors++
       }
     }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const range = searchParams.get("range") || "month"
 
-  const client = getSupabaseServiceClient()
+  const client = await getTenantScopedClient(tenant.id)
 
   const now = new Date()
   const start = new Date(now)
