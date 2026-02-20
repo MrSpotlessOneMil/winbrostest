@@ -246,7 +246,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               },
             })
 
-            if (data.outcome !== "booked") {
+            // Treat as booked if outcome says so, OR if structuredData has appointment info
+            const isBooked =
+              data.outcome === "booked" ||
+              !!(structuredData.appointment_date && structuredData.appointment_time) ||
+              !!(structuredData.confirmed_datetime)
+
+            if (!isBooked) {
               try {
                 await scheduleLeadFollowUp(
                   tenant.id,
@@ -365,7 +371,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         } else {
           console.log(`${tag} Lead already exists for ${phone} (id: ${existingLead.id})`)
 
-          if (data.outcome === "booked") {
+          // Also treat as booked if structuredData has appointment info
+          const existingLeadIsBooked =
+            data.outcome === "booked" ||
+            !!(structuredData.appointment_date && structuredData.appointment_time) ||
+            !!(structuredData.confirmed_datetime)
+
+          if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
 
             const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
