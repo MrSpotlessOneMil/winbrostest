@@ -177,10 +177,9 @@ export async function syncNewJobToHCP(params: {
     }
 
     if (!hcpAddressId) {
-      console.error(
-        `[HCP Sync] Cannot create HCP job for local job ${jobId}: missing address_id on HCP customer ${hcpCustomer.customerId}`
+      console.warn(
+        `[HCP Sync] No address_id on HCP customer ${hcpCustomer.customerId} for local job ${jobId}; attempting legacy job create fallback`
       )
-      return
     }
 
     const created = await createHCPJob(tenant, {
@@ -200,6 +199,24 @@ export async function syncNewJobToHCP(params: {
     if (!created.success || !created.jobId) {
       console.error(`[HCP Sync] Failed to create HCP job for local job ${jobId}: ${created.error}`)
       return
+    }
+
+    // Re-apply schedule/dispatch/line-items through dedicated endpoints after create.
+    const postCreateSync = await updateHCPJob(tenant, created.jobId, {
+      scheduledDate,
+      scheduledTime,
+      address,
+      serviceType,
+      price: price == null ? undefined : Number(price),
+      durationHours: durationHours == null ? undefined : Number(durationHours),
+      notes,
+      lineItems,
+      assignedEmployeeIds,
+    })
+    if (!postCreateSync.success) {
+      console.warn(
+        `[HCP Sync] Post-create update failed for HCP job ${created.jobId} (local job ${jobId}): ${postCreateSync.error}`
+      )
     }
 
     const { error: updateErr } = await client

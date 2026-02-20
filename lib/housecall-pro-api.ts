@@ -72,6 +72,27 @@ interface HCPCustomer {
   addresses?: HCPAddress[]
 }
 
+function extractJobId(data: unknown): string | undefined {
+  if (!data || typeof data !== 'object') return undefined
+
+  const record = data as Record<string, unknown>
+  if (typeof record.id === 'string' && record.id) return record.id
+
+  const nestedJob = record.job
+  if (nestedJob && typeof nestedJob === 'object') {
+    const jobId = (nestedJob as Record<string, unknown>).id
+    if (typeof jobId === 'string' && jobId) return jobId
+  }
+
+  const nestedData = record.data
+  if (nestedData && typeof nestedData === 'object') {
+    const dataId = (nestedData as Record<string, unknown>).id
+    if (typeof dataId === 'string' && dataId) return dataId
+  }
+
+  return undefined
+}
+
 function toHcpMoneyCents(value?: number | null): number | undefined {
   if (value === null || value === undefined) return undefined
   const numeric = Number(value)
@@ -295,12 +316,18 @@ async function hcpRequest<T>(
   }
 
   try {
+    const headers: Record<string, string> = {
+      Authorization: `Token ${apiKey}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    }
+    if (tenant.housecall_pro_company_id) {
+      headers['X-Company-Id'] = tenant.housecall_pro_company_id
+    }
+
     const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
       method: options.method || 'GET',
-      headers: {
-        Authorization: `Token ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     })
 
@@ -386,33 +413,52 @@ export async function findOrCreateHCPCustomer(
   const phoneDigits = normalizePhoneForMatch(customerData.phone)
   const searchTerm = phoneDigits || customerData.phone
 
-  // Search existing customers by broad q query (covers name/email/phone/address).
-  const searchResult = await hcpRequest<{ customers?: HCPCustomer[] } | HCPCustomer[]>(
+  const selectExistingCustomer = async (
+    customers: HCPCustomer[]
+  ): Promise<{ success: boolean; customerId?: string; addressId?: string } | null> => {
+    if (!customers.length) return null
+
+    const exactPhoneMatch = customers.find((customer) => {
+      const phones = [customer.mobile_number, customer.home_number, customer.work_number]
+      return phones.some((phone) => normalizePhoneForMatch(phone) === phoneDigits)
+    })
+
+    const existing = exactPhoneMatch || customers[0]
+    const addressId = await ensureCustomerAddressId(
+      tenant,
+      existing.id,
+      existing.addresses,
+      customerData.address
+    )
+
+    console.log(`[HCP API] Found existing customer: ${existing.id}`)
+    return { success: true, customerId: existing.id, addressId }
+  }
+
+  // First try explicit mobile_number filter.
+  const phoneSearchResult = await hcpRequest<{ customers?: HCPCustomer[] } | HCPCustomer[]>(
+    tenant,
+    `/customers?mobile_number=${encodeURIComponent(customerData.phone)}&page=1&page_size=25`
+  )
+  if (phoneSearchResult.success) {
+    const phoneMatches = extractCustomers(phoneSearchResult.data)
+    const found = await selectExistingCustomer(phoneMatches)
+    if (found) return found
+  } else {
+    console.warn(`[HCP API] Customer mobile search failed for ${customerData.phone}: ${phoneSearchResult.error}`)
+  }
+
+  // Then broad q search (covers name/email/phone/address).
+  const broadSearchResult = await hcpRequest<{ customers?: HCPCustomer[] } | HCPCustomer[]>(
     tenant,
     `/customers?q=${encodeURIComponent(searchTerm)}&page=1&page_size=25`
   )
-
-  if (searchResult.success) {
-    const customers = extractCustomers(searchResult.data)
-    if (customers.length > 0) {
-      const exactPhoneMatch = customers.find((customer) => {
-        const phones = [customer.mobile_number, customer.home_number, customer.work_number]
-        return phones.some((phone) => normalizePhoneForMatch(phone) === phoneDigits)
-      })
-
-      const existing = exactPhoneMatch || customers[0]
-      const addressId = await ensureCustomerAddressId(
-        tenant,
-        existing.id,
-        existing.addresses,
-        customerData.address
-      )
-
-      console.log(`[HCP API] Found existing customer: ${existing.id}`)
-      return { success: true, customerId: existing.id, addressId }
-    }
+  if (broadSearchResult.success) {
+    const broadMatches = extractCustomers(broadSearchResult.data)
+    const found = await selectExistingCustomer(broadMatches)
+    if (found) return found
   } else {
-    console.warn(`[HCP API] Customer search failed for ${customerData.phone}: ${searchResult.error}`)
+    console.warn(`[HCP API] Customer broad search failed for ${customerData.phone}: ${broadSearchResult.error}`)
   }
 
   // Create new customer if search did not find one.
@@ -536,11 +582,12 @@ export async function convertHCPLeadToJob(
     }
   )
 
-  if (result.success && result.data?.job?.id) {
-    console.log(`[HCP API] Lead converted to job: ${result.data.job.id}`)
+  const convertedJobId = extractJobId(result.data?.job || result.data)
+  if (result.success && convertedJobId) {
+    console.log(`[HCP API] Lead converted to job: ${convertedJobId}`)
     return {
       success: true,
-      jobId: result.data.job.id,
+      jobId: convertedJobId,
       customerId: result.data.customer?.id,
     }
   }
@@ -572,13 +619,6 @@ export async function createHCPJob(
     durationHours?: number
   }
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
-  if (!jobData.addressId) {
-    return {
-      success: false,
-      error: 'Cannot create HCP job without customer address_id',
-    }
-  }
-
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
 
   const { scheduledStart, scheduledEnd } = buildScheduleWindow(
@@ -604,29 +644,81 @@ export async function createHCPJob(
   ].filter(Boolean)
   const notes = notesParts.join('\n')
 
-  const result = await hcpRequest<HCPJob>(tenant, '/jobs', {
-    method: 'POST',
-    body: {
-      customer_id: jobData.customerId,
-      address_id: jobData.addressId,
-      schedule: scheduledStart
-        ? {
-            scheduled_start: scheduledStart,
-            scheduled_end: scheduledEnd || scheduledStart,
-          }
-        : undefined,
-      assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
-      line_items: lineItemsCents,
-      notes: notes || undefined,
-    },
-  })
+  const assignedEmployeeIds = jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined
 
-  if (result.success && result.data?.id) {
-    console.log(`[HCP API] Job created: ${result.data.id}`)
-    return { success: true, jobId: result.data.id }
+  const createWithLegacyPayload = async (reason: string): Promise<{ success: boolean; jobId?: string; error?: string }> => {
+    console.warn(`[HCP API] Falling back to legacy job create payload (${reason})`)
+
+    const legacyResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
+      tenant,
+      '/jobs',
+      {
+        method: 'POST',
+        body: {
+          customer_id: jobData.customerId,
+          scheduled_start: scheduledStart,
+          scheduled_end: scheduledEnd,
+          address: jobData.address || undefined,
+          description: jobData.serviceType || 'Cleaning Service',
+          total: totalCents,
+          notes: notes || undefined,
+          line_items: lineItemsCents,
+          assigned_employee_ids: assignedEmployeeIds,
+          lead_source: 'osiris',
+        },
+      }
+    )
+
+    if (!legacyResult.success) {
+      return { success: false, error: legacyResult.error }
+    }
+
+    const fallbackJobId = extractJobId(legacyResult.data)
+    if (!fallbackJobId) {
+      return { success: false, error: 'HCP legacy create succeeded but did not return job ID' }
+    }
+
+    console.log(`[HCP API] Job created (legacy payload): ${fallbackJobId}`)
+    return { success: true, jobId: fallbackJobId }
   }
 
-  return { success: false, error: result.error }
+  if (jobData.addressId) {
+    const strictResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
+      tenant,
+      '/jobs',
+      {
+        method: 'POST',
+        body: {
+          customer_id: jobData.customerId,
+          address_id: jobData.addressId,
+          schedule: scheduledStart
+            ? {
+                scheduled_start: scheduledStart,
+                scheduled_end: scheduledEnd || scheduledStart,
+              }
+            : undefined,
+          assigned_employee_ids: assignedEmployeeIds,
+          line_items: lineItemsCents,
+          notes: notes || undefined,
+          lead_source: 'osiris',
+        },
+      }
+    )
+
+    if (strictResult.success) {
+      const jobId = extractJobId(strictResult.data)
+      if (jobId) {
+        console.log(`[HCP API] Job created: ${jobId}`)
+        return { success: true, jobId }
+      }
+    } else {
+      console.warn(`[HCP API] Strict create failed: ${strictResult.error}`)
+    }
+
+    return createWithLegacyPayload('strict address_id create failed')
+  }
+
+  return createWithLegacyPayload('missing customer address_id')
 }
 
 /**
