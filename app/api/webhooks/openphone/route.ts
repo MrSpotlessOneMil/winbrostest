@@ -879,7 +879,7 @@ export async function POST(request: NextRequest) {
   // Get the MOST RECENT active (non-booked) lead for this phone number
   const { data: allLeadsForPhone } = await client
     .from("leads")
-    .select("id, status, form_data, source")
+    .select("id, status, form_data, source, followup_stage")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .in("status", ["new", "contacted", "qualified", "responded", "escalated"])
@@ -898,24 +898,64 @@ export async function POST(request: NextRequest) {
   }
 
   if (existingLead) {
-    // Lead responded — update status and cancel remaining follow-up tasks
+    // Lead responded — update last_contact_at. If status was "responded", reset to "contacted" so cron keeps running.
+    const statusUpdate: Record<string, unknown> = { last_contact_at: new Date().toISOString() }
+    if (existingLead.status === "responded") {
+      statusUpdate.status = "contacted"
+    }
     await client
       .from("leads")
-      .update({ status: "responded", last_contact_at: new Date().toISOString() })
+      .update(statusUpdate)
       .eq("id", existingLead.id)
 
-    // Cancel all pending follow-up stages so the sequence stops
+    // Reschedule pending follow-up tasks to 30 min from now (don't cancel them — just push them forward)
     try {
-      const { cancelTask } = await import("@/lib/scheduler")
-      for (let stage = 1; stage <= 5; stage++) {
-        await cancelTask(`lead-${existingLead.id}-stage-${stage}`)
+      const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
+      const now = Date.now()
+
+      const { data: pendingTasks } = await client
+        .from("scheduled_tasks")
+        .select("id, scheduled_for, task_key")
+        .eq("status", "pending")
+        .eq("task_type", "lead_followup")
+        .eq("tenant_id", tenant?.id)
+        .order("scheduled_for", { ascending: true })
+
+      const leadTasks = (pendingTasks || []).filter(
+        (t: { id: string; scheduled_for: string; task_key: string }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
+      )
+
+      if (leadTasks.length > 0) {
+        // Shift the soonest task to 30 min from now, preserve relative gaps
+        const firstMs = new Date(leadTasks[0].scheduled_for).getTime()
+        const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
+        for (const task of leadTasks) {
+          const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
+          await client
+            .from("scheduled_tasks")
+            .update({ scheduled_for: newTime.toISOString() })
+            .eq("id", task.id)
+        }
+        console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
+      } else {
+        // No pending tasks — create a fresh nudge 30 min from now
+        const nudgeTime = new Date(now + RESCHEDULE_DELAY_MS)
+        const currentStage = existingLead.followup_stage || 1
+        await client.from("scheduled_tasks").insert({
+          tenant_id: tenant?.id,
+          task_type: "lead_followup",
+          task_key: `lead-${existingLead.id}-stage-${currentStage}-nudge-${now}`,
+          scheduled_for: nudgeTime.toISOString(),
+          status: "pending",
+          payload: { leadId: String(existingLead.id), stage: currentStage, action: "text" },
+        })
+        console.log(`[OpenPhone] Created fresh nudge task for lead ${existingLead.id} at ${nudgeTime.toISOString()}`)
       }
-      console.log(`[OpenPhone] Cancelled remaining follow-up tasks for lead ${existingLead.id}`)
-    } catch (cancelErr) {
-      console.error("[OpenPhone] Error cancelling follow-up tasks:", cancelErr)
+    } catch (rescheduleErr) {
+      console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
     }
 
-    console.log(`[OpenPhone] Active lead ${existingLead.id} marked as responded for ${phone}`)
+    console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${phone}`)
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
