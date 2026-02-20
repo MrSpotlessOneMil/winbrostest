@@ -803,7 +803,6 @@ export async function createHCPJob(
           notes: notes || undefined,
           line_items: lineItemsCents,
           assigned_employee_ids: assignedEmployeeIds,
-          lead_source: 'osiris',
         },
       }
     )
@@ -839,7 +838,6 @@ export async function createHCPJob(
           assigned_employee_ids: assignedEmployeeIds,
           line_items: lineItemsCents,
           notes: notes || undefined,
-          lead_source: 'osiris',
         },
       }
     )
