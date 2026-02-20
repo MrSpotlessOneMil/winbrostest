@@ -8,6 +8,7 @@ import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
+import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -295,6 +296,20 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               } else if (job?.id) {
                 console.log(`${tag} Job created from booked call: ${job.id}`)
 
+                // Sync to HouseCall Pro
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: job.id,
+                  phone,
+                  firstName,
+                  lastName,
+                  address: bookAddress,
+                  serviceType,
+                  scheduledDate: appointmentDate,
+                  scheduledTime: appointmentTime,
+                  notes: `Booked via VAPI call`,
+                })
+
                 await logSystemEvent({
                   source: "vapi",
                   event_type: "JOB_CREATED_FROM_CALL",
@@ -387,6 +402,20 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
             } else if (job?.id) {
               console.log(`${tag} Job created for existing lead: ${job.id}`)
+
+              // Sync to HouseCall Pro
+              await syncNewJobToHCP({
+                tenant,
+                jobId: job.id,
+                phone,
+                firstName,
+                lastName,
+                address: bookAddress,
+                serviceType,
+                scheduledDate: appointmentDate,
+                scheduledTime: appointmentTime,
+                notes: `Booked via VAPI call (existing lead)`,
+              })
             }
 
             await client

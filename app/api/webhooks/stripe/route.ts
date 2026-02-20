@@ -11,6 +11,7 @@ import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
 import { geocodeAddress } from '@/lib/google-maps'
 import { calculateDistance } from '@/lib/cleaner-assignment'
+import { syncNewJobToHCP } from '@/lib/hcp-job-sync'
 
 export async function POST(request: NextRequest) {
   try {
@@ -555,6 +556,21 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         actualJobId = retryJob.id
         job = await getJobById(retryJob.id)
         console.log(`[Stripe Webhook] Job created from lead retry: ${retryJob.id}`)
+
+        // Sync to HouseCall Pro
+        await syncNewJobToHCP({
+          tenant,
+          jobId: retryJob.id,
+          phone: custPhone || '',
+          firstName: lead.first_name,
+          lastName: lead.last_name,
+          address: bookingData.address || custAddress,
+          serviceType: bookingData.serviceType || null,
+          scheduledDate: bookingData.preferredDate || null,
+          scheduledTime: bookingData.preferredTime || null,
+          price: bookingData.price || null,
+          notes: `Booked via Stripe payment`,
+        })
 
         // Update lead with the real job ID
         await client
