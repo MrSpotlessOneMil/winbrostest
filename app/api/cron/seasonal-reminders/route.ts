@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { seasonalReminder } from '@/lib/sms-templates'
 import { getAllActiveTenants } from '@/lib/tenant'
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
 
   console.log('[Seasonal Reminders] Starting cron job...')
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const tenants = await getAllActiveTenants()
   const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD
 
@@ -201,7 +201,7 @@ export async function GET(request: NextRequest) {
  * Get customer IDs matching a target segment based on their job history
  */
 async function getSegmentCustomerIds(
-  client: ReturnType<typeof getSupabaseClient>,
+  client: ReturnType<typeof getSupabaseServiceClient>,
   tenantId: string,
   segment: SeasonalCampaign['target_segment']
 ): Promise<string[]> {

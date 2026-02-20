@@ -21,7 +21,7 @@ import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { sendSMS } from '@/lib/openphone'
 import { initiateOutboundCall } from '@/lib/vapi'
 import { logSystemEvent } from '@/lib/system-events'
-import { getSupabaseClient } from '@/lib/supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { createDepositPaymentLink, calculateJobEstimate } from '@/lib/stripe-client'
 import { parseFormData } from '@/lib/utils'
 
@@ -168,7 +168,7 @@ async function processLeadFollowup(
 
   console.log(`[lead-followup] Processing stage ${stage} (${action}) for lead ${leadId}`)
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
   const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
 
@@ -550,7 +550,7 @@ async function processDayBeforeReminder(
 
   // Save the outbound message to the database
   if (smsResult.success) {
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     await client.from('messages').insert({
       tenant_id: tenant?.id,
       phone_number: customerPhone,

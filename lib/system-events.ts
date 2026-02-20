@@ -103,6 +103,8 @@ export type SystemEventType =
   // Post-job automation
   | 'POST_JOB_FOLLOWUP_SENT'
   | 'MONTHLY_REENGAGEMENT_SENT'
+  | 'FREQUENCY_NUDGE_SENT'
+  | 'SEASONAL_REMINDER_SENT'
   // Lead stage changes
   | 'LEAD_STAGE_CHANGED'
   | 'PAYMENT_LINK_SENT'
