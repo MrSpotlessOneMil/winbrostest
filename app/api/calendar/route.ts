@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantScopedClient } from "@/lib/supabase"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -8,15 +8,25 @@ export async function GET(request: NextRequest) {
 
   try {
     const tenant = await getAuthTenant(request)
-    if (!tenant) {
+
+    // Admin user (no tenant_id) sees all tenants' data
+    if (!tenant && authResult.user.username !== 'admin') {
       return NextResponse.json({ jobs: [] }, { status: 403 })
     }
 
-    const client = await getTenantScopedClient(tenant.id)
-    const { data, error } = await client
+    const client = tenant
+      ? await getTenantScopedClient(tenant.id)
+      : getSupabaseServiceClient()
+
+    const query = client
       .from("jobs")
       .select("*, customers (*), cleaners (*)")
-      .eq("tenant_id", tenant.id)
+
+    if (tenant) {
+      query.eq("tenant_id", tenant.id)
+    }
+
+    const { data, error } = await query
       .order("created_at", { ascending: false })
       .limit(2000)
 
