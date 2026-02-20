@@ -11,6 +11,8 @@ import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
 import { geocodeAddress } from '@/lib/google-maps'
 import { calculateDistance } from '@/lib/cleaner-assignment'
+import { syncNewJobToHCP } from '@/lib/hcp-job-sync'
+import { buildWinBrosJobNotes } from '@/lib/winbros-sms-prompt'
 
 export async function POST(request: NextRequest) {
   try {
@@ -537,12 +539,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
         booked: true,
-        notes: [
-          bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
-          bookingData.scope ? `Scope: ${bookingData.scope}` : null,
-          bookingData.planType ? `Plan: ${bookingData.planType}` : null,
-          bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
-        ].filter(Boolean).join(' | ') || null,
+        notes: buildWinBrosJobNotes(bookingData) || null,
       }).select('id').single()
 
       if (retryJob) {

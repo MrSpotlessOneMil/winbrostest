@@ -8,6 +8,8 @@ import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
+import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
+import { buildWinBrosJobNotes } from "@/lib/winbros-sms-prompt"
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -265,12 +267,26 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
               const bookAddress = structuredData.address as string || bookingInfo.address || null
 
-              // Build notes with bed/bath/sqft overrides so pricing lookup works
-              const jobNotes = mergeOverridesIntoNotes(bookingInfo.notes || null, {
-                bedrooms: bookingInfo.bedrooms,
-                bathrooms: bookingInfo.bathrooms,
-                squareFootage: bookingInfo.squareFootage,
-              })
+              // Build notes — use WinBros-specific helper for window/pressure/gutter services
+              const isWinBros = tenant.slug === 'winbros'
+              const jobNotes = isWinBros
+                ? buildWinBrosJobNotes({
+                    serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                    squareFootage: bookingInfo.squareFootage || null,
+                    scope: bookingInfo.scope || null,
+                    planType: bookingInfo.planType || null,
+                    pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                    areaSize: bookingInfo.areaSize || null,
+                    conditionType: bookingInfo.conditionType || null,
+                    propertyType: bookingInfo.propertyType || null,
+                    gutterConditions: bookingInfo.gutterConditions || null,
+                    referralSource: null,
+                  })
+                : mergeOverridesIntoNotes(bookingInfo.notes || null, {
+                    bedrooms: bookingInfo.bedrooms,
+                    bathrooms: bookingInfo.bathrooms,
+                    squareFootage: bookingInfo.squareFootage,
+                  })
 
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
@@ -358,12 +374,26 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
             const bookAddress = structuredData.address as string || bookingInfo.address || null
 
-            // Build notes with bed/bath/sqft overrides so pricing lookup works
-            const existingLeadNotes = mergeOverridesIntoNotes('Booked via phone call (existing lead)', {
-              bedrooms: bookingInfo.bedrooms,
-              bathrooms: bookingInfo.bathrooms,
-              squareFootage: bookingInfo.squareFootage,
-            })
+            // Build notes — use WinBros-specific helper for window/pressure/gutter services
+            const isWinBrosExisting = tenant.slug === 'winbros'
+            const existingLeadNotes = isWinBrosExisting
+              ? buildWinBrosJobNotes({
+                  serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                  squareFootage: bookingInfo.squareFootage || null,
+                  scope: bookingInfo.scope || null,
+                  planType: bookingInfo.planType || null,
+                  pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                  areaSize: bookingInfo.areaSize || null,
+                  conditionType: bookingInfo.conditionType || null,
+                  propertyType: bookingInfo.propertyType || null,
+                  gutterConditions: bookingInfo.gutterConditions || null,
+                  referralSource: null,
+                })
+              : mergeOverridesIntoNotes('Booked via phone call (existing lead)', {
+                  bedrooms: bookingInfo.bedrooms,
+                  bathrooms: bookingInfo.bathrooms,
+                  squareFootage: bookingInfo.squareFootage,
+                })
 
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
