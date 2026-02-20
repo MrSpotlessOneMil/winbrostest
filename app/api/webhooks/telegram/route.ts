@@ -925,6 +925,7 @@ async function handleOnboardingStep(
             home_address: formattedAddress,
             home_lat: homeLat,
             home_lng: homeLng,
+            availability: { text: state.data.availability || null },
             active: true,
             is_team_lead: false
           })
