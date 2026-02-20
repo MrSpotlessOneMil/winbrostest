@@ -13,14 +13,12 @@
   border: none;
   flex: 1;
   min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  position: relative;
 }
 
 .calendar-card #calendar {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
 /* FullCalendar Dark Theme */
