@@ -292,14 +292,26 @@ export async function createHCPJob(
         timeStr = `${String(parseInt(match24[1])).padStart(2, '0')}:${match24[2]}:00`
       }
     }
-    scheduledStart = `${jobData.scheduledDate}T${timeStr}`
+    // HCP requires timezone offset for proper scheduling
+    scheduledStart = `${jobData.scheduledDate}T${timeStr}-08:00`
   }
+
+  // Build a scheduled_end (default 2 hours after start)
+  let scheduledEnd: string | undefined
+  if (scheduledStart && jobData.scheduledDate) {
+    const startDate = new Date(scheduledStart)
+    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000)
+    scheduledEnd = endDate.toISOString()
+  }
+
+  console.log(`[HCP API] Job scheduled_start=${scheduledStart}, scheduled_end=${scheduledEnd}, address=${jobData.address}`)
 
   const result = await hcpRequest<HCPJob>(tenant, '/jobs', {
     method: 'POST',
     body: {
       customer_id: jobData.customerId,
       scheduled_start: scheduledStart,
+      scheduled_end: scheduledEnd,
       address: jobData.address || undefined,
       description: jobData.serviceType || 'Cleaning Service',
       total: jobData.price || undefined,

@@ -346,7 +346,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   serviceType,
                   scheduledDate: appointmentDate,
                   scheduledTime: appointmentTime,
-                  notes: `Booked via VAPI call`,
+                  notes: jobNotes || `Booked via VAPI call`,
                 })
 
                 await logSystemEvent({
@@ -490,7 +490,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 serviceType,
                 scheduledDate: appointmentDate,
                 scheduledTime: appointmentTime,
-                notes: `Booked via VAPI call (existing lead)`,
+                notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
             }
 
