@@ -16,6 +16,32 @@ import { dispatchRoutes } from '@/lib/dispatch'
 import { syncNewJobToHCP } from '@/lib/hcp-job-sync'
 import { buildWinBrosJobNotes } from '@/lib/winbros-sms-prompt'
 
+/**
+ * Process a pre-validated Stripe event. Exported so tenant-specific routes
+ * (e.g. /api/webhooks/stripe/winbros) can validate with their own secret
+ * and then delegate processing here.
+ */
+export async function processStripeEvent(event: Stripe.Event): Promise<void> {
+  console.log(`[Stripe Webhook] Received event: ${event.type}`)
+
+  switch (event.type) {
+    case 'checkout.session.completed':
+      await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
+      break
+
+    case 'setup_intent.succeeded':
+      await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent)
+      break
+
+    case 'payment_intent.succeeded':
+      await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
+      break
+
+    default:
+      console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Get the raw body for signature validation
@@ -33,25 +59,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`[Stripe Webhook] Received event: ${event.type}`)
-
-    // Handle specific event types
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
-        break
-
-      case 'setup_intent.succeeded':
-        await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent)
-        break
-
-      case 'payment_intent.succeeded':
-        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
-        break
-
-      default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
-    }
+    await processStripeEvent(event)
 
     return NextResponse.json({ received: true })
   } catch (error) {

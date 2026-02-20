@@ -234,9 +234,10 @@ function buildInvoiceDescription(job: Job): string {
  */
 export function validateStripeWebhook(
   payload: string,
-  signature: string | null
+  signature: string | null,
+  secretOverride?: string
 ): Stripe.Event | null {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  const webhookSecret = secretOverride || process.env.STRIPE_WEBHOOK_SECRET
 
   if (!webhookSecret) {
     console.warn('STRIPE_WEBHOOK_SECRET not configured - parsing without validation')
