@@ -93,6 +93,7 @@ export interface Tenant {
   service_area: string | null
   sdr_persona: string
   service_description: string | null // e.g., "window cleaning", "house cleaning", "carpet cleaning"
+  timezone: string // IANA timezone, e.g. "America/Chicago"
 
   // API Keys
   openphone_api_key: string | null

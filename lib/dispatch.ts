@@ -14,7 +14,7 @@ import { getSupabaseServiceClient } from './supabase'
 import { sendTelegramMessage } from './telegram'
 import { sendSMS } from './openphone'
 import type { Tenant } from './tenant'
-import { getDefaultTenant, getTenantBusinessName } from './tenant'
+import { getTenantById, getTenantBusinessName } from './tenant'
 import type { OptimizationResult, OptimizedRoute, OptimizedStop, TeamForRouting } from './route-optimizer'
 
 // ── Types ──────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ export async function dispatchRoutes(
   const sendCustomerSms = options?.sendSmsToCustomers !== false
   const dryRun = options?.dryRun ?? false
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getTenantById(tenantId)
   if (!tenant) {
     return { success: false, jobsUpdated: 0, assignmentsCreated: 0, telegramsSent: 0, smsSent: 0, errors: ['No tenant configured'] }
   }
