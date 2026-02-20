@@ -175,19 +175,25 @@ export async function getTenantById(tenantId: string, activeOnly = false): Promi
 }
 
 /**
- * Get tenant by slug (used for webhook routing)
+ * Get tenant by slug (used for webhook routing).
+ * By default requires active=true (webhooks should only process active tenants).
+ * Pass activeOnly=false for dashboard/auth paths that need inactive tenants too.
  */
-export async function getTenantBySlug(slug: string): Promise<Tenant | null> {
+export async function getTenantBySlug(slug: string, activeOnly = true): Promise<Tenant | null> {
   const client = getAdminClient()
 
-  const { data, error } = await client
+  let query = client
     .from("tenants")
     .select("*")
     .eq("slug", slug)
-    .eq("active", true)
-    .single()
+  if (activeOnly) query = query.eq("active", true)
+  const { data, error } = await query.single()
 
   if (error || !data) {
+    if (!activeOnly) {
+      // Don't log for dashboard/auth fallback lookups
+      return null
+    }
     console.error(`[Tenant] Error fetching tenant by slug '${slug}':`, error)
     return null
   }
