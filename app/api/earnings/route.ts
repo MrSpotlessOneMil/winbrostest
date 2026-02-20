@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantScopedClient } from "@/lib/supabase"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -8,14 +8,17 @@ export async function GET(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
   }
 
   const searchParams = request.nextUrl.searchParams
   const range = searchParams.get("range") || "week"
 
-  const client = await getTenantScopedClient(tenant.id)
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
 
   // simple ranges
   const today = new Date()
@@ -30,11 +33,16 @@ export async function GET(request: NextRequest) {
 
   const startIso = start.toISOString()
 
-  const [tipsRes, upsellsRes, teamsRes] = await Promise.all([
-    client.from("tips").select("id,amount,team_id,cleaner_id,created_at,job_id").eq("tenant_id", tenant.id).gte("created_at", startIso),
-    client.from("upsells").select("id,value,upsell_type,team_id,cleaner_id,created_at,job_id").eq("tenant_id", tenant.id).gte("created_at", startIso),
-    client.from("teams").select("id,name").eq("tenant_id", tenant.id).eq("active", true),
-  ])
+  let tipsQuery = client.from("tips").select("id,amount,team_id,cleaner_id,created_at,job_id").gte("created_at", startIso)
+  let upsellsQuery = client.from("upsells").select("id,value,upsell_type,team_id,cleaner_id,created_at,job_id").gte("created_at", startIso)
+  let teamsQuery = client.from("teams").select("id,name").eq("active", true)
+  if (tenant) {
+    tipsQuery = tipsQuery.eq("tenant_id", tenant.id)
+    upsellsQuery = upsellsQuery.eq("tenant_id", tenant.id)
+    teamsQuery = teamsQuery.eq("tenant_id", tenant.id)
+  }
+
+  const [tipsRes, upsellsRes, teamsRes] = await Promise.all([tipsQuery, upsellsQuery, teamsQuery])
 
   if (tipsRes.error) return NextResponse.json({ success: false, error: tipsRes.error.message }, { status: 500 })
   if (upsellsRes.error) return NextResponse.json({ success: false, error: upsellsRes.error.message }, { status: 500 })

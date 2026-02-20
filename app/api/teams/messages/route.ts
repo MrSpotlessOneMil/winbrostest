@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, getAuthTenant } from '@/lib/auth'
-import { getTenantScopedClient } from '@/lib/supabase'
+import { getTenantScopedClient, getSupabaseServiceClient } from '@/lib/supabase'
 import { toE164 } from '@/lib/phone-utils'
 
 export async function GET(request: NextRequest) {
@@ -8,7 +8,8 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
 
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: 'No tenant configured' }, { status: 500 })
   }
 
@@ -23,13 +24,15 @@ export async function GET(request: NextRequest) {
 
   const normalized = phone ? toE164(phone) : null
 
-  const client = await getTenantScopedClient(tenant.id)
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
 
   // Build query: match by phone OR by telegram_chat_id in metadata
   let query = client
     .from('messages')
     .select('id, phone_number, direction, content, timestamp, status')
-    .eq('tenant_id', tenant.id)
+  if (tenant) query = query.eq('tenant_id', tenant.id)
 
   if (normalized && telegramId) {
     // Match either phone number or telegram chat ID in metadata

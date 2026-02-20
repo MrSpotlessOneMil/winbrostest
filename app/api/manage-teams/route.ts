@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantScopedClient } from "@/lib/supabase"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type TeamRow = { id: number; name: string; active: boolean; deleted_at?: string | null }
@@ -16,17 +16,25 @@ export async function GET(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
   }
 
-  const client = await getTenantScopedClient(tenant.id)
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
 
-  const [teamsRes, cleanersRes, membersRes] = await Promise.all([
-    client.from("teams").select("id,name,active,deleted_at").eq("tenant_id", tenant.id).is("deleted_at", null).order("created_at", { ascending: true }),
-    client.from("cleaners").select("id,name,phone,email,telegram_id,active,deleted_at,is_team_lead").eq("tenant_id", tenant.id).is("deleted_at", null).order("created_at", { ascending: true }),
-    client.from("team_members").select("id,team_id,cleaner_id,role,is_active").eq("tenant_id", tenant.id).order("created_at", { ascending: true }),
-  ])
+  let teamsQ = client.from("teams").select("id,name,active,deleted_at").is("deleted_at", null).order("created_at", { ascending: true })
+  let cleanersQ = client.from("cleaners").select("id,name,phone,email,telegram_id,active,deleted_at,is_team_lead").is("deleted_at", null).order("created_at", { ascending: true })
+  let membersQ = client.from("team_members").select("id,team_id,cleaner_id,role,is_active").order("created_at", { ascending: true })
+  if (tenant) {
+    teamsQ = teamsQ.eq("tenant_id", tenant.id)
+    cleanersQ = cleanersQ.eq("tenant_id", tenant.id)
+    membersQ = membersQ.eq("tenant_id", tenant.id)
+  }
+
+  const [teamsRes, cleanersRes, membersRes] = await Promise.all([teamsQ, cleanersQ, membersQ])
 
   if (teamsRes.error) return jsonError(teamsRes.error.message, 500)
   if (cleanersRes.error) return jsonError(cleanersRes.error.message, 500)
@@ -59,8 +67,12 @@ export async function POST(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) sees all tenants' data; writes still need a tenant
+  if (!tenant && authResult.user.username !== 'admin') {
     return jsonError("No tenant configured. Please set up the winbros tenant first.", 500)
+  }
+  if (!tenant) {
+    return jsonError("Switch to a tenant account to manage teams", 400)
   }
 
   const client = await getTenantScopedClient(tenant.id)
