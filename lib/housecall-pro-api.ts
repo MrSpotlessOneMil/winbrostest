@@ -300,6 +300,87 @@ async function ensureCustomerAddressId(
   return undefined
 }
 
+function normalizeHcpApiKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^(token|bearer)\s+/i, '')
+    .trim()
+}
+
+function normalizeOptionalHeader(value?: string | null): string | undefined {
+  const normalized = (value || '').trim()
+  return normalized || undefined
+}
+
+type HcpAuthHeaderCandidate = {
+  label: string
+  value: string
+}
+
+function buildAuthHeaderCandidates(
+  storedApiKey: string,
+  normalizedApiKey: string
+): HcpAuthHeaderCandidate[] {
+  const candidates: HcpAuthHeaderCandidate[] = []
+  const seen = new Set<string>()
+
+  const addCandidate = (label: string, value: string | undefined) => {
+    const headerValue = (value || '').trim()
+    if (!headerValue) return
+    const dedupeKey = headerValue.toLowerCase()
+    if (seen.has(dedupeKey)) return
+    seen.add(dedupeKey)
+    candidates.push({ label, value: headerValue })
+  }
+
+  addCandidate('Token', `Token ${normalizedApiKey}`)
+  addCandidate('Bearer', `Bearer ${normalizedApiKey}`)
+
+  const rawTrimmed = storedApiKey.trim()
+  if (/^(token|bearer)\s+/i.test(rawTrimmed)) {
+    addCandidate('StoredPrefix', rawTrimmed)
+  }
+
+  return candidates
+}
+
+type HcpRequestAttempt = {
+  label: string
+  headers: Record<string, string>
+}
+
+function buildHcpRequestAttempts(
+  authCandidates: HcpAuthHeaderCandidate[],
+  companyId?: string
+): HcpRequestAttempt[] {
+  const attempts: HcpRequestAttempt[] = []
+
+  for (const auth of authCandidates) {
+    if (companyId) {
+      attempts.push({
+        label: `${auth.label}+Company`,
+        headers: {
+          Authorization: auth.value,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'X-Company-Id': companyId,
+        },
+      })
+    }
+
+    attempts.push({
+      label: auth.label,
+      headers: {
+        Authorization: auth.value,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    })
+  }
+
+  return attempts
+}
+
 /**
  * Make authenticated request to HousecallPro API
  */
@@ -308,55 +389,97 @@ async function hcpRequest<T>(
   endpoint: string,
   options: HCPApiOptions = {}
 ): Promise<{ success: boolean; data?: T; error?: string }> {
-  const apiKey = tenant.housecall_pro_api_key
-
-  if (!apiKey) {
+  const storedApiKey = normalizeOptionalHeader(tenant.housecall_pro_api_key)
+  if (!storedApiKey) {
     console.error(`[HCP API] No API key configured for tenant ${tenant.slug}`)
     return { success: false, error: 'HousecallPro API key not configured' }
   }
 
-  try {
-    const headers: Record<string, string> = {
-      Authorization: `Token ${apiKey}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    }
-    if (tenant.housecall_pro_company_id) {
-      headers['X-Company-Id'] = tenant.housecall_pro_company_id
-    }
+  const normalizedApiKey = normalizeHcpApiKey(storedApiKey)
+  if (!normalizedApiKey) {
+    console.error(`[HCP API] Invalid API key format for tenant ${tenant.slug}`)
+    return { success: false, error: 'HousecallPro API key is invalid/empty' }
+  }
 
-    const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
-      method: options.method || 'GET',
-      headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    })
+  const authCandidates = buildAuthHeaderCandidates(storedApiKey, normalizedApiKey)
+  const companyId = normalizeOptionalHeader(tenant.housecall_pro_company_id)
+  const attempts = buildHcpRequestAttempts(authCandidates, companyId)
 
-    const responseText = await response.text()
+  let lastHttpError: { status: number; text: string; label: string } | null = null
+  let lastFetchError: string | null = null
 
-    if (!response.ok) {
+  for (let index = 0; index < attempts.length; index++) {
+    const attempt = attempts[index]
+
+    try {
+      const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
+        method: options.method || 'GET',
+        headers: attempt.headers,
+        body: options.body ? JSON.stringify(options.body) : undefined,
+      })
+
+      const responseText = await response.text()
+      if (response.ok) {
+        if (index > 0) {
+          console.warn(
+            `[HCP API] Request recovered via auth fallback (${attempt.label}) for ${endpoint}`
+          )
+        }
+
+        if (!responseText.trim()) {
+          return { success: true }
+        }
+
+        try {
+          const data = JSON.parse(responseText) as T
+          return { success: true, data }
+        } catch {
+          console.warn(`[HCP API] Non-JSON success response from ${endpoint}`)
+          return { success: true }
+        }
+      }
+
+      lastHttpError = { status: response.status, text: responseText, label: attempt.label }
+
+      const canRetryAuth =
+        (response.status === 401 || response.status === 403) &&
+        index < attempts.length - 1
+
+      if (canRetryAuth) {
+        console.warn(
+          `[HCP API] Auth retry ${response.status} using ${attempt.label} for ${endpoint}`
+        )
+        continue
+      }
+
       console.error(`[HCP API] Error ${response.status}: ${responseText}`)
       return {
         success: false,
         error: `HCP API error: ${response.status} - ${responseText || 'No response body'}`,
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      lastFetchError = message
+      const canRetry = index < attempts.length - 1
+      if (canRetry) {
+        console.warn(`[HCP API] Network/auth retry using ${attempt.label} for ${endpoint}: ${message}`)
+        continue
+      }
     }
-
-    if (!responseText.trim()) {
-      return { success: true }
-    }
-
-    try {
-      const data = JSON.parse(responseText) as T
-      return { success: true, data }
-    } catch {
-      console.warn(`[HCP API] Non-JSON success response from ${endpoint}`)
-      return { success: true }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[HCP API] Request failed:', error)
-    return { success: false, error: message }
   }
+
+  if (lastHttpError) {
+    console.error(
+      `[HCP API] Error ${lastHttpError.status} after auth attempts (last=${lastHttpError.label}): ${lastHttpError.text}`
+    )
+    return {
+      success: false,
+      error: `HCP API error: ${lastHttpError.status} - ${lastHttpError.text || 'No response body'}`,
+    }
+  }
+
+  console.error(`[HCP API] Request failed after auth attempts: ${lastFetchError || 'Unknown error'}`)
+  return { success: false, error: lastFetchError || 'Unknown error' }
 }
 
 /**
