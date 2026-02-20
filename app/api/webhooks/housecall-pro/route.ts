@@ -343,7 +343,58 @@ export async function POST(request: NextRequest) {
             .select("id")
             .single()
 
-          // Create lead record - get ID from extracted lead object
+          // --- Dedup: check if OSIRIS already has a recent lead or outbound message for this phone ---
+          // This prevents feedback loops: SMS webhook syncs to HCP → HCP fires lead.created back → duplicate greeting
+          const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString()
+
+          const { data: existingLead } = await client
+            .from("leads")
+            .select("id, source")
+            .eq("phone_number", phone)
+            .eq("tenant_id", tenant?.id)
+            .gte("created_at", sixtySecondsAgo)
+            .limit(1)
+            .maybeSingle()
+
+          const { data: recentOutbound } = await client
+            .from("messages")
+            .select("id")
+            .eq("phone_number", phone)
+            .eq("tenant_id", tenant?.id)
+            .eq("role", "assistant")
+            .gte("timestamp", sixtySecondsAgo)
+            .limit(1)
+            .maybeSingle()
+
+          if (existingLead || recentOutbound) {
+            // OSIRIS already has an active conversation — just store the HCP link, skip the greeting
+            const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id
+            console.log(
+              `[OSIRIS] HCP Webhook: Skipping lead.created greeting for ${phone} — ` +
+              `already have ${existingLead ? `lead ${existingLead.id} (${existingLead.source})` : 'recent outbound message'}. ` +
+              `HCP lead ID: ${hcpSourceId || 'unknown'}`
+            )
+
+            // If an existing lead was found, store the HCP source ID on it for reference
+            if (existingLead && hcpSourceId) {
+              await client
+                .from("leads")
+                .update({ form_data: { ...((await client.from("leads").select("form_data").eq("id", existingLead.id).single()).data?.form_data || {}), hcp_lead_id: String(hcpSourceId) } })
+                .eq("id", existingLead.id)
+            }
+
+            await client.from("system_events").insert({
+              tenant_id: tenant?.id,
+              source: "housecall_pro",
+              event_type: "HCP_LEAD_DEDUPED",
+              message: `HCP lead.created for ${phone} skipped — OSIRIS already engaged`,
+              phone_number: phone,
+              metadata: { hcp_lead_id: hcpSourceId, existing_lead_id: existingLead?.id }
+            })
+            break
+          }
+
+          // No existing conversation — this is a genuinely new HCP-sourced lead
           const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
           const { data: leadRecord } = await client.from("leads").insert({
             tenant_id: tenant?.id,
@@ -390,8 +441,6 @@ export async function POST(request: NextRequest) {
             if (smsResult.success) {
               console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
 
-              // Save the outbound message to the messages table so it shows in the UI
-              // MUST include all required fields: direction, message_type, ai_generated, source
               console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${phone}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant?.id}`)
               const { error: msgError } = await client.from("messages").insert({
                 tenant_id: tenant?.id,
@@ -433,11 +482,6 @@ export async function POST(request: NextRequest) {
           }
 
           // Schedule stages 2-5 for the follow-up sequence
-          // Stage 1: Text 1 (sent immediately above)
-          // Stage 2: Text 2 (10 min)
-          // Stage 3: Call 1 (15 min)
-          // Stage 4: Call 2 - double dial (17 min, shortly after Call 1)
-          // Stage 5: Text 3 (30 min)
           if (leadRecord?.id) {
             const now = new Date()
             const stages = [
