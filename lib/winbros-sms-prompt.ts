@@ -530,7 +530,7 @@ export async function extractBookingData(
 For scope: This is what the CUSTOMER chose, not what was offered. Mary asks "just exterior or interior and exterior?" — look at the CUSTOMER'S reply. If they said "just exterior", "exterior only", "outside only", etc., scope is "exterior". Only use "interior_and_exterior" if the customer explicitly said they want BOTH interior and exterior.
 For price: Do NOT extract a price. Always set price to null — the system will calculate it from the pricebook.
 For address: Look at BOTH Mary's and the customer's messages. If Mary mentions a full address and the customer later corrects part of it (e.g., "Its Tamalpais Ave" to fix a street name), return the CORRECTED full address with the correction applied (keep house number, city, state, zip from the original).
-For names: If the customer corrects their name (e.g., "my name is grenager"), return the corrected spelling.
+For names: If the customer corrects their name (e.g., "my last name is Smith not Smyth"), return the corrected spelling. Only extract the customer's ACTUAL name from what the customer said — never use example names from instructions.
 For email: look for an email address in the customer's messages.
 For pressureWashingSurfaces: If serviceType is pressure_washing, list all surfaces the customer wants washed using snake_case names from the list above. null if not pressure washing.
 For areaSize: If pressure washing, the customer's answer about small/medium/large area. null otherwise.

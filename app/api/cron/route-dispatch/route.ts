@@ -1,13 +1,12 @@
 /**
  * Route Dispatch Cron Job
  *
- * Runs hourly. For each tenant with route optimization enabled,
- * checks if it's 3 AM in their local timezone. If so, runs the
- * full optimize + dispatch flow for today's jobs:
- *   1. Optimize routes (Google Maps distance matrix, 2-opt)
- *   2. Persist team assignments to the database
- *   3. Send optimized routes to team leads via Telegram
- *   4. Send ETA arrival windows to customers via SMS
+ * Runs hourly. For each tenant with route optimization enabled:
+ *
+ * 1. At 3 AM local time: safety-net optimize + dispatch for today's jobs
+ * 2. At 5 PM local time (EVENING_SCHEDULE_HOUR): final optimization for
+ *    TOMORROW's jobs and send full route schedules (with addresses) to
+ *    team leads via Telegram. This is the primary schedule notification.
  *
  * Schedule: Every hour at :00 (0 * * * *)
  * Endpoint: GET /api/cron/route-dispatch
@@ -19,7 +18,8 @@ import { getAllActiveTenants } from '@/lib/tenant'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 import { dispatchRoutes } from '@/lib/dispatch'
 
-const DISPATCH_HOUR = 3 // 3 AM local time
+const DISPATCH_HOUR = 3          // 3 AM local time — safety-net morning dispatch
+const EVENING_SCHEDULE_HOUR = 17 // 5 PM local time — send next-day schedule to teams
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
   const tenants = await getAllActiveTenants()
   const results: Array<{
     tenant: string
+    type: 'morning_dispatch' | 'evening_schedule'
     dispatched: boolean
     reason: string
     stats?: Record<string, number>
@@ -42,68 +43,119 @@ export async function GET(request: NextRequest) {
       tenant.slug === 'winbros'
     if (!useRouteOpt) continue
 
-    // Check if it's DISPATCH_HOUR in this tenant's timezone
     const tz = tenant.timezone || 'America/Chicago'
     const localHour = getLocalHour(now, tz)
 
-    if (localHour !== DISPATCH_HOUR) continue
-
-    // Get today's date in the tenant's local timezone (YYYY-MM-DD)
-    const todayLocal = new Intl.DateTimeFormat('en-CA', {
-      timeZone: tz,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now)
-
-    console.log(
-      `[route-dispatch] Running optimize+dispatch for "${tenant.name}" (${tz}), date: ${todayLocal}`
-    )
-
-    try {
-      const optimization = await optimizeRoutesForDate(todayLocal, tenant.id)
-
-      if (optimization.stats.assignedJobs === 0) {
-        results.push({
-          tenant: tenant.slug,
-          dispatched: false,
-          reason:
-            optimization.warnings.join('; ') || 'No jobs for this date',
-        })
-        continue
-      }
-
-      const dispatchResult = await dispatchRoutes(optimization, tenant.id)
-
-      results.push({
-        tenant: tenant.slug,
-        dispatched: true,
-        reason: `${dispatchResult.jobsUpdated} jobs dispatched to ${optimization.stats.activeTeams} teams`,
-        stats: {
-          jobs: dispatchResult.jobsUpdated,
-          assignments: dispatchResult.assignmentsCreated,
-          telegrams: dispatchResult.telegramsSent,
-          sms: dispatchResult.smsSent,
-          errors: dispatchResult.errors.length,
-        },
-      })
+    // ── 3 AM: Morning safety-net dispatch for TODAY ──
+    if (localHour === DISPATCH_HOUR) {
+      const todayLocal = getLocalDate(now, tz)
 
       console.log(
-        `[route-dispatch] ${tenant.slug}: ${dispatchResult.jobsUpdated} jobs dispatched, ${dispatchResult.telegramsSent} Telegram routes sent, ${dispatchResult.smsSent} customer SMS sent`
+        `[route-dispatch] Running morning optimize+dispatch for "${tenant.name}" (${tz}), date: ${todayLocal}`
       )
-    } catch (error) {
-      console.error(`[route-dispatch] Error for ${tenant.slug}:`, error)
-      results.push({
-        tenant: tenant.slug,
-        dispatched: false,
-        reason: error instanceof Error ? error.message : 'Unknown error',
-      })
+
+      try {
+        const optimization = await optimizeRoutesForDate(todayLocal, tenant.id)
+
+        if (optimization.stats.assignedJobs === 0) {
+          results.push({
+            tenant: tenant.slug,
+            type: 'morning_dispatch',
+            dispatched: false,
+            reason: optimization.warnings.join('; ') || 'No jobs for this date',
+          })
+          continue
+        }
+
+        const dispatchResult = await dispatchRoutes(optimization, tenant.id)
+
+        results.push({
+          tenant: tenant.slug,
+          type: 'morning_dispatch',
+          dispatched: true,
+          reason: `${dispatchResult.jobsUpdated} jobs dispatched to ${optimization.stats.activeTeams} teams`,
+          stats: {
+            jobs: dispatchResult.jobsUpdated,
+            assignments: dispatchResult.assignmentsCreated,
+            telegrams: dispatchResult.telegramsSent,
+            sms: dispatchResult.smsSent,
+            errors: dispatchResult.errors.length,
+          },
+        })
+
+        console.log(
+          `[route-dispatch] ${tenant.slug} morning: ${dispatchResult.jobsUpdated} jobs dispatched, ${dispatchResult.telegramsSent} Telegram routes sent`
+        )
+      } catch (error) {
+        console.error(`[route-dispatch] Morning dispatch error for ${tenant.slug}:`, error)
+        results.push({
+          tenant: tenant.slug,
+          type: 'morning_dispatch',
+          dispatched: false,
+          reason: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
+    }
+
+    // ── 5 PM: Evening schedule for TOMORROW ──
+    if (localHour === EVENING_SCHEDULE_HOUR) {
+      const tomorrowLocal = getLocalDate(new Date(now.getTime() + 24 * 60 * 60 * 1000), tz)
+
+      console.log(
+        `[route-dispatch] Running evening schedule for "${tenant.name}" (${tz}), tomorrow: ${tomorrowLocal}`
+      )
+
+      try {
+        const optimization = await optimizeRoutesForDate(tomorrowLocal, tenant.id)
+
+        if (optimization.stats.assignedJobs === 0) {
+          results.push({
+            tenant: tenant.slug,
+            type: 'evening_schedule',
+            dispatched: false,
+            reason: optimization.warnings.join('; ') || 'No jobs for tomorrow',
+          })
+          continue
+        }
+
+        // Dispatch: persist assignments + send full routes to team leads via Telegram
+        // Do NOT send customer ETA SMS the night before — that happens morning-of
+        const dispatchResult = await dispatchRoutes(optimization, tenant.id, {
+          sendTelegramToTeams: true,    // Send full route WITH addresses
+          sendSmsToCustomers: false,    // Don't text customers the night before
+        })
+
+        results.push({
+          tenant: tenant.slug,
+          type: 'evening_schedule',
+          dispatched: true,
+          reason: `Tomorrow's schedule: ${dispatchResult.jobsUpdated} jobs across ${optimization.stats.activeTeams} teams`,
+          stats: {
+            jobs: dispatchResult.jobsUpdated,
+            assignments: dispatchResult.assignmentsCreated,
+            telegrams: dispatchResult.telegramsSent,
+            errors: dispatchResult.errors.length,
+          },
+        })
+
+        console.log(
+          `[route-dispatch] ${tenant.slug} evening: ${dispatchResult.jobsUpdated} jobs optimized, ${dispatchResult.telegramsSent} schedule Telegrams sent for tomorrow`
+        )
+      } catch (error) {
+        console.error(`[route-dispatch] Evening schedule error for ${tenant.slug}:`, error)
+        results.push({
+          tenant: tenant.slug,
+          type: 'evening_schedule',
+          dispatched: false,
+          reason: error instanceof Error ? error.message : 'Unknown error',
+        })
+      }
     }
   }
 
   const dispatched = results.filter(r => r.dispatched).length
   console.log(
-    `[route-dispatch] Done: ${dispatched} tenant(s) dispatched, ${results.length - dispatched} skipped/failed`
+    `[route-dispatch] Done: ${dispatched} dispatched, ${results.length - dispatched} skipped/failed`
   )
 
   return NextResponse.json({ success: true, results })
@@ -123,4 +175,16 @@ function getLocalHour(date: Date, timezone: string): number {
     hour12: false,
   }).format(date)
   return parseInt(hourStr, 10)
+}
+
+/**
+ * Get the date (YYYY-MM-DD) in a given IANA timezone.
+ */
+function getLocalDate(date: Date, timezone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date)
 }

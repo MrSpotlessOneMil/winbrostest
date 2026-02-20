@@ -276,12 +276,59 @@ export async function optimizeRoutesForDate(
   }
 }
 
+// ── Incremental Re-Optimization ───────────────────────────────
+
+/**
+ * Incrementally re-optimize routes for a date after a new job is added.
+ *
+ * Instead of simple closest-team assignment, this:
+ * 1. Loads ALL jobs for the date (including the new one)
+ * 2. Loads all active teams
+ * 3. Runs full optimization (distance matrix, greedy assignment, 2-opt)
+ * 4. Returns the optimized result so the caller can persist assignments
+ *
+ * This is called from the Stripe webhook when a card-on-file is saved
+ * for a WinBros job, ensuring every new job is slotted optimally.
+ */
+export async function optimizeRoutesIncremental(
+  jobId: number,
+  date: string,
+  tenantId: string,
+): Promise<{ optimization: OptimizationResult; assignedTeamId?: number; assignedLeadId?: number; assignedLeadTelegramId?: string }> {
+  console.log(`[RouteOptimizer] Incremental re-optimization for job ${jobId}, date ${date}, tenant ${tenantId}`)
+
+  const optimization = await optimizeRoutesForDate(date, tenantId)
+
+  // Find which team got the new job
+  let assignedTeamId: number | undefined
+  let assignedLeadId: number | undefined
+  let assignedLeadTelegramId: string | undefined
+
+  for (const route of optimization.routes) {
+    const stop = route.stops.find(s => s.jobId === jobId)
+    if (stop) {
+      assignedTeamId = route.teamId
+      assignedLeadId = route.leadId
+      assignedLeadTelegramId = route.leadTelegramId
+      break
+    }
+  }
+
+  if (!assignedTeamId) {
+    console.warn(`[RouteOptimizer] Job ${jobId} was not assigned to any team after incremental optimization`)
+  } else {
+    console.log(`[RouteOptimizer] Job ${jobId} assigned to team ${assignedTeamId} (lead ${assignedLeadId})`)
+  }
+
+  return { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId }
+}
+
 // ── Data Loaders ───────────────────────────────────────────────
 
 /**
  * Load active teams with their lead's home location.
  */
-async function loadTeamsWithLocations(tenantId: string): Promise<{
+export async function loadTeamsWithLocations(tenantId: string): Promise<{
   teams: TeamForRouting[]
   skippedWarnings: string[]
 }> {
@@ -350,7 +397,7 @@ async function loadTeamsWithLocations(tenantId: string): Promise<{
 /**
  * Load jobs for the date that need routing.
  */
-async function loadJobsForDate(date: string, tenantId: string): Promise<JobForRouting[]> {
+export async function loadJobsForDate(date: string, tenantId: string): Promise<JobForRouting[]> {
   const client = getSupabaseServiceClient()
 
   const { data, error } = await client
