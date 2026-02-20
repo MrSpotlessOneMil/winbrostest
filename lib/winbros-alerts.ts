@@ -5,23 +5,9 @@
  * rain days, and service radius violations.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseServiceClient } from './supabase'
 import { checkRainDay, getUpcomingRainDays, formatWeatherBriefing } from './weather'
 import { HIGH_VALUE_CONFIG, UNDERFILL_CONFIG, SERVICE_RADIUS_CONFIG } from '@/integrations/housecall-pro/constants'
-
-// Lazy Supabase client — created on first call, not at module load time.
-// Top-level createClient() crashes during `next build` because env vars
-// aren't available when Vercel collects page data.
-let _supabase: ReturnType<typeof createClient> | null = null
-function getSupabase() {
-  if (!_supabase) {
-    _supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-  }
-  return _supabase
-}
 
 // Alert types
 export type AlertType =
@@ -59,7 +45,7 @@ export interface CreateAlertInput {
  * Create a new alert
  */
 export async function createAlert(input: CreateAlertInput): Promise<{ success: boolean; alertId?: string; error?: string }> {
-  const { data, error } = await getSupabase()
+  const { data, error } = await getSupabaseServiceClient()
     .from('job_alerts')
     .insert({
       job_id: input.jobId,
@@ -122,7 +108,7 @@ export async function checkUnderfillDays(
   const minJobs = UNDERFILL_CONFIG.MIN_JOBS
 
   // Get job counts per day
-  const { data: jobs, error } = await getSupabase()
+  const { data: jobs, error } = await getSupabaseServiceClient()
     .from('jobs')
     .select('date')
     .eq('brand', 'winbros')
@@ -220,7 +206,7 @@ export async function checkRainDayAlerts(
     }
 
     // Get affected jobs
-    const { data: jobs } = await getSupabase()
+    const { data: jobs } = await getSupabaseServiceClient()
       .from('jobs')
       .select('id, address, price')
       .eq('brand', 'winbros')
@@ -237,7 +223,7 @@ export async function checkRainDayAlerts(
     })
 
     // Record in rain_days table
-    await getSupabase().from('rain_days').upsert({
+    await getSupabaseServiceClient().from('rain_days').upsert({
       brand: 'winbros',
       date,
       is_rain_day: true,
@@ -263,7 +249,7 @@ export async function checkStackedReschedules(
   // This would require tracking reschedule history
   // For now, we'll check if there are multiple cancelled jobs
 
-  const { data: jobs, error } = await getSupabase()
+  const { data: jobs, error } = await getSupabaseServiceClient()
     .from('jobs')
     .select('id, date')
     .eq('customer_id', customerId)
@@ -293,7 +279,7 @@ export async function checkStackedReschedules(
  * Get unacknowledged alerts
  */
 export async function getUnacknowledgedAlerts(): Promise<JobAlert[]> {
-  const { data, error } = await getSupabase()
+  const { data, error } = await getSupabaseServiceClient()
     .from('job_alerts')
     .select('*')
     .eq('brand', 'winbros')
@@ -315,7 +301,7 @@ export async function acknowledgeAlert(
   alertId: string,
   acknowledgedBy: string
 ): Promise<{ success: boolean; error?: string }> {
-  const { error } = await getSupabase()
+  const { error } = await getSupabaseServiceClient()
     .from('job_alerts')
     .update({
       acknowledged: true,

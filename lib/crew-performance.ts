@@ -5,22 +5,8 @@
  * Handles review attribution and bonus calculations.
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseServiceClient } from './supabase'
 import { REVIEW_BONUS_CONFIG } from '@/integrations/housecall-pro/constants'
-
-// Lazy Supabase client — created on first call, not at module load time.
-// Top-level createClient() crashes during `next build` because env vars
-// aren't available when Vercel collects page data.
-let _supabase: ReturnType<typeof createClient> | null = null
-function getSupabase() {
-  if (!_supabase) {
-    _supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    )
-  }
-  return _supabase
-}
 
 // Crew performance record
 export interface CrewPerformance {
@@ -81,7 +67,7 @@ async function getOrCreatePerformanceRecord(
   const periodEnd = getWeekEnd(date)
 
   // Try to find existing record
-  const { data: existing } = await getSupabase()
+  const { data: existing } = await getSupabaseServiceClient()
     .from('crew_performance')
     .select('*')
     .eq('crew_id', crewId)
@@ -94,7 +80,7 @@ async function getOrCreatePerformanceRecord(
   }
 
   // Create new record
-  const { data: newRecord, error } = await getSupabase()
+  const { data: newRecord, error } = await getSupabaseServiceClient()
     .from('crew_performance')
     .insert({
       crew_id: crewId,
@@ -122,7 +108,7 @@ export async function recordJobCompletion(
   try {
     const { id, record } = await getOrCreatePerformanceRecord(crewId)
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServiceClient()
       .from('crew_performance')
       .update({
         jobs_completed: record.jobs_completed + 1,
@@ -166,7 +152,7 @@ export async function recordUpsell(
       }
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServiceClient()
       .from('crew_performance')
       .update(updates)
       .eq('id', id)
@@ -196,7 +182,7 @@ export async function recordTip(
   try {
     const { id, record } = await getOrCreatePerformanceRecord(crewId)
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServiceClient()
       .from('crew_performance')
       .update({
         tips_collected_cents: record.tips_collected_cents + amountCents,
@@ -225,7 +211,7 @@ export async function trackReviewSent(
   customerPhone: string
 ): Promise<{ success: boolean; attributionId?: string; error?: string }> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServiceClient()
       .from('review_attributions')
       .insert({
         brand: 'winbros',
@@ -261,7 +247,7 @@ export async function recordReviewReceived(
 ): Promise<{ success: boolean; crewId?: string; bonusCents?: number; error?: string }> {
   try {
     // Find pending attribution for this customer
-    const { data: attribution, error: findError } = await supabase
+    const { data: attribution, error: findError } = await getSupabaseServiceClient()
       .from('review_attributions')
       .select('*')
       .eq('customer_phone', customerPhone)
@@ -277,7 +263,7 @@ export async function recordReviewReceived(
     }
 
     // Update attribution with review details
-    const { error: updateError } = await supabase
+    const { error: updateError } = await getSupabaseServiceClient()
       .from('review_attributions')
       .update({
         review_rating: rating,
@@ -293,7 +279,7 @@ export async function recordReviewReceived(
     if (attribution.crew_id) {
       const { id, record } = await getOrCreatePerformanceRecord(attribution.crew_id)
 
-      await supabase
+      await getSupabaseServiceClient()
         .from('crew_performance')
         .update({
           google_reviews_earned: record.google_reviews_earned + 1,
@@ -325,7 +311,7 @@ export async function markBonusesPaid(
   crewId: string,
   throughDate: string
 ): Promise<{ success: boolean; paidCount: number; totalCents: number }> {
-  const { data: unpaid, error: fetchError } = await getSupabase()
+  const { data: unpaid, error: fetchError } = await getSupabaseServiceClient()
     .from('review_attributions')
     .select('id, bonus_cents')
     .eq('crew_id', crewId)
@@ -345,7 +331,7 @@ export async function markBonusesPaid(
     return { success: true, paidCount: 0, totalCents: 0 }
   }
 
-  const { error } = await getSupabase()
+  const { error } = await getSupabaseServiceClient()
     .from('review_attributions')
     .update({
       bonus_paid: true,
@@ -371,7 +357,7 @@ export async function getCrewPerformance(
   const periodStart = period === 'week' ? getWeekStart(now) : getMonthStart(now)
   const periodEnd = period === 'week' ? getWeekEnd(now) : getMonthEnd(now)
 
-  const { data, error } = await getSupabase()
+  const { data, error } = await getSupabaseServiceClient()
     .from('crew_performance')
     .select('*')
     .eq('crew_id', crewId)
@@ -433,7 +419,7 @@ export async function getPerformanceLeaderboard(
   const now = new Date()
   const periodStart = period === 'week' ? getWeekStart(now) : getMonthStart(now)
 
-  const { data, error } = await getSupabase()
+  const { data, error } = await getSupabaseServiceClient()
     .from('crew_performance')
     .select('crew_id, jobs_completed, upsells_accepted, google_reviews_earned, tips_collected_cents')
     .eq('brand', 'winbros')

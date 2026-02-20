@@ -79,6 +79,9 @@
 - Tenant: inactive tenants can access dashboard
 - **Cron service client fix** — All 7 crons were using `getSupabaseClient()` (anon key), silently returning 0 rows after RLS enforcement. Switched to `getSupabaseServiceClient()`
 - **post-job-followup column fix** — Referenced `stripe_payment_link` (exists on leads, not jobs). Corrected to `stripe_payment_intent_id`
+- **Vercel build failure fix** — `lib/winbros-alerts.ts` and `lib/crew-performance.ts` had top-level `createClient()` calls that crashed `next build` (env vars undefined at build time). Fixed with lazy singleton, then consolidated to centralized `getSupabaseServiceClient()`
+- **Standalone client consolidation** — `lib/winbros-alerts.ts` (7 call sites) and `lib/crew-performance.ts` (13 call sites) were creating their own service-role clients via direct `createClient()` import, bypassing the centralized `lib/supabase.ts` pattern. Replaced with `getSupabaseServiceClient()`
+- **crew-performance.ts runtime bug** — 5 functions (`recordJobCompletion`, `recordUpsell`, `recordTip`, `trackReviewSent`, `recordReviewReceived`) referenced a bare `supabase` variable that no longer existed after the lazy singleton refactor, causing `ReferenceError` at runtime. Fixed during client consolidation
 
 ---
 
@@ -326,6 +329,9 @@ After completion:
 | 2-19-2026 | Cron service client bug fixed | All 7 crons switched from anon key to service role client — were silently broken since RLS enforcement |
 | 2-19-2026 | post-job-followup column fix | `stripe_payment_link` → `stripe_payment_intent_id` (wrong table reference) |
 | 2-19-2026 | Cron race condition fix deployed & verified | 4 Postgres RPC functions with `SELECT FOR UPDATE SKIP LOCKED`, concurrent execution test passed, retry on failure confirmed |
+| 2-19-2026 | Vercel build failure fixed | Top-level `createClient()` in `winbros-alerts.ts` + `crew-performance.ts` crashed `next build`; converted to lazy singleton then consolidated to `getSupabaseServiceClient()` |
+| 2-19-2026 | Standalone client consolidation | `winbros-alerts.ts` (7 sites) + `crew-performance.ts` (13 sites) replaced standalone `createClient()` with centralized `getSupabaseServiceClient()` |
+| 2-19-2026 | crew-performance.ts runtime bug fixed | 5 functions referenced bare `supabase` variable (no longer existed after lazy singleton refactor) — would throw `ReferenceError` at runtime |
 
 ---
 
