@@ -134,7 +134,9 @@ export default function CustomersPage() {
           setLeads(json.data.leads || [])
           setScheduledTasks(json.data.scheduledTasks || [])
           if (json.data.customers.length > 0) {
-            setSelectedCustomer(json.data.customers[0])
+            const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
+            const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
+            setSelectedCustomer(restored || json.data.customers[0])
           }
         }
       } catch (error) {
@@ -525,6 +527,7 @@ export default function CustomersPage() {
                         key={customer.id}
                         onClick={() => {
                           setSelectedCustomer(customer)
+                          if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
                           setActiveTab("messages")
                         }}
                         className={`w-full text-left px-4 py-3 border-b border-zinc-800/50 ${
