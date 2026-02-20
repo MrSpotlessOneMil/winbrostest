@@ -134,6 +134,7 @@ export async function syncNewJobToHCP(params: {
       console.error(`[HCP Sync] Failed to find/create HCP customer for job ${jobId}: ${hcpCustomer.error}`)
       return
     }
+    const hcpAddressId = hcpCustomer.addressId
 
     // Resolve HCP employees from assigned cleaners so the job lands on the right HCP calendar.
     let assignedEmployeeIds: string[] = []
@@ -175,8 +176,16 @@ export async function syncNewJobToHCP(params: {
       return
     }
 
+    if (!hcpAddressId) {
+      console.error(
+        `[HCP Sync] Cannot create HCP job for local job ${jobId}: missing address_id on HCP customer ${hcpCustomer.customerId}`
+      )
+      return
+    }
+
     const created = await createHCPJob(tenant, {
       customerId: hcpCustomer.customerId,
+      addressId: hcpAddressId,
       scheduledDate,
       scheduledTime,
       address,
