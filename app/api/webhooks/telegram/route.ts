@@ -548,12 +548,14 @@ Send "join" or "I'm a new cleaner" to register.
     // Check if this is a new cleaner trying to join
     const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
     if (isJoinRequest) {
-      // Check if they're already registered
+      // Check if they're already registered (only active, non-deleted cleaners)
       // Use .limit(1) — same telegram_id can exist across multiple tenants
       const { data: existingCleanerRows } = await client
         .from("cleaners")
         .select("id, name")
         .eq("telegram_id", telegramUserId)
+        .eq("active", true)
+        .is("deleted_at", null)
         .limit(1)
       const existingCleaner = existingCleanerRows?.[0] || null
 
