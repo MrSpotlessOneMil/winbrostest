@@ -30,6 +30,7 @@ type CalendarJob = {
   cleaners?: any
   cleaner_id?: number
   cleaner_assignments?: any[]
+  teams?: any
 }
 
 type CalendarEventDetails = {
@@ -45,6 +46,9 @@ type CalendarEventDetails = {
   cleaner: string
   cleanerName: string
   cleanerId: string
+  team: string
+  service: string
+  notes: string
   hours: number
 }
 
@@ -129,8 +133,28 @@ function resolveLocation(job: CalendarJob) {
   return job.address || customer?.address || job.service_type || ""
 }
 
-function resolveDescription(job: CalendarJob) {
-  return job.notes || job.service_type || ""
+function humanizeServiceType(value: string | undefined): string {
+  if (!value) return ""
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim()
+}
+
+function resolveServiceLabel(job: CalendarJob): string {
+  return humanizeServiceType(job.service_type) || ""
+}
+
+function resolveTeamName(job: CalendarJob): string {
+  const team = job.teams
+  if (!team) return ""
+  if (Array.isArray(team)) return team[0]?.name || ""
+  return team.name || ""
+}
+
+function resolveNotes(job: CalendarJob): string {
+  const notes = job.notes
+  if (!notes) return ""
+  // Filter out internal system notes (all-caps with underscores or pipes)
+  if (/^[A-Z0-9_|\s]+$/.test(notes.trim())) return ""
+  return notes
 }
 
 function resolveCleanerFromAssignments(job: CalendarJob): { id: string; name: string } | null {
@@ -312,9 +336,11 @@ export default function JobsPage() {
       const start = resolveStart(job)
       const end = resolveEnd(job)
       const location = resolveLocation(job)
-      const description = resolveDescription(job)
+      const description = resolveServiceLabel(job)
       const cleanerName = resolveCleanerName(job)
       const cleanerId = resolveCleanerId(job)
+      const teamName = resolveTeamName(job)
+      const jobNotes = resolveNotes(job)
       const customerName = resolveCustomerName(job)
       const title = cleanerName
         ? `${customerName} (${cleanerName})`
@@ -338,6 +364,9 @@ export default function JobsPage() {
           cleaner: cleanerName || "",
           cleanerName: cleanerName || "",
           cleanerId: cleanerId || "",
+          teamName: teamName || "",
+          service: description || "",
+          notes: jobNotes || "",
           price: job.price || job.estimated_value || 0,
           status: job.status || "scheduled",
           jobId: String(job.id),
@@ -389,6 +418,9 @@ export default function JobsPage() {
       cleaner: info.event.extendedProps.cleaner || "",
       cleanerName: info.event.extendedProps.cleanerName || "",
       cleanerId: info.event.extendedProps.cleanerId || "",
+      team: info.event.extendedProps.teamName || "",
+      service: info.event.extendedProps.service || "",
+      notes: info.event.extendedProps.notes || "",
       hours: info.event.extendedProps.hours || 2,
     }
     setSelectedEvent(details)
@@ -782,9 +814,9 @@ export default function JobsPage() {
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
               eventDidMount={(info) => {
-                const desc = info.event.extendedProps.description || ""
+                const service = info.event.extendedProps.service || ""
                 const loc = info.event.extendedProps.location || ""
-                const tip = [desc, loc].filter(Boolean).join(" \u2022 ")
+                const tip = [service, loc].filter(Boolean).join(" \u2022 ")
                 if (tip) {
                   info.el.setAttribute("title", tip)
                 }
@@ -821,9 +853,19 @@ export default function JobsPage() {
                 <div style={{ marginBottom: "0.5rem" }}>
                   <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
                 </div>
+                {selectedEvent?.service && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Service:</strong> {selectedEvent.service}
+                  </div>
+                )}
                 <div style={{ marginBottom: "0.5rem" }}>
                   <strong>Cleaner:</strong> {selectedEvent?.cleaner || "Unassigned"}
                 </div>
+                {selectedEvent?.team && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Team:</strong> {selectedEvent.team}
+                  </div>
+                )}
                 <div style={{ marginBottom: "0.5rem" }}>
                   <strong>Location:</strong> {selectedEvent?.location || emptyValue}
                 </div>
@@ -835,9 +877,11 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
-                <div>
-                  <strong>Details:</strong> {selectedEvent?.description || emptyValue}
-                </div>
+                {selectedEvent?.notes && (
+                  <div>
+                    <strong>Notes:</strong> {selectedEvent.notes}
+                  </div>
+                )}
               </>
             ) : (
               <>
