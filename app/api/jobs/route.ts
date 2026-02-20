@@ -288,11 +288,15 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
+    const svc = getSupabaseServiceClient()
 
-    // Delete cleaner assignments first (FK constraint)
-    await getSupabaseServiceClient().from("cleaner_assignments").delete().eq("job_id", Number(id))
+    // Null out job references in tables that use SET NULL (messages, calls, leads)
+    await svc.from("messages").update({ job_id: null }).eq("job_id", Number(id))
+    await svc.from("calls").update({ job_id: null }).eq("job_id", Number(id))
+    await svc.from("leads").update({ converted_to_job_id: null }).eq("converted_to_job_id", Number(id))
 
+    // Delete the job — DB cascade handles cleaner_assignments, reviews, tips, upsells
+    const client = tenant ? await getTenantScopedClient(tenant.id) : svc
     let deleteQuery = client.from("jobs").delete().eq("id", Number(id))
     if (tenant) deleteQuery = deleteQuery.eq("tenant_id", tenant.id)
 
