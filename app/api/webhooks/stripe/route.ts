@@ -709,7 +709,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
               tenant_id: tenant.id, job_id: actualJobId, cleaner_id: lead.cleaner_id,
               status: 'confirmed', assigned_at: new Date().toISOString(), responded_at: new Date().toISOString(),
             })
-            await updateJob(actualJobId!, { team_id: team.id, cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
+            await updateJob(actualJobId!, { team_id: team.id, cleaner_confirmed: true, status: 'scheduled' } as Record<string, unknown>)
             assignmentOutcome = 'fallback_closest_team'
           }
         }

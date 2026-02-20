@@ -419,9 +419,22 @@ export async function loadJobsForDate(date: string, tenantId: string): Promise<J
       ? [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
       : undefined
 
+    // Address may be stored as a JSON object string — parse and flatten to a geocodable string
+    let addressStr: string = row.address || ''
+    if (addressStr.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(addressStr)
+        addressStr = [parsed.street, parsed.apartment_number, parsed.city, parsed.state, parsed.zip_code]
+          .filter(Boolean)
+          .join(', ')
+      } catch {
+        // keep original
+      }
+    }
+
     return {
       id: row.id,
-      address: row.address || '',
+      address: addressStr,
       date: row.date,
       scheduledAt: row.scheduled_at || undefined,
       serviceType: row.service_type || undefined,
