@@ -618,7 +618,6 @@ export async function createHCPJob(
       assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
       line_items: lineItemsCents,
       notes: notes || undefined,
-      lead_source: 'osiris',
     },
   })
 
