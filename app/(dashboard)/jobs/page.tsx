@@ -301,6 +301,7 @@ export default function JobsPage() {
   const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "" })
   const [saving, setSaving] = useState(false)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
@@ -439,6 +440,7 @@ export default function JobsPage() {
     }
     setSelectedEvent(details)
     setEditMode(false)
+    setConfirmDelete(false)
   }
 
   const refreshJobs = async () => {
@@ -579,7 +581,6 @@ export default function JobsPage() {
 
   const handleDeleteJob = async () => {
     if (!selectedEvent) return
-    if (!window.confirm("Delete this job? This cannot be undone.")) return
     setSaving(true)
     try {
       const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
@@ -587,6 +588,7 @@ export default function JobsPage() {
       if (data.success) {
         setSelectedEvent(null)
         setEditMode(false)
+        setConfirmDelete(false)
         await refreshJobs()
       }
     } finally {
@@ -937,12 +939,32 @@ export default function JobsPage() {
             )}
           </div>
           <div className="cal-modal-footer">
-            {!editMode ? (
+            {confirmDelete ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                <span style={{ fontSize: "0.85rem", color: "#ef4444" }}>Delete this job?</span>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={handleDeleteJob}
+                    disabled={saving}
+                    style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                  >
+                    {saving ? <><span className="saving-spinner" /> Deleting...</> : "Yes, delete"}
+                  </button>
+                </div>
+              </div>
+            ) : !editMode ? (
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
                 <button
                   className="cal-modal-btn"
-                  onClick={handleDeleteJob}
-                  disabled={saving}
+                  onClick={() => setConfirmDelete(true)}
                   title="Delete job"
                   style={{ color: "#ef4444", borderColor: "#ef4444", padding: "0.4rem 0.65rem" }}
                 >
@@ -970,8 +992,7 @@ export default function JobsPage() {
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
                 <button
                   className="cal-modal-btn"
-                  onClick={handleDeleteJob}
-                  disabled={saving}
+                  onClick={() => setConfirmDelete(true)}
                   title="Delete job"
                   style={{ color: "#ef4444", borderColor: "#ef4444", padding: "0.4rem 0.65rem" }}
                 >
