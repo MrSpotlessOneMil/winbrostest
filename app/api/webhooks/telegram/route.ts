@@ -133,6 +133,7 @@ const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
 const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
+const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 
 // Patterns for new cleaner onboarding (handles smart quotes, curly apostrophes, etc.)
 const JOIN_PATTERNS = [
@@ -766,6 +767,13 @@ Send "join" or "I'm a new cleaner" to register.
       return NextResponse.json({ success: true, action: "job_confirmed", job_id: jobId })
     }
 
+    // Schedule query — directly fetch and format the cleaner's jobs without AI
+    if (SCHEDULE_PATTERN.test(text)) {
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name)
+      await sendTelegramMessage(chatId, scheduleMsg)
+      return NextResponse.json({ success: true, action: "schedule_response" })
+    }
+
     // Unknown message format - use AI to provide helpful response
     console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, cleanerName=${cleaner?.name || 'UNKNOWN'}, text="${text}"`)
 
@@ -1177,6 +1185,107 @@ async function handleBriefingCommand(
  * Generate AI response for unrecognized messages
  * Looks up the cleaner's upcoming jobs so it can answer questions about their schedule
  */
+/**
+ * Build a schedule response directly from the DB — no AI needed.
+ * Detects whether the cleaner is asking about today, tomorrow, or their full upcoming schedule.
+ */
+async function buildScheduleResponse(
+  userMessage: string,
+  cleanerId: string | null,
+  cleanerName: string
+): Promise<string> {
+  if (!cleanerId) {
+    return `Hi! You're not registered as a cleaner yet. Send "join" to get set up and start receiving job assignments.`
+  }
+
+  const supabase = getSupabaseServiceClient()
+  const tz = 'America/Los_Angeles'
+  const nowLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz })
+  const tomorrowLocal = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: tz })
+
+  // Figure out which date window they're asking about
+  const msgLower = userMessage.toLowerCase()
+  const askingTomorrow = /tomorrow/.test(msgLower)
+  const askingToday = !askingTomorrow && (/today|tonight/.test(msgLower) || /my\s+schedule/.test(msgLower) || /my\s+jobs?/.test(msgLower) || /my\s+shift/.test(msgLower))
+  const askingWeek = !askingTomorrow && !askingToday && /week|upcoming/.test(msgLower)
+
+  const targetDate = askingTomorrow ? tomorrowLocal : nowLocal
+  const dateLabel = askingTomorrow ? 'tomorrow' : askingToday ? 'today' : 'upcoming'
+
+  // Get cleaner's confirmed/pending assignments
+  const { data: assignments } = await supabase
+    .from('cleaner_assignments')
+    .select('job_id')
+    .eq('cleaner_id', cleanerId)
+    .in('status', ['confirmed', 'pending'])
+
+  const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
+
+  if (jobIds.length === 0) {
+    return `Hi ${cleanerName}! You have no upcoming jobs assigned to you right now. Reach out to your team lead if you think this is wrong.`
+  }
+
+  // Fetch job details filtered by date range
+  let jobQuery = supabase
+    .from('jobs')
+    .select('id, date, scheduled_at, address, service_type, notes, status')
+    .in('id', jobIds)
+    .neq('status', 'cancelled')
+    .order('date', { ascending: true })
+    .order('scheduled_at', { ascending: true })
+
+  if (askingWeek) {
+    const weekEnd = new Date(Date.now() + 7 * 86400000).toLocaleDateString('en-CA', { timeZone: tz })
+    jobQuery = jobQuery.gte('date', nowLocal).lte('date', weekEnd)
+  } else {
+    jobQuery = jobQuery.eq('date', targetDate)
+  }
+
+  const { data: jobs } = await jobQuery.limit(15)
+
+  if (!jobs || jobs.length === 0) {
+    const dayLabel = askingTomorrow ? 'tomorrow' : askingWeek ? 'this week' : 'today'
+    return `Hi ${cleanerName}! You have no jobs scheduled for ${dayLabel}. Enjoy the time off! 🙌`
+  }
+
+  // Format time from stored value (handles "4:00 PM", "16:00", etc.)
+  function formatTime(t: string | null): string {
+    if (!t) return 'TBD'
+    const twelvehr = t.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+    if (twelvehr) return t.trim()
+    const twentyfour = t.match(/^(\d{1,2}):(\d{2})/)
+    if (twentyfour) {
+      let h = parseInt(twentyfour[1], 10)
+      const m = twentyfour[2]
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      if (h === 0) h = 12
+      else if (h > 12) h -= 12
+      return `${h}:${m} ${ampm}`
+    }
+    return t
+  }
+
+  function formatDate(d: string): string {
+    const [y, mo, day] = d.split('-').map(Number)
+    const dt = new Date(y, mo - 1, day)
+    return dt.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  }
+
+  const header = askingWeek
+    ? `📅 Your schedule this week, ${cleanerName}:`
+    : `📅 Your jobs for ${dateLabel}, ${cleanerName}:`
+
+  const lines = jobs.map((j: any, i: number) => {
+    const time = formatTime(j.scheduled_at)
+    const addr = j.address || 'Address TBD'
+    const service = j.service_type || 'Cleaning'
+    const datePart = askingWeek ? `${formatDate(j.date)} ` : ''
+    return `${i + 1}. ${datePart}${time} — ${service}\n   📍 ${addr} (Job #${j.id})`
+  })
+
+  return `${header}\n\n${lines.join('\n\n')}\n\nQuestions? Reply here or use /start to see all commands.`
+}
+
 async function generateAIResponse(
   userMessage: string,
   userName: string,
@@ -1266,7 +1375,7 @@ Respond in a friendly, concise way (2-4 sentences max). If they're asking about 
     console.log(`[OSIRIS] Job context status: ${cleanerId ? (jobContext.includes('UPCOMING JOBS') ? 'HAS_JOBS' : jobContext.includes('NO upcoming') ? 'NO_JOBS' : 'NOT_REGISTERED') : 'NO_CLEANER_ID'}`)
 
     const response = await client.messages.create({
-      model: "claude-3-5-haiku-20241022",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 300,
       messages: [
         {
