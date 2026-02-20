@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase'
+import { getSupabaseServiceClient } from './supabase'
 
 const BUFFER_MINUTES = 15
 const STEP_MINUTES = 30
@@ -865,7 +865,7 @@ function findAvailableSlots(
 }
 
 async function fetchTeams(tenantId: string | null): Promise<Team[]> {
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   let query = client
     .from('cleaners')
     .select('*')
@@ -899,7 +899,7 @@ async function fetchTeams(tenantId: string | null): Promise<Team[]> {
 }
 
 async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   let assignmentQuery = client
     .from('cleaner_assignments')
     .select('job_id, cleaner_id, status')
