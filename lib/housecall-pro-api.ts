@@ -170,6 +170,40 @@ export async function findOrCreateHCPCustomer(
 }
 
 /**
+ * Always create a new customer in HCP (skip phone search).
+ * Used for VAPI calls where each caller is a new person.
+ */
+export async function createHCPCustomerAlways(
+  tenant: Tenant,
+  customerData: {
+    firstName?: string
+    lastName?: string
+    phone: string
+    email?: string
+    address?: string
+  }
+): Promise<{ success: boolean; customerId?: string; error?: string }> {
+  console.log(`[HCP API] Creating new customer: ${customerData.firstName || ''} ${customerData.lastName || ''} (${customerData.phone})`)
+  const createResult = await hcpRequest<HCPCustomer>(tenant, '/customers', {
+    method: 'POST',
+    body: {
+      first_name: customerData.firstName || '',
+      last_name: customerData.lastName || '',
+      mobile_number: customerData.phone,
+      email: customerData.email || undefined,
+      address: customerData.address || undefined,
+    },
+  })
+
+  if (createResult.success && createResult.data?.id) {
+    console.log(`[HCP API] New customer created: ${createResult.data.id} (${customerData.firstName} ${customerData.lastName})`)
+    return { success: true, customerId: createResult.data.id }
+  }
+
+  return { success: false, error: createResult.error }
+}
+
+/**
  * Convert a lead to a job in HousecallPro
  * This is typically done when deposit is paid
  */

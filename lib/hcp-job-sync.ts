@@ -4,7 +4,8 @@
  * to mirror it into HCP. Skips gracefully if HCP is not configured for the tenant.
  */
 
-import { findOrCreateHCPCustomer, createHCPJob } from './housecall-pro-api'
+import { createHCPJob } from './housecall-pro-api'
+import { createHCPCustomerAlways } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
 import type { Tenant } from './tenant'
 
@@ -28,8 +29,8 @@ export async function syncNewJobToHCP(params: {
   }
 
   try {
-    // Find or create customer in HCP
-    const hcpCustomer = await findOrCreateHCPCustomer(tenant, {
+    // Always create a new customer in HCP (callers are new people each time)
+    const hcpCustomer = await createHCPCustomerAlways(tenant, {
       firstName: params.firstName || undefined,
       lastName: params.lastName || undefined,
       phone,
