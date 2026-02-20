@@ -9,7 +9,7 @@ import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
-import { buildWinBrosJobNotes } from "@/lib/winbros-sms-prompt"
+import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 
 /**
@@ -274,22 +274,9 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
               const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
 
-              // Convert human-readable dates like "tomorrow" to YYYY-MM-DD
-              if (appointmentDate) {
-                const lower = appointmentDate.toLowerCase().trim()
-                if (lower === 'tomorrow') {
-                  const tomorrow = new Date()
-                  tomorrow.setDate(tomorrow.getDate() + 1)
-                  appointmentDate = tomorrow.toISOString().slice(0, 10)
-                } else if (lower === 'today') {
-                  appointmentDate = new Date().toISOString().slice(0, 10)
-                } else if (!/^\d{4}-\d{2}-\d{2}/.test(appointmentDate)) {
-                  // Try to parse other date formats
-                  const parsed = new Date(appointmentDate)
-                  if (!isNaN(parsed.getTime())) {
-                    appointmentDate = parsed.toISOString().slice(0, 10)
-                  }
-                }
+              // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+              if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+                appointmentDate = parseNaturalDate(appointmentDate).date
               }
 
               // Build notes — use WinBros-specific helper for window/pressure/gutter services
@@ -432,21 +419,9 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
             const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
 
-            // Convert human-readable dates like "tomorrow" to YYYY-MM-DD
-            if (appointmentDate) {
-              const lower = appointmentDate.toLowerCase().trim()
-              if (lower === 'tomorrow') {
-                const tomorrow = new Date()
-                tomorrow.setDate(tomorrow.getDate() + 1)
-                appointmentDate = tomorrow.toISOString().slice(0, 10)
-              } else if (lower === 'today') {
-                appointmentDate = new Date().toISOString().slice(0, 10)
-              } else if (!/^\d{4}-\d{2}-\d{2}/.test(appointmentDate)) {
-                const parsed = new Date(appointmentDate)
-                if (!isNaN(parsed.getTime())) {
-                  appointmentDate = parsed.toISOString().slice(0, 10)
-                }
-              }
+            // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+            if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+              appointmentDate = parseNaturalDate(appointmentDate).date
             }
 
             // Build notes — use WinBros-specific helper for window/pressure/gutter services
