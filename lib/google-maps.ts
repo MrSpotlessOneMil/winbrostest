@@ -267,7 +267,9 @@ export async function getDistanceMatrix(
   const data = await response.json()
 
   if (data.status !== 'OK') {
-    throw new Error(`[GoogleMaps] Distance Matrix API error: ${data.status}`)
+    const err = new Error(`[GoogleMaps] Distance Matrix API error: ${data.status}`)
+    ;(err as any).apiStatus = data.status
+    throw err
   }
 
   const entries: DistanceMatrixEntry[] = []
@@ -363,25 +365,38 @@ export async function getPairwiseDistanceMatrix(
   // Batch by 25 to stay within API limits
   const BATCH_SIZE = 25
 
-  for (let oi = 0; oi < n; oi += BATCH_SIZE) {
-    const originSlice = validLocations.slice(oi, Math.min(oi + BATCH_SIZE, n))
-    const originLatLngs: LatLng[] = originSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
+  try {
+    for (let oi = 0; oi < n; oi += BATCH_SIZE) {
+      const originSlice = validLocations.slice(oi, Math.min(oi + BATCH_SIZE, n))
+      const originLatLngs: LatLng[] = originSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
 
-    for (let di = 0; di < n; di += BATCH_SIZE) {
-      const destSlice = validLocations.slice(di, Math.min(di + BATCH_SIZE, n))
-      const destLatLngs: LatLng[] = destSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
+      for (let di = 0; di < n; di += BATCH_SIZE) {
+        const destSlice = validLocations.slice(di, Math.min(di + BATCH_SIZE, n))
+        const destLatLngs: LatLng[] = destSlice.map(l => ({ lat: l.lat!, lng: l.lng! }))
 
-      const result = await getDistanceMatrix(originLatLngs, destLatLngs)
+        const result = await getDistanceMatrix(originLatLngs, destLatLngs)
 
-      for (const entry of result.entries) {
-        const row = oi + entry.originIndex
-        const col = di + entry.destinationIndex
-        // Prefer traffic-aware duration when available
-        matrix[row][col] = entry.durationInTrafficMinutes ?? entry.durationMinutes
+        for (const entry of result.entries) {
+          const row = oi + entry.originIndex
+          const col = di + entry.destinationIndex
+          // Prefer traffic-aware duration when available
+          matrix[row][col] = entry.durationInTrafficMinutes ?? entry.durationMinutes
+        }
+
+        // Small delay between batches
+        await sleep(100)
       }
-
-      // Small delay between batches
-      await sleep(100)
+    }
+  } catch (err: any) {
+    // Fall back to Haversine if Google Maps API fails (e.g. MAX_ROUTE_LENGTH_EXCEEDED)
+    console.warn(`[GoogleMaps] Distance Matrix failed (${err?.apiStatus ?? err?.message}) — falling back to Haversine estimates`)
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue
+        const a = validLocations[i]
+        const b = validLocations[j]
+        matrix[i][j] = haversineMinutes(a.lat!, a.lng!, b.lat!, b.lng!)
+      }
     }
   }
 
