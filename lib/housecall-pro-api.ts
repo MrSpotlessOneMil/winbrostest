@@ -8,10 +8,24 @@
 import { getDefaultTenant, type Tenant } from './tenant'
 
 const HCP_API_BASE = 'https://api.housecallpro.com'
+const DEFAULT_TIMEZONE_OFFSET = '-08:00'
+const DEFAULT_DURATION_HOURS = 2
+const DEFAULT_ARRIVAL_WINDOW_MINUTES = 60
 
 interface HCPApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: Record<string, unknown>
+}
+
+interface HCPAddress {
+  id?: string
+  type?: string
+  street?: string
+  street_line_2?: string
+  city?: string
+  state?: string
+  zip?: string
+  country?: string
 }
 
 interface HCPLead {
@@ -28,12 +42,23 @@ interface HCPLead {
 interface HCPJob {
   id: string
   customer_id?: string
-  scheduled_start?: string
-  scheduled_end?: string
-  address?: string
+  schedule?: {
+    scheduled_start?: string
+    scheduled_end?: string
+  }
+  address?: HCPAddress | string
   description?: string
-  total?: number
+  total_amount?: number
   status?: string
+}
+
+interface HCPEmployee {
+  id: string
+  first_name?: string
+  last_name?: string
+  email?: string
+  mobile_number?: string
+  phone?: string
 }
 
 interface HCPCustomer {
@@ -42,7 +67,216 @@ interface HCPCustomer {
   last_name?: string
   email?: string
   mobile_number?: string
-  address?: string
+  home_number?: string
+  work_number?: string
+  addresses?: HCPAddress[]
+}
+
+function toHcpMoneyCents(value?: number | null): number | undefined {
+  if (value === null || value === undefined) return undefined
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return undefined
+  return Math.round(numeric * 100)
+}
+
+function toHcpLineItems(
+  lineItems?: Array<{
+    name: string
+    quantity: number
+    unit_price: number
+    description?: string
+  }>
+): Array<{
+  name: string
+  quantity: number
+  unit_price: number
+  description?: string
+}> | undefined {
+  if (!lineItems?.length) return undefined
+  return lineItems.map((item) => ({
+    name: item.name,
+    quantity: item.quantity,
+    unit_price: toHcpMoneyCents(item.unit_price) ?? 0,
+    description: item.description,
+  }))
+}
+
+function normalizePhoneForMatch(value: string | null | undefined): string {
+  return (value || '').replace(/\D+/g, '').slice(-10)
+}
+
+function normalizeAddressForMatch(value: string | null | undefined): string {
+  return (value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseTimeToHHMMSS(raw?: string): string {
+  if (!raw) return '09:00:00'
+  const trimmed = raw.trim()
+  const match12 = trimmed.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i)
+  if (match12) {
+    let hour = parseInt(match12[1], 10)
+    const minutes = match12[2] ? parseInt(match12[2], 10) : 0
+    const ampm = match12[3].toUpperCase()
+    if (ampm === 'PM' && hour < 12) hour += 12
+    if (ampm === 'AM' && hour === 12) hour = 0
+    return `${String(hour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`
+  }
+
+  const match24 = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (match24) {
+    const hour = parseInt(match24[1], 10)
+    const minutes = parseInt(match24[2], 10)
+    const seconds = match24[3] ? parseInt(match24[3], 10) : 0
+    return `${String(hour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+  }
+
+  return '09:00:00'
+}
+
+function buildScheduleWindow(
+  scheduledDate?: string,
+  scheduledTime?: string,
+  durationHours?: number
+): { scheduledStart?: string; scheduledEnd?: string } {
+  if (!scheduledDate) return {}
+
+  const timeStr = parseTimeToHHMMSS(scheduledTime)
+  const scheduledStart = `${scheduledDate}T${timeStr}${DEFAULT_TIMEZONE_OFFSET}`
+
+  const startDate = new Date(scheduledStart)
+  if (Number.isNaN(startDate.getTime())) {
+    return { scheduledStart }
+  }
+
+  const normalizedDuration = Number.isFinite(durationHours) && (durationHours as number) > 0
+    ? Number(durationHours)
+    : DEFAULT_DURATION_HOURS
+  const scheduledEnd = new Date(startDate.getTime() + normalizedDuration * 60 * 60 * 1000).toISOString()
+  return { scheduledStart, scheduledEnd }
+}
+
+function extractCustomers(data: unknown): HCPCustomer[] {
+  if (Array.isArray(data)) return data as HCPCustomer[]
+  if (!data || typeof data !== 'object') return []
+
+  const record = data as Record<string, unknown>
+  if (Array.isArray(record.customers)) return record.customers as HCPCustomer[]
+
+  if (record.data && typeof record.data === 'object') {
+    const nested = record.data as Record<string, unknown>
+    if (Array.isArray(nested.customers)) return nested.customers as HCPCustomer[]
+  }
+
+  return []
+}
+
+function extractEmployees(data: unknown): HCPEmployee[] {
+  if (Array.isArray(data)) return data as HCPEmployee[]
+  if (!data || typeof data !== 'object') return []
+
+  const record = data as Record<string, unknown>
+  if (Array.isArray(record.employees)) return record.employees as HCPEmployee[]
+  if (Array.isArray(record.data)) return record.data as HCPEmployee[]
+
+  if (record.data && typeof record.data === 'object') {
+    const nested = record.data as Record<string, unknown>
+    if (Array.isArray(nested.employees)) return nested.employees as HCPEmployee[]
+  }
+
+  return []
+}
+
+function buildAddressCreatePayload(address?: string): Record<string, string> | undefined {
+  const raw = (address || '').trim()
+  if (!raw) return undefined
+
+  const normalized = raw.replace(/\s+/g, ' ')
+  const fullMatch = normalized.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/)
+  if (!fullMatch) return undefined
+
+  return {
+    street: fullMatch[1].trim(),
+    city: fullMatch[2].trim(),
+    state: fullMatch[3].toUpperCase(),
+    zip: fullMatch[4],
+    country: 'US',
+  }
+}
+
+function pickCustomerAddressId(
+  addresses: HCPAddress[] | undefined,
+  requestedAddress?: string
+): string | undefined {
+  if (!addresses?.length) return undefined
+
+  const requestedNormalized = normalizeAddressForMatch(requestedAddress)
+  if (requestedNormalized) {
+    for (const addr of addresses) {
+      if (!addr.id) continue
+      const assembled = [
+        addr.street,
+        addr.street_line_2,
+        addr.city,
+        addr.state,
+        addr.zip,
+      ].filter(Boolean).join(' ')
+
+      const assembledNormalized = normalizeAddressForMatch(assembled)
+      if (!assembledNormalized) continue
+      if (
+        assembledNormalized.includes(requestedNormalized) ||
+        requestedNormalized.includes(assembledNormalized)
+      ) {
+        return addr.id
+      }
+    }
+  }
+
+  const serviceAddress = addresses.find((a) => a.id && String(a.type || '').toLowerCase() === 'service')
+  if (serviceAddress?.id) return serviceAddress.id
+
+  return addresses.find((a) => a.id)?.id
+}
+
+function buildCustomerCreateAddresses(address?: string): Array<Record<string, string>> | undefined {
+  const raw = (address || '').trim()
+  if (!raw) return undefined
+  return [{ street: raw }]
+}
+
+async function ensureCustomerAddressId(
+  tenant: Tenant,
+  customerId: string,
+  existingAddresses: HCPAddress[] | undefined,
+  requestedAddress?: string
+): Promise<string | undefined> {
+  const existingId = pickCustomerAddressId(existingAddresses, requestedAddress)
+  if (existingId) return existingId
+
+  const parsedAddress = buildAddressCreatePayload(requestedAddress)
+  if (!parsedAddress) return undefined
+
+  const createAddressResult = await hcpRequest<HCPAddress>(
+    tenant,
+    `/customers/${customerId}/addresses`,
+    {
+      method: 'POST',
+      body: parsedAddress,
+    }
+  )
+
+  if (createAddressResult.success && createAddressResult.data?.id) {
+    return createAddressResult.data.id
+  }
+
+  console.warn(
+    `[HCP API] Could not create address on customer ${customerId}: ${createAddressResult.error || 'no id returned'}`
+  )
+  return undefined
 }
 
 /**
@@ -64,23 +298,36 @@ async function hcpRequest<T>(
     const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
       method: options.method || 'GET',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Token ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     })
 
+    const responseText = await response.text()
+
     if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`[HCP API] Error ${response.status}: ${errorText}`)
-      return { success: false, error: `HCP API error: ${response.status} - ${errorText}` }
+      console.error(`[HCP API] Error ${response.status}: ${responseText}`)
+      return {
+        success: false,
+        error: `HCP API error: ${response.status} - ${responseText || 'No response body'}`,
+      }
     }
 
-    const data = await response.json()
-    return { success: true, data }
+    if (!responseText.trim()) {
+      return { success: true }
+    }
+
+    try {
+      const data = JSON.parse(responseText) as T
+      return { success: true, data }
+    } catch {
+      console.warn(`[HCP API] Non-JSON success response from ${endpoint}`)
+      return { success: true }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error(`[HCP API] Request failed:`, error)
+    console.error('[HCP API] Request failed:', error)
     return { success: false, error: message }
   }
 }
@@ -135,35 +382,68 @@ export async function findOrCreateHCPCustomer(
     email?: string
     address?: string
   }
-): Promise<{ success: boolean; customerId?: string; error?: string }> {
-  // First, try to find existing customer by phone
-  const searchResult = await hcpRequest<{ customers: HCPCustomer[] }>(
+): Promise<{ success: boolean; customerId?: string; addressId?: string; error?: string }> {
+  const phoneDigits = normalizePhoneForMatch(customerData.phone)
+  const searchTerm = phoneDigits || customerData.phone
+
+  // Search existing customers by broad q query (covers name/email/phone/address).
+  const searchResult = await hcpRequest<{ customers?: HCPCustomer[] } | HCPCustomer[]>(
     tenant,
-    `/customers?mobile_number=${encodeURIComponent(customerData.phone)}`
+    `/customers?q=${encodeURIComponent(searchTerm)}&page=1&page_size=25`
   )
 
-  if (searchResult.success && searchResult.data?.customers?.length) {
-    const existing = searchResult.data.customers[0]
-    console.log(`[HCP API] Found existing customer: ${existing.id}`)
-    return { success: true, customerId: existing.id }
+  if (searchResult.success) {
+    const customers = extractCustomers(searchResult.data)
+    if (customers.length > 0) {
+      const exactPhoneMatch = customers.find((customer) => {
+        const phones = [customer.mobile_number, customer.home_number, customer.work_number]
+        return phones.some((phone) => normalizePhoneForMatch(phone) === phoneDigits)
+      })
+
+      const existing = exactPhoneMatch || customers[0]
+      const addressId = await ensureCustomerAddressId(
+        tenant,
+        existing.id,
+        existing.addresses,
+        customerData.address
+      )
+
+      console.log(`[HCP API] Found existing customer: ${existing.id}`)
+      return { success: true, customerId: existing.id, addressId }
+    }
+  } else {
+    console.warn(`[HCP API] Customer search failed for ${customerData.phone}: ${searchResult.error}`)
   }
 
-  // Create new customer
+  // Create new customer if search did not find one.
   console.log(`[HCP API] Creating customer for ${customerData.phone}`)
+  const body: Record<string, unknown> = {
+    first_name: customerData.firstName || '',
+    last_name: customerData.lastName || '',
+    mobile_number: customerData.phone,
+    email: customerData.email || undefined,
+  }
+
+  const customerAddresses = buildCustomerCreateAddresses(customerData.address)
+  if (customerAddresses?.length) {
+    body.addresses = customerAddresses
+  }
+
   const createResult = await hcpRequest<HCPCustomer>(tenant, '/customers', {
     method: 'POST',
-    body: {
-      first_name: customerData.firstName || '',
-      last_name: customerData.lastName || '',
-      mobile_number: customerData.phone,
-      email: customerData.email || undefined,
-      address: customerData.address || undefined,
-    },
+    body,
   })
 
   if (createResult.success && createResult.data?.id) {
+    const addressId = await ensureCustomerAddressId(
+      tenant,
+      createResult.data.id,
+      createResult.data.addresses,
+      customerData.address
+    )
+
     console.log(`[HCP API] Customer created: ${createResult.data.id}`)
-    return { success: true, customerId: createResult.data.id }
+    return { success: true, customerId: createResult.data.id, addressId }
   }
 
   return { success: false, error: createResult.error }
@@ -182,26 +462,38 @@ export async function createHCPCustomerAlways(
     email?: string
     address?: string
   }
-): Promise<{ success: boolean; customerId?: string; error?: string }> {
-  console.log(`[HCP API] Creating new customer: ${customerData.firstName || ''} ${customerData.lastName || ''} (${customerData.phone}) addr=${customerData.address || 'none'}`)
+): Promise<{ success: boolean; customerId?: string; addressId?: string; error?: string }> {
+  console.log(
+    `[HCP API] Creating new customer: ${customerData.firstName || ''} ${customerData.lastName || ''} (${customerData.phone})`
+  )
+
   const body: Record<string, unknown> = {
     first_name: customerData.firstName || '',
     last_name: customerData.lastName || '',
     mobile_number: customerData.phone,
     email: customerData.email || undefined,
   }
-  // HCP expects addresses as an array of objects
-  if (customerData.address) {
-    body.addresses = [{ street: customerData.address, type: 'service' }]
+
+  const customerAddresses = buildCustomerCreateAddresses(customerData.address)
+  if (customerAddresses?.length) {
+    body.addresses = customerAddresses
   }
+
   const createResult = await hcpRequest<HCPCustomer>(tenant, '/customers', {
     method: 'POST',
     body,
   })
 
   if (createResult.success && createResult.data?.id) {
-    console.log(`[HCP API] New customer created: ${createResult.data.id} (${customerData.firstName} ${customerData.lastName})`)
-    return { success: true, customerId: createResult.data.id }
+    const addressId = await ensureCustomerAddressId(
+      tenant,
+      createResult.data.id,
+      createResult.data.addresses,
+      customerData.address
+    )
+
+    console.log(`[HCP API] New customer created: ${createResult.data.id}`)
+    return { success: true, customerId: createResult.data.id, addressId }
   }
 
   return { success: false, error: createResult.error }
@@ -224,8 +516,9 @@ export async function convertHCPLeadToJob(
   }
 ): Promise<{ success: boolean; jobId?: string; customerId?: string; error?: string }> {
   console.log(`[HCP API] Converting lead ${leadId} to job`)
+  const totalCents = toHcpMoneyCents(jobData.price)
 
-  // HCP's lead conversion endpoint
+  // HCP's lead conversion endpoint.
   const result = await hcpRequest<{ job: HCPJob; customer: HCPCustomer }>(
     tenant,
     `/leads/${leadId}/convert`,
@@ -237,7 +530,7 @@ export async function convertHCPLeadToJob(
           : undefined,
         address: jobData.address || undefined,
         description: jobData.serviceType || 'Cleaning Service',
-        total: jobData.price || undefined,
+        total: totalCents,
         notes: jobData.notes || undefined,
       },
     }
@@ -262,60 +555,70 @@ export async function createHCPJob(
   tenant: Tenant,
   jobData: {
     customerId: string
+    addressId?: string
     scheduledDate?: string
     scheduledTime?: string
     address?: string
     serviceType?: string
     price?: number
     notes?: string
+    lineItems?: Array<{
+      name: string
+      quantity: number
+      unit_price: number
+      description?: string
+    }>
+    assignedEmployeeIds?: string[]
+    durationHours?: number
   }
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
+  if (!jobData.addressId) {
+    return {
+      success: false,
+      error: 'Cannot create HCP job without customer address_id',
+    }
+  }
+
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
 
-  // Build scheduled_start in ISO format
-  let scheduledStart: string | undefined
-  if (jobData.scheduledDate) {
-    let timeStr = '09:00:00'
-    if (jobData.scheduledTime) {
-      // Convert "10 AM", "2:30 PM", "14:00" etc to HH:MM:SS
-      const raw = jobData.scheduledTime.trim()
-      const match12 = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM|am|pm)$/i)
-      const match24 = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
-      if (match12) {
-        let h = parseInt(match12[1])
-        const m = match12[2] ? parseInt(match12[2]) : 0
-        const ampm = match12[3].toUpperCase()
-        if (ampm === 'PM' && h < 12) h += 12
-        if (ampm === 'AM' && h === 12) h = 0
-        timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`
-      } else if (match24) {
-        timeStr = `${String(parseInt(match24[1])).padStart(2, '0')}:${match24[2]}:00`
-      }
-    }
-    // HCP requires timezone offset for proper scheduling
-    scheduledStart = `${jobData.scheduledDate}T${timeStr}-08:00`
+  const { scheduledStart, scheduledEnd } = buildScheduleWindow(
+    jobData.scheduledDate,
+    jobData.scheduledTime,
+    jobData.durationHours
+  )
+  const totalCents = toHcpMoneyCents(jobData.price)
+  let lineItemsCents = toHcpLineItems(jobData.lineItems)
+
+  if ((!lineItemsCents || lineItemsCents.length === 0) && totalCents !== undefined) {
+    lineItemsCents = [{
+      name: jobData.serviceType || 'Cleaning Service',
+      quantity: 1,
+      unit_price: totalCents,
+      description: jobData.address || undefined,
+    }]
   }
 
-  // Build a scheduled_end (default 2 hours after start)
-  let scheduledEnd: string | undefined
-  if (scheduledStart && jobData.scheduledDate) {
-    const startDate = new Date(scheduledStart)
-    const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000)
-    scheduledEnd = endDate.toISOString()
-  }
-
-  console.log(`[HCP API] Job scheduled_start=${scheduledStart}, scheduled_end=${scheduledEnd}, address=${jobData.address}`)
+  const notesParts = [
+    jobData.serviceType ? `Service: ${jobData.serviceType}` : '',
+    jobData.notes || '',
+  ].filter(Boolean)
+  const notes = notesParts.join('\n')
 
   const result = await hcpRequest<HCPJob>(tenant, '/jobs', {
     method: 'POST',
     body: {
       customer_id: jobData.customerId,
-      scheduled_start: scheduledStart,
-      scheduled_end: scheduledEnd,
-      address: jobData.address || undefined,
-      description: jobData.serviceType || 'Cleaning Service',
-      total: jobData.price || undefined,
-      notes: jobData.notes || undefined,
+      address_id: jobData.addressId,
+      schedule: scheduledStart
+        ? {
+            scheduled_start: scheduledStart,
+            scheduled_end: scheduledEnd || scheduledStart,
+          }
+        : undefined,
+      assigned_employee_ids: jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined,
+      line_items: lineItemsCents,
+      notes: notes || undefined,
+      lead_source: 'osiris',
     },
   })
 
@@ -325,6 +628,191 @@ export async function createHCPJob(
   }
 
   return { success: false, error: result.error }
+}
+
+/**
+ * Update an existing HCP job with latest scheduling/details/assignment.
+ * Uses documented schedule/dispatch/line_item endpoints first, then falls back
+ * to PATCH /jobs/{id} when needed.
+ */
+export async function updateHCPJob(
+  tenant: Tenant,
+  jobId: string,
+  jobData: {
+    scheduledDate?: string
+    scheduledTime?: string
+    address?: string
+    serviceType?: string
+    price?: number
+    notes?: string
+    lineItems?: Array<{
+      name: string
+      quantity: number
+      unit_price: number
+      description?: string
+    }>
+    assignedEmployeeIds?: string[]
+    durationHours?: number
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const { scheduledStart, scheduledEnd } = buildScheduleWindow(
+    jobData.scheduledDate,
+    jobData.scheduledTime,
+    jobData.durationHours
+  )
+  const totalCents = toHcpMoneyCents(jobData.price)
+  let lineItemsCents = toHcpLineItems(jobData.lineItems)
+
+  if ((!lineItemsCents || lineItemsCents.length === 0) && totalCents !== undefined) {
+    lineItemsCents = [{
+      name: jobData.serviceType || 'Cleaning Service',
+      quantity: 1,
+      unit_price: totalCents,
+      description: jobData.address || undefined,
+    }]
+  }
+
+  const normalizedAssignmentIds = Array.isArray(jobData.assignedEmployeeIds)
+    ? jobData.assignedEmployeeIds.filter(Boolean)
+    : undefined
+  const dispatchedEmployees = normalizedAssignmentIds?.map((employeeId) => ({ employee_id: employeeId }))
+
+  const criticalErrors: string[] = []
+
+  const fallbackPatch = async (
+    payload: Record<string, unknown>,
+    context: string
+  ): Promise<boolean> => {
+    const fallback = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
+      method: 'PATCH',
+      body: payload,
+    })
+
+    if (fallback.success) {
+      console.warn(`[HCP API] ${context} updated via PATCH fallback for job ${jobId}`)
+      return true
+    }
+
+    console.error(`[HCP API] ${context} update failed for job ${jobId}: ${fallback.error}`)
+    return false
+  }
+
+  if (scheduledStart) {
+    const scheduleBody: Record<string, unknown> = {
+      start_time: scheduledStart,
+      end_time: scheduledEnd || scheduledStart,
+      arrival_window_in_minutes: DEFAULT_ARRIVAL_WINDOW_MINUTES,
+      notify: false,
+      notify_pro: false,
+    }
+
+    if (Array.isArray(dispatchedEmployees)) {
+      scheduleBody.dispatched_employees = dispatchedEmployees
+    }
+
+    const scheduleResult = await hcpRequest<Record<string, unknown>>(tenant, `/jobs/${jobId}/schedule`, {
+      method: 'PUT',
+      body: scheduleBody,
+    })
+
+    if (!scheduleResult.success) {
+      const patched = await fallbackPatch(
+        {
+          scheduled_start: scheduledStart,
+          scheduled_end: scheduledEnd || scheduledStart,
+        },
+        'schedule'
+      )
+      if (!patched) {
+        criticalErrors.push(`schedule: ${scheduleResult.error}`)
+      }
+    }
+  }
+
+  if (normalizedAssignmentIds !== undefined) {
+    const dispatchResult = await hcpRequest<Record<string, unknown>>(tenant, `/jobs/${jobId}/dispatch`, {
+      method: 'PUT',
+      body: {
+        dispatched_employees: dispatchedEmployees || [],
+      },
+    })
+
+    if (!dispatchResult.success) {
+      const patched = await fallbackPatch(
+        { assigned_employee_ids: normalizedAssignmentIds },
+        'dispatch'
+      )
+      if (!patched) {
+        criticalErrors.push(`dispatch: ${dispatchResult.error}`)
+      }
+    }
+  }
+
+  if (lineItemsCents?.length) {
+    const lineItemsResult = await hcpRequest<Record<string, unknown>>(
+      tenant,
+      `/jobs/${jobId}/line_items/bulk_update`,
+      {
+        method: 'PUT',
+        body: {
+          line_items: lineItemsCents,
+          append_line_items: false,
+        },
+      }
+    )
+
+    if (!lineItemsResult.success) {
+      const patched = await fallbackPatch({ line_items: lineItemsCents }, 'line items')
+      if (!patched) {
+        criticalErrors.push(`line_items: ${lineItemsResult.error}`)
+      }
+    }
+  }
+
+  const notesParts = [
+    jobData.serviceType ? `Service: ${jobData.serviceType}` : '',
+    jobData.notes || '',
+  ].filter(Boolean)
+  const notes = notesParts.join('\n')
+
+  if (notes || jobData.address) {
+    const metadataPatch = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
+      method: 'PATCH',
+      body: {
+        notes: notes || undefined,
+        address: jobData.address || undefined,
+      },
+    })
+
+    if (!metadataPatch.success) {
+      console.warn(`[HCP API] Metadata PATCH failed for job ${jobId}: ${metadataPatch.error}`)
+    }
+  }
+
+  if (criticalErrors.length > 0) {
+    return { success: false, error: criticalErrors.join(' | ') }
+  }
+
+  return { success: true }
+}
+
+/**
+ * List HCP employees for assignment mapping.
+ */
+export async function listHCPEmployees(
+  tenant: Tenant
+): Promise<{ success: boolean; employees?: HCPEmployee[]; error?: string }> {
+  const result = await hcpRequest<{ employees?: HCPEmployee[] } | HCPEmployee[]>(
+    tenant,
+    '/employees'
+  )
+
+  if (!result.success) {
+    return { success: false, error: result.error }
+  }
+
+  const employees = extractEmployees(result.data)
+  return { success: true, employees }
 }
 
 /**
