@@ -259,7 +259,7 @@ async function sendCustomerEtaSms(
 // ── Owner Dispatch Summary ────────────────────────────────────
 
 /**
- * Send the owner a Telegram summary after dispatch.
+ * Send the owner an SMS summary after dispatch.
  * Always sends a brief status. Highlights warnings and errors prominently.
  */
 async function sendOwnerDispatchSummary(
@@ -267,20 +267,12 @@ async function sendOwnerDispatchSummary(
   optimization: OptimizationResult,
   dispatch: DispatchResult
 ): Promise<void> {
-  if (!tenant.owner_telegram_chat_id) return
-
-  const hasIssues = optimization.warnings.length > 0 ||
-    dispatch.errors.length > 0 ||
-    optimization.unassignedJobs.length > 0
+  if (!tenant.owner_phone) return
 
   // Build message
   const lines: string[] = []
 
-  if (hasIssues) {
-    lines.push(`<b>Logistics Dispatch — ${optimization.date}</b>`)
-  } else {
-    lines.push(`<b>Logistics Dispatch — ${optimization.date}</b>`)
-  }
+  lines.push(`LOGISTICS DISPATCH - ${optimization.date}`)
 
   // Stats line
   lines.push('')
@@ -295,18 +287,18 @@ async function sendOwnerDispatchSummary(
   // Warnings (skipped teams, missing data, feasibility)
   if (optimization.warnings.length > 0) {
     lines.push('')
-    lines.push('<b>Warnings:</b>')
+    lines.push('WARNINGS:')
     for (const w of optimization.warnings) {
-      lines.push(`  - ${escapeHtml(w)}`)
+      lines.push(`  - ${w}`)
     }
   }
 
   // Unassigned jobs
   if (optimization.unassignedJobs.length > 0) {
     lines.push('')
-    lines.push(`<b>Unassigned jobs (${optimization.unassignedJobs.length}):</b>`)
+    lines.push(`UNASSIGNED JOBS (${optimization.unassignedJobs.length}):`)
     for (const uj of optimization.unassignedJobs.slice(0, 5)) {
-      lines.push(`  - Job #${uj.jobId}: ${escapeHtml(uj.reason)}`)
+      lines.push(`  - Job #${uj.jobId}: ${uj.reason}`)
     }
     if (optimization.unassignedJobs.length > 5) {
       lines.push(`  ... and ${optimization.unassignedJobs.length - 5} more`)
@@ -316,9 +308,9 @@ async function sendOwnerDispatchSummary(
   // Dispatch errors
   if (dispatch.errors.length > 0) {
     lines.push('')
-    lines.push('<b>Errors:</b>')
+    lines.push('ERRORS:')
     for (const e of dispatch.errors.slice(0, 5)) {
-      lines.push(`  - ${escapeHtml(e)}`)
+      lines.push(`  - ${e}`)
     }
     if (dispatch.errors.length > 5) {
       lines.push(`  ... and ${dispatch.errors.length - 5} more`)
@@ -328,7 +320,7 @@ async function sendOwnerDispatchSummary(
   const message = lines.join('\n')
 
   try {
-    await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, message, 'HTML')
+    await sendSMS(tenant, tenant.owner_phone, message)
   } catch (err) {
     console.error('[Dispatch] Failed to send owner summary:', err)
   }

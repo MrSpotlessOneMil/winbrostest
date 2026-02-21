@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase'
+import { getSupabaseServiceClient } from './supabase'
 import { toE164 } from './phone-utils'
 
 export type SystemEventSource =
@@ -108,6 +108,7 @@ export type SystemEventType =
   // Lead stage changes
   | 'LEAD_STAGE_CHANGED'
   | 'PAYMENT_LINK_SENT'
+  | 'PAYMENT_RETRY_SENT'
   | 'SMS_ROUTING'
   // Telegram Onboarding
   | 'TELEGRAM_ONBOARDING'
@@ -126,7 +127,7 @@ export interface SystemEventInput {
 
 export async function logSystemEvent(input: SystemEventInput): Promise<void> {
   try {
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const normalizedPhone = input.phone_number ? toE164(input.phone_number) : null
     const payload = {
       ...input,
@@ -154,7 +155,7 @@ export async function getTelegramConversation(
   limit = 12
 ): Promise<TelegramTranscriptEntry[]> {
   try {
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const { data, error } = await client
       .from('system_events')
       .select('message, metadata, event_type, created_at')

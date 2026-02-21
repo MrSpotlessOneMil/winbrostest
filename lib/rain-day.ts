@@ -12,7 +12,7 @@
 
 import { getSupabaseServiceClient } from './supabase'
 import { sendSMS } from './openphone'
-import { sendTelegramMessage, notifyScheduleChange } from './telegram'
+import { notifyScheduleChange } from './telegram'
 import { checkRainDay as checkRainDayWeather, formatWeatherBriefing } from './weather'
 import type { DailyForecast } from './weather'
 import type { Tenant } from './tenant'
@@ -116,22 +116,21 @@ export async function checkAndHandleRainDay(
       sendNotifications: notify,
     })
 
-    // Alert owner via Telegram
-    if (tenant.owner_telegram_chat_id) {
-      const jobCount = result.jobsRescheduled
+    // Alert owner via SMS
+    if (tenant.owner_phone) {
       const forecast = weatherCheck.forecast
       const weatherInfo = forecast ? formatWeatherBriefing(forecast) : 'Rain detected'
 
-      const ownerMsg = `<b>Rain Day Auto-Reschedule</b>
+      const ownerMsg = `RAIN DAY AUTO-RESCHEDULE
 
 ${weatherInfo}
 
-<b>${result.jobsAffected}</b> jobs on ${formatDateHuman(dateStr)} have been rescheduled.
-<b>${result.jobsRescheduled}</b> successfully moved.
-${result.jobsFailed.length > 0 ? `<b>${result.jobsFailed.length}</b> failed — check dashboard.` : ''}
+${result.jobsAffected} jobs on ${formatDateHuman(dateStr)} have been rescheduled.
+${result.jobsRescheduled} successfully moved.
+${result.jobsFailed.length > 0 ? `${result.jobsFailed.length} failed - check dashboard.` : ''}
 ${result.notificationsSent} notifications sent.`
 
-      await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
+      await sendSMS(tenant, tenant.owner_phone, ownerMsg)
     }
 
     return {

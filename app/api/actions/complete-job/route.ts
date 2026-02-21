@@ -16,6 +16,7 @@ import {
   getCustomerByPhone,
   updateJob,
   appendToTextingTranscript,
+  getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stripe-client'
@@ -52,8 +53,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Use service client to bypass RLS (admin action, no tenant JWT in context)
+    const serviceClient = getSupabaseServiceClient()
+
     // Get job details
-    const job = await getJobById(jobId)
+    const job = await getJobById(jobId, serviceClient)
     if (!job) {
       return NextResponse.json(
         { error: 'Job not found' },
@@ -62,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get customer details
-    const customer = await getCustomerByPhone(job.phone_number)
+    const customer = await getCustomerByPhone(job.phone_number, serviceClient)
     if (!customer) {
       return NextResponse.json(
         { error: 'Customer not found' },
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     if (remainingAmount <= 0) {
       // Job was fully prepaid
-      await updateJob(jobId, { status: 'completed' })
+      await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
 
       await logSystemEvent({
         source: 'actions',
@@ -153,6 +157,9 @@ export async function POST(request: NextRequest) {
         },
       ],
       metadata: paymentMetadata,
+      payment_intent_data: {
+        metadata: paymentMetadata,
+      },
       after_completion: {
         type: 'redirect',
         redirect: {
@@ -162,7 +169,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Update job status
-    await updateJob(jobId, { status: 'completed' })
+    await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
 
     // Send SMS with payment link
     const dateStr = job.date
@@ -181,7 +188,8 @@ export async function POST(request: NextRequest) {
       const timestamp = new Date().toISOString()
       await appendToTextingTranscript(
         customer.phone_number,
-        `[${timestamp}] [Job Completed - Final Payment Requested] ${config.businessNameShort}: ${smsMessage}`
+        `[${timestamp}] [Job Completed - Final Payment Requested] ${config.businessNameShort}: ${smsMessage}`,
+        serviceClient
       )
     }
 

@@ -1,20 +1,24 @@
 /**
  * Send Final Payments Cron Job
  *
- * Vercel Cron endpoint that runs every 15 minutes to check for jobs
- * that have passed their scheduled final payment time and sends
- * the final payment link automatically.
+ * Vercel Cron endpoint that runs every 15 minutes to:
+ * 1. Send final payment links for jobs past their scheduled time
+ * 2. Auto-retry failed payments (up to 3 retries, 24h apart)
  *
  * Triggered by: Vercel Cron (every 15 minutes)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getAllJobs, updateJob } from '@/lib/supabase'
+import { getAllJobs, updateJob, getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 
-// Import the complete-job logic
+// Import the complete-job logic (existing pattern) and retry-payment core function
 import { POST as completeJobAction } from '@/app/api/actions/complete-job/route'
+import { executeRetryPayment } from '@/app/api/actions/retry-payment/route'
+
+const MAX_AUTO_RETRIES = 3
+const RETRY_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 function extractScheduledFinalPayment(notes?: string): Date | null {
   if (!notes) return null
@@ -25,39 +29,54 @@ function extractScheduledFinalPayment(notes?: string): Date | null {
   return isNaN(date.getTime()) ? null : date
 }
 
+function extractPaymentFailedTime(notes?: string): Date | null {
+  if (!notes) return null
+  const match = notes.match(/PAYMENT_FAILED:\s*([^\s|]+)/)
+  if (!match) return null
+  const date = new Date(match[1].trim())
+  return isNaN(date.getTime()) ? null : date
+}
+
+function extractRetryCount(notes?: string): number {
+  if (!notes) return 0
+  const match = notes.match(/PAYMENT_RETRY_COUNT:\s*(\d+)/)
+  return match ? parseInt(match[1], 10) : 0
+}
+
 async function executeHandler() {
   const now = new Date()
 
-  // Get all jobs with status scheduled or in_progress
-  const jobs = await getAllJobs()
-  const eligibleJobs = jobs.filter(job =>
+  // Use service client — crons don't have tenant JWT, anon key is blocked by RLS
+  const serviceClient = getSupabaseServiceClient()
+
+  const jobs = await getAllJobs(undefined, serviceClient)
+
+  // --- Part 1: Scheduled final payments (existing logic) ---
+  const scheduledJobs = jobs.filter(job =>
     (job.status === 'scheduled' || job.status === 'in_progress') &&
     job.paid === true &&
     job.notes?.includes('SCHEDULED_FINAL_PAYMENT')
   )
 
-  console.log(`Checking ${eligibleJobs.length} jobs for final payment scheduling`)
+  console.log(`[send-final-payments] Checking ${scheduledJobs.length} jobs for scheduled final payment`)
 
   let sentCount = 0
   const errors: Array<{ jobId: string; error: string }> = []
 
-  for (const job of eligibleJobs) {
+  for (const job of scheduledJobs) {
     const scheduledTime = extractScheduledFinalPayment(job.notes)
 
     if (!scheduledTime || scheduledTime > now) {
       continue // Not yet time
     }
 
-    // Check if final payment already sent (job is completed)
     if (job.status === 'completed') {
-      // Remove the scheduled tag since it's done
       const updatedNotes = (job.notes || '').replace(/SCHEDULED_FINAL_PAYMENT:[^\n]+\n?/, '')
-      await updateJob(job.id!, { notes: updatedNotes })
+      await updateJob(job.id!, { notes: updatedNotes }, {}, serviceClient)
       continue
     }
 
     try {
-      // Call complete-job action
       const mockRequest = new Request('http://localhost/api/actions/complete-job', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -71,9 +90,8 @@ async function executeHandler() {
         throw new Error(result.error || 'Complete job failed')
       }
 
-      // Remove scheduled tag from notes
       const updatedNotes = (job.notes || '').replace(/SCHEDULED_FINAL_PAYMENT:[^\n]+\n?/, '')
-      await updateJob(job.id!, { notes: updatedNotes })
+      await updateJob(job.id!, { notes: updatedNotes }, {}, serviceClient)
 
       sentCount++
 
@@ -98,10 +116,67 @@ async function executeHandler() {
     }
   }
 
+  // --- Part 2: Auto-retry failed payments ---
+  const failedJobs = jobs.filter(job =>
+    job.payment_status === 'payment_failed' &&
+    job.notes?.includes('PAYMENT_FAILED:')
+  )
+
+  console.log(`[send-final-payments] Checking ${failedJobs.length} jobs for payment retry`)
+
+  let retryCount = 0
+
+  for (const job of failedJobs) {
+    const retries = extractRetryCount(job.notes)
+    const failedAt = extractPaymentFailedTime(job.notes)
+
+    // Stop after MAX_AUTO_RETRIES
+    if (retries >= MAX_AUTO_RETRIES) {
+      continue
+    }
+
+    // Wait at least RETRY_INTERVAL_MS since failure before retrying
+    if (!failedAt || (now.getTime() - failedAt.getTime()) < RETRY_INTERVAL_MS) {
+      continue
+    }
+
+    try {
+      const result = await executeRetryPayment(job.id!)
+
+      if (!result.success) {
+        throw new Error(result.error || 'Retry payment failed')
+      }
+
+      retryCount++
+
+      await logSystemEvent({
+        source: 'cron',
+        event_type: 'PAYMENT_RETRY_SENT',
+        message: `Auto-retry #${retries + 1} sent for job ${job.id}`,
+        job_id: job.id,
+        customer_id: job.customer_id,
+        phone_number: job.phone_number,
+        metadata: {
+          retry_number: retries + 1,
+          max_retries: MAX_AUTO_RETRIES,
+          failed_at: failedAt.toISOString(),
+        },
+      })
+    } catch (error) {
+      console.error(`Failed to retry payment for job ${job.id}:`, error)
+      errors.push({
+        jobId: job.id!,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      })
+    }
+  }
+
   return NextResponse.json({
     success: true,
-    checked: eligibleJobs.length,
-    sent: sentCount,
+    scheduled_checked: scheduledJobs.length,
+    scheduled_sent: sentCount,
+    failed_checked: failedJobs.length,
+    retries_sent: retryCount,
     errors: errors.length > 0 ? errors : undefined,
   })
 }

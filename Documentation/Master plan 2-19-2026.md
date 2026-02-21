@@ -100,6 +100,9 @@
 - Normalize `form_data` type inconsistency
 - 3-second polling should use Supabase Realtime subscriptions
 
+## Notes
+- **Weather API intentionally deferred (2-19-2026)** — Code in `lib/weather.ts` is fully built (OpenWeather One Call 3.0) but no API key is configured. All call paths fail gracefully via try/catch — no crashes, no build issues. Crew briefings are unaffected (weather is not included in the Telegram message). Rain-day auto-rescheduling is silently disabled. Only side effect is 4 `console.error` lines per day in Vercel logs. To enable later: add `OPENWEATHER_API_KEY` env var.
+
 ---
 
 # REQUIREMENT MAPPING (DETAILED)

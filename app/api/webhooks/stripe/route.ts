@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { validateStripeWebhook, createCardOnFileLink } from '@/lib/stripe-client'
-import { getSupabaseClient, updateJob, getJobById, updateGHLLead } from '@/lib/supabase'
+import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '@/lib/supabase'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
@@ -9,6 +9,7 @@ import { getDefaultTenant, getTenantById } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
+import { paymentFailed as paymentFailedTemplate } from '@/lib/sms-templates'
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,6 +42,10 @@ export async function POST(request: NextRequest) {
 
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
+        break
+
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event.data.object as Stripe.PaymentIntent)
         break
 
       default:
@@ -84,8 +89,9 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     return
   }
 
-  // Get the job to verify it exists
-  const job = await getJobById(job_id)
+  // Get the job to verify it exists — use service client (webhook has no tenant JWT)
+  const serviceClient = getSupabaseServiceClient()
+  const job = await getJobById(job_id, serviceClient)
   if (!job) {
     console.error(`[Stripe Webhook] Job not found: ${job_id}`)
     return
@@ -115,13 +121,16 @@ async function handleDepositPayment(
 ) {
   console.log(`[Stripe Webhook] Processing DEPOSIT payment for job: ${jobId}`)
 
+  // Use service client — webhook has no tenant JWT, anon key is blocked by RLS
+  const serviceClient = getSupabaseServiceClient()
+
   // Update job status — mark as booked + scheduled now that deposit is paid
   const updatedJob = await updateJob(jobId, {
     payment_status: 'deposit_paid',
     confirmed_at: new Date().toISOString(),
     booked: true,
     status: 'scheduled' as any,
-  })
+  }, {}, serviceClient)
 
   if (!updatedJob) {
     console.error(`[Stripe Webhook] Failed to update job ${jobId}`)
@@ -134,8 +143,7 @@ async function handleDepositPayment(
 
   // Send payment confirmation SMS to customer
   if (updatedJob.phone_number && tenant) {
-    const depositClient = getSupabaseClient()
-    const { data: depositCust } = await depositClient
+    const { data: depositCust } = await serviceClient
       .from('customers')
       .select('id')
       .eq('phone_number', updatedJob.phone_number)
@@ -149,7 +157,7 @@ async function handleDepositPayment(
     const confirmSms = await sendSMS(tenant, updatedJob.phone_number, confirmMsg)
 
     if (confirmSms.success) {
-      await depositClient.from('messages').insert({
+      await serviceClient.from('messages').insert({
         tenant_id: tenant.id,
         customer_id: depositCustId,
         phone_number: updatedJob.phone_number,
@@ -180,7 +188,7 @@ async function handleDepositPayment(
           const cardMsg = `Additionally, go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
           const cardSms = await sendSMS(tenant, updatedJob.phone_number, cardMsg)
           if (cardSms.success) {
-            await depositClient.from('messages').insert({
+            await serviceClient.from('messages').insert({
               tenant_id: tenant.id,
               customer_id: depositCustId,
               phone_number: updatedJob.phone_number,
@@ -206,8 +214,7 @@ async function handleDepositPayment(
   let hcpLeadId: string | undefined
   if (leadId) {
     // Get lead to find HCP source_id
-    const client = getSupabaseClient()
-    const { data: lead } = await client
+    const { data: lead } = await serviceClient
       .from('leads')
       .select('source_id')
       .eq('id', leadId)
@@ -247,7 +254,7 @@ async function handleDepositPayment(
         // Store HCP job ID in our job record
         await updateJob(jobId, {
           hcp_job_id: hcpJobId,
-        })
+        }, {}, serviceClient)
       } else {
         console.warn(`[Stripe Webhook] Failed to convert HCP lead: ${hcpResult.error}`)
       }
@@ -291,11 +298,14 @@ async function handleDepositPayment(
 async function handleFinalPayment(jobId: string, session: Stripe.Checkout.Session) {
   console.log(`[Stripe Webhook] Processing FINAL payment for job: ${jobId}`)
 
+  // Use service client — webhook has no tenant JWT, anon key is blocked by RLS
+  const serviceClient = getSupabaseServiceClient()
+
   // Update job status
   const updatedJob = await updateJob(jobId, {
     payment_status: 'fully_paid',
     paid: true,
-  })
+  }, {}, serviceClient)
 
   if (!updatedJob) {
     console.error(`[Stripe Webhook] Failed to update job ${jobId}`)
@@ -331,7 +341,7 @@ async function handleTipPayment(session: Stripe.Checkout.Session) {
 
   console.log(`[Stripe Webhook] Processing TIP payment - job_id: ${job_id}, cleaner_id: ${cleaner_id}`)
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   // Get cleaner name for logging
   let cleanerName = 'Unknown'
@@ -351,7 +361,7 @@ async function handleTipPayment(session: Stripe.Checkout.Session) {
   let phoneNumber: string | undefined
   let teamId: number | null = null
   if (job_id) {
-    const job = await getJobById(job_id)
+    const job = await getJobById(job_id, getSupabaseServiceClient())
     phoneNumber = job?.phone_number
     teamId = job?.team_id ?? null
   }
@@ -409,7 +419,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
   // This can be used for additional reconciliation or logging
 
   if (job_id) {
-    const job = await getJobById(job_id)
+    const job = await getJobById(job_id, getSupabaseServiceClient())
 
     if (job) {
       await logSystemEvent({
@@ -431,6 +441,145 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 }
 
 /**
+ * Handle payment_intent.payment_failed event
+ * - Updates job payment_status to 'payment_failed'
+ * - Logs PAYMENT_FAILED system event
+ * - Sends customer SMS with payment link to retry
+ * - Alerts owner via Telegram
+ * - Tracks retry count in job notes
+ */
+async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
+  const metadata = paymentIntent.metadata || {}
+  const { job_id, payment_type, phone_number: metaPhone } = metadata
+
+  const failureMessage = paymentIntent.last_payment_error?.message || 'Card declined'
+  const failureCode = paymentIntent.last_payment_error?.code || 'unknown'
+
+  console.log(`[Stripe Webhook] Payment failed - job_id: ${job_id}, type: ${payment_type}, reason: ${failureMessage}`)
+
+  if (!job_id) {
+    console.error('[Stripe Webhook] payment_intent.payment_failed has no job_id in metadata')
+    return
+  }
+
+  // Use service client — webhooks don't have tenant JWT, anon key is blocked by RLS
+  const serviceClient = getSupabaseServiceClient()
+
+  const job = await getJobById(job_id, serviceClient)
+  if (!job) {
+    console.error(`[Stripe Webhook] Job not found for failed payment: ${job_id}`)
+    return
+  }
+
+  const phoneNumber = metaPhone || job.phone_number
+
+  // Update job payment_status to reflect failure
+  const currentNotes = job.notes || ''
+  const retryMatch = currentNotes.match(/PAYMENT_RETRY_COUNT:\s*(\d+)/)
+  const currentRetryCount = retryMatch ? parseInt(retryMatch[1], 10) : 0
+
+  // Update notes with failure info (append or update)
+  let updatedNotes = currentNotes
+  // Remove old PAYMENT_FAILED line if present
+  updatedNotes = updatedNotes.replace(/PAYMENT_FAILED:[^\n]*\n?/g, '')
+  updatedNotes = `${updatedNotes}\nPAYMENT_FAILED: ${new Date().toISOString()} | ${failureCode} | ${failureMessage}`.trim()
+
+  await updateJob(job_id, {
+    payment_status: 'payment_failed',
+    notes: updatedNotes,
+  }, {}, serviceClient)
+
+  // Get tenant for notifications
+  const jobTenantId = (job as any).tenant_id
+  const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+
+  // Send customer SMS with retry info
+  // Payment links are persistent — the customer can click the same link again
+  // If the checkout session URL is in the payment intent, use it
+  const paymentUrl = paymentIntent.last_payment_error?.payment_method
+    ? `https://checkout.stripe.com/pay/${paymentIntent.id}`
+    : null
+
+  if (phoneNumber && tenant) {
+    const { data: customer } = await serviceClient
+      .from('customers')
+      .select('id')
+      .eq('phone_number', phoneNumber)
+      .eq('tenant_id', tenant.id)
+      .maybeSingle()
+
+    // Only send customer SMS on first failure (avoid spamming on repeated declines within same session)
+    if (currentRetryCount === 0) {
+      const customerMsg = paymentUrl
+        ? paymentFailedTemplate(paymentUrl)
+        : "Your recent payment didn't go through. Please contact us to arrange payment."
+      const smsResult = await sendSMS(tenant, phoneNumber, customerMsg)
+
+      if (smsResult.success) {
+        await serviceClient.from('messages').insert({
+          tenant_id: tenant.id,
+          customer_id: customer?.id || job.customer_id || null,
+          phone_number: phoneNumber,
+          role: 'assistant',
+          content: customerMsg,
+          direction: 'outbound',
+          message_type: 'sms',
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: 'stripe_payment_failed',
+        })
+        console.log(`[Stripe Webhook] Payment failure SMS sent to ${phoneNumber}`)
+      }
+    }
+
+    // Always notify owner via SMS
+    if (tenant.owner_phone) {
+      const amount = paymentIntent.amount ? `$${(paymentIntent.amount / 100).toFixed(2)}` : 'unknown'
+      const ownerMsg = [
+        `PAYMENT FAILED`,
+        ``,
+        `Customer: ${phoneNumber}`,
+        `Amount: ${amount}`,
+        `Type: ${payment_type || 'unknown'}`,
+        `Reason: ${failureMessage}`,
+        `Job ID: ${job_id}`,
+        ``,
+        currentRetryCount > 0
+          ? `This is attempt #${currentRetryCount + 1}. Consider contacting the customer directly.`
+          : `Customer has been notified via SMS.`,
+      ].join('\n')
+
+      try {
+        await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+        console.log(`[Stripe Webhook] Owner notified of payment failure for job ${job_id}`)
+      } catch (err) {
+        console.error(`[Stripe Webhook] Failed to send owner payment failure alert:`, err)
+      }
+    }
+  }
+
+  // Log system event
+  await logSystemEvent({
+    source: 'stripe',
+    event_type: 'PAYMENT_FAILED',
+    message: `Payment failed for job ${job_id}: ${failureMessage}`,
+    job_id,
+    phone_number: phoneNumber,
+    metadata: {
+      payment_type: payment_type || 'unknown',
+      payment_intent_id: paymentIntent.id,
+      amount: paymentIntent.amount,
+      currency: paymentIntent.currency,
+      failure_code: failureCode,
+      failure_message: failureMessage,
+      retry_count: currentRetryCount,
+    },
+  })
+
+  console.log(`[Stripe Webhook] Payment failure processed for job ${job_id}`)
+}
+
+/**
  * Handle card-on-file setup completion (checkout.session.completed with mode: 'setup')
  * - Sends confirmation SMS to customer
  * - For route-optimization tenants (WinBros): notifies owner via Telegram, job queued for batch routing
@@ -448,7 +597,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     return
   }
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   // Send confirmation SMS to customer
   if (phone_number) {
@@ -487,7 +636,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   let job: Awaited<ReturnType<typeof getJobById>> | null = null
   let actualJobId = job_id
   if (job_id && !job_id.startsWith('lead-')) {
-    job = await getJobById(job_id)
+    job = await getJobById(job_id, client)
     if (!job) {
       console.error(`[Stripe Webhook] Job not found for card-on-file: ${job_id}`)
     } else {
@@ -545,7 +694,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
       if (retryJob) {
         actualJobId = retryJob.id
-        job = await getJobById(retryJob.id)
+        job = await getJobById(retryJob.id, client)
         console.log(`[Stripe Webhook] Job created from lead retry: ${retryJob.id}`)
 
         // Update lead with the real job ID
@@ -609,7 +758,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
             team_id: team.id,
             cleaner_confirmed: true,
             status: 'assigned',
-          } as Record<string, unknown>)
+          } as Record<string, unknown>, {}, client)
 
           console.log(`[Stripe Webhook] Job ${actualJobId} auto-assigned to team "${team.name}" (cleaner ${lead.cleaner_id})`)
 
@@ -703,8 +852,8 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         assignmentOutcome = 'no_teams'
       }
 
-      // Always notify owner about new booking
-      if (tenant.owner_telegram_chat_id) {
+      // Always notify owner about new booking via SMS
+      if (tenant.owner_phone) {
         const customerName = phone_number || 'Unknown'
         const priceStr = job.price ? `$${Number(job.price).toFixed(2)}` : 'TBD'
         const dateStr = job.date || 'TBD'
@@ -712,7 +861,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         const addressStr = job.address || 'TBD'
 
         const ownerMsg = [
-          `<b>New Booking — Card on File</b>`,
+          `NEW BOOKING - CARD ON FILE`,
           ``,
           `Customer: ${customerName}`,
           `Service: ${serviceStr}`,
@@ -722,14 +871,14 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
           ``,
           assignmentOutcome === 'auto_assigned'
             ? `Job auto-assigned to ${team?.name || 'team'}.`
-            : `⚠️ Job could not be auto-assigned — no active teams/members.`,
+            : `WARNING: Job could not be auto-assigned - no active teams/members.`,
         ].join('\n')
 
         try {
-          await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
-          console.log(`[Stripe Webhook] Owner Telegram notification sent for new booking (job ${actualJobId})`)
+          await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+          console.log(`[Stripe Webhook] Owner SMS notification sent for new booking (job ${actualJobId})`)
         } catch (err) {
-          console.error(`[Stripe Webhook] Failed to send owner Telegram for job ${actualJobId}:`, err)
+          console.error(`[Stripe Webhook] Failed to send owner SMS for job ${actualJobId}:`, err)
         }
       }
     } else {
@@ -745,22 +894,22 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         console.error(`[Stripe Webhook] Cleaner assignment failed for job ${actualJobId}: ${assignmentResult.error}`)
       }
     }
-  } else if (job_id?.startsWith('lead-') && tenant.owner_telegram_chat_id) {
+  } else if (job_id?.startsWith('lead-') && tenant.owner_phone) {
     // Even if job retry failed, still notify owner that a customer saved their card
     assignmentOutcome = 'lead_only_notified'
     const ownerMsg = [
-      `<b>New Booking — Card on File</b>`,
+      `NEW BOOKING - CARD ON FILE`,
       ``,
       `Customer: ${phone_number || 'Unknown'}`,
-      `⚠️ Job creation failed — check the lead in the dashboard.`,
+      `WARNING: Job creation failed - check the lead in the dashboard.`,
       `Lead ID: ${job_id.replace('lead-', '')}`,
     ].join('\n')
 
     try {
-      await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
+      await sendSMS(tenant, tenant.owner_phone, ownerMsg)
       console.log(`[Stripe Webhook] Owner notified about card-on-file with failed job (${job_id})`)
     } catch (err) {
-      console.error(`[Stripe Webhook] Failed to send lead-fallback owner Telegram:`, err)
+      console.error(`[Stripe Webhook] Failed to send lead-fallback owner SMS:`, err)
     }
   }
 
@@ -806,7 +955,7 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
  * Helper to look up customer email by phone number and tenant
  */
 async function getCustomerEmail(phoneNumber: string, tenantId: string): Promise<string | null> {
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   const { data } = await client
     .from('customers')
     .select('email')

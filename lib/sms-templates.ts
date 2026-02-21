@@ -128,6 +128,24 @@ export function frequencyNudge(name: string, daysSince: number, businessName: st
 }
 
 /**
+ * Payment failed notification — sent to customer when their card is declined
+ */
+export function paymentFailed(paymentUrl: string): string {
+  return `Your recent payment didn't go through. Please try again or update your card here: ${paymentUrl}`
+}
+
+/**
+ * Payment retry — sent when admin manually retries or auto-retry triggers
+ */
+export function paymentRetry(businessName: string, amount: number, paymentUrl: string): string {
+  const formattedAmount = amount.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  })
+  return `Hi! Your remaining balance of ${formattedAmount} with ${businessName} is still outstanding. Pay securely here: ${paymentUrl}`
+}
+
+/**
  * All SMS templates exported as a single object
  */
 export const SMS_TEMPLATES = {
@@ -145,4 +163,6 @@ export const SMS_TEMPLATES = {
   seasonalReminder,
   reviewOnlyFollowup,
   frequencyNudge,
+  paymentFailed,
+  paymentRetry,
 } as const
