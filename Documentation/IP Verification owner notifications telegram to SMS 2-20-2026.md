@@ -139,6 +139,50 @@ Converted all 8 owner Telegram notifications to use `sendSMS(tenant, tenant.owne
 
 ---
 
+## Merge Regression & Fix (2026-02-20)
+
+When `feature/new_security_updates` was merged into `Test`, merge conflicts in `app/api/webhooks/stripe/route.ts` caused **Notification #2 (New Booking - Card on File)** to revert back to Telegram. This happened because Test had diverged significantly (87 commits of HCP, route optimization, and calendar work) and the conflict resolution kept Test's Telegram-based owner notification code.
+
+### What regressed
+
+| Item | Before merge (feature branch) | After merge (reverted) |
+|------|-------------------------------|------------------------|
+| Send function | `sendSMS(tenant, tenant.owner_phone, ownerMsg)` | `sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')` |
+| Fallback text | `WARNING: Job could not be auto-assigned - ...` | `⚠️ Job could not be auto-assigned — ...` |
+
+The other 7 notifications merged cleanly and were not affected.
+
+### What was fixed
+
+3 lines changed in `app/api/webhooks/stripe/route.ts` (lines 895-901):
+
+1. **Line 895:** `⚠️ Job could not be auto-assigned — ${assignmentOutcome}.` changed to `WARNING: Job could not be auto-assigned - ${assignmentOutcome}.`
+2. **Line 899:** `sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')` changed to `sendSMS(tenant, tenant.owner_phone, ownerMsg)`
+3. **Line 901:** Error log updated from "Failed to send owner SMS" to "Failed to send owner notification"
+
+No guard change was needed — the guard already checked `tenant.owner_phone` (from Test's code). No formatting change was needed — the message body already used UPPERCASE plain text (no `<b>` tags).
+
+### Post-fix audit
+
+All 8 owner notifications confirmed using SMS via OpenPhone:
+
+| # | Notification | File | Send Function | Recipient | Status |
+|---|-------------|------|---------------|-----------|--------|
+| 1 | Payment Failed | stripe/route.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 2 | New Booking - Card on File | stripe/route.ts | `sendSMS` | `tenant.owner_phone` | Fixed |
+| 3 | Failed Booking - Lead Fallback | stripe/route.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 4 | Dispatch Warnings | logistics/dispatch/route.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 5 | Optimization Warnings | logistics/optimize-day/route.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 6 | Dispatch Summary | lib/dispatch.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 7 | Rain Day Auto-Reschedule | lib/rain-day.ts | `sendSMS` | `tenant.owner_phone` | OK |
+| 8 | WinBros Alerts | lib/winbros-alerts.ts | `sendSMS` | env var | OK |
+
+### Lesson learned
+
+When merging branches with significant divergence, owner notification code in `stripe/route.ts` is conflict-prone because it sits inside the large `handleCardOnFileSaved` function alongside route optimization logic. Future merges should verify that owner notifications still use `sendSMS` (not `sendTelegramMessage`) after conflict resolution.
+
+---
+
 ## Notes
 
 - Cleaner Telegram notifications are **unchanged** — only owner-directed messages were converted

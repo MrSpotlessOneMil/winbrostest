@@ -892,13 +892,13 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
             ? `Job routed via full optimization.`
             : assignmentOutcome === 'fallback_closest_team'
               ? `Job assigned to closest team (optimization failed).`
-              : `⚠️ Job could not be auto-assigned — ${assignmentOutcome}.`,
+              : `WARNING: Job could not be auto-assigned - ${assignmentOutcome}.`,
         ].join('\n')
 
         try {
-          await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
+          await sendSMS(tenant, tenant.owner_phone, ownerMsg)
         } catch (err) {
-          console.error(`[Stripe Webhook] Failed to send owner SMS for job ${actualJobId}:`, err)
+          console.error(`[Stripe Webhook] Failed to send owner notification for job ${actualJobId}:`, err)
         }
       }
     } else {
