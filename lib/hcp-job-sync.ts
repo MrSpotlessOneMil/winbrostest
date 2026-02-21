@@ -22,6 +22,9 @@ export async function syncNewJobToHCP(params: {
   durationHours?: number | null
   price?: number | null
   notes?: string | null
+  source?: string | null
+  tags?: string[] | null
+  description?: string | null
 }): Promise<void> {
   const { tenant, jobId } = params
 
@@ -89,6 +92,15 @@ export async function syncNewJobToHCP(params: {
       return
     }
 
+    // Build source-aware tags and lead_source
+    const source = params.source || 'api'
+    const baseTags = ['osiris']
+    if (serviceType) baseTags.push(serviceType.toLowerCase().replace(/[^a-z0-9]+/g, '-'))
+    baseTags.push(source)
+    const tags = params.tags?.length ? [...new Set([...baseTags, ...params.tags])] : baseTags
+    const leadSource = `osiris-${source}`
+    const description = params.description || serviceType || 'Cleaning Service'
+
     // Build assignment metadata from current OSIRIS state.
     const assignments = Array.isArray((jobRow as any)?.cleaner_assignments)
       ? (jobRow as any).cleaner_assignments
@@ -130,6 +142,9 @@ export async function syncNewJobToHCP(params: {
       phone,
       email,
       address,
+      tags: ['osiris', source],
+      leadSource,
+      notificationsEnabled: true,
     })
 
     if (!hcpCustomer.success || !hcpCustomer.customerId) {
@@ -230,6 +245,8 @@ export async function syncNewJobToHCP(params: {
         notes,
         lineItems,
         assignedEmployeeIds,
+        tags,
+        description,
       })
       if (!updated.success) {
         console.error(`[HCP Sync] Failed updating HCP job ${existingHcpJobId} for local job ${jobId}: ${updated.error}`)
@@ -257,6 +274,8 @@ export async function syncNewJobToHCP(params: {
       notes,
       lineItems,
       assignedEmployeeIds,
+      tags,
+      description,
     })
 
     if (!created.success || !created.jobId) {
@@ -275,6 +294,8 @@ export async function syncNewJobToHCP(params: {
       notes,
       lineItems,
       assignedEmployeeIds,
+      tags,
+      description,
     })
     if (!postCreateSync.success) {
       console.warn(

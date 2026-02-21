@@ -8,9 +8,31 @@
 import { getDefaultTenant, type Tenant } from './tenant'
 
 const HCP_API_BASE = 'https://api.housecallpro.com'
-const DEFAULT_TIMEZONE_OFFSET = '-08:00'
+const DEFAULT_TIMEZONE_OFFSET = '-06:00' // Central Time (WinBros is in Illinois)
 const DEFAULT_DURATION_HOURS = 2
 const DEFAULT_ARRIVAL_WINDOW_MINUTES = 60
+
+const US_STATE_NAMES: Record<string, string> = {
+  'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR',
+  'california': 'CA', 'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE',
+  'florida': 'FL', 'georgia': 'GA', 'hawaii': 'HI', 'idaho': 'ID',
+  'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA', 'kansas': 'KS',
+  'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+  'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
+  'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV',
+  'new hampshire': 'NH', 'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY',
+  'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK',
+  'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT',
+  'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV',
+  'wisconsin': 'WI', 'wyoming': 'WY', 'district of columbia': 'DC',
+}
+
+function normalizeStateToAbbrev(state: string): string | undefined {
+  const trimmed = state.trim()
+  if (/^[A-Za-z]{2}$/.test(trimmed)) return trimmed.toUpperCase()
+  return US_STATE_NAMES[trimmed.toLowerCase()] || undefined
+}
 
 interface HCPApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -211,21 +233,58 @@ function extractEmployees(data: unknown): HCPEmployee[] {
   return []
 }
 
+function splitStreetLine(street: string): { mainStreet: string; line2?: string } {
+  const aptMatch = street.match(/^(.+?)\s*[,#]\s*((?:apt|suite|ste|unit|#)\s*.+)$/i)
+  if (aptMatch) return { mainStreet: aptMatch[1].trim(), line2: aptMatch[2].trim() }
+  return { mainStreet: street }
+}
+
 function buildAddressCreatePayload(address?: string): Record<string, string> | undefined {
   const raw = (address || '').trim()
   if (!raw) return undefined
 
   const normalized = raw.replace(/\s+/g, ' ')
-  const fullMatch = normalized.match(/^(.+?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$/)
-  if (!fullMatch) return undefined
+  const parts = normalized.split(',').map(p => p.trim()).filter(Boolean)
 
-  return {
-    street: fullMatch[1].trim(),
-    city: fullMatch[2].trim(),
-    state: fullMatch[3].toUpperCase(),
-    zip: fullMatch[4],
-    country: 'US',
+  // Strategy 1: 3+ comma-separated parts — "street, city, STATE ZIP" or "street, city, State ZIP"
+  if (parts.length >= 3) {
+    const street = parts.slice(0, parts.length - 2).join(', ')
+    const city = parts[parts.length - 2]
+    const stateZipPart = parts[parts.length - 1]
+
+    const zipMatch = stateZipPart.match(/(\d{5}(?:-\d{4})?)$/)
+    const zip = zipMatch?.[1]
+    const stateRaw = zip ? stateZipPart.replace(zip, '').trim() : stateZipPart.trim()
+    const state = normalizeStateToAbbrev(stateRaw)
+
+    if (state && city) {
+      const { mainStreet, line2 } = splitStreetLine(street)
+      const result: Record<string, string> = { street: mainStreet, city, state, country: 'US' }
+      if (line2) result.street_line_2 = line2
+      if (zip) result.zip = zip
+      return result
+    }
   }
+
+  // Strategy 2: 2-part — "street, city STATE ZIP"
+  if (parts.length === 2) {
+    const street = parts[0]
+    const cityStateZip = parts[1]
+    // Match "Springfield IL 62701" or "Springfield Illinois 62701"
+    const match = cityStateZip.match(/^(.+?)\s+([A-Za-z]{2,}(?:\s+[A-Za-z]+)?)\s+(\d{5}(?:-\d{4})?)$/)
+    if (match) {
+      const state = normalizeStateToAbbrev(match[2])
+      if (state) {
+        const { mainStreet, line2 } = splitStreetLine(street)
+        const result: Record<string, string> = { street: mainStreet, city: match[1].trim(), state, zip: match[3], country: 'US' }
+        if (line2) result.street_line_2 = line2
+        return result
+      }
+    }
+  }
+
+  // Fallback: return street-only so address still gets created
+  return { street: raw, country: 'US' }
 }
 
 function pickCustomerAddressId(
@@ -266,7 +325,10 @@ function pickCustomerAddressId(
 function buildCustomerCreateAddresses(address?: string): Array<Record<string, string>> | undefined {
   const raw = (address || '').trim()
   if (!raw) return undefined
-  return [{ street: raw }]
+
+  const parsed = buildAddressCreatePayload(raw)
+  if (parsed) return [{ ...parsed, type: 'service' }]
+  return [{ street: raw, type: 'service' }]
 }
 
 async function ensureCustomerAddressId(
@@ -355,8 +417,21 @@ function buildHcpRequestAttempts(
 ): HcpRequestAttempt[] {
   const attempts: HcpRequestAttempt[] = []
 
+  // Try without X-Company-Id first (HCP rejects it for many accounts),
+  // then fall back to with Company-Id in case it's required.
   for (const auth of authCandidates) {
-    if (companyId) {
+    attempts.push({
+      label: auth.label,
+      headers: {
+        Authorization: auth.value,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    })
+  }
+
+  if (companyId) {
+    for (const auth of authCandidates) {
       attempts.push({
         label: `${auth.label}+Company`,
         headers: {
@@ -367,15 +442,6 @@ function buildHcpRequestAttempts(
         },
       })
     }
-
-    attempts.push({
-      label: auth.label,
-      headers: {
-        Authorization: auth.value,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-    })
   }
 
   return attempts
@@ -404,6 +470,8 @@ async function hcpRequest<T>(
   const authCandidates = buildAuthHeaderCandidates(storedApiKey, normalizedApiKey)
   const companyId = normalizeOptionalHeader(tenant.housecall_pro_company_id)
   const attempts = buildHcpRequestAttempts(authCandidates, companyId)
+
+  console.log(`[HCP API] ${options.method || 'GET'} ${endpoint}`, options.body ? { bodyKeys: Object.keys(options.body) } : '')
 
   let lastHttpError: { status: number; text: string; label: string } | null = null
   let lastFetchError: string | null = null
@@ -547,6 +615,10 @@ export async function findOrCreateHCPCustomer(
     phone: string
     email?: string
     address?: string
+    tags?: string[]
+    leadSource?: string
+    notificationsEnabled?: boolean
+    company?: string
   }
 ): Promise<{ success: boolean; customerId?: string; addressId?: string; error?: string }> {
   const phoneDigits = normalizePhoneForMatch(customerData.phone)
@@ -607,6 +679,10 @@ export async function findOrCreateHCPCustomer(
     last_name: customerData.lastName || '',
     mobile_number: customerData.phone,
     email: customerData.email || undefined,
+    notifications_enabled: customerData.notificationsEnabled ?? true,
+    tags: customerData.tags?.length ? customerData.tags : ['osiris'],
+    lead_source: customerData.leadSource || 'osiris',
+    company: customerData.company || undefined,
   }
 
   const customerAddresses = buildCustomerCreateAddresses(customerData.address)
@@ -646,6 +722,10 @@ export async function createHCPCustomerAlways(
     phone: string
     email?: string
     address?: string
+    tags?: string[]
+    leadSource?: string
+    notificationsEnabled?: boolean
+    company?: string
   }
 ): Promise<{ success: boolean; customerId?: string; addressId?: string; error?: string }> {
   console.log(
@@ -657,6 +737,10 @@ export async function createHCPCustomerAlways(
     last_name: customerData.lastName || '',
     mobile_number: customerData.phone,
     email: customerData.email || undefined,
+    notifications_enabled: customerData.notificationsEnabled ?? true,
+    tags: customerData.tags?.length ? customerData.tags : ['osiris'],
+    lead_source: customerData.leadSource || 'osiris',
+    company: customerData.company || undefined,
   }
 
   const customerAddresses = buildCustomerCreateAddresses(customerData.address)
@@ -756,6 +840,9 @@ export async function createHCPJob(
     }>
     assignedEmployeeIds?: string[]
     durationHours?: number
+    tags?: string[]
+    description?: string
+    leadSource?: string
   }
 ): Promise<{ success: boolean; jobId?: string; error?: string }> {
   console.log(`[HCP API] Creating job for customer ${jobData.customerId}`)
@@ -784,78 +871,69 @@ export async function createHCPJob(
   const notes = notesParts.join('\n')
 
   const assignedEmployeeIds = jobData.assignedEmployeeIds?.length ? jobData.assignedEmployeeIds : undefined
+  const tags = jobData.tags?.length ? jobData.tags : ['osiris']
+  const description = jobData.description || jobData.serviceType || 'Cleaning Service'
 
-  const createWithLegacyPayload = async (reason: string): Promise<{ success: boolean; jobId?: string; error?: string }> => {
-    console.warn(`[HCP API] Falling back to legacy job create payload (${reason})`)
-
-    const legacyResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
-      tenant,
-      '/jobs',
-      {
-        method: 'POST',
-        body: {
-          customer_id: jobData.customerId,
-          scheduled_start: scheduledStart,
-          scheduled_end: scheduledEnd,
-          address: jobData.address || undefined,
-          description: jobData.serviceType || 'Cleaning Service',
-          total: totalCents,
-          notes: notes || undefined,
-          line_items: lineItemsCents,
-          assigned_employee_ids: assignedEmployeeIds,
-        },
-      }
-    )
-
-    if (!legacyResult.success) {
-      return { success: false, error: legacyResult.error }
-    }
-
-    const fallbackJobId = extractJobId(legacyResult.data)
-    if (!fallbackJobId) {
-      return { success: false, error: 'HCP legacy create succeeded but did not return job ID' }
-    }
-
-    console.log(`[HCP API] Job created (legacy payload): ${fallbackJobId}`)
-    return { success: true, jobId: fallbackJobId }
+  // Build a single unified payload with flat schedule fields.
+  // NOTE: lead_source is NOT sent — HCP rejects custom values (only accepts their predefined list).
+  // Schedule fields sent here for best-effort but HCP may ignore them;
+  // the post-create updateHCPJob() call applies them via PUT /jobs/{id}/schedule.
+  const jobBody: Record<string, unknown> = {
+    customer_id: jobData.customerId,
+    scheduled_start: scheduledStart || undefined,
+    scheduled_end: scheduledEnd || undefined,
+    notes: notes || undefined,
+    line_items: lineItemsCents,
+    assigned_employee_ids: assignedEmployeeIds,
+    tags,
+    description,
   }
 
+  // Use address_id if available, fall back to raw address string
   if (jobData.addressId) {
-    const strictResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
+    jobBody.address_id = jobData.addressId
+  } else if (jobData.address) {
+    jobBody.address = jobData.address
+  }
+
+  const createResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
+    tenant,
+    '/jobs',
+    { method: 'POST', body: jobBody }
+  )
+
+  if (createResult.success) {
+    const jobId = extractJobId(createResult.data)
+    if (jobId) {
+      console.log(`[HCP API] Job created: ${jobId}`)
+      return { success: true, jobId }
+    }
+  }
+
+  // Fallback: retry without address_id if it was present (in case HCP rejected it)
+  if (jobData.addressId) {
+    console.warn(`[HCP API] Create with address_id failed (${createResult.error}), retrying with address string`)
+    delete jobBody.address_id
+    if (jobData.address) jobBody.address = jobData.address
+
+    const fallbackResult = await hcpRequest<HCPJob | { job?: { id?: string } }>(
       tenant,
       '/jobs',
-      {
-        method: 'POST',
-        body: {
-          customer_id: jobData.customerId,
-          address_id: jobData.addressId,
-          schedule: scheduledStart
-            ? {
-                scheduled_start: scheduledStart,
-                scheduled_end: scheduledEnd || scheduledStart,
-              }
-            : undefined,
-          assigned_employee_ids: assignedEmployeeIds,
-          line_items: lineItemsCents,
-          notes: notes || undefined,
-        },
-      }
+      { method: 'POST', body: jobBody }
     )
 
-    if (strictResult.success) {
-      const jobId = extractJobId(strictResult.data)
+    if (fallbackResult.success) {
+      const jobId = extractJobId(fallbackResult.data)
       if (jobId) {
-        console.log(`[HCP API] Job created: ${jobId}`)
+        console.log(`[HCP API] Job created (address string fallback): ${jobId}`)
         return { success: true, jobId }
       }
-    } else {
-      console.warn(`[HCP API] Strict create failed: ${strictResult.error}`)
     }
 
-    return createWithLegacyPayload('strict address_id create failed')
+    return { success: false, error: fallbackResult.error || createResult.error }
   }
 
-  return createWithLegacyPayload('missing customer address_id')
+  return { success: false, error: createResult.error }
 }
 
 /**
@@ -881,6 +959,8 @@ export async function updateHCPJob(
     }>
     assignedEmployeeIds?: string[]
     durationHours?: number
+    tags?: string[]
+    description?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
   const { scheduledStart, scheduledEnd } = buildScheduleWindow(
@@ -1003,13 +1083,17 @@ export async function updateHCPJob(
   ].filter(Boolean)
   const notes = notesParts.join('\n')
 
-  if (notes || jobData.address) {
+  if (notes || jobData.address || jobData.tags || jobData.description) {
+    const patchBody: Record<string, unknown> = {
+      notes: notes || undefined,
+      address: jobData.address || undefined,
+    }
+    if (jobData.tags?.length) patchBody.tags = jobData.tags
+    if (jobData.description) patchBody.description = jobData.description
+
     const metadataPatch = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
       method: 'PATCH',
-      body: {
-        notes: notes || undefined,
-        address: jobData.address || undefined,
-      },
+      body: patchBody,
     })
 
     if (!metadataPatch.success) {

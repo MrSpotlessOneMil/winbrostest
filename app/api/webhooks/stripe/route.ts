@@ -576,6 +576,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
           scheduledTime: bookingData.preferredTime || null,
           price: bookingData.price || null,
           notes: `Booked via Stripe payment`,
+          source: 'stripe',
         })
 
         // Update lead with the real job ID

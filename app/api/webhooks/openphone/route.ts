@@ -1289,12 +1289,14 @@ export async function POST(request: NextRequest) {
                   phone,
                   firstName: customer.first_name,
                   lastName: customer.last_name,
+                  email: finalEmail || customer.email || null,
                   address: bookingData.address || customer.address || null,
                   serviceType: bookingData.serviceType || null,
                   scheduledDate: bookingData.preferredDate || null,
                   scheduledTime: bookingData.preferredTime || null,
                   price: servicePrice,
                   notes: `Booked via SMS`,
+                  source: 'sms',
                 })
               }
 
@@ -1648,7 +1650,7 @@ export async function POST(request: NextRequest) {
         phone,
         email: customer.email || undefined,
         address: intentResult.extractedInfo.address || customer.address || undefined,
-        notes: `SMS Inquiry: "${combinedMessage}"`,
+        notes: `SMS Inquiry: "${combinedMessage}"\nSource: OpenPhone SMS\nOSIRIS Lead ID: ${lead.id}`,
         source: "sms",
       }, tenant)
 

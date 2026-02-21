@@ -12,6 +12,13 @@ import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 
+function estimateJobHours(serviceType: string | null | undefined): number {
+  const lower = (serviceType || '').toLowerCase()
+  if (lower.includes('pressure') || lower.includes('power wash')) return 3
+  if (lower.includes('gutter')) return 1.5
+  return 2 // window cleaning default
+}
+
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
  * Pass a tenant slug to route to a specific tenant, or null for the default (winbros).
@@ -340,7 +347,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 date: appointmentDate,
                 scheduled_at: appointmentTime,
                 price: jobPrice,
-                hours: null,
+                hours: estimateJobHours(serviceType),
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
                 status: "scheduled",
                 booked: true,
@@ -365,8 +372,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   serviceType,
                   scheduledDate: appointmentDate,
                   scheduledTime: appointmentTime,
+                  durationHours: estimateJobHours(serviceType),
                   price: jobPrice,
                   notes: jobNotes || `Booked via VAPI call`,
+                  source: 'vapi',
                 })
 
                 await logSystemEvent({

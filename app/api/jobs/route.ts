@@ -424,6 +424,7 @@ export async function POST(request: NextRequest) {
       scheduledTime: scheduledAt || null,
       price: body.estimated_value != null ? Number(body.estimated_value) : null,
       notes: `Created from dashboard`,
+      source: 'dashboard',
     })
 
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
