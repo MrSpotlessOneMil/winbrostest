@@ -23,6 +23,7 @@ import {
   Truck,
   Users,
   Pencil,
+  Trash2,
   MessageSquare,
   MessageCircle,
   Send,
@@ -232,6 +233,22 @@ export default function TeamsPage() {
     }
   }
 
+  async function handleDeleteCleaner(cleanerId: string, cleanerName: string) {
+    if (!confirm(`Delete ${cleanerName}? This will deactivate them and remove them from their team.`)) return
+    try {
+      await fetch("/api/manage-teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_cleaner", cleaner_id: Number(cleanerId) }),
+      })
+      // If the deleted cleaner is the current chat target, clear it
+      if (chatMember?.id === cleanerId) setChatMember(null)
+      await loadTeams()
+    } catch {
+      // silently fail
+    }
+  }
+
   async function handleSendTelegram() {
     if (!chatMember?.telegram_id || !sendText.trim() || sending) return
     const messageText = sendText.trim()
@@ -414,6 +431,17 @@ export default function TeamsPage() {
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteCleaner(m.id, m.name)
+                              }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
                           </div>
                         </div>
                       )
@@ -482,6 +510,17 @@ export default function TeamsPage() {
                             }}
                           >
                             <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteCleaner(m.id, m.name)
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
                       </div>

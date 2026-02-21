@@ -15,6 +15,11 @@ export function normalizePhone(phone: string | null | undefined): string {
   // Remove all non-digit characters
   let digits = phone.replace(/\D/g, '')
 
+  // Remove double country code: 12 digits starting with "11" (e.g. +114157204587 → 4157204587)
+  if (digits.length === 12 && digits.startsWith('11')) {
+    digits = digits.slice(2)
+  }
+
   // Remove leading 1 if 11 digits (US country code)
   if (digits.length === 11 && digits.startsWith('1')) {
     digits = digits.slice(1)

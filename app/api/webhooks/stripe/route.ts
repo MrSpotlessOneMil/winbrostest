@@ -5,10 +5,42 @@ import { getSupabaseClient, updateJob, getJobById, updateGHLLead } from '@/lib/s
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById } from '@/lib/tenant'
+import { getDefaultTenant, getTenantById, getAllActiveTenants } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
+import { geocodeAddress } from '@/lib/google-maps'
+import { calculateDistance } from '@/lib/cleaner-assignment'
+import { optimizeRoutesIncremental } from '@/lib/route-optimizer'
+import { dispatchRoutes } from '@/lib/dispatch'
+import { syncNewJobToHCP } from '@/lib/hcp-job-sync'
+import { buildWinBrosJobNotes } from '@/lib/winbros-sms-prompt'
+
+/**
+ * Process a pre-validated Stripe event. Exported so tenant-specific routes
+ * (e.g. /api/webhooks/stripe/winbros) can validate with their own secret
+ * and then delegate processing here.
+ */
+export async function processStripeEvent(event: Stripe.Event): Promise<void> {
+  console.log(`[Stripe Webhook] Received event: ${event.type}`)
+
+  switch (event.type) {
+    case 'checkout.session.completed':
+      await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
+      break
+
+    case 'setup_intent.succeeded':
+      await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent)
+      break
+
+    case 'payment_intent.succeeded':
+      await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
+      break
+
+    default:
+      console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,8 +48,14 @@ export async function POST(request: NextRequest) {
     const payload = await request.text()
     const signature = request.headers.get('stripe-signature')
 
-    // Validate the webhook signature
-    const event = validateStripeWebhook(payload, signature)
+    // Collect per-tenant webhook secrets for multi-tenant validation
+    const tenants = await getAllActiveTenants()
+    const tenantSecrets = tenants
+      .map(t => t.stripe_webhook_secret)
+      .filter((s): s is string => !!s)
+
+    // Validate the webhook signature (tries env var, then each tenant secret)
+    const event = validateStripeWebhook(payload, signature, tenantSecrets)
 
     if (!event) {
       console.error('[Stripe Webhook] Invalid webhook signature')
@@ -27,25 +65,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`[Stripe Webhook] Received event: ${event.type}`)
-
-    // Handle specific event types
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(event.data.object as Stripe.Checkout.Session)
-        break
-
-      case 'setup_intent.succeeded':
-        await handleSetupIntentSucceeded(event.data.object as Stripe.SetupIntent)
-        break
-
-      case 'payment_intent.succeeded':
-        await handlePaymentIntentSucceeded(event.data.object as Stripe.PaymentIntent)
-        break
-
-      default:
-        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
-    }
+    await processStripeEvent(event)
 
     return NextResponse.json({ received: true })
   } catch (error) {
@@ -535,18 +555,29 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
         booked: true,
-        notes: [
-          bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
-          bookingData.scope ? `Scope: ${bookingData.scope}` : null,
-          bookingData.planType ? `Plan: ${bookingData.planType}` : null,
-          bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
-        ].filter(Boolean).join(' | ') || null,
+        notes: buildWinBrosJobNotes(bookingData) || null,
       }).select('id').single()
 
       if (retryJob) {
         actualJobId = retryJob.id
         job = await getJobById(retryJob.id)
         console.log(`[Stripe Webhook] Job created from lead retry: ${retryJob.id}`)
+
+        // Sync to HouseCall Pro
+        await syncNewJobToHCP({
+          tenant,
+          jobId: retryJob.id,
+          phone: custPhone || '',
+          firstName: lead.first_name,
+          lastName: lead.last_name,
+          address: bookingData.address || custAddress,
+          serviceType: bookingData.serviceType || null,
+          scheduledDate: bookingData.preferredDate || null,
+          scheduledTime: bookingData.preferredTime || null,
+          price: bookingData.price || null,
+          notes: `Booked via Stripe payment`,
+          source: 'stripe',
+        })
 
         // Update lead with the real job ID
         await client
@@ -574,81 +605,39 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     console.log(`[Stripe Webhook] Job ${actualJobId} already has deposit_paid status — skipping redundant assignment`)
   } else if (job) {
     if (useRouteOptimization) {
-      // WinBros flow: auto-assign to team (no accept/decline)
-      console.log(`[Stripe Webhook] WinBros auto-assign — assigning job ${actualJobId} to team`)
+      // WinBros flow: full route optimization across all teams for this day
+      console.log(`[Stripe Webhook] WinBros route optimization — re-optimizing all routes for ${job.date} including job ${actualJobId}`)
       assignmentOutcome = 'auto_assigned'
 
-      // Find an active team for this tenant
-      const { data: teams } = await client
-        .from('teams')
-        .select('id, name, active, team_members ( cleaner_id, role, is_active, cleaners ( id, name, telegram_id ) )')
-        .eq('tenant_id', tenant.id)
-        .eq('active', true)
-        .limit(5)
+      try {
+        if (!job.date) {
+          console.warn(`[Stripe Webhook] Job ${actualJobId} has no date — cannot optimize routes`)
+          assignmentOutcome = 'no_date'
+        } else {
+          // Run full route optimization for the day (includes this new job)
+          const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
+            await optimizeRoutesIncremental(Number(actualJobId), job.date, tenant.id)
 
-      const team = teams?.[0]
-      if (team) {
-        // Find team lead (or first active member)
-        const members = (team.team_members || []) as Array<{ cleaner_id: string; role: string; is_active: boolean; cleaners: { id: string; name: string; telegram_id: string | null } | null }>
-        const lead = members.find(m => m.role === 'lead' && m.is_active)
-          || members.find(m => m.is_active)
+          if (assignedTeamId && assignedLeadId) {
+            // Dispatch: persist ALL assignments and update ALL jobs for the day
+            const dispatchResult = await dispatchRoutes(optimization, tenant.id, {
+              sendTelegramToTeams: false,  // Don't send full route now — that happens at 5pm CT
+              sendSmsToCustomers: false,   // Don't send ETA now — that happens at 5pm CT
+            })
 
-        if (lead?.cleaner_id) {
-          // Create assignment directly as confirmed (no accept/decline cascade)
-          await client.from('cleaner_assignments').insert({
-            tenant_id: tenant.id,
-            job_id: actualJobId,
-            cleaner_id: lead.cleaner_id,
-            status: 'confirmed',
-            assigned_at: new Date().toISOString(),
-            responded_at: new Date().toISOString(),
-          })
+            console.log(`[Stripe Webhook] Route dispatch: ${dispatchResult.jobsUpdated} jobs updated, ${dispatchResult.assignmentsCreated} assignments`)
 
-          // Update job with team assignment + status
-          await updateJob(actualJobId!, {
-            team_id: team.id,
-            cleaner_confirmed: true,
-            status: 'assigned',
-          } as Record<string, unknown>)
-
-          console.log(`[Stripe Webhook] Job ${actualJobId} auto-assigned to team "${team.name}" (cleaner ${lead.cleaner_id})`)
-
-          // Update lead status to 'assigned' so the lead flow puck reflects assignment
-          if (actualJobId) {
-            const { data: associatedLead } = await client
-              .from('leads')
-              .select('id')
-              .eq('tenant_id', tenant.id)
-              .eq('converted_to_job_id', actualJobId)
-              .maybeSingle()
-
-            if (associatedLead) {
-              await client
-                .from('leads')
-                .update({ status: 'assigned', updated_at: new Date().toISOString() })
-                .eq('id', associatedLead.id)
-              console.log(`[Stripe Webhook] Lead ${associatedLead.id} status updated to 'assigned'`)
-            }
-          }
-
-          // Check if same-day — notify cleaner via Telegram (informational, no buttons)
-          const todayCentral = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
-          const isSameDay = job.date === todayCentral
-          const cleanerTelegramId = lead.cleaners?.telegram_id
-          const cleanerName = lead.cleaners?.name || 'Team'
-
-          if (cleanerTelegramId) {
+            // Send immediate Telegram to assigned cleaner — WITHOUT address
+            const businessName = tenant.business_name_short || tenant.name
             const dateStr = job.date
               ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
               : 'TBD'
 
-            // scheduled_at may be a time string like "09:00" or a full ISO timestamp
             let timeStr = ''
             if (job.scheduled_at) {
               const raw = String(job.scheduled_at)
               const shortTime = raw.match(/^(\d{1,2}):(\d{2})$/)
               if (shortTime) {
-                // Plain "HH:MM" — format as "9:00 AM"
                 let h = parseInt(shortTime[1])
                 const m = shortTime[2]
                 const ampm = h >= 12 ? 'PM' : 'AM'
@@ -664,43 +653,75 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
             }
 
             const serviceStr = (job.service_type || 'Window Cleaning').replace(/\b\w/g, c => c.toUpperCase())
-            const addressStr = job.address || 'See details'
-            const businessName = tenant.business_name_short || tenant.name
 
-            const notifMsg = isSameDay
-              ? [
-                  `<b>New Job Added Today - ${businessName}</b>`,
-                  ``,
-                  timeStr ? `Time: ${timeStr}` : null,
-                  `Service: ${serviceStr}`,
-                  `Address: ${addressStr}`,
-                  ``,
-                  `This job has been added to your schedule for today.`,
-                ].filter(Boolean).join('\n')
-              : [
-                  `<b>New Job Assigned - ${businessName}</b>`,
-                  ``,
-                  `Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}`,
-                  `Service: ${serviceStr}`,
-                  `Address: ${addressStr}`,
-                  ``,
-                  `This job has been added to your schedule.`,
-                ].filter(Boolean).join('\n')
+            if (assignedLeadTelegramId) {
+              // Notification WITHOUT address — address comes in the full schedule at 5pm CT
+              const notifMsg = [
+                `<b>New Job Assigned - ${businessName}</b>`,
+                ``,
+                `Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}`,
+                `Service: ${serviceStr}`,
+                ``,
+                `You'll receive your full route with addresses at 5 PM tonight.`,
+              ].join('\n')
 
-            try {
-              await sendTelegramMessage(tenant, cleanerTelegramId, notifMsg, 'HTML')
-              console.log(`[Stripe Webhook] Cleaner notification sent to ${cleanerName} (${isSameDay ? 'same-day' : 'future'})`)
-            } catch (err) {
-              console.error(`[Stripe Webhook] Failed to send cleaner notification:`, err)
+              try {
+                await sendTelegramMessage(tenant, assignedLeadTelegramId, notifMsg, 'HTML')
+                console.log(`[Stripe Webhook] Cleaner notification (no address) sent for job ${actualJobId}`)
+              } catch (err) {
+                console.error(`[Stripe Webhook] Failed to send cleaner notification:`, err)
+              }
             }
+          } else {
+            assignmentOutcome = optimization.unassignedJobs.length > 0
+              ? `unassigned: ${optimization.unassignedJobs[0].reason}`
+              : 'no_teams'
+            console.warn(`[Stripe Webhook] Job ${actualJobId} could not be assigned via route optimization`)
           }
-        } else {
-          console.warn(`[Stripe Webhook] No active members in team "${team.name}" — job unassigned`)
-          assignmentOutcome = 'no_active_members'
         }
-      } else {
-        console.warn(`[Stripe Webhook] No active teams found — job unassigned`)
-        assignmentOutcome = 'no_teams'
+      } catch (routeErr) {
+        console.error(`[Stripe Webhook] Route optimization failed, falling back to closest-team:`, routeErr)
+        assignmentOutcome = 'route_optimization_failed'
+
+        // Fallback: simple closest-team assignment
+        const { data: teams } = await client
+          .from('teams')
+          .select('id, name, active, team_members ( cleaner_id, role, is_active, cleaners ( id, name, telegram_id, home_lat, home_lng ) )')
+          .eq('tenant_id', tenant.id)
+          .eq('active', true)
+
+        let team = teams?.[0]
+        if (teams && teams.length > 1 && job.address) {
+          try {
+            const jobGeo = await geocodeAddress(job.address)
+            if (jobGeo) {
+              let bestTeam = teams[0]
+              let bestDistance = Infinity
+              for (const t of teams) {
+                const members = (t.team_members || []) as any[]
+                const lead = members.find((m: any) => m.role === 'lead' && m.is_active && m.cleaners?.home_lat != null && m.cleaners?.home_lng != null)
+                if (!lead?.cleaners?.home_lat || !lead?.cleaners?.home_lng) continue
+                const dist = calculateDistance(lead.cleaners.home_lat, lead.cleaners.home_lng, jobGeo.lat, jobGeo.lng)
+                if (dist < bestDistance) { bestDistance = dist; bestTeam = t }
+              }
+              team = bestTeam
+            }
+          } catch (_) { /* use first team */ }
+        }
+
+        if (team) {
+          const members = (team.team_members || []) as any[]
+          const lead = members.find((m: any) => m.role === 'lead' && m.is_active)
+            || members.find((m: any) => m.is_active)
+          if (lead?.cleaner_id) {
+            await client.from('cleaner_assignments').insert({
+              tenant_id: tenant.id, job_id: actualJobId, cleaner_id: lead.cleaner_id,
+              status: 'confirmed', assigned_at: new Date().toISOString(), responded_at: new Date().toISOString(),
+            })
+            await updateJob(actualJobId!, { team_id: team.id, cleaner_confirmed: true, status: 'scheduled' } as Record<string, unknown>)
+            assignmentOutcome = 'fallback_closest_team'
+          }
+        }
       }
 
       // Always notify owner about new booking
@@ -709,7 +730,6 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         const priceStr = job.price ? `$${Number(job.price).toFixed(2)}` : 'TBD'
         const dateStr = job.date || 'TBD'
         const serviceStr = job.service_type || 'window cleaning'
-        const addressStr = job.address || 'TBD'
 
         const ownerMsg = [
           `<b>New Booking — Card on File</b>`,
@@ -717,17 +737,17 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
           `Customer: ${customerName}`,
           `Service: ${serviceStr}`,
           `Date: ${dateStr}`,
-          `Address: ${addressStr}`,
           `Price: ${priceStr}`,
           ``,
           assignmentOutcome === 'auto_assigned'
-            ? `Job auto-assigned to ${team?.name || 'team'}.`
-            : `⚠️ Job could not be auto-assigned — no active teams/members.`,
+            ? `Job routed via full optimization.`
+            : assignmentOutcome === 'fallback_closest_team'
+              ? `Job assigned to closest team (optimization failed).`
+              : `⚠️ Job could not be auto-assigned — ${assignmentOutcome}.`,
         ].join('\n')
 
         try {
           await sendTelegramMessage(tenant, tenant.owner_telegram_chat_id, ownerMsg, 'HTML')
-          console.log(`[Stripe Webhook] Owner Telegram notification sent for new booking (job ${actualJobId})`)
         } catch (err) {
           console.error(`[Stripe Webhook] Failed to send owner Telegram for job ${actualJobId}:`, err)
         }

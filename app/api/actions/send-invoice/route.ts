@@ -20,6 +20,7 @@ import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { mergeEstimateIntoNotes } from '@/lib/pricing-config'
 import { alertOwner } from '@/lib/owner-alert'
 import { getClientConfig } from '@/lib/client-config'
+import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { sendDocuSignContract } from '@/lib/docusign'
 import { logSystemEvent } from '@/lib/system-events'
 import { requireAuth } from '@/lib/auth'
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Look up tenant for dynamic business name and proper SMS routing
+    const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+    const businessNameShort = tenant ? getTenantBusinessName(tenant, true) : 'Team'
 
     // Get customer
     let customer = await getCustomerByPhone(job.phone_number)
@@ -122,7 +127,9 @@ export async function POST(request: NextRequest) {
 
     // Send SMS notification
     const smsMessage = SMS_TEMPLATES.invoiceSent(customerEmail, invoiceResult.invoiceUrl)
-    const smsResult = await sendSMS(job.phone_number, smsMessage)
+    const smsResult = tenant
+      ? await sendSMS(tenant, job.phone_number, smsMessage)
+      : await sendSMS(job.phone_number, smsMessage)
     if (!smsResult.success) {
       await alertOwner('Failed to send invoice SMS to customer.', {
         jobId,
@@ -132,10 +139,9 @@ export async function POST(request: NextRequest) {
 
     // Update transcript
     const timestamp = new Date().toISOString()
-    const config = getClientConfig()
     await appendToTextingTranscript(
       job.phone_number,
-      `[${timestamp}] [Invoice Sent - $${jobPrice} - ${invoiceResult.provider}] ${config.businessNameShort}: ${smsMessage}`
+      `[${timestamp}] [Invoice Sent - $${jobPrice} - ${invoiceResult.provider}] ${businessNameShort}: ${smsMessage}`
     )
 
     if (invoiceResult.provider === 'wave' && invoiceResult.emailSent === false) {
@@ -151,6 +157,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    const config = getClientConfig()
     if (config.features.docusign && !job.docusign_envelope_id) {
       const docuSignResult = await sendDocuSignContract(
         { ...job, price: jobPrice },

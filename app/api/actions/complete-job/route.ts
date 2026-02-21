@@ -22,6 +22,7 @@ import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stri
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
 import { getClientConfig } from '@/lib/client-config'
+import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuth } from '@/lib/auth'
 
 function getStripeClient(): Stripe {
@@ -60,6 +61,11 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       )
     }
+
+    // Look up tenant for dynamic business name
+    const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+    const businessName = tenant ? getTenantBusinessName(tenant) : 'us'
+    const businessNameShort = tenant ? getTenantBusinessName(tenant, true) : 'Team'
 
     // Get customer details
     const customer = await getCustomerByPhone(job.phone_number)
@@ -173,15 +179,17 @@ export async function POST(request: NextRequest) {
         })
       : 'today'
 
-    const smsMessage = `Thanks for choosing ${config.businessName}! We hope your home is sparkling clean. Your remaining balance is due. Pay securely here: ${paymentLink.url}`
+    const smsMessage = `Thanks for choosing ${businessName}! We hope your home is sparkling clean. Your remaining balance is due. Pay securely here: ${paymentLink.url}`
 
-    const sendResult = await sendSMS(customer.phone_number, smsMessage)
+    const sendResult = tenant
+      ? await sendSMS(tenant, customer.phone_number, smsMessage)
+      : await sendSMS(customer.phone_number, smsMessage)
 
     if (sendResult.success) {
       const timestamp = new Date().toISOString()
       await appendToTextingTranscript(
         customer.phone_number,
-        `[${timestamp}] [Job Completed - Final Payment Requested] ${config.businessNameShort}: ${smsMessage}`
+        `[${timestamp}] [Job Completed - Final Payment Requested] ${businessNameShort}: ${smsMessage}`
       )
     }
 

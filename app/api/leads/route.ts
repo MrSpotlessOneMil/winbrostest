@@ -103,8 +103,12 @@ export async function POST(request: NextRequest) {
 
   // Get the default tenant for multi-tenant filtering
   const tenant = await getAuthTenant(request)
-  if (!tenant) {
+  // Admin user (no tenant_id) can't create without tenant context
+  if (!tenant && authResult.user.username !== 'admin') {
     return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "Switch to a tenant account to create leads" }, { status: 400 })
   }
 
   try {

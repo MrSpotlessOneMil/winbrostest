@@ -13,8 +13,9 @@
 import { getSupabaseServiceClient } from './supabase'
 import { sendTelegramMessage } from './telegram'
 import { sendSMS } from './openphone'
+import { syncNewJobToHCP } from './hcp-job-sync'
 import type { Tenant } from './tenant'
-import { getDefaultTenant, getTenantBusinessName } from './tenant'
+import { getTenantById, getTenantBusinessName } from './tenant'
 import type { OptimizationResult, OptimizedRoute, OptimizedStop, TeamForRouting } from './route-optimizer'
 
 // ── Types ──────────────────────────────────────────────────────
@@ -48,7 +49,7 @@ export async function dispatchRoutes(
   const sendCustomerSms = options?.sendSmsToCustomers !== false
   const dryRun = options?.dryRun ?? false
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getTenantById(tenantId)
   if (!tenant) {
     return { success: false, jobsUpdated: 0, assignmentsCreated: 0, telegramsSent: 0, smsSent: 0, errors: ['No tenant configured'] }
   }
@@ -69,19 +70,38 @@ export async function dispatchRoutes(
         continue
       }
 
+      // Fetch existing scheduled_at — never overwrite a time already set by a user or prior booking
+      const { data: existingJob } = await client
+        .from('jobs')
+        .select('scheduled_at')
+        .eq('id', stop.jobId)
+        .maybeSingle()
+
+      const jobUpdate: Record<string, unknown> = {
+        team_id: route.teamId,
+        updated_at: new Date().toISOString(),
+      }
+      if (!existingJob?.scheduled_at) {
+        jobUpdate.scheduled_at = stop.estimatedArrival
+      }
+
       const { error: updateErr } = await client
         .from('jobs')
-        .update({
-          team_id: route.teamId,
-          scheduled_at: stop.estimatedArrival,
-          updated_at: new Date().toISOString(),
-        })
+        .update(jobUpdate)
         .eq('id', stop.jobId)
 
       if (updateErr) {
         errors.push(`Failed to update job ${stop.jobId}: ${updateErr.message}`)
       } else {
         jobsUpdated++
+
+        // Keep HCP calendar in sync with OSIRIS team/time assignment changes.
+        await syncNewJobToHCP({
+          tenant,
+          jobId: stop.jobId,
+          phone: stop.customerPhone || undefined,
+          source: 'dispatch',
+        })
       }
 
       // 2. Create cleaner_assignments with 'confirmed' status (no accept/decline)

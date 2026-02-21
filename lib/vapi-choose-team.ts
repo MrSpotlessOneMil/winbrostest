@@ -1,4 +1,4 @@
-import { getSupabaseClient } from './supabase'
+import { getSupabaseServiceClient } from './supabase'
 
 const BUFFER_MINUTES = 15
 const STEP_MINUTES = 30
@@ -865,7 +865,7 @@ function findAvailableSlots(
 }
 
 async function fetchTeams(tenantId: string | null): Promise<Team[]> {
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   let query = client
     .from('cleaners')
     .select('*')
@@ -899,7 +899,7 @@ async function fetchTeams(tenantId: string | null): Promise<Team[]> {
 }
 
 async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
   let assignmentQuery = client
     .from('cleaner_assignments')
     .select('job_id, cleaner_id, status')
@@ -924,8 +924,13 @@ async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
   const jobIds = Array.from(
     new Set(
       activeAssignments
-        .map(row => (row as Record<string, unknown>).job_id)
-        .filter(id => typeof id === 'string' && id.trim())
+        .map(row => {
+          const id = (row as Record<string, unknown>).job_id
+          if (typeof id === 'number' && Number.isFinite(id)) return id
+          if (typeof id === 'string' && id.trim()) return Number(id)
+          return null
+        })
+        .filter((id): id is number => id !== null)
     )
   )
 
@@ -935,7 +940,6 @@ async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
     .from('jobs')
     .select('id, date, scheduled_at, hours, status')
     .in('id', jobIds)
-    .is('deleted_at', null)
     .not('status', 'eq', 'cancelled')
 
   if (tenantId) {
@@ -1119,10 +1123,14 @@ export async function getVapiAvailabilityResponse(
 
   const [teams, jobs] = await Promise.all([fetchTeams(tenantId || null), fetchJobs(tenantId || null)])
 
-  console.log(`[VAPI choose-team] tenantId=${tenantId || 'null'}, teams=${teams.length}, jobs=${jobs.length}`)
+  console.log(`[VAPI choose-team] tenantId=${tenantId || 'null'}, teams=${teams.length}, jobs=${jobs.length}, requestedStart=${adjustedStart.toISOString()}, durationHours=${durationHours}`)
+  if (teams.length > 0) {
+    console.log(`[VAPI choose-team] Available teams: ${teams.map(t => `${t.name} (24/7=${t._availability.is24_7})`).join(', ')}`)
+  }
 
   // If no teams/cleaners exist for this tenant, return immediately
   if (teams.length === 0) {
+    console.error(`[VAPI choose-team] NO_TEAMS_CONFIGURED - No active cleaners found for tenant ${tenantId || 'null'}. Make sure cleaners exist with active=true and deleted_at=null.`)
     return {
       is_available: false,
       confirmed_datetime: null,
@@ -1142,12 +1150,20 @@ export async function getVapiAvailabilityResponse(
   )
 
   if (anyTeamAvailable(adjustedStart, adjustedEnd, teams, jobs)) {
+    console.log(`[VAPI choose-team] AVAILABLE at ${toIsoWithTimezone(adjustedStart)}`)
     return {
       is_available: true,
       confirmed_datetime: toIsoWithTimezone(adjustedStart),
       alternatives,
       duration_hours: durationHours,
     }
+  }
+
+  // Log why each team was unavailable
+  for (const team of teams) {
+    const inHours = withinTeamHours(team, adjustedStart, adjustedEnd)
+    const isFree = teamIsFree(team, adjustedStart, adjustedEnd, jobs)
+    console.log(`[VAPI choose-team] Team "${team.name}" unavailable: withinHours=${inHours}, isFree=${isFree}`)
   }
 
   const unavailableResponse = {
@@ -1158,11 +1174,13 @@ export async function getVapiAvailabilityResponse(
   }
 
   if (alternatives.length === 0) {
+    console.warn(`[VAPI choose-team] NO_AVAILABILITY_FOUND - No slots in next ${MAX_DAYS_AHEAD} days for ${durationHours}h job`)
     return {
       ...unavailableResponse,
       error: 'NO_AVAILABILITY_FOUND',
     }
   }
 
+  console.log(`[VAPI choose-team] Requested time unavailable, offering ${alternatives.length} alternatives: ${alternatives.join(', ')}`)
   return unavailableResponse
 }

@@ -29,6 +29,8 @@ type CalendarJob = {
   customers?: any
   cleaners?: any
   cleaner_id?: number
+  cleaner_assignments?: any[]
+  teams?: any
 }
 
 type CalendarEventDetails = {
@@ -43,6 +45,10 @@ type CalendarEventDetails = {
   client: string
   cleaner: string
   cleanerName: string
+  cleanerId: string
+  team: string
+  service: string
+  notes: string
   hours: number
 }
 
@@ -88,6 +94,19 @@ type RainDayResult = {
   spread_summary: Record<string, number>
 }
 
+const CLEANER_COLORS = [
+  "#3b82f6", // blue
+  "#22c55e", // green
+  "#ef4444", // red
+  "#f97316", // orange
+  "#a855f7", // purple
+  "#14b8a6", // teal
+  "#ec4899", // pink
+  "#eab308", // yellow
+  "#6366f1", // indigo
+  "#06b6d4", // cyan
+]
+
 const emptyValue = "\u2014"
 
 function resolveCustomer(job: CalendarJob) {
@@ -114,15 +133,56 @@ function resolveLocation(job: CalendarJob) {
   return job.address || customer?.address || job.service_type || ""
 }
 
-function resolveDescription(job: CalendarJob) {
-  return job.notes || job.service_type || ""
+function humanizeServiceType(value: string | undefined): string {
+  if (!value) return ""
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim()
+}
+
+function resolveServiceLabel(job: CalendarJob): string {
+  return humanizeServiceType(job.service_type) || ""
+}
+
+function resolveTeamName(job: CalendarJob): string {
+  const team = job.teams
+  if (!team) return ""
+  if (Array.isArray(team)) return team[0]?.name || ""
+  return team.name || ""
+}
+
+function resolveNotes(job: CalendarJob): string {
+  const notes = job.notes
+  if (!notes) return ""
+  // Filter out internal system notes (all-caps with underscores or pipes)
+  if (/^[A-Z0-9_|\s]+$/.test(notes.trim())) return ""
+  return notes
+}
+
+function resolveCleanerFromAssignments(job: CalendarJob): { id: string; name: string } | null {
+  const assignments = job.cleaner_assignments
+  if (!Array.isArray(assignments) || assignments.length === 0) return null
+  const confirmed = assignments.find((a: any) => a.status === "confirmed") || assignments[0]
+  if (!confirmed) return null
+  const c = Array.isArray(confirmed.cleaners) ? confirmed.cleaners[0] : confirmed.cleaners
+  if (!c) return null
+  return { id: String(c.id), name: c.name || "Unknown" }
 }
 
 function resolveCleanerName(job: CalendarJob) {
   const cleaner = job.cleaners
-  if (!cleaner) return null
-  if (Array.isArray(cleaner)) return cleaner[0]?.name || null
-  return cleaner.name || null
+  if (cleaner) {
+    if (Array.isArray(cleaner)) return cleaner[0]?.name || null
+    return cleaner.name || null
+  }
+  return resolveCleanerFromAssignments(job)?.name || null
+}
+
+function resolveCleanerId(job: CalendarJob): string {
+  const cleaner = job.cleaners
+  if (cleaner) {
+    const c = Array.isArray(cleaner) ? cleaner[0] : cleaner
+    return c?.id ? String(c.id) : ""
+  }
+  return resolveCleanerFromAssignments(job)?.id || ""
 }
 
 function resolveStart(job: CalendarJob) {
@@ -135,11 +195,25 @@ function resolveStart(job: CalendarJob) {
   // If it's already a full ISO timestamp, use it directly
   if (rawDate.includes("T")) return new Date(rawDate)
 
-  // Use scheduled_at as the time component (e.g. "09:00 AM PST", "14:30", etc.)
-  const timeStr = job.scheduled_at || job.scheduled_time || ""
-  const timeMatch = String(timeStr).match(/^(\d{1,2}):(\d{2})/)
-  if (timeMatch) {
-    return new Date(`${rawDate}T${timeMatch[0]}:00`)
+  // Use scheduled_at as the time component (e.g. "09:00 AM PST", "14:30", "4:00 PM", etc.)
+  const timeStr = String(job.scheduled_at || job.scheduled_time || "")
+
+  // Handle 12-hour format: "4:00 PM", "10:30 AM", "4:00 PM PST"
+  const twelveHrMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
+  if (twelveHrMatch) {
+    let hours = parseInt(twelveHrMatch[1], 10)
+    const minutes = twelveHrMatch[2]
+    const meridiem = twelveHrMatch[3].toUpperCase()
+    if (meridiem === "PM" && hours !== 12) hours += 12
+    if (meridiem === "AM" && hours === 12) hours = 0
+    return new Date(`${rawDate}T${String(hours).padStart(2, "0")}:${minutes}:00`)
+  }
+
+  // Handle 24-hour format: "14:00", "09:00"
+  const twentyFourHrMatch = timeStr.match(/^(\d{1,2}):(\d{2})/)
+  if (twentyFourHrMatch) {
+    const hh = String(parseInt(twentyFourHrMatch[1], 10)).padStart(2, "0")
+    return new Date(`${rawDate}T${hh}:${twentyFourHrMatch[2]}:00`)
   }
 
   // Default to 9am
@@ -224,8 +298,10 @@ export default function JobsPage() {
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "" })
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "" })
   const [saving, setSaving] = useState(false)
+  const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
@@ -259,18 +335,33 @@ export default function JobsPage() {
     fetchJobs()
   }, [])
 
+  const cleanerColorMap = useMemo(() => {
+    const names = [...new Set(
+      jobs.map(j => resolveCleanerName(j)).filter(Boolean)
+    )] as string[]
+    const map = new Map<string, string>()
+    names.sort().forEach((name, i) => {
+      map.set(name, CLEANER_COLORS[i % CLEANER_COLORS.length])
+    })
+    return map
+  }, [jobs])
+
   const baseEvents = useMemo<EventInput[]>(() => {
     return jobs.map((job) => {
       const start = resolveStart(job)
       const end = resolveEnd(job)
       const location = resolveLocation(job)
-      const description = resolveDescription(job)
+      const description = resolveServiceLabel(job)
       const cleanerName = resolveCleanerName(job)
+      const cleanerId = resolveCleanerId(job)
+      const teamName = resolveTeamName(job)
+      const jobNotes = resolveNotes(job)
       const customerName = resolveCustomerName(job)
       const title = cleanerName
         ? `${customerName} (${cleanerName})`
         : job.title || job.service_type || customerName
       const className = eventClassForStatus(job.status)
+      const cleanerColor = cleanerName ? cleanerColorMap.get(cleanerName) : undefined
 
       return {
         id: String(job.id),
@@ -278,6 +369,8 @@ export default function JobsPage() {
         start,
         end,
         classNames: [className],
+        backgroundColor: cleanerColor,
+        borderColor: cleanerColor,
         extendedProps: {
           description,
           location,
@@ -285,6 +378,10 @@ export default function JobsPage() {
           client: customerName,
           cleaner: cleanerName || "",
           cleanerName: cleanerName || "",
+          cleanerId: cleanerId || "",
+          teamName: teamName || "",
+          service: description || "",
+          notes: jobNotes || "",
           price: job.price || job.estimated_value || 0,
           status: job.status || "scheduled",
           jobId: String(job.id),
@@ -292,7 +389,7 @@ export default function JobsPage() {
         },
       }
     })
-  }, [jobs])
+  }, [jobs, cleanerColorMap])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -335,10 +432,15 @@ export default function JobsPage() {
       client: info.event.extendedProps.client || emptyValue,
       cleaner: info.event.extendedProps.cleaner || "",
       cleanerName: info.event.extendedProps.cleanerName || "",
+      cleanerId: info.event.extendedProps.cleanerId || "",
+      team: info.event.extendedProps.teamName || "",
+      service: info.event.extendedProps.service || "",
+      notes: info.event.extendedProps.notes || "",
       hours: info.event.extendedProps.hours || 2,
     }
     setSelectedEvent(details)
     setEditMode(false)
+    setConfirmDelete(false)
   }
 
   const refreshJobs = async () => {
@@ -450,13 +552,48 @@ export default function JobsPage() {
     setPendingMove(null)
   }
 
-  const handleStartEdit = () => {
+  const handleStartEdit = async () => {
     if (!selectedEvent?.start) return
     const d = selectedEvent.start
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-    setEditForm({ date, time })
+    setEditForm({ date, time, cleanerId: selectedEvent.cleanerId || "" })
     setEditMode(true)
+
+    // Fetch cleaners list if not already loaded
+    if (cleanersList.length === 0) {
+      try {
+        const res = await fetch("/api/teams")
+        const data = await res.json()
+        const all: { id: string; name: string }[] = []
+        for (const team of data.data || []) {
+          for (const member of team.members || []) {
+            all.push({ id: String(member.id), name: member.name })
+          }
+        }
+        for (const c of data.unassigned_cleaners || []) {
+          all.push({ id: String(c.id), name: c.name })
+        }
+        setCleanersList(all)
+      } catch { /* ignore, dropdown will just be empty */ }
+    }
+  }
+
+  const handleDeleteJob = async () => {
+    if (!selectedEvent) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
+      const data = await res.json()
+      if (data.success) {
+        setSelectedEvent(null)
+        setEditMode(false)
+        setConfirmDelete(false)
+        await refreshJobs()
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleEditSave = async () => {
@@ -492,12 +629,29 @@ export default function JobsPage() {
     }
 
     setSaving(true)
-    const saved = await saveJobTime(jobId, newStart, hours)
-    setSaving(false)
-    if (saved) {
-      setSelectedEvent(null)
-      setEditMode(false)
-      await refreshJobs()
+    const date = editForm.date
+    const scheduled_at = editForm.time
+    const body: Record<string, any> = { id: jobId, date, scheduled_at }
+
+    // Include cleaner_id if it changed
+    if (editForm.cleanerId !== selectedEvent.cleanerId) {
+      body.cleaner_id = editForm.cleanerId || null
+    }
+
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setSelectedEvent(null)
+        setEditMode(false)
+        await refreshJobs()
+      }
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -628,6 +782,24 @@ export default function JobsPage() {
           </button>
         </div>
 
+        {cleanerColorMap.size >= 2 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
+            {[...cleanerColorMap.entries()].map(([name, color]) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                <span style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  backgroundColor: color,
+                  display: "inline-block",
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="calendar-card">
           <div id="calendar">
             <FullCalendar
@@ -635,6 +807,7 @@ export default function JobsPage() {
               plugins={[dayGridPlugin, timeGridPlugin, listPlugin, interactionPlugin]}
               initialView={getSavedView()}
               initialDate={getSavedDate()}
+              height="100%"
               headerToolbar={{
                 left: "prev,next today",
                 center: "title",
@@ -657,9 +830,9 @@ export default function JobsPage() {
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
               eventDidMount={(info) => {
-                const desc = info.event.extendedProps.description || ""
+                const service = info.event.extendedProps.service || ""
                 const loc = info.event.extendedProps.location || ""
-                const tip = [desc, loc].filter(Boolean).join(" \u2022 ")
+                const tip = [service, loc].filter(Boolean).join(" \u2022 ")
                 if (tip) {
                   info.el.setAttribute("title", tip)
                 }
@@ -696,9 +869,17 @@ export default function JobsPage() {
                 <div style={{ marginBottom: "0.5rem" }}>
                   <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
                 </div>
-                {selectedEvent?.cleaner && (
+                {selectedEvent?.service && (
                   <div style={{ marginBottom: "0.5rem" }}>
-                    <strong>Cleaner:</strong> {selectedEvent.cleaner}
+                    <strong>Service:</strong> {selectedEvent.service}
+                  </div>
+                )}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <strong>Cleaner:</strong> {selectedEvent?.cleaner || "Unassigned"}
+                </div>
+                {selectedEvent?.team && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Team:</strong> {selectedEvent.team}
                   </div>
                 )}
                 <div style={{ marginBottom: "0.5rem" }}>
@@ -712,9 +893,11 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
-                <div>
-                  <strong>Details:</strong> {selectedEvent?.description || emptyValue}
-                </div>
+                {selectedEvent?.notes && (
+                  <div>
+                    <strong>Notes:</strong> {selectedEvent.notes}
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -727,7 +910,7 @@ export default function JobsPage() {
                     onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
                   />
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
+                <div style={{ marginBottom: "0.75rem" }}>
                   <label className="cal-form-label">Start Time</label>
                   <input
                     type="time"
@@ -736,44 +919,104 @@ export default function JobsPage() {
                     onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
                   />
                 </div>
-                <div style={{ marginTop: "0.75rem", fontSize: "0.8rem", color: "#71717a" }}>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Assigned Cleaner</label>
+                  <select
+                    className="cal-form-control"
+                    value={editForm.cleanerId}
+                    onChange={(e) => setEditForm((f) => ({ ...f, cleanerId: e.target.value }))}
+                  >
+                    <option value="">— Unassigned —</option>
+                    {cleanersList.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ fontSize: "0.8rem", color: "#71717a" }}>
                   Duration: {selectedEvent?.hours || 2} hours
                 </div>
               </>
             )}
           </div>
           <div className="cal-modal-footer">
-            {!editMode ? (
-              <>
-                <button
-                  className="cal-modal-btn cal-modal-btn-edit"
-                  onClick={handleStartEdit}
-                >
-                  Edit
-                </button>
+            {confirmDelete ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                <span style={{ fontSize: "0.85rem", color: "#ef4444" }}>Delete this job?</span>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={handleDeleteJob}
+                    disabled={saving}
+                    style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                  >
+                    {saving ? <><span className="saving-spinner" /> Deleting...</> : "Yes, delete"}
+                  </button>
+                </div>
+              </div>
+            ) : !editMode ? (
+              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
                 <button
                   className="cal-modal-btn"
-                  onClick={() => setSelectedEvent(null)}
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete job"
+                  style={{ color: "#ef4444", borderColor: "#ef4444", padding: "0.4rem 0.65rem" }}
                 >
-                  Close
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                    <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                  </svg>
                 </button>
-              </>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    className="cal-modal-btn cal-modal-btn-edit"
+                    onClick={handleStartEdit}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={() => setSelectedEvent(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
             ) : (
-              <>
+              <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
                 <button
                   className="cal-modal-btn"
-                  onClick={() => setEditMode(false)}
+                  onClick={() => setConfirmDelete(true)}
+                  title="Delete job"
+                  style={{ color: "#ef4444", borderColor: "#ef4444", padding: "0.4rem 0.65rem" }}
                 >
-                  Cancel
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z"/>
+                    <path fillRule="evenodd" d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"/>
+                  </svg>
                 </button>
-                <button
-                  className="cal-modal-btn cal-modal-btn-primary"
-                  onClick={handleEditSave}
-                  disabled={saving || !editForm.date || !editForm.time}
-                >
-                  {saving ? <><span className="saving-spinner" /> Saving...</> : "Save Changes"}
-                </button>
-              </>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    className="cal-modal-btn"
+                    onClick={() => setEditMode(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="cal-modal-btn cal-modal-btn-primary"
+                    onClick={handleEditSave}
+                    disabled={saving || !editForm.date || !editForm.time}
+                  >
+                    {saving ? <><span className="saving-spinner" /> Saving...</> : "Save Changes"}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

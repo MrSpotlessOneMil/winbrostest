@@ -9,6 +9,21 @@ import {
 } from '@/lib/supabase'
 import { sendDailySchedule, sendJobReminder } from '@/lib/telegram'
 import { logSystemEvent } from '@/lib/system-events'
+import { getAllActiveTenants } from '@/lib/tenant'
+
+/**
+ * Unique timezones across all active tenants, used to run
+ * time-relative checks (1-hour-before, job-start) correctly
+ * for each tenant's local time.
+ */
+async function getActiveTimezones(): Promise<string[]> {
+  const tenants = await getAllActiveTenants()
+  const tzSet = new Set<string>()
+  for (const t of tenants) {
+    tzSet.add(t.timezone || 'America/Los_Angeles')
+  }
+  return Array.from(tzSet)
+}
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -18,7 +33,7 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date()
 
-    // Get current time in Pacific timezone
+    // Get current time in Pacific timezone (for backwards-compat 8 AM daily schedule)
     const pacificTime = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Los_Angeles',
       hour: '2-digit',
@@ -95,84 +110,104 @@ export async function GET(request: NextRequest) {
     }
 
     // 2. Send 1-hour before job notifications (jobs starting in 45-75 minutes)
-    const oneHourBeforeJobs = await getJobsStartingSoon(-75, -45)
+    // Run per-timezone so WinBros (America/Chicago) and PST tenants are both correct
+    const timezones = await getActiveTimezones()
+    const seenOneHourAssignments = new Set<string>()
 
-    for (const { job, assignment, cleaner, customer } of oneHourBeforeJobs) {
-      const alreadySent = await hasReminderBeenSent(
-        String(assignment.id),
-        'one_hour_before',
-        job.date!
-      )
+    for (const tz of timezones) {
+      const oneHourBeforeJobs = await getJobsStartingSoon(-75, -45, tz)
 
-      if (alreadySent) continue
+      for (const { job, assignment, cleaner, customer } of oneHourBeforeJobs) {
+        const asnKey = String(assignment.id)
+        if (seenOneHourAssignments.has(asnKey)) continue
+        seenOneHourAssignments.add(asnKey)
 
-      const result = await sendJobReminder(cleaner, job, customer, 'one_hour_before')
-
-      if (result.success) {
-        oneHourSent += 1
-        await markReminderSent(
-          String(assignment.id),
+        const alreadySent = await hasReminderBeenSent(
+          asnKey,
           'one_hour_before',
-          job.date!,
-          job.scheduled_at || undefined
+          job.date!
         )
 
-        await logSystemEvent({
-          source: 'cron',
-          event_type: 'REMINDER_SENT',
-          message: `Sent 1-hour reminder to cleaner ${cleaner.id} for job ${job.id}`,
-          job_id: job.id,
-          cleaner_id: cleaner.id,
-          metadata: {
-            reminder_type: 'one_hour_before',
-            job_time: job.scheduled_at,
-          },
-        })
-      } else {
-        errors.push(
-          `1-hour reminder failed for job ${job.id}, cleaner ${cleaner.id}: ${result.error}`
-        )
+        if (alreadySent) continue
+
+        const result = await sendJobReminder(cleaner, job, customer, 'one_hour_before')
+
+        if (result.success) {
+          oneHourSent += 1
+          await markReminderSent(
+            asnKey,
+            'one_hour_before',
+            job.date!,
+            job.scheduled_at || undefined
+          )
+
+          await logSystemEvent({
+            source: 'cron',
+            event_type: 'REMINDER_SENT',
+            message: `Sent 1-hour reminder to cleaner ${cleaner.id} for job ${job.id}`,
+            job_id: job.id,
+            cleaner_id: cleaner.id,
+            metadata: {
+              reminder_type: 'one_hour_before',
+              job_time: job.scheduled_at,
+              timezone: tz,
+            },
+          })
+        } else {
+          errors.push(
+            `1-hour reminder failed for job ${job.id}, cleaner ${cleaner.id}: ${result.error}`
+          )
+        }
       }
     }
 
     // 3. Send job start time notifications (jobs starting in -15 to +15 minutes)
-    const startingNowJobs = await getJobsStartingSoon(-15, 15)
+    const seenStartAssignments = new Set<string>()
 
-    for (const { job, assignment, cleaner, customer } of startingNowJobs) {
-      const alreadySent = await hasReminderBeenSent(
-        String(assignment.id),
-        'job_start',
-        job.date!
-      )
+    for (const tz of timezones) {
+      const startingNowJobs = await getJobsStartingSoon(-15, 15, tz)
 
-      if (alreadySent) continue
+      for (const { job, assignment, cleaner, customer } of startingNowJobs) {
+        const asnKey = String(assignment.id)
+        if (seenStartAssignments.has(asnKey)) continue
+        seenStartAssignments.add(asnKey)
 
-      const result = await sendJobReminder(cleaner, job, customer, 'job_start')
-
-      if (result.success) {
-        startTimeSent += 1
-        await markReminderSent(
-          String(assignment.id),
+        const alreadySent = await hasReminderBeenSent(
+          asnKey,
           'job_start',
-          job.date!,
-          job.scheduled_at || undefined
+          job.date!
         )
 
-        await logSystemEvent({
-          source: 'cron',
-          event_type: 'REMINDER_SENT',
-          message: `Sent job start reminder to cleaner ${cleaner.id} for job ${job.id}`,
-          job_id: job.id,
-          cleaner_id: cleaner.id,
-          metadata: {
-            reminder_type: 'job_start',
-            job_time: job.scheduled_at,
-          },
-        })
-      } else {
-        errors.push(
-          `Start time reminder failed for job ${job.id}, cleaner ${cleaner.id}: ${result.error}`
-        )
+        if (alreadySent) continue
+
+        const result = await sendJobReminder(cleaner, job, customer, 'job_start')
+
+        if (result.success) {
+          startTimeSent += 1
+          await markReminderSent(
+            asnKey,
+            'job_start',
+            job.date!,
+            job.scheduled_at || undefined
+          )
+
+          await logSystemEvent({
+            source: 'cron',
+            event_type: 'REMINDER_SENT',
+            message: `Sent job start reminder to cleaner ${cleaner.id} for job ${job.id}`,
+            job_id: job.id,
+            cleaner_id: cleaner.id,
+            metadata: {
+              reminder_type: 'job_start',
+              job_time: job.scheduled_at,
+              timezone: tz,
+            },
+          })
+        } else {
+          errors.push(
+            `Start time reminder failed for job ${job.id}, cleaner ${cleaner.id}: ${result.error}`
+          )
+        }
       }
     }
 

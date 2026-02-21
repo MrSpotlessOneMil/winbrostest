@@ -8,6 +8,16 @@ import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
+import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
+import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
+import { lookupPrice } from "@/lib/pricebook"
+
+function estimateJobHours(serviceType: string | null | undefined): number {
+  const lower = (serviceType || '').toLowerCase()
+  if (lower.includes('pressure') || lower.includes('power wash')) return 3
+  if (lower.includes('gutter')) return 1.5
+  return 2 // window cleaning default
+}
 
 /**
  * Shared VAPI webhook handler that can be used by any tenant.
@@ -163,6 +173,18 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             address: address || undefined,
           })
           .eq("id", customerId)
+
+        // Sync customer name/address to HCP
+        if (tenant && phone) {
+          await syncCustomerToHCP({
+            tenantId: tenant.id,
+            customerId,
+            phone,
+            firstName,
+            lastName,
+            address,
+          })
+        }
       }
 
       // Determine if this should create a lead
@@ -212,21 +234,28 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
           } else if (lead?.id) {
             console.log(`${tag} Lead created: ${lead.id}`)
 
-            // Create lead in HousecallPro for two-way sync
+            // Create lead in HousecallPro for two-way sync (pass tenant directly)
             const hcpResult = await createLeadInHCP({
               firstName: firstName || undefined,
               lastName: lastName || undefined,
               phone,
+              email: undefined,
               address: address || undefined,
               notes: `VAPI Call - ${bookingInfo.serviceType || 'Cleaning inquiry'}. ${bookingInfo.notes || ''}`.trim(),
               source: "vapi",
-            })
+            }, tenant)
 
             if (hcpResult.success) {
               console.log(`${tag} Lead synced to HCP: ${hcpResult.leadId}`)
+              const updateData: Record<string, string> = {
+                source_id: hcpResult.leadId || `vapi-${providerCallId}`,
+              }
+              if (hcpResult.customerId) {
+                updateData.hcp_customer_id = hcpResult.customerId
+              }
               await client
                 .from("leads")
-                .update({ source_id: hcpResult.leadId || `vapi-${providerCallId}` })
+                .update(updateData)
                 .eq("id", lead.id)
             } else {
               console.warn(`${tag} Failed to sync lead to HCP:`, hcpResult.error)
@@ -245,7 +274,13 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               },
             })
 
-            if (data.outcome !== "booked") {
+            // Treat as booked if outcome says so, OR if structuredData has appointment info
+            const isBooked =
+              data.outcome === "booked" ||
+              !!(structuredData.appointment_date && structuredData.appointment_time) ||
+              !!(structuredData.confirmed_datetime)
+
+            if (!isBooked) {
               try {
                 await scheduleLeadFollowUp(
                   tenant.id,
@@ -260,17 +295,48 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.log(`${tag} Call outcome was 'booked', skipping follow-up sequence`)
 
-              const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+              let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
               const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-              const bookAddress = structuredData.address as string || bookingInfo.address || null
+              const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
 
-              // Build notes with bed/bath/sqft overrides so pricing lookup works
-              const jobNotes = mergeOverridesIntoNotes(bookingInfo.notes || null, {
-                bedrooms: bookingInfo.bedrooms,
-                bathrooms: bookingInfo.bathrooms,
-                squareFootage: bookingInfo.squareFootage,
+              // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+              if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+                appointmentDate = parseNaturalDate(appointmentDate).date
+              }
+
+              // Build notes — use WinBros-specific helper for window/pressure/gutter services
+              const isWinBros = tenant.slug === 'winbros'
+              const jobNotes = isWinBros
+                ? buildWinBrosJobNotes({
+                    serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                    squareFootage: bookingInfo.squareFootage || null,
+                    scope: bookingInfo.scope || null,
+                    planType: bookingInfo.planType || null,
+                    pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                    areaSize: bookingInfo.areaSize || null,
+                    conditionType: bookingInfo.conditionType || null,
+                    propertyType: bookingInfo.propertyType || null,
+                    gutterConditions: bookingInfo.gutterConditions || null,
+                    referralSource: null,
+                  })
+                : mergeOverridesIntoNotes(bookingInfo.notes || null, {
+                    bedrooms: bookingInfo.bedrooms,
+                    bathrooms: bookingInfo.bathrooms,
+                    squareFootage: bookingInfo.squareFootage,
+                  })
+
+              // Look up price from pricebook
+              const priceResult = lookupPrice({
+                serviceType: bookingInfo.serviceType || serviceType,
+                squareFootage: bookingInfo.squareFootage || null,
+                notes: jobNotes || null,
+                scope: bookingInfo.scope || null,
+                pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                propertyType: bookingInfo.propertyType || null,
               })
+              const jobPrice = priceResult?.price || null
+              if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
 
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
@@ -280,8 +346,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 service_type: serviceType,
                 date: appointmentDate,
                 scheduled_at: appointmentTime,
-                price: null,
-                hours: null,
+                price: jobPrice,
+                hours: estimateJobHours(serviceType),
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
                 status: "scheduled",
                 booked: true,
@@ -294,6 +360,23 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 console.error(`${tag} Failed to create job:`, jobErr.message)
               } else if (job?.id) {
                 console.log(`${tag} Job created from booked call: ${job.id}`)
+
+                // Sync to HouseCall Pro
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: job.id,
+                  phone,
+                  firstName,
+                  lastName,
+                  address: bookAddress,
+                  serviceType,
+                  scheduledDate: appointmentDate,
+                  scheduledTime: appointmentTime,
+                  durationHours: estimateJobHours(serviceType),
+                  price: jobPrice,
+                  notes: jobNotes || `Booked via VAPI call`,
+                  source: 'vapi',
+                })
 
                 await logSystemEvent({
                   source: "vapi",
@@ -350,20 +433,56 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         } else {
           console.log(`${tag} Lead already exists for ${phone} (id: ${existingLead.id})`)
 
-          if (data.outcome === "booked") {
+          // Also treat as booked if structuredData has appointment info
+          const existingLeadIsBooked =
+            data.outcome === "booked" ||
+            !!(structuredData.appointment_date && structuredData.appointment_time) ||
+            !!(structuredData.confirmed_datetime)
+
+          if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
 
-            const appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
+            let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
             const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
             const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-            const bookAddress = structuredData.address as string || bookingInfo.address || null
+            const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
 
-            // Build notes with bed/bath/sqft overrides so pricing lookup works
-            const existingLeadNotes = mergeOverridesIntoNotes('Booked via phone call (existing lead)', {
-              bedrooms: bookingInfo.bedrooms,
-              bathrooms: bookingInfo.bathrooms,
-              squareFootage: bookingInfo.squareFootage,
+            // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
+            if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
+              appointmentDate = parseNaturalDate(appointmentDate).date
+            }
+
+            // Build notes — use WinBros-specific helper for window/pressure/gutter services
+            const isWinBrosExisting = tenant.slug === 'winbros'
+            const existingLeadNotes = isWinBrosExisting
+              ? buildWinBrosJobNotes({
+                  serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                  squareFootage: bookingInfo.squareFootage || null,
+                  scope: bookingInfo.scope || null,
+                  planType: bookingInfo.planType || null,
+                  pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+                  areaSize: bookingInfo.areaSize || null,
+                  conditionType: bookingInfo.conditionType || null,
+                  propertyType: bookingInfo.propertyType || null,
+                  gutterConditions: bookingInfo.gutterConditions || null,
+                  referralSource: null,
+                })
+              : mergeOverridesIntoNotes('Booked via phone call (existing lead)', {
+                  bedrooms: bookingInfo.bedrooms,
+                  bathrooms: bookingInfo.bathrooms,
+                  squareFootage: bookingInfo.squareFootage,
+                })
+
+            // Look up price from pricebook
+            const existingPriceResult = lookupPrice({
+              serviceType: bookingInfo.serviceType || serviceType,
+              squareFootage: bookingInfo.squareFootage || null,
+              notes: existingLeadNotes || null,
+              scope: bookingInfo.scope || null,
+              pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
+              propertyType: bookingInfo.propertyType || null,
             })
+            const existingJobPrice = existingPriceResult?.price || null
 
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
@@ -373,7 +492,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               service_type: serviceType,
               date: appointmentDate || null,
               scheduled_at: appointmentTime || null,
-              price: null,
+              price: existingJobPrice,
               hours: null,
               cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
               status: "scheduled",
@@ -387,6 +506,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
             } else if (job?.id) {
               console.log(`${tag} Job created for existing lead: ${job.id}`)
+
+              // Sync to HouseCall Pro
+              await syncNewJobToHCP({
+                tenant,
+                jobId: job.id,
+                phone,
+                firstName,
+                lastName,
+                address: bookAddress,
+                serviceType,
+                scheduledDate: appointmentDate,
+                scheduledTime: appointmentTime,
+                price: existingJobPrice,
+                notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
+              })
             }
 
             await client

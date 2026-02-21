@@ -74,17 +74,19 @@ export async function GET(request: NextRequest) {
     jobsByTeam.set(teamId, arr)
   }
 
-  // Collect all cleaner IDs that belong to a team
+  // Track assigned cleaners to prevent duplicates and identify unassigned
   const assignedCleanerIds = new Set<number>()
 
   const teamsBase: Team[] = (teamsRes.data || []).map((t: any) => {
     const teamId = String(t.id)
     const rawMembers = Array.isArray(t.team_members) ? t.team_members : []
     const members = rawMembers
-      .filter((tm: any) => Boolean(tm.is_active)) // Only active memberships
+      .filter((tm: any) => Boolean(tm.is_active))
       .map((tm: any) => {
         const c = tm.cleaners
         if (!c || !c.active) return null
+        // Skip if already assigned to another team (handles stale duplicate rows)
+        if (assignedCleanerIds.has(Number(c.id))) return null
         assignedCleanerIds.add(Number(c.id))
         return {
           id: String(c.id),
@@ -159,6 +161,7 @@ export async function GET(request: NextRequest) {
     }))
 
   console.log(`[Teams API] tenant=${tenant?.slug || 'admin'} teams=${teamsBase.length} assigned=${assignedCleanerIds.size} allCleaners=${allCleaners.length} unassigned=${unassignedCleaners.length}`)
+
 
   let teamsWithMetrics: any[] = teamsBase
   if (include_metrics) {

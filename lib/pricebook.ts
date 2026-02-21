@@ -1,8 +1,10 @@
 /**
  * WinBros Pricebook
  *
- * Pricing tiers for window & exterior cleaning services.
- * Tiers are based on square footage ranges which map to pane counts.
+ * Pricing tiers for window cleaning, pressure washing, and gutter cleaning.
+ * Window cleaning uses square-footage-based tiers.
+ * Pressure washing uses flat-rate per-surface pricing (multiple surfaces can be summed).
+ * Gutter cleaning uses property-type-based tiers.
  */
 
 type WindowTier = {
@@ -32,20 +34,41 @@ const WINDOW_TIERS: WindowTier[] = [
 // Default tier when sqft is unknown (smallest / most common residential)
 const DEFAULT_WINDOW_TIER = WINDOW_TIERS[0]
 
-// Flat-rate services matched by keywords
+// Flat-rate services matched by keywords (pressure washing surfaces)
 const FLAT_SERVICES: FlatService[] = [
-  { name: "House Washing", keywords: ["house wash", "siding", "soft wash"], price: 300 },
+  { name: "House Washing", keywords: ["house wash", "house_wash", "siding", "soft wash"], price: 300 },
   { name: "Driveway Cleaning", keywords: ["driveway"], price: 250 },
   { name: "Patio Cleaning", keywords: ["patio"], price: 150 },
   { name: "Sidewalk Cleaning", keywords: ["sidewalk"], price: 100 },
   { name: "Deck Washing", keywords: ["deck"], price: 175 },
   { name: "Fence Cleaning", keywords: ["fence"], price: 250 },
-  { name: "Pool Deck Cleaning", keywords: ["pool deck", "pool area"], price: 250 },
-  { name: "Retaining Wall Cleaning", keywords: ["retaining wall"], price: 200 },
-  { name: "Stone Cleaning", keywords: ["stone clean"], price: 150 },
-  { name: "Gutter Cleaning", keywords: ["gutter clean", "gutters"], price: 250 },
+  { name: "Pool Deck Cleaning", keywords: ["pool deck", "pool_deck", "pool area"], price: 250 },
+  { name: "Retaining Wall Cleaning", keywords: ["retaining wall", "retaining_wall"], price: 200 },
+  { name: "Stone Cleaning", keywords: ["stone clean", "stone"], price: 150 },
   { name: "Gutter and Soffit Washing", keywords: ["soffit", "gutter wash"], price: 200 },
 ]
+
+// Gutter cleaning prices by property type (matches SMS prompt pricing)
+const GUTTER_TIERS: Record<string, { price: number; label: string }> = {
+  single_story:     { price: 200, label: 'Single-story gutter cleaning' },
+  two_story:        { price: 250, label: 'Standard two-story gutter cleaning' },
+  larger_two_story: { price: 325, label: 'Larger two-story gutter cleaning' },
+}
+
+const DEFAULT_GUTTER_PRICE = 250
+
+// Map from structured surface identifiers to FLAT_SERVICES keywords
+const SURFACE_KEYWORD_MAP: Record<string, string> = {
+  house_wash: 'house_wash',
+  driveway: 'driveway',
+  patio: 'patio',
+  sidewalk: 'sidewalk',
+  deck: 'deck',
+  fence: 'fence',
+  pool_deck: 'pool_deck',
+  retaining_wall: 'retaining_wall',
+  stone: 'stone',
+}
 
 function getWindowTier(sqft?: number | null): WindowTier {
   if (!sqft || sqft <= 0) return DEFAULT_WINDOW_TIER
@@ -57,7 +80,7 @@ function getWindowTier(sqft?: number | null): WindowTier {
 }
 
 function normalizeText(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim()
+  return text.toLowerCase().replace(/[^a-z0-9\s_]/g, "").trim()
 }
 
 export interface PriceLookupInput {
@@ -66,12 +89,61 @@ export interface PriceLookupInput {
   notes?: string | null
   /** Explicit scope override — when set, takes priority over keyword sniffing from notes */
   scope?: 'exterior' | 'interior' | 'interior_and_exterior' | string | null
+  /** Structured pressure washing surfaces for multi-surface price summing */
+  pressureWashingSurfaces?: string[] | null
+  /** Property type for gutter cleaning tier pricing */
+  propertyType?: string | null
 }
 
 export interface PriceLookupResult {
   price: number
   serviceName: string
   tier?: string
+}
+
+/**
+ * Look up the price for multiple pressure washing surfaces and sum them.
+ * Returns null if no valid surfaces are found.
+ */
+export function lookupPressureWashingPrice(
+  surfaces: string[]
+): PriceLookupResult | null {
+  if (!surfaces || surfaces.length === 0) return null
+
+  let totalPrice = 0
+  const serviceNames: string[] = []
+
+  for (const surface of surfaces) {
+    const keyword = SURFACE_KEYWORD_MAP[surface]
+    if (!keyword) continue
+
+    const svc = FLAT_SERVICES.find(s => s.keywords.includes(keyword))
+    if (svc) {
+      totalPrice += svc.price
+      serviceNames.push(svc.name)
+    }
+  }
+
+  if (totalPrice === 0) return null
+
+  return {
+    price: totalPrice,
+    serviceName: serviceNames.join(' + '),
+  }
+}
+
+/**
+ * Look up gutter cleaning price by property type.
+ */
+export function lookupGutterPrice(
+  propertyType?: string | null
+): PriceLookupResult {
+  const tier = propertyType ? GUTTER_TIERS[propertyType] : null
+
+  return {
+    price: tier?.price ?? DEFAULT_GUTTER_PRICE,
+    serviceName: tier?.label ?? 'Gutter cleaning',
+  }
 }
 
 /**
@@ -83,7 +155,20 @@ export function lookupPrice(input: PriceLookupInput): PriceLookupResult | null {
   const notesRaw = normalizeText(input.notes || "")
   const combined = `${serviceRaw} ${notesRaw}`
 
-  // Check flat-rate services first (pressure washing, gutters, etc.)
+  // Route to multi-surface lookup for pressure washing
+  if (serviceRaw.includes('pressure') || serviceRaw.includes('power wash')) {
+    if (input.pressureWashingSurfaces && input.pressureWashingSurfaces.length > 0) {
+      return lookupPressureWashingPrice(input.pressureWashingSurfaces)
+    }
+    // Fall through to keyword match if no structured surfaces provided
+  }
+
+  // Route to tier-based lookup for gutter cleaning
+  if (serviceRaw.includes('gutter')) {
+    return lookupGutterPrice(input.propertyType)
+  }
+
+  // Check flat-rate services (keyword match for legacy/unstructured lookups)
   for (const svc of FLAT_SERVICES) {
     for (const kw of svc.keywords) {
       if (combined.includes(kw)) {

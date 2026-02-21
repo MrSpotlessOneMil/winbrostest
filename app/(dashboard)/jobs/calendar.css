@@ -2,6 +2,8 @@
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .calendar-card {
@@ -10,6 +12,13 @@
   padding: 0;
   border: none;
   flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.calendar-card #calendar {
+  position: absolute;
+  inset: 0;
 }
 
 /* FullCalendar Dark Theme */
@@ -135,7 +144,7 @@
 }
 
 .fc .fc-daygrid-day-frame {
-  min-height: 80px;
+  min-height: 0;
 }
 
 .fc .fc-day-other .fc-daygrid-day-number {

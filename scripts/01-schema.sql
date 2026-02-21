@@ -57,6 +57,7 @@ CREATE TABLE tenants (
   business_name_short TEXT,                        -- Short name for SMS
   service_area TEXT,                               -- "Los Angeles", "San Diego", etc.
   sdr_persona TEXT DEFAULT 'Mary',                 -- Name used in automated messages
+  timezone TEXT NOT NULL DEFAULT 'America/Chicago', -- IANA timezone for cron scheduling
 
   -- ========== API KEYS (Tenant-Specific) ==========
 

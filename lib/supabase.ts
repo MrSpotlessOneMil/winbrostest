@@ -31,6 +31,7 @@ export interface Customer {
 
 export interface Job {
   id?: string
+  tenant_id?: string
   customer_id?: string
   phone_number: string
   service_type?: string
@@ -147,28 +148,18 @@ export const supabase = {
   rpc: (...args: Parameters<SupabaseClient['rpc']>) => getSupabaseClient().rpc(...args),
 }
 
+/**
+ * Returns the service-role Supabase client for server-side helper functions.
+ *
+ * All callers of getSupabaseClient() run server-side (webhooks, crons, lib helpers).
+ * The anon key has no tenant_id JWT claim, so RLS tenant_isolation policies block
+ * every query. Using the service-role client here unblocks server-side operations.
+ *
+ * RLS is still enforced for dashboard routes via getTenantScopedClient(), which
+ * mints a per-tenant JWT that the RLS policies can verify.
+ */
 export function getSupabaseClient(): SupabaseClient {
-  if (!supabaseClient) {
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL ||
-      process.env.SUPABASE_URL ||
-      process.env.PUBLIC_SUPABASE_URL
-
-    const supabaseKey =
-      process.env.SUPABASE_ANON_KEY ||
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!supabaseUrl || !supabaseKey) {
-      const missing = [
-        !supabaseUrl ? 'SUPABASE_URL' : null,
-        !supabaseKey ? 'SUPABASE_ANON_KEY' : null,
-      ].filter(Boolean)
-      throw new Error(`Missing Supabase environment variables: ${missing.join(', ')}`)
-    }
-
-    supabaseClient = createClient(supabaseUrl, supabaseKey)
-  }
-  return supabaseClient
+  return getSupabaseServiceClient()
 }
 
 /**
@@ -1891,29 +1882,30 @@ export async function getCleanerJobsForDate(
  */
 export async function getJobsStartingSoon(
   minutesBefore: number,
-  minutesAfter: number = 0
+  minutesAfter: number = 0,
+  timezone: string = 'America/Los_Angeles'
 ): Promise<Array<{ job: Job; assignment: CleanerAssignment; cleaner: Cleaner; customer?: Customer }>> {
   const client = getSupabaseClient()
   const now = new Date()
 
-  // Get today's date in Pacific timezone
-  const todayPST = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Los_Angeles',
+  // Get today's date in the specified timezone
+  const todayLocal = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).format(now)
 
-  // Get current time in Pacific timezone
-  const timePST = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Los_Angeles',
+  // Get current time in the specified timezone
+  const timeLocal = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   }).format(now)
 
   // Calculate time window
-  const nowMinutes = parseInt(timePST.split(':')[0]) * 60 + parseInt(timePST.split(':')[1])
+  const nowMinutes = parseInt(timeLocal.split(':')[0]) * 60 + parseInt(timeLocal.split(':')[1])
   const startMinutes = nowMinutes + minutesBefore
   const endMinutes = nowMinutes + minutesAfter
 
@@ -1921,7 +1913,7 @@ export async function getJobsStartingSoon(
   const { data: jobs, error } = await client
     .from('jobs')
     .select('*')
-    .eq('date', todayPST)
+    .eq('date', todayLocal)
     .not('status', 'eq', 'cancelled')
 
   if (error) {
@@ -1933,9 +1925,20 @@ export async function getJobsStartingSoon(
   for (const job of jobs || []) {
     if (!job.scheduled_at) continue
 
-    // Parse job time (format: "HH:MM" or "HH:MM:SS")
-    const jobTimeParts = job.scheduled_at.split(':')
-    const jobMinutes = parseInt(jobTimeParts[0]) * 60 + parseInt(jobTimeParts[1])
+    // Parse job time (format: "HH:MM" or "HH:MM:SS" or "H:MM AM/PM")
+    let jobMinutes: number
+    const ampmMatch = job.scheduled_at.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i)
+    if (ampmMatch) {
+      let h = parseInt(ampmMatch[1])
+      const m = parseInt(ampmMatch[2])
+      const period = ampmMatch[3].toUpperCase()
+      if (period === 'PM' && h !== 12) h += 12
+      if (period === 'AM' && h === 12) h = 0
+      jobMinutes = h * 60 + m
+    } else {
+      const jobTimeParts = job.scheduled_at.split(':')
+      jobMinutes = parseInt(jobTimeParts[0]) * 60 + parseInt(jobTimeParts[1])
+    }
 
     // Check if job is in the time window
     if (jobMinutes >= startMinutes && jobMinutes <= endMinutes) {

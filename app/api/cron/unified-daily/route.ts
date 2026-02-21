@@ -8,8 +8,10 @@ import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
  * This endpoint calls:
  * - send-reminders: Customer and cleaner reminder notifications
  * - monthly-followup: Re-engagement for past customers
- * - logistics/optimize-day: Optimize tomorrow's routes (WinBros)
  * - logistics/rain-day: Check tomorrow's weather for rain day (WinBros)
+ *
+ * Note: Route optimization + dispatch is handled by /api/cron/route-dispatch
+ * which runs hourly and fires at 3 AM in each tenant's local timezone.
  *
  * Note: Frequent crons (ghl-followups, check-timeouts)
  * are handled by process-scheduled-tasks which runs every minute.
@@ -23,7 +25,6 @@ export async function GET(request: NextRequest) {
     const results = {
       send_reminders: { success: false, error: null as string | null },
       monthly_followup: { success: false, error: null as string | null },
-      logistics_optimize: { success: false, error: null as string | null },
       logistics_rain_day: { success: false, error: null as string | null },
       crew_briefing: { success: false, error: null as string | null },
       timestamp: new Date().toISOString(),
@@ -76,35 +77,7 @@ export async function GET(request: NextRequest) {
       console.error('[unified-daily] ✗ monthly-followup error:', error)
     }
 
-    // 3. Optimize tomorrow's routes (WinBros logistics engine)
-    try {
-      const tomorrow = new Date()
-      tomorrow.setDate(tomorrow.getDate() + 1)
-      const tomorrowStr = tomorrow.toISOString().slice(0, 10)
-
-      console.log(`[unified-daily] Optimizing routes for ${tomorrowStr}...`)
-      const optimizeResponse = await fetch(`${domain}/api/logistics/optimize-day`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${cronSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ date: tomorrowStr }),
-      })
-
-      if (optimizeResponse.ok) {
-        results.logistics_optimize.success = true
-        console.log('[unified-daily] ✓ route optimization completed')
-      } else {
-        results.logistics_optimize.error = `Status ${optimizeResponse.status}`
-        console.error('[unified-daily] ✗ route optimization failed:', optimizeResponse.status)
-      }
-    } catch (error) {
-      results.logistics_optimize.error = String(error)
-      console.error('[unified-daily] ✗ route optimization error:', error)
-    }
-
-    // 4. Check tomorrow's weather for rain day
+    // 3. Check tomorrow's weather for rain day
     try {
       console.log('[unified-daily] Checking rain day forecast...')
       const rainDayResponse = await fetch(`${domain}/api/logistics/rain-day`, {
@@ -133,7 +106,7 @@ export async function GET(request: NextRequest) {
       console.error('[unified-daily] ✗ rain day check error:', error)
     }
 
-    // 5. Send crew briefings to team leads + run daily alert checks
+    // 4. Send crew briefings to team leads + run daily alert checks
     try {
       console.log('[unified-daily] Sending crew briefings...')
       const briefingResponse = await fetch(`${domain}/api/cron/crew-briefing`, {

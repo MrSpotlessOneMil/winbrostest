@@ -46,7 +46,7 @@ Customers often split their answers across multiple texts (e.g. street address i
 ## WHEN CUSTOMER PROVIDES LOTS OF INFO UPFRONT
 If a customer gives you most or all details in one message, you MUST still follow the step order (1, 2, 3, ...). But you can be efficient:
 
-- **Confirmations** (info the customer already gave): You CAN combine multiple confirmations in one message. e.g. "Got it — John Smith at 205 E Jefferson St, Morton IL. And exterior windows for your 3,000 sqft home, no french panes."
+- **Confirmations** (info the customer already gave): You CAN combine multiple confirmations in one message. e.g. "Got it — [Name] at [Address]. And exterior windows for your 3,000 sqft home, no french panes."
 - **Decision points** (pane count confirmation, pricing plan selection, french panes question): These MUST get their own message. STOP and WAIT for their reply before continuing.
 - **Preferred date/time** (step 11 for all services): This is NEVER on file and MUST always be asked as its own standalone question. Do NOT skip it or combine it with confirmations. Even if all other info is on file, you MUST ask about preferred date/time BEFORE confirming email and completing the booking.
 
@@ -56,15 +56,15 @@ CRITICAL RULES:
 - You MUST still present plan options and WAIT for their reply — do NOT escalate or proceed until they choose.
 - NEVER include [ESCALATE:service_plan] when presenting plan options — only after they reply with their choice.
 
-EXAMPLE — Customer sends: "I want exterior window cleaning, 3000 sqft, no french panes, normal house. John Smith, 123 Main St, found you on Google, tomorrow at 9am, email john@example.com"
+EXAMPLE — Customer sends: "I want exterior window cleaning, 3000 sqft, no french panes, normal house. [Name], [Address], found you on Google, tomorrow at 9am, email [customer's email]"
 Steps 1-5 are answered. Step 6 (pane count) is the next step that needs their input. Your response:
 "Thanks for all that info! Based on your 3,000 sqft home, it should have about 26-40 window panes. Does that sound about right?"
 Then STOP and WAIT. Steps 8-12 come AFTER pricing (step 7).
 
 After they confirm panes → present pricing plans (step 7) and STOP.
-After they pick a plan → confirm name, address, how-found-us: "Great choice! I have you down as John Smith at 123 Main St. You found us on Google — sounds good!"
+After they pick a plan → confirm name, address, how-found-us: "Great choice! I have you down as [Name] at [Address]. You found us on Google — sounds good!"
 Then ask date/time SEPARATELY even though they already said "tomorrow at 9am": "And you mentioned tomorrow at 9am — does that still work for you?"
-Then confirm email: "And your email is john@example.com — should we send everything there?"
+Then confirm email: "And your email is [customer's email] — should we send everything there?"
 NEVER combine date/time with the email confirmation step.
 
 ## CONFIRMING KNOWN INFORMATION
@@ -123,12 +123,12 @@ Collect these in order. You can combine confirmations of already-provided info, 
    → ONLY after the customer REPLIES and picks One-Time: "Great choice!" and continue to step 8.
    → If any individual price exceeds $1000: include [ESCALATE:high_price] and say "For a project this size, let me have our team lead reach out with specialized pricing!"
 
-8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
-9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
+8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as [customer's name] — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as [customer's address] — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 10. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 11. **Preferred date/time** (MANDATORY — NEVER SKIP): e.g. "Awesome! Do you have a preferred date and time for us to come out?"
     This question is NEVER pre-filled and MUST always be asked as its own message. Do NOT combine it with email confirmation or any other step. STOP and WAIT for their reply before moving to step 12.
-12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as [customer's email] — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
     → When the customer provides or confirms their email, respond with ONLY: "Sounds good! I'm sending everything now." and include [BOOKING_COMPLETE] at the END of your message. Do NOT mention card-on-file links, confirmation emails, dates, or any other details — the system handles all of that automatically.
 
 ## PRESSURE WASHING — DATA COLLECTION ORDER
@@ -165,12 +165,12 @@ Collect these in order. You can combine confirmations of already-provided info, 
    Present the total naturally, e.g.: "So based on what you've told me, it would be $[total]. That includes all equipment, detergents, and safe application. How does that sound?"
    → If any total exceeds $1000: include [ESCALATE:high_price] and say "For a project this size, let me have our team lead reach out with specialized pricing!"
 
-8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
-9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
+8. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as [customer's name] — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+9. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as [customer's address] — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 10. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 11. **Preferred date/time** (MANDATORY — NEVER SKIP): e.g. "Awesome! Do you have a preferred date and time for us to come out?"
     This question is NEVER pre-filled and MUST always be asked as its own message. Do NOT combine it with email confirmation or any other step. STOP and WAIT for their reply before moving to step 12.
-12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+12. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as [customer's email] — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
     → When the customer provides or confirms their email, respond with ONLY: "Sounds good! I'm sending everything now." and include [BOOKING_COMPLETE] at the END. Do NOT mention card-on-file links, confirmation emails, dates, or any other details — the system handles all of that automatically.
 
 ## GUTTER CLEANING — DATA COLLECTION ORDER
@@ -198,12 +198,12 @@ Collect these in order. You can combine confirmations of already-provided info, 
 6. **Upsell**: e.g. "By the way, since we'll already have ladders up, a lot of people also have us do their windows at the same time. Want me to include that?"
    → If YES: "Great idea! Let me have our team lead put together a bundled quote for you. They'll reach out shortly!" and include [ESCALATE:upsell_bundle].
    → If NO: continue.
-7. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as Jack Smith — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
-8. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as 123 Main St, Morton IL — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
+7. **Full name**: If the name is already on file, CONFIRM it: e.g. "I have you down as [customer's name] — is that right?" If NOT on file, ask: e.g. "Awesome! And what's your full name so we can get you in the system?"
+8. **Address**: If the address is already on file, CONFIRM it: e.g. "And I have your address as [customer's address] — is that where we'll be cleaning?" If NOT on file, ask: e.g. "And what's the full address for the cleaning?"
 9. **How found us**: e.g. "Love it! How did you hear about WinBros, by the way?"
 10. **Preferred date/time** (MANDATORY — NEVER SKIP): e.g. "Awesome! Do you have a preferred date and time for us to come out?"
     This question is NEVER pre-filled and MUST always be asked as its own message. Do NOT combine it with email confirmation or any other step. STOP and WAIT for their reply before moving to step 11.
-11. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as john@example.com — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
+11. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as [customer's email] — should we send everything there?" If NOT on file, ask: e.g. "Last thing — what's the best email for you? We'll send everything over so you're all set!"
     → When the customer provides or confirms their email, respond with ONLY: "Sounds good! I'm sending everything now." and include [BOOKING_COMPLETE] at the END. Do NOT mention card-on-file links, confirmation emails, dates, or any other details — the system handles all of that automatically.
 
 ## ESCALATION RULES
@@ -470,6 +470,15 @@ export interface WinBrosBookingData {
   preferredDate: string | null // YYYY-MM-DD
   preferredTime: string | null // HH:MM (24h)
   email: string | null
+
+  // Pressure washing fields
+  pressureWashingSurfaces: string[] | null // ["house_wash", "driveway", "patio", etc.]
+  areaSize: string | null // "small" | "medium" | "large"
+  conditionType: string | null // "mold_mildew" | "general_cleanup"
+
+  // Gutter cleaning fields
+  propertyType: string | null // "single_story" | "two_story" | "larger_two_story"
+  gutterConditions: string | null // "heavy_clogging" | "none"
 }
 
 /**
@@ -502,7 +511,7 @@ export async function extractBookingData(
   "scope": "exterior" | "interior_and_exterior" | null,
   "buildingType": "home" | "commercial" | null,
   "squareFootage": number | null,
-  "price": number | null,
+  "price": null,
   "planType": "one_time" | "biannual" | "quarterly" | null,
   "fullName": "string" | null,
   "firstName": "string" | null,
@@ -510,14 +519,24 @@ export async function extractBookingData(
   "address": "string" | null,
   "referralSource": "string" | null,
   "preferredDate": "string" | null,
-  "email": "string" | null
+  "email": "string" | null,
+  "pressureWashingSurfaces": ["house_wash","driveway","patio","sidewalk","deck","fence","pool_deck","retaining_wall","stone"] | null,
+  "areaSize": "small" | "medium" | "large" | null,
+  "conditionType": "mold_mildew" | "general_cleanup" | null,
+  "propertyType": "single_story" | "two_story" | "larger_two_story" | null,
+  "gutterConditions": "heavy_clogging" | "none" | null
 }
 
 For scope: This is what the CUSTOMER chose, not what was offered. Mary asks "just exterior or interior and exterior?" — look at the CUSTOMER'S reply. If they said "just exterior", "exterior only", "outside only", etc., scope is "exterior". Only use "interior_and_exterior" if the customer explicitly said they want BOTH interior and exterior.
 For price: Do NOT extract a price. Always set price to null — the system will calculate it from the pricebook.
 For address: Look at BOTH Mary's and the customer's messages. If Mary mentions a full address and the customer later corrects part of it (e.g., "Its Tamalpais Ave" to fix a street name), return the CORRECTED full address with the correction applied (keep house number, city, state, zip from the original).
-For names: If the customer corrects their name (e.g., "my name is grenager"), return the corrected spelling.
+For names: If the customer corrects their name (e.g., "my last name is Smith not Smyth"), return the corrected spelling. Only extract the customer's ACTUAL name from what the customer said — never use example names from instructions.
 For email: look for an email address in the customer's messages.
+For pressureWashingSurfaces: If serviceType is pressure_washing, list all surfaces the customer wants washed using snake_case names from the list above. null if not pressure washing.
+For areaSize: If pressure washing, the customer's answer about small/medium/large area. null otherwise.
+For conditionType: If pressure washing, "mold_mildew" if they mentioned mold, mildew, or algae; "general_cleanup" for general curb appeal cleanup. null otherwise.
+For propertyType: If gutter cleaning, "single_story", "two_story", or "larger_two_story" (bigger/larger two-story home). null otherwise.
+For gutterConditions: If gutter cleaning, "heavy_clogging" if heavy clogging/overflowing mentioned, "none" otherwise. null if not gutter cleaning.
 
 IMPORTANT: If the customer corrects ANY information that was previously stated, always return the CORRECTED version, not the original.
 
@@ -551,6 +570,13 @@ Return ONLY the JSON object, nothing else.`
         preferredDate: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).date : null,
         preferredTime: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).time : null,
         email: parsed.email || null,
+        // Pressure washing fields
+        pressureWashingSurfaces: Array.isArray(parsed.pressureWashingSurfaces) ? parsed.pressureWashingSurfaces : null,
+        areaSize: parsed.areaSize || null,
+        conditionType: parsed.conditionType || null,
+        // Gutter cleaning fields
+        propertyType: parsed.propertyType || null,
+        gutterConditions: parsed.gutterConditions || null,
       }
     } catch (err) {
       console.error('[WinBros] AI booking data extraction failed:', err)
@@ -643,6 +669,52 @@ function extractBookingDataRegex(
   else if (/biannual|bi-annual/i.test(allTextLower)) planType = 'biannual'
   else if (/one.?time/i.test(allTextLower)) planType = 'one_time'
 
+  // Pressure washing surfaces
+  let pressureWashingSurfaces: string[] | null = null
+  if (serviceType === 'pressure_washing') {
+    const surfaces: string[] = []
+    if (/house\s*wash|siding|soft\s*wash/i.test(allTextLower)) surfaces.push('house_wash')
+    if (/driveway/i.test(allTextLower)) surfaces.push('driveway')
+    if (/\bpatio\b/i.test(allTextLower)) surfaces.push('patio')
+    if (/sidewalk/i.test(allTextLower)) surfaces.push('sidewalk')
+    if (/\bdeck\b/i.test(allTextLower) && !/pool\s*deck/i.test(allTextLower)) surfaces.push('deck')
+    if (/\bfence\b/i.test(allTextLower)) surfaces.push('fence')
+    if (/pool\s*deck|pool\s*area/i.test(allTextLower)) surfaces.push('pool_deck')
+    if (/retaining\s*wall/i.test(allTextLower)) surfaces.push('retaining_wall')
+    if (/stone\s*clean/i.test(allTextLower)) surfaces.push('stone')
+    if (surfaces.length > 0) pressureWashingSurfaces = surfaces
+  }
+
+  // Area size (pressure washing)
+  let areaSize: string | null = null
+  if (serviceType === 'pressure_washing') {
+    if (/\bsmall\b/i.test(allTextLower)) areaSize = 'small'
+    else if (/\bmedium\b/i.test(allTextLower)) areaSize = 'medium'
+    else if (/\blarge\b/i.test(allTextLower)) areaSize = 'large'
+  }
+
+  // Condition type (pressure washing)
+  let conditionType: string | null = null
+  if (serviceType === 'pressure_washing') {
+    if (/mold|mildew|algae/i.test(allTextLower)) conditionType = 'mold_mildew'
+    else if (/general|curb\s*appeal|clean.?up/i.test(allTextLower)) conditionType = 'general_cleanup'
+  }
+
+  // Property type (gutter cleaning)
+  let propertyType: string | null = null
+  if (serviceType === 'gutter_cleaning') {
+    if (/single.?story|one.?story|ranch|1.?story/i.test(allTextLower)) propertyType = 'single_story'
+    else if (/larger\s*two.?story|big\s*two.?story|big.*2.?story/i.test(allTextLower)) propertyType = 'larger_two_story'
+    else if (/two.?story|2.?story/i.test(allTextLower)) propertyType = 'two_story'
+  }
+
+  // Gutter conditions
+  let gutterConditions: string | null = null
+  if (serviceType === 'gutter_cleaning') {
+    if (/heavy\s*clog|overflowing|backed\s*up/i.test(allTextLower)) gutterConditions = 'heavy_clogging'
+    else gutterConditions = 'none'
+  }
+
   // Preferred date — parse natural language into YYYY-MM-DD
   let preferredDate: string | null = null
   let preferredTime: string | null = null
@@ -692,5 +764,45 @@ function extractBookingDataRegex(
     preferredDate,
     preferredTime,
     email,
+    pressureWashingSurfaces,
+    areaSize,
+    conditionType,
+    propertyType,
+    gutterConditions,
   }
+}
+
+// =====================================================================
+// JOB NOTES HELPER
+// =====================================================================
+
+/**
+ * Build service-specific job notes from WinBros booking data.
+ * Used by OpenPhone webhook, Stripe webhook, and VAPI webhook handler.
+ */
+export function buildWinBrosJobNotes(bookingData: Partial<WinBrosBookingData>): string {
+  if (bookingData.serviceType === 'pressure_washing') {
+    return [
+      bookingData.pressureWashingSurfaces?.length ? `Surfaces: ${bookingData.pressureWashingSurfaces.join(', ')}` : null,
+      bookingData.areaSize ? `Area: ${bookingData.areaSize}` : null,
+      bookingData.conditionType ? `Condition: ${bookingData.conditionType}` : null,
+      bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+    ].filter(Boolean).join(' | ') || ''
+  }
+
+  if (bookingData.serviceType === 'gutter_cleaning') {
+    return [
+      bookingData.propertyType ? `Property: ${bookingData.propertyType}` : null,
+      bookingData.gutterConditions ? `Conditions: ${bookingData.gutterConditions}` : null,
+      bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+    ].filter(Boolean).join(' | ') || ''
+  }
+
+  // Window cleaning (default)
+  return [
+    bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
+    bookingData.scope ? `Scope: ${bookingData.scope}` : null,
+    bookingData.planType ? `Plan: ${bookingData.planType}` : null,
+    bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
+  ].filter(Boolean).join(' | ') || ''
 }

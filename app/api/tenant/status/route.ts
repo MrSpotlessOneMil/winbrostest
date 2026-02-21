@@ -7,27 +7,23 @@ export async function GET(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { user } = authResult
 
-  const client = getSupabaseServiceClient()
-
-  // Get user's tenant_id
-  const { data: userData } = await client
-    .from("users")
-    .select("tenant_id")
-    .eq("id", user.id)
-    .single()
-
-  if (!userData?.tenant_id) {
+  if (!user.tenant_id) {
+    // Admin user has no tenant — return a safe default
     return NextResponse.json({
-      success: false,
-      error: "No business linked to your account",
-    }, { status: 404 })
+      success: true,
+      active: true,
+      tenantName: "Admin",
+      isAdmin: true,
+    })
   }
+
+  const client = getSupabaseServiceClient()
 
   // Query tenant directly WITHOUT active filter (so we can see inactive tenants)
   const { data: tenant, error } = await client
     .from("tenants")
     .select("id, name, active")
-    .eq("id", userData.tenant_id)
+    .eq("id", user.tenant_id)
     .single()
 
   if (error || !tenant) {
@@ -58,27 +54,20 @@ export async function POST(request: NextRequest) {
     }, { status: 400 })
   }
 
-  const client = getSupabaseServiceClient()
-
-  // Get user's tenant_id
-  const { data: userData } = await client
-    .from("users")
-    .select("tenant_id")
-    .eq("id", user.id)
-    .single()
-
-  if (!userData?.tenant_id) {
+  if (!user.tenant_id) {
     return NextResponse.json({
       success: false,
-      error: "No business linked to your account",
-    }, { status: 404 })
+      error: "Admin cannot toggle tenant status from here",
+    }, { status: 403 })
   }
+
+  const client = getSupabaseServiceClient()
 
   // Update tenant active status
   const { data: tenant, error } = await client
     .from("tenants")
     .update({ active, updated_at: new Date().toISOString() })
-    .eq("id", userData.tenant_id)
+    .eq("id", user.tenant_id)
     .select("id, name, active")
     .single()
 

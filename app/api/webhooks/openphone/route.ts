@@ -8,12 +8,28 @@ import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
+import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
 export async function POST(request: NextRequest) {
   const signature =
+    request.headers.get("openphone-signature") ||
     request.headers.get("x-openphone-signature") ||
     request.headers.get("X-OpenPhone-Signature")
-  const timestamp = request.headers.get("x-openphone-timestamp")
+
+  // OpenPhone signature format: "hmac;1;{timestamp};{digest}"
+  // Fall back to dedicated timestamp header, or Stripe-style "t=xxx,v1=xxx"
+  let timestamp = request.headers.get("openphone-timestamp") || request.headers.get("x-openphone-timestamp")
+  if (!timestamp && signature) {
+    // OpenPhone style: hmac;{version};{timestamp};{digest}
+    const semicolonParts = signature.split(';')
+    if (semicolonParts.length >= 4 && semicolonParts[0].toLowerCase() === 'hmac') {
+      timestamp = semicolonParts[2]
+    } else {
+      // Stripe-style fallback: t=1234,v1=abc
+      const tMatch = signature.match(/(?:^|,)\s*t=(\d+)/)
+      if (tMatch) timestamp = tMatch[1]
+    }
+  }
 
   const rawBody = await request.text()
   // Pass null for tenant - uses global webhook secret from env
@@ -518,6 +534,8 @@ export async function POST(request: NextRequest) {
                 serviceType: (formData.serviceType as string) || job?.service_type || null,
                 squareFootage: (formData.squareFootage as number) || job?.square_footage || null,
                 scope: scope || null,
+                pressureWashingSurfaces: (formData.pressureWashingSurfaces as string[]) || null,
+                propertyType: (formData.propertyType as string) || null,
               }
               console.log(`[OpenPhone] Pricebook lookup inputs (phone call):`, JSON.stringify(lookupInput))
               const priceLookup = lookupPrice(lookupInput)
@@ -747,6 +765,18 @@ export async function POST(request: NextRequest) {
             await client.from("jobs").update({ address: correctedData.address }).eq("id", bookedLead.converted_to_job_id)
           }
           console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
+
+          // Sync corrections to HousecallPro
+          if (tenant) {
+            await syncCustomerToHCP({
+              tenantId: tenant.id,
+              customerId: customer.id,
+              phone,
+              firstName: correctedData.firstName,
+              lastName: correctedData.lastName,
+              address: correctedData.address,
+            })
+          }
         }
       } catch (extractErr) {
         console.error("[OpenPhone] Error extracting corrections:", extractErr)
@@ -877,7 +907,7 @@ export async function POST(request: NextRequest) {
   // Get the MOST RECENT active (non-booked) lead for this phone number
   const { data: allLeadsForPhone } = await client
     .from("leads")
-    .select("id, status, form_data, source")
+    .select("id, status, form_data, source, followup_stage")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .in("status", ["new", "contacted", "qualified", "responded", "escalated"])
@@ -896,24 +926,54 @@ export async function POST(request: NextRequest) {
   }
 
   if (existingLead) {
-    // Lead responded — update status and cancel remaining follow-up tasks
+    // Lead responded — update last_contact_at. If status was "responded", reset to "contacted" so cron keeps running.
+    const statusUpdate: Record<string, unknown> = { last_contact_at: new Date().toISOString() }
+    if (existingLead.status === "responded") {
+      statusUpdate.status = "contacted"
+    }
     await client
       .from("leads")
-      .update({ status: "responded", last_contact_at: new Date().toISOString() })
+      .update(statusUpdate)
       .eq("id", existingLead.id)
 
-    // Cancel all pending follow-up stages so the sequence stops
+    // Reschedule pending follow-up tasks to 30 min from now (don't cancel them — just push them forward)
     try {
-      const { cancelTask } = await import("@/lib/scheduler")
-      for (let stage = 1; stage <= 5; stage++) {
-        await cancelTask(`lead-${existingLead.id}-stage-${stage}`)
+      const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
+      const now = Date.now()
+
+      const { data: pendingTasks } = await client
+        .from("scheduled_tasks")
+        .select("id, scheduled_for, task_key")
+        .eq("status", "pending")
+        .eq("task_type", "lead_followup")
+        .eq("tenant_id", tenant?.id)
+        .order("scheduled_for", { ascending: true })
+
+      const leadTasks = (pendingTasks || []).filter(
+        (t: { id: string; scheduled_for: string; task_key: string }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
+      )
+
+      if (leadTasks.length > 0) {
+        // Shift the soonest task to 30 min from now, preserve relative gaps
+        const firstMs = new Date(leadTasks[0].scheduled_for).getTime()
+        const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
+        for (const task of leadTasks) {
+          const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
+          await client
+            .from("scheduled_tasks")
+            .update({ scheduled_for: newTime.toISOString() })
+            .eq("id", task.id)
+        }
+        console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
+      } else {
+        // All 5 follow-up stages already fired — sequence is complete, nothing to reschedule
+        console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
       }
-      console.log(`[OpenPhone] Cancelled remaining follow-up tasks for lead ${existingLead.id}`)
-    } catch (cancelErr) {
-      console.error("[OpenPhone] Error cancelling follow-up tasks:", cancelErr)
+    } catch (rescheduleErr) {
+      console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
     }
 
-    console.log(`[OpenPhone] Active lead ${existingLead.id} marked as responded for ${phone}`)
+    console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${phone}`)
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
@@ -1118,6 +1178,19 @@ export async function POST(request: NextRequest) {
                     address: bookingData.address || customer.address,
                   })
                   .eq("id", customer.id)
+
+                // Sync customer updates to HousecallPro
+                if (tenant) {
+                  await syncCustomerToHCP({
+                    tenantId: tenant.id,
+                    customerId: customer.id,
+                    phone,
+                    firstName: bookingData.firstName || customer.first_name,
+                    lastName: bookingData.lastName || customer.last_name,
+                    email: finalEmail,
+                    address: bookingData.address || customer.address,
+                  })
+                }
               }
 
               // Determine price — for WinBros, ALWAYS use pricebook, NEVER AI-extracted prices
@@ -1129,8 +1202,10 @@ export async function POST(request: NextRequest) {
                     serviceType: bookingData.serviceType || null,
                     squareFootage: bookingData.squareFootage || null,
                     scope: bookingData.scope || null,
+                    pressureWashingSurfaces: bookingData.pressureWashingSurfaces || null,
+                    propertyType: bookingData.propertyType || null,
                   }
-                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}"`)
+                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}", surfaces=${JSON.stringify(bookingData.pressureWashingSurfaces)}, propertyType=${bookingData.propertyType}`)
                   const priceLookup = lookupPrice(lookupInput)
                   if (priceLookup) {
                     servicePrice = priceLookup.price
@@ -1149,16 +1224,12 @@ export async function POST(request: NextRequest) {
 
               // Build job notes with OVERRIDE tags for pricing engine
               const { mergeOverridesIntoNotes } = await import("@/lib/pricing-config")
+              const { buildWinBrosJobNotes } = await import("@/lib/winbros-sms-prompt")
               let jobNotes = ''
 
               if (isWinBrosTenant) {
-                // WinBros: scope, plan, referral info
-                jobNotes = [
-                  bookingData.squareFootage ? `SqFt: ${bookingData.squareFootage}` : null,
-                  bookingData.scope ? `Scope: ${bookingData.scope}` : null,
-                  bookingData.planType ? `Plan: ${bookingData.planType}` : null,
-                  bookingData.referralSource ? `Referral: ${bookingData.referralSource}` : null,
-                ].filter(Boolean).join(' | ') || ''
+                // WinBros: service-specific notes (window/pressure/gutter)
+                jobNotes = buildWinBrosJobNotes(bookingData)
               } else {
                 // House cleaning: bed/bath/sqft + pets + frequency
                 jobNotes = [
@@ -1176,8 +1247,10 @@ export async function POST(request: NextRequest) {
                 })
               }
 
-              // Default service type based on tenant
-              const defaultServiceType = isWinBrosTenant ? 'window cleaning' : 'Standard cleaning'
+              // Default service type based on tenant and booking data
+              const defaultServiceType = isWinBrosTenant
+                ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
+                : 'Standard cleaning'
 
               // Create job
               const { data: newJob, error: jobError } = await client.from("jobs").insert({
@@ -1207,6 +1280,25 @@ export async function POST(request: NextRequest) {
                 })
               }
               console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
+
+              // Sync to HouseCall Pro
+              if (tenant) {
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: newJob.id,
+                  phone,
+                  firstName: customer.first_name,
+                  lastName: customer.last_name,
+                  email: finalEmail || customer.email || null,
+                  address: bookingData.address || customer.address || null,
+                  serviceType: bookingData.serviceType || null,
+                  scheduledDate: bookingData.preferredDate || null,
+                  scheduledTime: bookingData.preferredTime || null,
+                  price: servicePrice,
+                  notes: `Booked via SMS`,
+                  source: 'sms',
+                })
+              }
 
               // Update lead to booked
               await client
@@ -1551,22 +1643,29 @@ export async function POST(request: NextRequest) {
     } else if (lead?.id) {
       console.log(`[OpenPhone] Lead created: ${lead.id}`)
 
-      // Create lead in HousecallPro for two-way sync
+      // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
       const hcpResult = await createLeadInHCP({
         firstName: firstName || undefined,
         lastName: lastName || undefined,
         phone,
+        email: customer.email || undefined,
         address: intentResult.extractedInfo.address || customer.address || undefined,
-        notes: `SMS Inquiry: "${combinedMessage}"`,
+        notes: `SMS Inquiry: "${combinedMessage}"\nSource: OpenPhone SMS\nOSIRIS Lead ID: ${lead.id}`,
         source: "sms",
-      })
+      }, tenant)
 
       if (hcpResult.success) {
         console.log(`[OpenPhone] Lead synced to HCP: ${hcpResult.leadId}`)
-        // Update lead with HCP ID
+        // Update lead with HCP ID and HCP customer ID
+        const updateData: Record<string, string> = {
+          source_id: hcpResult.leadId || `sms-${Date.now()}`,
+        }
+        if (hcpResult.customerId) {
+          updateData.hcp_customer_id = hcpResult.customerId
+        }
         await client
           .from("leads")
-          .update({ source_id: hcpResult.leadId || `sms-${Date.now()}` })
+          .update(updateData)
           .eq("id", lead.id)
       } else {
         console.warn("[OpenPhone] Failed to sync lead to HCP:", hcpResult.error)

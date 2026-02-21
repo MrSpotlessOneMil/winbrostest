@@ -7,7 +7,7 @@ import { createDepositPaymentLink } from "@/lib/stripe-client"
 import { getClientConfig } from "@/lib/client-config"
 import { logSystemEvent } from "@/lib/system-events"
 import { toE164 } from "@/lib/phone-utils"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getDefaultTenant, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
 
 interface LeadFollowupPayload {
   leadId: string
@@ -74,7 +74,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, skipped: true, reason: `Lead ${lead.status}` })
   }
 
-  const config = getClientConfig(lead.brand)
+  // Look up tenant from lead's brand for dynamic business name
+  const tenant = lead.brand ? await getTenantBySlug(lead.brand) : null
+  const businessName = tenant ? getTenantBusinessName(tenant) : getClientConfig(lead.brand).businessName
   const firstName = leadName || lead.first_name || "there"
 
   try {
@@ -84,7 +86,7 @@ export async function POST(request: NextRequest) {
     switch (stage) {
       case 1:
         // Stage 1: Send initial follow-up SMS
-        result = await executeStage1(leadPhone, firstName, config.businessName, lead.brand, lead.customer_id)
+        result = await executeStage1(leadPhone, firstName, businessName, lead.brand, lead.customer_id)
         await updateLeadAfterOutreach(leadId, lead, { smsIncrement: 1, stage: 1 })
         break
 

@@ -28,7 +28,7 @@ import type { Job } from '@/lib/supabase'
 import { sendUrgentFollowUp, notifyCleanerAssignment } from '@/lib/telegram'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getClientConfig } from '@/lib/client-config'
+import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 
 const STANDARD_TIMEOUT_MINUTES = 30
 const URGENT_TIMEOUT_MINUTES = 15
@@ -296,11 +296,16 @@ async function executeCheckTimeouts(request: NextRequest) {
               : 'TBD'
 
             const customerMessage = `We're still confirming your cleaner for ${dateStr}. We'll update you shortly!`
-            await sendSMS(customer.phone_number, customerMessage)
-            const config = getClientConfig()
+            const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+            if (jobTenant) {
+              await sendSMS(jobTenant, customer.phone_number, customerMessage)
+            } else {
+              await sendSMS(customer.phone_number, customerMessage)
+            }
+            const businessNameShort = jobTenant ? getTenantBusinessName(jobTenant, true) : 'Team'
             await appendToTextingTranscript(
               customer.phone_number,
-              `[${new Date().toISOString()}] ${config.businessNameShort}: ${customerMessage}`
+              `[${new Date().toISOString()}] ${businessNameShort}: ${customerMessage}`
             )
 
             await logSystemEvent({

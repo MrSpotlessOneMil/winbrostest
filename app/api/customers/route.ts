@@ -2,6 +2,76 @@ import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
+export async function DELETE(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  const tenant = await getAuthTenant(request)
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
+  }
+
+  const { searchParams } = new URL(request.url)
+  const customerId = searchParams.get("id")
+  if (!customerId) {
+    return NextResponse.json({ success: false, error: "Missing customer id" }, { status: 400 })
+  }
+
+  const client = await getTenantScopedClient(tenant.id)
+
+  // Fetch the customer first to get phone_number (for related data cleanup)
+  const { data: customer, error: fetchError } = await client
+    .from("customers")
+    .select("phone_number")
+    .eq("id", customerId)
+    .single()
+
+  if (fetchError || !customer) {
+    return NextResponse.json({ success: false, error: "Customer not found" }, { status: 404 })
+  }
+
+  const phone = customer.phone_number
+  const custId = parseInt(customerId)
+
+  // Get all job IDs for this customer (needed to clean up job-dependent tables)
+  const { data: customerJobs } = await client
+    .from("jobs")
+    .select("id")
+    .or(`customer_id.eq.${custId},customer_phone.eq.${phone}`)
+  const jobIds = (customerJobs || []).map((j: { id: number }) => j.id)
+
+  // Delete in FK-safe order: deepest dependencies first
+  if (jobIds.length > 0) {
+    await client.from("reviews").delete().in("job_id", jobIds)
+    await client.from("tips").delete().in("job_id", jobIds)
+    await client.from("upsells").delete().in("job_id", jobIds)
+  }
+  // Also delete reviews linked directly to customer
+  await client.from("reviews").delete().eq("customer_id", custId)
+
+  // Delete messages and calls (reference customer_id, job_id, lead_id)
+  await client.from("messages").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+  await client.from("calls").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+
+  // Delete leads (references customer_id and converted_to_job_id)
+  await client.from("leads").delete().or(`customer_id.eq.${custId},phone_number.eq.${phone}`)
+
+  // Delete jobs
+  await client.from("jobs").delete().or(`customer_id.eq.${custId},customer_phone.eq.${phone}`)
+
+  // Delete the customer
+  const { error: deleteError } = await client
+    .from("customers")
+    .delete()
+    .eq("id", customerId)
+
+  if (deleteError) {
+    return NextResponse.json({ success: false, error: deleteError.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true })
+}
+
 export async function GET(request: NextRequest) {
   const authResult = await requireAuth(request)
   if (authResult instanceof NextResponse) return authResult

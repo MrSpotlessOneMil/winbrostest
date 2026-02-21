@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2 } from "lucide-react"
+import { Send, Loader2, Trash2 } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -118,6 +118,7 @@ export default function CustomersPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [smsMessage, setSmsMessage] = useState("")
   const [sendingSms, setSendingSms] = useState(false)
+  const [deletingCustomer, setDeletingCustomer] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -134,7 +135,9 @@ export default function CustomersPage() {
           setLeads(json.data.leads || [])
           setScheduledTasks(json.data.scheduledTasks || [])
           if (json.data.customers.length > 0) {
-            setSelectedCustomer(json.data.customers[0])
+            const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
+            const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
+            setSelectedCustomer(restored || json.data.customers[0])
           }
         }
       } catch (error) {
@@ -299,6 +302,35 @@ export default function CustomersPage() {
     }
   }
 
+  // Handle delete customer
+  const handleDeleteCustomer = async () => {
+    if (!selectedCustomer) return
+    const name = getCustomerName(selectedCustomer)
+    if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return
+
+    setDeletingCustomer(true)
+    try {
+      const res = await fetch(`/api/customers?id=${selectedCustomer.id}`, { method: "DELETE" })
+      const json = await res.json()
+      if (!json.success) {
+        alert(json.error || "Failed to delete customer")
+        return
+      }
+      // Remove from local state
+      const remaining = customers.filter((c) => c.id !== selectedCustomer.id)
+      setCustomers(remaining)
+      setMessages((prev) => prev.filter((m) => normalizePhone(m.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setCalls((prev) => prev.filter((c) => normalizePhone(c.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setLeads((prev) => prev.filter((l) => normalizePhone(l.phone_number) !== normalizePhone(selectedCustomer.phone_number)))
+      setSelectedCustomer(remaining.length > 0 ? remaining[0] : null)
+    } catch (error) {
+      console.error("Failed to delete customer:", error)
+      alert("Failed to delete customer")
+    } finally {
+      setDeletingCustomer(false)
+    }
+  }
+
   // Handle toggle auto-response on/off - with optimistic update
   const handleToggleFollowup = async (paused: boolean) => {
     if (!selectedCustomer) return
@@ -380,8 +412,15 @@ export default function CustomersPage() {
       items.push({ type: "call", timestamp: call.created_at, data: call })
     })
 
-    // Sort by timestamp ascending
-    items.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    // Sort by timestamp ascending; calls before messages when timestamps tie
+    items.sort((a, b) => {
+      const diff = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      if (diff !== 0) return diff
+      // Same timestamp: calls come before messages (call triggers the text)
+      if (a.type === "call" && b.type !== "call") return -1
+      if (a.type !== "call" && b.type === "call") return 1
+      return 0
+    })
     return items
   }
 
@@ -426,6 +465,15 @@ export default function CustomersPage() {
         setTimeout(() => {
           messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
         }, 100)
+        // Reset followup timer: push pending tasks 30 min from now so the bot doesn't double-text
+        const lead = getCustomerLead(selectedCustomer.phone_number)
+        if (lead?.id) {
+          fetch(`/api/leads/${lead.id}/actions`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "reschedule_after_contact" }),
+          }).catch(() => {})
+        }
       } else {
         alert(json.error || "Failed to send message")
       }
@@ -518,6 +566,7 @@ export default function CustomersPage() {
                         key={customer.id}
                         onClick={() => {
                           setSelectedCustomer(customer)
+                          if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
                           setActiveTab("messages")
                         }}
                         className={`w-full text-left px-4 py-3 border-b border-zinc-800/50 ${
@@ -578,6 +627,16 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Delete Customer */}
+                      <button
+                        onClick={handleDeleteCustomer}
+                        disabled={deletingCustomer}
+                        className="p-1.5 rounded text-zinc-500 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                        title="Delete customer"
+                      >
+                        {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+
                       {/* Auto-Response Toggle */}
                       {getCustomerLead(selectedCustomer.phone_number) && (
                         <div className="flex items-center gap-2">
