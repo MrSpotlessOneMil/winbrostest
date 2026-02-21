@@ -3,12 +3,12 @@ import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenP
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
-import { createLeadInHCP, updateHCPCustomer } from "@/lib/housecall-pro-api"
+import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
-import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
+import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
 export async function POST(request: NextRequest) {
   const signature =
@@ -768,19 +768,14 @@ export async function POST(request: NextRequest) {
 
           // Sync corrections to HousecallPro
           if (tenant) {
-            const { data: custRow } = await client
-              .from("customers")
-              .select("housecall_pro_customer_id")
-              .eq("id", customer.id)
-              .maybeSingle()
-            if (custRow?.housecall_pro_customer_id) {
-              await updateHCPCustomer(tenant, custRow.housecall_pro_customer_id, {
-                firstName: correctedData.firstName || undefined,
-                lastName: correctedData.lastName || undefined,
-                address: correctedData.address || undefined,
-              })
-              console.log(`[OpenPhone] Synced corrections to HCP customer ${custRow.housecall_pro_customer_id}`)
-            }
+            await syncCustomerToHCP({
+              tenantId: tenant.id,
+              customerId: customer.id,
+              phone,
+              firstName: correctedData.firstName,
+              lastName: correctedData.lastName,
+              address: correctedData.address,
+            })
           }
         }
       } catch (extractErr) {
@@ -1186,20 +1181,15 @@ export async function POST(request: NextRequest) {
 
                 // Sync customer updates to HousecallPro
                 if (tenant) {
-                  const { data: custRow } = await client
-                    .from("customers")
-                    .select("housecall_pro_customer_id")
-                    .eq("id", customer.id)
-                    .maybeSingle()
-                  if (custRow?.housecall_pro_customer_id) {
-                    await updateHCPCustomer(tenant, custRow.housecall_pro_customer_id, {
-                      firstName: bookingData.firstName || customer.first_name,
-                      lastName: bookingData.lastName || customer.last_name,
-                      email: finalEmail,
-                      address: bookingData.address || customer.address,
-                    })
-                    console.log(`[OpenPhone] Synced booking customer updates to HCP customer ${custRow.housecall_pro_customer_id}`)
-                  }
+                  await syncCustomerToHCP({
+                    tenantId: tenant.id,
+                    customerId: customer.id,
+                    phone,
+                    firstName: bookingData.firstName || customer.first_name,
+                    lastName: bookingData.lastName || customer.last_name,
+                    email: finalEmail,
+                    address: bookingData.address || customer.address,
+                  })
                 }
               }
 

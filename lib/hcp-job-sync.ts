@@ -6,7 +6,7 @@
 
 import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
-import type { Tenant } from './tenant'
+import { getTenantById, type Tenant } from './tenant'
 
 export async function syncNewJobToHCP(params: {
   tenant: Tenant
@@ -338,4 +338,65 @@ function matchCleanerAssignmentsToHcpEmployees(
   }
 
   return [...matched].filter((id) => employeeById.has(id))
+}
+
+/**
+ * Sync a customer's current OSIRIS data to HousecallPro.
+ * Call this after ANY customer name/email/address change to keep HCP in sync.
+ * Finds or creates the HCP customer by phone, then pushes current OSIRIS fields.
+ */
+export async function syncCustomerToHCP(params: {
+  tenantId: string
+  customerId: number
+  phone: string
+  firstName?: string | null
+  lastName?: string | null
+  email?: string | null
+  address?: string | null
+}): Promise<void> {
+  try {
+    const tenant = await getTenantById(params.tenantId)
+    if (!tenant?.housecall_pro_api_key) return
+
+    const client = getSupabaseServiceClient()
+
+    // Check if we already have an HCP customer ID stored
+    const { data: custRow } = await client
+      .from('customers')
+      .select('housecall_pro_customer_id')
+      .eq('id', params.customerId)
+      .maybeSingle()
+
+    let hcpCustomerId = custRow?.housecall_pro_customer_id as string | null
+
+    if (!hcpCustomerId) {
+      // Find or create customer in HCP by phone
+      const result = await findOrCreateHCPCustomer(tenant, {
+        firstName: params.firstName || undefined,
+        lastName: params.lastName || undefined,
+        phone: params.phone,
+        email: params.email || undefined,
+        address: params.address || undefined,
+      })
+      if (!result.success || !result.customerId) return
+      hcpCustomerId = result.customerId
+
+      // Store the HCP customer ID locally
+      await client
+        .from('customers')
+        .update({ housecall_pro_customer_id: hcpCustomerId })
+        .eq('id', params.customerId)
+    }
+
+    // Push current OSIRIS data to HCP
+    await updateHCPCustomer(tenant, hcpCustomerId, {
+      firstName: params.firstName || undefined,
+      lastName: params.lastName || undefined,
+      email: params.email || undefined,
+      address: params.address || undefined,
+    })
+    console.log(`[HCP Sync] Customer ${params.customerId} synced to HCP customer ${hcpCustomerId}`)
+  } catch (err) {
+    console.error(`[HCP Sync] Failed to sync customer ${params.customerId} to HCP:`, err)
+  }
 }

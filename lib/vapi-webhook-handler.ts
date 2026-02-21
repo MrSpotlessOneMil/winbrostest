@@ -8,7 +8,7 @@ import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
-import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
+import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 
@@ -166,6 +166,18 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             address: address || undefined,
           })
           .eq("id", customerId)
+
+        // Sync customer name/address to HCP
+        if (tenant && phone) {
+          await syncCustomerToHCP({
+            tenantId: tenant.id,
+            customerId,
+            phone,
+            firstName,
+            lastName,
+            address,
+          })
+        }
       }
 
       // Determine if this should create a lead
