@@ -138,6 +138,57 @@ export async function syncNewJobToHCP(params: {
     }
     const hcpAddressId = hcpCustomer.addressId
 
+    // Store HCP customer ID on local customer record for future sync
+    const customerId = customer?.id ?? (jobRow as any)?.customer_id
+    if (customerId && hcpCustomer.customerId) {
+      const existingHcpCustId = customer?.housecall_pro_customer_id
+      if (!existingHcpCustId || existingHcpCustId !== hcpCustomer.customerId) {
+        await client
+          .from('customers')
+          .update({ housecall_pro_customer_id: hcpCustomer.customerId })
+          .eq('id', customerId)
+        console.log(`[HCP Sync] Stored HCP customer ID ${hcpCustomer.customerId} on customer ${customerId}`)
+      }
+    }
+
+    // Also ensure customer_phone is set on the job row
+    await client
+      .from('jobs')
+      .update({ customer_phone: phone })
+      .eq('id', jobId)
+      .is('customer_phone', null)
+
+    // Create HCP Lead for this booking (so it shows as Customer + Job + Lead in HCP)
+    const { data: localLead } = await client
+      .from('leads')
+      .select('id, housecall_pro_lead_id')
+      .eq('phone_number', phone)
+      .eq('tenant_id', tenant.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (localLead && !localLead.housecall_pro_lead_id) {
+      const hcpLead = await createHCPLead(tenant, {
+        firstName,
+        lastName,
+        phone,
+        email,
+        address,
+        notes: `OSIRIS Job ID: ${jobId}`,
+        source: 'api',
+      })
+      if (hcpLead.success && hcpLead.leadId) {
+        await client
+          .from('leads')
+          .update({ housecall_pro_lead_id: hcpLead.leadId })
+          .eq('id', localLead.id)
+        console.log(`[HCP Sync] Created HCP lead ${hcpLead.leadId} for local lead ${localLead.id}`)
+      } else {
+        console.warn(`[HCP Sync] Failed to create HCP lead for job ${jobId}: ${hcpLead.error}`)
+      }
+    }
+
     // Resolve HCP employees from assigned cleaners so the job lands on the right HCP calendar.
     let assignedEmployeeIds: string[] = []
     if (assignedCleaners.length > 0) {

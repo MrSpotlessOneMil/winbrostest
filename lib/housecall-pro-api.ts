@@ -1091,6 +1091,52 @@ export async function updateHCPLeadStatus(
 }
 
 /**
+ * Update an existing customer in HousecallPro (name, email, address, etc.)
+ * Used when customer corrects their info via SMS or other channels.
+ */
+export async function updateHCPCustomer(
+  tenant: Tenant,
+  hcpCustomerId: string,
+  updates: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    address?: string
+  }
+): Promise<{ success: boolean; error?: string }> {
+  console.log(`[HCP API] Updating customer ${hcpCustomerId}`)
+
+  const body: Record<string, unknown> = {}
+  if (updates.firstName !== undefined) body.first_name = updates.firstName
+  if (updates.lastName !== undefined) body.last_name = updates.lastName
+  if (updates.email !== undefined) body.email = updates.email
+  if (updates.phone !== undefined) body.mobile_number = updates.phone
+
+  if (Object.keys(body).length === 0 && !updates.address) {
+    return { success: true } // Nothing to update
+  }
+
+  const result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
+    method: 'PUT',
+    body,
+  })
+
+  if (!result.success) {
+    console.error(`[HCP API] Failed to update customer ${hcpCustomerId}: ${result.error}`)
+    return { success: false, error: result.error }
+  }
+
+  // If address provided, ensure it exists on the customer
+  if (updates.address) {
+    await ensureCustomerAddressId(tenant, hcpCustomerId, result.data?.addresses, updates.address)
+  }
+
+  console.log(`[HCP API] Customer ${hcpCustomerId} updated`)
+  return { success: true }
+}
+
+/**
  * Convenience wrapper — uses provided tenant or falls back to default
  */
 export async function createLeadInHCP(

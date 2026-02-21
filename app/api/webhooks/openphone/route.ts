@@ -3,7 +3,7 @@ import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenP
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
-import { createLeadInHCP } from "@/lib/housecall-pro-api"
+import { createLeadInHCP, updateHCPCustomer } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
@@ -765,6 +765,23 @@ export async function POST(request: NextRequest) {
             await client.from("jobs").update({ address: correctedData.address }).eq("id", bookedLead.converted_to_job_id)
           }
           console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
+
+          // Sync corrections to HousecallPro
+          if (tenant) {
+            const { data: custRow } = await client
+              .from("customers")
+              .select("housecall_pro_customer_id")
+              .eq("id", customer.id)
+              .maybeSingle()
+            if (custRow?.housecall_pro_customer_id) {
+              await updateHCPCustomer(tenant, custRow.housecall_pro_customer_id, {
+                firstName: correctedData.firstName || undefined,
+                lastName: correctedData.lastName || undefined,
+                address: correctedData.address || undefined,
+              })
+              console.log(`[OpenPhone] Synced corrections to HCP customer ${custRow.housecall_pro_customer_id}`)
+            }
+          }
         }
       } catch (extractErr) {
         console.error("[OpenPhone] Error extracting corrections:", extractErr)
@@ -1166,6 +1183,24 @@ export async function POST(request: NextRequest) {
                     address: bookingData.address || customer.address,
                   })
                   .eq("id", customer.id)
+
+                // Sync customer updates to HousecallPro
+                if (tenant) {
+                  const { data: custRow } = await client
+                    .from("customers")
+                    .select("housecall_pro_customer_id")
+                    .eq("id", customer.id)
+                    .maybeSingle()
+                  if (custRow?.housecall_pro_customer_id) {
+                    await updateHCPCustomer(tenant, custRow.housecall_pro_customer_id, {
+                      firstName: bookingData.firstName || customer.first_name,
+                      lastName: bookingData.lastName || customer.last_name,
+                      email: finalEmail,
+                      address: bookingData.address || customer.address,
+                    })
+                    console.log(`[OpenPhone] Synced booking customer updates to HCP customer ${custRow.housecall_pro_customer_id}`)
+                  }
+                }
               }
 
               // Determine price — for WinBros, ALWAYS use pricebook, NEVER AI-extracted prices
