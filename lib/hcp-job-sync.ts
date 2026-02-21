@@ -4,7 +4,7 @@
  * to mirror it into HCP. Skips gracefully if HCP is not configured for the tenant.
  */
 
-import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPJob } from './housecall-pro-api'
+import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
 import type { Tenant } from './tenant'
 
@@ -137,6 +137,16 @@ export async function syncNewJobToHCP(params: {
       return
     }
     const hcpAddressId = hcpCustomer.addressId
+
+    // Always push current OSIRIS name/email/address to HCP so it stays in sync
+    if (firstName || lastName || email || address) {
+      await updateHCPCustomer(tenant, hcpCustomer.customerId, {
+        firstName: firstName || undefined,
+        lastName: lastName || undefined,
+        email: email || undefined,
+        address: address || undefined,
+      })
+    }
 
     // Store HCP customer ID on local customer record for future sync
     const customerId = customer?.id ?? (jobRow as any)?.customer_id
