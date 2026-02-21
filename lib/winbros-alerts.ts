@@ -347,34 +347,21 @@ export async function getAlertsSummary(): Promise<{
 }
 
 /**
- * Notify owner about an alert via Telegram and/or SMS
+ * Notify owner about an alert via SMS
  */
 async function notifyOwner(alert: CreateAlertInput): Promise<void> {
-  const ownerTelegramChatId = process.env.OWNER_TELEGRAM_CHAT_ID
   const ownerPhone = process.env.OWNER_PHONE_WINBROS || process.env.OWNER_PHONE
 
-  // Send Telegram alert (preferred)
-  if (ownerTelegramChatId) {
-    try {
-      const { sendTelegramMessage } = await import('./telegram')
-      await sendTelegramMessage(ownerTelegramChatId, `[WinBros Alert]\n${alert.message}`)
-    } catch (error) {
-      console.error('[Alerts] Failed to send Telegram owner notification:', error)
-    }
+  if (!ownerPhone) {
+    console.log('[Alerts] No owner phone configured (set OWNER_PHONE_WINBROS or OWNER_PHONE)')
+    return
   }
 
-  // Also send SMS if configured
-  if (ownerPhone) {
-    try {
-      const { sendSMS } = await import('./openphone')
-      await sendSMS(ownerPhone, `[WinBros Alert]\n${alert.message}`)
-    } catch (error) {
-      console.error('[Alerts] Failed to send SMS owner notification:', error)
-    }
-  }
-
-  if (!ownerTelegramChatId && !ownerPhone) {
-    console.log('[Alerts] No owner notification channel configured (set OWNER_TELEGRAM_CHAT_ID or OWNER_PHONE)')
+  try {
+    const { sendSMS } = await import('./openphone')
+    await sendSMS(ownerPhone, `[WinBros Alert]\n${alert.message}`)
+  } catch (error) {
+    console.error('[Alerts] Failed to send SMS owner notification:', error)
   }
 }
 
