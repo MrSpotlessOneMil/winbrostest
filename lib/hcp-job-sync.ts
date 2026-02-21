@@ -4,7 +4,7 @@
  * to mirror it into HCP. Skips gracefully if HCP is not configured for the tenant.
  */
 
-import { createHCPJob, findOrCreateHCPCustomer, listHCPEmployees, updateHCPJob } from './housecall-pro-api'
+import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPJob } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
 import type { Tenant } from './tenant'
 
@@ -48,11 +48,13 @@ export async function syncNewJobToHCP(params: {
         team_id,
         housecall_pro_job_id,
         customers (
+          id,
           first_name,
           last_name,
           email,
           phone_number,
-          address
+          address,
+          housecall_pro_customer_id
         ),
         cleaner_assignments (
           status,
