@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { safeJsonParse } from '@/lib/json-utils'
-import { getVapiAvailabilityResponse } from '@/lib/vapi-choose-team'
 import { isRecord, extractPayload, resolveTenantFromCall } from '@/lib/vapi-utils'
+import { scheduleEstimate } from '@/lib/vapi-estimate-scheduler'
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text()
@@ -18,6 +18,6 @@ export async function POST(request: NextRequest) {
   const tenantId = await resolveTenantFromCall(request)
 
   const payload = extractPayload(parsed.value)
-  const response = await getVapiAvailabilityResponse(payload, tenantId)
+  const response = await scheduleEstimate(payload, tenantId)
   return NextResponse.json(response)
 }

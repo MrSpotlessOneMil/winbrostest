@@ -75,7 +75,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
  * Assumes ~30 km/h average city speed + 5 min fixed overhead (lights, turns, etc.).
  * Used as a fallback when Google Maps is not available.
  */
-function haversineMinutes(lat1: number, lng1: number, lat2: number, lng2: number): number {
+export function haversineMinutes(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const km = haversineKm(lat1, lng1, lat2, lng2)
   return Math.max(1, Math.round((km / 30) * 60) + 5)
 }
