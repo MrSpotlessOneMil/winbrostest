@@ -440,9 +440,12 @@ export async function scheduleEstimate(
 
   console.log(`${LOG} Phase 1: All 8am slots filled. Moving to Phase 2...`)
 
-  // ── Phase 2: Travel-optimized slotting ───────────────────────
+  // ── Phase 2: Travel-optimized slotting (no gaps) ─────────────
+  //
+  // For each salesman × date, only consider the FIRST available slot.
+  // This packs appointments front-to-back with zero gaps — new estimates
+  // always go right after the last scheduled appointment.
 
-  // Build candidate slots across all dates
   const candidates: CandidateSlot[] = []
 
   for (let dateIdx = 0; dateIdx < allDates.length; dateIdx++) {
@@ -453,50 +456,48 @@ export async function scheduleEstimate(
       if (blockedDatesMap.get(salesman.id)?.has(date)) continue
 
       const dayJobs = scheduleMap.get(salesman.id)?.get(date) || []
-      const jobCount = dayJobs.length
 
       // Check max jobs per day
-      if (jobCount >= salesman.maxJobsPerDay) continue
+      if (dayJobs.length >= salesman.maxJobsPerDay) continue
 
-      // Build set of occupied time slots for this salesman on this date
+      // Build set of occupied time slots
       const occupiedSlots = new Set<number>()
       for (const job of dayJobs) {
-        // Mark the job's slot and the duration (30 min)
         occupiedSlots.add(job.timeMinutes)
       }
 
-      // Try every possible slot
+      // Find the FIRST available slot — walk from 8am forward, take the earliest open one
+      let firstAvailableSlot: number | null = null
       for (let slotMin = SLOT_START_MINUTES; slotMin <= LAST_SLOT_MINUTES; slotMin += SLOT_STEP_MINUTES) {
-        // Skip if occupied
         if (occupiedSlots.has(slotMin)) continue
-
-        // Skip same-day past slots (need at least 90 min buffer from now)
         if (date === todayStr && slotMin <= nowMinutes + 90) continue
-
-        // Determine origin: previous job's location, or salesman's home
-        let originLat = salesman.homeLat
-        let originLng = salesman.homeLng
-
-        // Find the job immediately before this slot
-        const precedingJobs = dayJobs.filter((j) => j.timeMinutes < slotMin)
-        if (precedingJobs.length > 0) {
-          const prevJob = precedingJobs[precedingJobs.length - 1]
-          if (prevJob.lat && prevJob.lng) {
-            originLat = prevJob.lat
-            originLng = prevJob.lng
-          }
-          // If previous job has no coords, fall back to salesman home
-        }
-
-        candidates.push({
-          salesmanId: salesman.id,
-          salesmanName: salesman.name,
-          date,
-          timeMinutes: slotMin,
-          originLat,
-          originLng,
-        })
+        firstAvailableSlot = slotMin
+        break
       }
+
+      if (firstAvailableSlot === null) continue
+
+      // Determine origin: previous job's location, or salesman's home
+      let originLat = salesman.homeLat
+      let originLng = salesman.homeLng
+
+      const precedingJobs = dayJobs.filter((j) => j.timeMinutes < firstAvailableSlot!)
+      if (precedingJobs.length > 0) {
+        const prevJob = precedingJobs[precedingJobs.length - 1]
+        if (prevJob.lat && prevJob.lng) {
+          originLat = prevJob.lat
+          originLng = prevJob.lng
+        }
+      }
+
+      candidates.push({
+        salesmanId: salesman.id,
+        salesmanName: salesman.name,
+        date,
+        timeMinutes: firstAvailableSlot,
+        originLat,
+        originLng,
+      })
     }
   }
 
@@ -557,15 +558,15 @@ export async function scheduleEstimate(
     }
   }
 
-  // Score each candidate
+  // Score each candidate (one per salesman per day — the first available slot)
+  // Since slots are packed front-to-back, scoring decides which salesman on which day.
   for (const c of candidates) {
     const key = `${c.originLat.toFixed(6)},${c.originLng.toFixed(6)}`
     c.driveTimeMinutes = driveTimeLookup.get(key) ?? haversineMinutes(c.originLat, c.originLng, customerLat, customerLng)
 
-    // Find the date index for day offset
     const dayOffset = allDates.indexOf(c.date)
 
-    // Score: heavily weight travel time, then prefer earlier days, then earlier times
+    // Prefer shorter drive, then earlier day, then earlier time
     c.score = c.driveTimeMinutes + dayOffset * 60 + c.timeMinutes * 0.1
   }
 
