@@ -602,6 +602,11 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   if (job && job.payment_status === 'deposit_paid') {
     assignmentOutcome = 'already_assigned_via_deposit'
     console.log(`[Stripe Webhook] Job ${actualJobId} already has deposit_paid status — skipping redundant assignment`)
+  } else if (job && (job as any).job_type === 'estimate') {
+    // WinBros estimate jobs should never trigger route optimization from Stripe
+    // (salesman handles estimates, not the payment flow)
+    assignmentOutcome = 'skipped_estimate'
+    console.log(`[Stripe Webhook] Job ${actualJobId} is an estimate — skipping route optimization`)
   } else if (job) {
     if (useRouteOptimization) {
       // WinBros flow: full route optimization across all teams for this day

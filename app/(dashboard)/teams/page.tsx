@@ -33,12 +33,15 @@ import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-backg
 import { MessageBubble } from "@/components/message-bubble"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
+type EmployeeType = "technician" | "salesman"
+
 type MemberDetail = {
   id: string
   name: string
   phone: string
   telegram_id?: string
-  role: "lead" | "technician"
+  role: "lead" | "technician" | "salesman"
+  employee_type?: EmployeeType
   is_active: boolean
   last_location_lat?: number | null
   last_location_lng?: number | null
@@ -84,6 +87,7 @@ export default function TeamsPage() {
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState<EmployeeType>("technician")
 
   // Chat panel state — persist selected member across reloads
   const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(() => {
@@ -104,7 +108,7 @@ export default function TeamsPage() {
     setLoadError(null)
     try {
       const today = new Date().toISOString().slice(0, 10)
-      const res = await fetch(`/api/teams?include_metrics=true&date=${today}`, { cache: "no-store" })
+      const res = await fetch(`/api/teams?include_metrics=true&date=${today}&employee_type=${employeeTypeFilter}`, { cache: "no-store" })
       const json = (await res.json()) as ApiResponse<any[]> & { unassigned_cleaners?: any[] }
       if (!json.success && json.error) {
         setLoadError(json.error)
@@ -165,7 +169,7 @@ export default function TeamsPage() {
     let cancelled = false
     loadTeams().then(() => { if (cancelled) setTeams([]) })
     return () => { cancelled = true }
-  }, [])
+  }, [employeeTypeFilter])
 
   // Persist selected chat member to localStorage
   useEffect(() => {
@@ -300,12 +304,39 @@ export default function TeamsPage() {
           <h1 className="text-2xl font-semibold text-foreground">Teams</h1>
           <p className="text-sm text-muted-foreground">Real-time crew tracking and performance</p>
         </div>
-        <Button asChild>
-          <Link href="/teams/manage">
-            <Users className="mr-2 h-4 w-4" />
-            Manage Teams
-          </Link>
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Employee type toggle */}
+          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+            <button
+              onClick={() => setEmployeeTypeFilter("technician")}
+              className={cn(
+                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+                employeeTypeFilter === "technician"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Technicians
+            </button>
+            <button
+              onClick={() => setEmployeeTypeFilter("salesman")}
+              className={cn(
+                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
+                employeeTypeFilter === "salesman"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Salesmen
+            </button>
+          </div>
+          <Button asChild>
+            <Link href="/teams/manage">
+              <Users className="mr-2 h-4 w-4" />
+              Manage Teams
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Summary Stats - compact row */}

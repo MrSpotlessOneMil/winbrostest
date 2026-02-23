@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams
   const include_metrics = searchParams.get("include_metrics") === "true"
+  const employeeTypeFilter = searchParams.get("employee_type") as 'technician' | 'salesman' | null
 
 
   // Get tenant for multi-tenant filtering
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
   // Load teams and their members (cleaners) including location fields
   let teamsQuery = client
     .from("teams")
-    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
+    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
     .eq("active", true)
     .order("created_at", { ascending: true })
   if (tenant) teamsQuery = teamsQuery.eq("tenant_id", tenant.id)
@@ -85,6 +86,8 @@ export async function GET(request: NextRequest) {
       .map((tm: any) => {
         const c = tm.cleaners
         if (!c || !c.active) return null
+        // Filter by employee_type if specified
+        if (employeeTypeFilter && (c.employee_type || 'technician') !== employeeTypeFilter) return null
         // Skip if already assigned to another team (handles stale duplicate rows)
         if (assignedCleanerIds.has(Number(c.id))) return null
         assignedCleanerIds.add(Number(c.id))
@@ -93,7 +96,8 @@ export async function GET(request: NextRequest) {
           name: String(c.name || "Cleaner"),
           phone: String(c.phone || ""),
           telegram_id: c.telegram_id || undefined,
-          role: tm.role === "lead" ? "lead" : "technician",
+          role: tm.role === "lead" ? "lead" : (c.employee_type || "technician"),
+          employee_type: c.employee_type || "technician",
           team_id: teamId,
           is_active: true,
           last_location_lat: c.last_location_lat ?? null,
@@ -132,11 +136,12 @@ export async function GET(request: NextRequest) {
   // Load unassigned cleaners (active cleaners not in any team)
   let unassignedQuery = client
     .from("cleaners")
-    .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
+    .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
     .eq("active", true)
     .is("deleted_at", null)
     .order("name")
   if (tenant) unassignedQuery = unassignedQuery.eq("tenant_id", tenant.id)
+  if (employeeTypeFilter) unassignedQuery = unassignedQuery.eq("employee_type", employeeTypeFilter)
   const unassignedRes = await unassignedQuery
 
   if (unassignedRes.error) {
@@ -151,7 +156,8 @@ export async function GET(request: NextRequest) {
       name: String(c.name || "Cleaner"),
       phone: String(c.phone || ""),
       telegram_id: c.telegram_id || undefined,
-      role: c.is_team_lead ? "lead" : "technician",
+      role: c.is_team_lead ? "lead" : (c.employee_type || "technician"),
+      employee_type: c.employee_type || "technician",
       team_id: null,
       is_active: Boolean(c.active),
       last_location_lat: c.last_location_lat ?? null,
@@ -160,12 +166,17 @@ export async function GET(request: NextRequest) {
       last_location_updated_at: c.last_location_updated_at ?? null,
     }))
 
-  console.log(`[Teams API] tenant=${tenant?.slug || 'admin'} teams=${teamsBase.length} assigned=${assignedCleanerIds.size} allCleaners=${allCleaners.length} unassigned=${unassignedCleaners.length}`)
+  // Filter out teams with no members when employee_type filter is active
+  const filteredTeams = employeeTypeFilter
+    ? teamsBase.filter((t) => t.members.length > 0)
+    : teamsBase
+
+  console.log(`[Teams API] tenant=${tenant?.slug || 'admin'} teams=${filteredTeams.length} assigned=${assignedCleanerIds.size} allCleaners=${allCleaners.length} unassigned=${unassignedCleaners.length}${employeeTypeFilter ? ` filter=${employeeTypeFilter}` : ''}`)
 
 
-  let teamsWithMetrics: any[] = teamsBase
+  let teamsWithMetrics: any[] = filteredTeams
   if (include_metrics) {
-    teamsWithMetrics = teamsBase.map((team) => {
+    teamsWithMetrics = filteredTeams.map((team) => {
       const teamJobs = jobsByTeam.get(Number(team.id)) || []
       const completed = teamJobs.filter((j) => String(j.status) === "completed")
       const scheduled = teamJobs.filter((j) => String(j.status) === "scheduled" || String(j.status) === "in_progress")
