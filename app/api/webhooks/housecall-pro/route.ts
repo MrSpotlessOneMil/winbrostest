@@ -202,12 +202,31 @@ export async function POST(request: NextRequest) {
           const hcpJobId = (job as any)?.id || (data as any)?.job?.id
           const jobAddress = address || ((job as any)?.address ? formatHCPAddress((job as any).address) : null)
 
-          await client.from("jobs").insert({
+          // Dedup: check if we already have this HCP job mirrored
+          const { data: existingHcpJob } = hcpJobId
+            ? await client.from("jobs").select("id").eq("housecall_pro_job_id", String(hcpJobId)).maybeSingle()
+            : { data: null }
+          if (existingHcpJob) {
+            console.log(`[OSIRIS] HCP Webhook: Job ${hcpJobId} already exists in OSIRIS (id: ${existingHcpJob.id}), skipping duplicate`)
+            break
+          }
+
+          // Detect if this is an estimate job (tagged by OSIRIS when syncing salesman visits)
+          const lineItemName = (job as any)?.line_items?.[0]?.name || (data as any)?.job?.service_type || ''
+          const jobNotes = (job as any)?.notes || ''
+          const isEstimateJob =
+            lineItemName.toUpperCase().includes('ESTIMATE') ||
+            jobNotes.includes('[ESTIMATE]')
+
+          // Determine job_type: estimate visits vs real cleaning jobs
+          const jobType = isEstimateJob ? 'estimate' : 'cleaning'
+
+          const { data: newHcpJob } = await client.from("jobs").insert({
             tenant_id: tenant?.id,
             customer_id: customer?.id,
             phone_number: phone,
             address: jobAddress,
-            service_type: (job as any)?.line_items?.[0]?.name || (data as any)?.job?.service_type || "Service",
+            service_type: lineItemName || "Service",
             date: scheduledDate,
             scheduled_at: scheduledTime,
             status: "scheduled",
@@ -215,11 +234,66 @@ export async function POST(request: NextRequest) {
             housecall_pro_job_id: hcpJobId || null,
             housecall_pro_customer_id: hcpCustomerId || null,
             price: (job as any)?.total_amount || null,
-            notes: (job as any)?.notes || null,
+            notes: jobNotes || null,
             brand: 'winbros',
-          })
+            job_type: jobType,
+          }).select("id").single()
 
-          console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${phone})`)
+          console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${phone}, type: ${jobType})`)
+
+          // WinBros: If this is a real cleaning job (NOT an estimate), auto-assign a technician
+          if (tenant?.slug === 'winbros' && !isEstimateJob && scheduledDate && newHcpJob?.id) {
+            try {
+              const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
+              const { dispatchRoutes } = await import("@/lib/dispatch")
+              const { sendTelegramMessage } = await import("@/lib/telegram")
+
+              console.log(`[OSIRIS] HCP Webhook: Triggering technician route optimization for job ${newHcpJob.id} on ${scheduledDate}`)
+
+              const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
+                await optimizeRoutesIncremental(Number(newHcpJob.id), scheduledDate, tenant.id, 'technician')
+
+              if (assignedTeamId) {
+                await dispatchRoutes(optimization, tenant.id, {
+                  sendTelegramToTeams: false,  // Full route at 5pm
+                  sendSmsToCustomers: false,
+                })
+
+                // Send immediate notification to assigned technician (address withheld until 5pm route)
+                if (assignedLeadTelegramId) {
+                  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Customer'
+                  const techMsg = [
+                    `<b>New Job Assigned - WinBros</b>`,
+                    ``,
+                    `Date: ${scheduledDate}${scheduledTime ? ` at ${scheduledTime}` : ''}`,
+                    `Service: ${lineItemName || 'Window Cleaning'}`,
+                    ``,
+                    `You'll receive your full route with addresses at 5 PM tonight.`,
+                  ].join('\n')
+                  await sendTelegramMessage(tenant, assignedLeadTelegramId, techMsg, 'HTML')
+                  console.log(`[OSIRIS] HCP Webhook: Telegram sent to technician (team ${assignedTeamId}) for job ${newHcpJob.id}`)
+                }
+              } else {
+                console.warn(`[OSIRIS] HCP Webhook: No technician team available for job ${newHcpJob.id} on ${scheduledDate}`)
+              }
+
+              await logSystemEvent({
+                tenant_id: tenant?.id,
+                source: "housecall_pro_webhook",
+                event_type: "TECHNICIAN_AUTO_ASSIGNED",
+                message: `Technician auto-assigned for HCP job ${hcpJobId} (OSIRIS job ${newHcpJob.id})`,
+                phone_number: phone,
+                metadata: {
+                  hcp_job_id: hcpJobId,
+                  osiris_job_id: newHcpJob.id,
+                  assigned_team_id: assignedTeamId,
+                  scheduled_date: scheduledDate,
+                },
+              })
+            } catch (routeErr) {
+              console.error(`[OSIRIS] HCP Webhook: Error in technician route optimization for job ${newHcpJob.id}:`, routeErr)
+            }
+          }
         } else {
           console.warn(`[OSIRIS] HCP Webhook: Skipping job.created - no phone number resolved (customer_id: ${hcpCustomerId})`)
         }

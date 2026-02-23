@@ -56,6 +56,12 @@ export async function GET(request: NextRequest) {
 
   for (const job of jobs) {
     try {
+      // Skip estimate jobs — only send follow-ups for actual cleaning jobs
+      if (job.job_type === 'estimate') {
+        console.log(`[Post-Job Followup] Skipping estimate job ${job.job_id}`)
+        continue
+      }
+
       const phone = job.customer_phone || job.job_phone_number
       const customerName = job.customer_first_name || 'there'
 

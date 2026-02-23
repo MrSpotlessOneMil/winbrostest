@@ -25,6 +25,8 @@ export interface Lead {
 // ==================== JOBS ====================
 export type JobStatus = "scheduled" | "confirmed" | "in-progress" | "completed" | "cancelled" | "rescheduled"
 export type ServiceType = "window_cleaning" | "pressure_washing" | "gutter_cleaning" | "full_service"
+export type JobType = "estimate" | "cleaning"
+export type EmployeeType = "technician" | "salesman"
 
 export interface Job {
   id: string
@@ -43,6 +45,7 @@ export interface Job {
   team_id?: string
   team_confirmed: boolean
   team_confirmed_at?: string
+  job_type?: JobType
   notes?: string
   upsell_notes?: string
   completion_notes?: string
@@ -58,7 +61,8 @@ export interface TeamMember {
   name: string
   phone: string
   telegram_id?: string
-  role: "lead" | "technician"
+  role: "lead" | "technician" | "salesman"
+  employee_type?: EmployeeType
   team_id: string
   is_active: boolean
 }

@@ -410,9 +410,9 @@ async function generateWinBrosResponse(
   knownCustomerInfo?: KnownCustomerInfo,
   isReturningCustomer?: boolean
 ): Promise<AutoResponseResult> {
-  const { buildWinBrosSmsSystemPrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
+  const { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = buildWinBrosSmsSystemPrompt()
+  const systemPrompt = buildWinBrosEstimatePrompt()
 
   const historyContext = conversationHistory?.length
     ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')

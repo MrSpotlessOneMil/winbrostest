@@ -10,7 +10,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Users, ArrowLeft, Plus, Trash2, Pencil, Star, MessageCircle } from "lucide-react"
 
 type Team = { id: number; name: string }
-type Cleaner = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; is_team_lead?: boolean; team_id: number | null }
+type Cleaner = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; is_team_lead?: boolean; employee_type?: 'technician' | 'salesman'; team_id: number | null }
 
 async function api(action: string, payload: Record<string, unknown>) {
   const res = await fetch("/api/manage-teams", {
@@ -37,6 +37,7 @@ export default function ManageTeamsPage() {
   const [newCleanerEmail, setNewCleanerEmail] = useState("")
   const [newCleanerTelegramId, setNewCleanerTelegramId] = useState("")
   const [newCleanerIsTeamLead, setNewCleanerIsTeamLead] = useState(false)
+  const [newCleanerEmployeeType, setNewCleanerEmployeeType] = useState<'technician' | 'salesman'>('technician')
   const [editingCleaner, setEditingCleaner] = useState<Cleaner | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<number | "unassigned" | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
@@ -155,13 +156,15 @@ export default function ManageTeamsPage() {
         phone: newCleanerPhone.trim() || null,
         email: newCleanerEmail.trim() || null,
         telegram_id: newCleanerTelegramId.trim() || null,
-        is_team_lead: newCleanerIsTeamLead
+        is_team_lead: newCleanerIsTeamLead,
+        employee_type: newCleanerEmployeeType
       })
       setNewCleanerName("")
       setNewCleanerPhone("")
       setNewCleanerEmail("")
       setNewCleanerTelegramId("")
       setNewCleanerIsTeamLead(false)
+      setNewCleanerEmployeeType('technician')
       await load()
     } catch (err: any) {
       setError(err?.message || "Create cleaner failed")
@@ -178,7 +181,8 @@ export default function ManageTeamsPage() {
         phone: editingCleaner.phone || null,
         email: editingCleaner.email || null,
         telegram_id: editingCleaner.telegram_id || null,
-        is_team_lead: editingCleaner.is_team_lead
+        is_team_lead: editingCleaner.is_team_lead,
+        employee_type: editingCleaner.employee_type || 'technician'
       })
       setEditingCleaner(null)
       await load()
@@ -266,15 +270,25 @@ export default function ManageTeamsPage() {
               <Input value={newCleanerTelegramId} onChange={(e) => setNewCleanerTelegramId(e.target.value)} placeholder="Telegram Chat ID" />
             </div>
             <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={newCleanerIsTeamLead}
-                  onChange={(e) => setNewCleanerIsTeamLead(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                Team Lead
-              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newCleanerIsTeamLead}
+                    onChange={(e) => setNewCleanerIsTeamLead(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Team Lead
+                </label>
+                <select
+                  value={newCleanerEmployeeType}
+                  onChange={(e) => setNewCleanerEmployeeType(e.target.value as 'technician' | 'salesman')}
+                  className="text-sm border border-border rounded-md px-2 py-1 bg-background"
+                >
+                  <option value="technician">Technician</option>
+                  <option value="salesman">Salesman</option>
+                </select>
+              </div>
               <Button onClick={createCleaner} className="gap-2" disabled={loading}>
                 <Plus className="h-4 w-4" />
                 Create
@@ -311,6 +325,7 @@ export default function ManageTeamsPage() {
                   <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                     {c.name}
                     {c.is_team_lead && <Star className="h-3 w-3 text-yellow-500" />}
+                    {c.employee_type === 'salesman' && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Sales</Badge>}
                   </div>
                   <div className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                     <span>{c.phone || "No phone"}</span>
@@ -366,6 +381,7 @@ export default function ManageTeamsPage() {
                       <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                         {c.name}
                         {c.is_team_lead && <Star className="h-3 w-3 text-yellow-500" />}
+                    {c.employee_type === 'salesman' && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Sales</Badge>}
                       </div>
                       <div className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                         <span>{c.phone || "No phone"}</span>
@@ -435,15 +451,28 @@ export default function ManageTeamsPage() {
                   placeholder="Telegram Chat ID"
                 />
               </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={editingCleaner.is_team_lead || false}
-                  onChange={(e) => setEditingCleaner({ ...editingCleaner, is_team_lead: e.target.checked })}
-                  className="h-4 w-4 rounded border-gray-300"
-                />
-                Team Lead
-              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={editingCleaner.is_team_lead || false}
+                    onChange={(e) => setEditingCleaner({ ...editingCleaner, is_team_lead: e.target.checked })}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  Team Lead
+                </label>
+                <div>
+                  <label className="text-xs text-muted-foreground mr-2">Role</label>
+                  <select
+                    value={editingCleaner.employee_type || 'technician'}
+                    onChange={(e) => setEditingCleaner({ ...editingCleaner, employee_type: e.target.value as 'technician' | 'salesman' })}
+                    className="text-sm border border-border rounded-md px-2 py-1 bg-background"
+                  >
+                    <option value="technician">Technician</option>
+                    <option value="salesman">Salesman</option>
+                  </select>
+                </div>
+              </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setEditingCleaner(null)}>Cancel</Button>
                 <Button onClick={updateCleaner}>Save Changes</Button>

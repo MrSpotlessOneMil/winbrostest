@@ -71,6 +71,8 @@ export interface Job {
   // HousecallPro sync
   hcp_job_id?: string
   team_id?: number
+  // Salesman/technician split (WinBros)
+  job_type?: 'estimate' | 'cleaning'
 }
 
 export interface Cleaner {
@@ -88,6 +90,7 @@ export interface Cleaner {
   home_address?: string
   home_lat?: number
   home_lng?: number
+  employee_type?: 'technician' | 'salesman'
   created_at?: string
 }
 
@@ -933,6 +936,30 @@ export async function getCleaners(userId?: number): Promise<Cleaner[]> {
 
 // Alias for dashboard compatibility
 export const getActiveCleaners = getCleaners
+
+export async function getCleanersByType(
+  employeeType: 'technician' | 'salesman',
+  tenantId?: string
+): Promise<Cleaner[]> {
+  const client = getSupabaseClient()
+  let query = client
+    .from('cleaners')
+    .select('*')
+    .eq('active', true)
+    .is('deleted_at', null)
+    .eq('employee_type', employeeType)
+
+  if (tenantId) {
+    query = query.eq('tenant_id', tenantId)
+  }
+
+  const { data, error } = await query
+  if (error) {
+    console.error('Error fetching cleaners by type:', error)
+    return []
+  }
+  return data || []
+}
 
 export async function getCleanerBlockedDates(
   cleanerId: string | number,

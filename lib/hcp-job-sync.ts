@@ -25,6 +25,7 @@ export async function syncNewJobToHCP(params: {
   source?: string | null
   tags?: string[] | null
   description?: string | null
+  isEstimate?: boolean  // WinBros: tag as estimate visit for salesman
 }): Promise<void> {
   const { tenant, jobId } = params
 
@@ -124,6 +125,7 @@ export async function syncNewJobToHCP(params: {
     }
 
     const notesLines: string[] = []
+    if (params.isEstimate) notesLines.push('[ESTIMATE]')
     if (baseNotes && String(baseNotes).trim()) notesLines.push(String(baseNotes).trim())
     notesLines.push(`OSIRIS Job ID: ${jobId}`)
     if (teamName) notesLines.push(`Team: ${teamName}`)
@@ -226,13 +228,23 @@ export async function syncNewJobToHCP(params: {
       }
     }
 
+    const lineItemName = params.isEstimate
+      ? `ESTIMATE - ${String(serviceType || 'Cleaning Service')}`
+      : String(serviceType || 'Cleaning Service')
+
     const lineItems = price != null
       ? [{
-          name: String(serviceType || 'Cleaning Service'),
+          name: lineItemName,
           quantity: 1,
           unit_price: Number(price),
         }]
-      : undefined
+      : params.isEstimate
+        ? [{
+            name: lineItemName,
+            quantity: 1,
+            unit_price: 0,
+          }]
+        : undefined
 
     if (existingHcpJobId) {
       const updated = await updateHCPJob(tenant, existingHcpJobId, {

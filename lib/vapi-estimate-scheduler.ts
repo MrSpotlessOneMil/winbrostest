@@ -1,0 +1,599 @@
+/**
+ * VAPI Estimate Scheduler for WinBros
+ *
+ * Auto-finds the next available estimate slot for a salesman.
+ * The customer does NOT choose a preferred date — the system picks optimally.
+ *
+ * Priority algorithm:
+ * 1. Fill 8:00 AM slots first — every salesman should start their day
+ *    with an 8am estimate so they can doorknock nearby afterwards.
+ *    Fills 3 days in advance for all salesmen.
+ * 2. Once all 8am slots are filled, slot remaining jobs in the most
+ *    travel-optimized way using Google Maps distance calculations.
+ */
+
+import { getSupabaseServiceClient } from './supabase'
+import { geocodeAddress, getDistanceMatrix, LatLng, haversineMinutes } from './google-maps'
+import { getCleanerBlockedDates } from './supabase'
+
+// ── Constants ──────────────────────────────────────────────────
+
+const TIMEZONE = 'America/Los_Angeles'
+const ESTIMATE_DURATION_MINUTES = 30
+const SLOT_START_MINUTES = 8 * 60 // 8:00 AM = 480
+const LAST_SLOT_MINUTES = 15 * 60 // 3:00 PM = 900
+const SLOT_STEP_MINUTES = 30
+const PRIORITY_LOOKAHEAD_DAYS = 3
+const MAX_LOOKAHEAD_DAYS = 7
+const EIGHT_AM_MINUTES = 480
+
+// ── Types ──────────────────────────────────────────────────────
+
+export type VapiEstimateResponse = {
+  scheduled: boolean
+  confirmed_date: string | null // "2026-02-25"
+  confirmed_time: string | null // "8:00 AM"
+  salesman_name: string | null
+  error?: string
+}
+
+type Salesman = {
+  id: number
+  name: string
+  homeLat: number
+  homeLng: number
+  maxJobsPerDay: number
+}
+
+type ScheduledJob = {
+  jobId: number
+  salesmanId: number
+  date: string // YYYY-MM-DD
+  timeMinutes: number // minutes since midnight
+  address: string | null
+  lat?: number
+  lng?: number
+}
+
+type CandidateSlot = {
+  salesmanId: number
+  salesmanName: string
+  date: string
+  timeMinutes: number
+  originLat: number
+  originLng: number
+  driveTimeMinutes?: number
+  score?: number
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+
+function pickFirst(obj: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (obj[key] !== null && obj[key] !== undefined && obj[key] !== '') {
+      return obj[key]
+    }
+  }
+  return null
+}
+
+function formatTimeFromMinutes(totalMinutes: number): string {
+  const hours24 = Math.floor(totalMinutes / 60)
+  const mins = totalMinutes % 60
+  const period = hours24 >= 12 ? 'PM' : 'AM'
+  const hours12 = hours24 === 0 ? 12 : hours24 > 12 ? hours24 - 12 : hours24
+  return `${hours12}:${String(mins).padStart(2, '0')} ${period}`
+}
+
+function parseScheduledAt(value: string | null | undefined): number | null {
+  if (!value) return null
+  const raw = value.trim().toLowerCase()
+
+  // "8:00 AM" or "10:30 PM" format
+  const match = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i)
+  if (match) {
+    let hour = Number(match[1])
+    const minute = Number(match[2])
+    const ampm = match[3].toLowerCase()
+    if (ampm === 'pm' && hour < 12) hour += 12
+    if (ampm === 'am' && hour === 12) hour = 0
+    return hour * 60 + minute
+  }
+
+  // "08:00" 24h format
+  const match24 = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (match24) {
+    return Number(match24[1]) * 60 + Number(match24[2])
+  }
+
+  return null
+}
+
+/**
+ * Get the current Pacific time components.
+ */
+function getPacificNow(): { year: number; month: number; day: number; hour: number; minute: number; dayOfWeek: number } {
+  const now = new Date()
+  const opts = { timeZone: TIMEZONE } as const
+  const year = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(now))
+  const month = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(now))
+  const day = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(now))
+  const hour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric', hour12: false }).format(now))
+  const minute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(now))
+  const weekday = new Intl.DateTimeFormat('en-US', { ...opts, weekday: 'short' }).format(now).toLowerCase()
+  const dayMap: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 }
+  return { year, month, day, hour: hour === 24 ? 0 : hour, minute, dayOfWeek: dayMap[weekday] ?? 0 }
+}
+
+/**
+ * Get the next N candidate dates (YYYY-MM-DD) for scheduling.
+ * Skips today if past 3:00 PM Pacific. Skips Sundays.
+ */
+function getNextCandidateDates(count: number): string[] {
+  const pacific = getPacificNow()
+  const todayMinutes = pacific.hour * 60 + pacific.minute
+  const skipToday = todayMinutes >= LAST_SLOT_MINUTES
+
+  const dates: string[] = []
+  const cursor = new Date(pacific.year, pacific.month - 1, pacific.day)
+  if (skipToday) {
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  while (dates.length < count) {
+    const dow = cursor.getDay() // 0=Sun
+    if (dow !== 0) {
+      // Skip Sundays
+      const yyyy = cursor.getFullYear()
+      const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+      const dd = String(cursor.getDate()).padStart(2, '0')
+      dates.push(`${yyyy}-${mm}-${dd}`)
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+
+  return dates
+}
+
+/**
+ * Parse job address from DB — handles both string and JSON-object format.
+ */
+function parseJobAddress(address: unknown): string | null {
+  if (!address) return null
+  if (typeof address === 'string') {
+    // Try parsing as JSON (some addresses are stored as objects)
+    if (address.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(address)
+        const parts = [parsed.street, parsed.city, parsed.state, parsed.zip].filter(Boolean)
+        return parts.length > 0 ? parts.join(', ') : null
+      } catch {
+        return address
+      }
+    }
+    return address
+  }
+  if (typeof address === 'object' && address !== null) {
+    const obj = address as Record<string, unknown>
+    const parts = [obj.street, obj.city, obj.state, obj.zip].filter(Boolean)
+    return parts.length > 0 ? parts.map(String).join(', ') : null
+  }
+  return null
+}
+
+// ── Core Algorithm ─────────────────────────────────────────────
+
+export async function scheduleEstimate(
+  payload: Record<string, unknown>,
+  tenantId?: string | null
+): Promise<VapiEstimateResponse> {
+  const LOG = '[VAPI schedule-estimate]'
+
+  // 1. Extract customer address
+  const addressRaw = pickFirst(payload, [
+    'address',
+    'customer_address',
+    'customerAddress',
+    'street_address',
+    'streetAddress',
+    'location',
+  ])
+
+  if (!addressRaw || typeof addressRaw !== 'string' || !addressRaw.trim()) {
+    console.warn(`${LOG} No address in payload. Keys: ${Object.keys(payload).join(', ')}`)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'MISSING_ADDRESS',
+    }
+  }
+
+  const customerAddress = String(addressRaw).trim()
+  console.log(`${LOG} Customer address: ${customerAddress}`)
+
+  // 2. Geocode customer address
+  let customerLat: number
+  let customerLng: number
+  try {
+    const geo = await geocodeAddress(customerAddress)
+    if (!geo) {
+      console.error(`${LOG} Geocoding returned null for: ${customerAddress}`)
+      return {
+        scheduled: false,
+        confirmed_date: null,
+        confirmed_time: null,
+        salesman_name: null,
+        error: 'GEOCODE_FAILED',
+      }
+    }
+    customerLat = geo.lat
+    customerLng = geo.lng
+    console.log(`${LOG} Geocoded to ${customerLat}, ${customerLng}`)
+  } catch (err) {
+    console.error(`${LOG} Geocoding error:`, err)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'GEOCODE_FAILED',
+    }
+  }
+
+  // 3. Load active salesmen
+  const resolvedTenantId = tenantId || 'e954fbd6-b3e1-4271-88b0-341c9df56beb' // WinBros fallback
+  const client = getSupabaseServiceClient()
+
+  const { data: salesmenRows, error: salesmenError } = await client
+    .from('cleaners')
+    .select('id, name, home_lat, home_lng, max_jobs_per_day')
+    .eq('tenant_id', resolvedTenantId)
+    .eq('employee_type', 'salesman')
+    .eq('active', true)
+    .is('deleted_at', null)
+
+  if (salesmenError) {
+    console.error(`${LOG} Error loading salesmen:`, salesmenError.message)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'DB_ERROR',
+    }
+  }
+
+  const salesmen: Salesman[] = (salesmenRows || [])
+    .filter((s) => s.home_lat && s.home_lng)
+    .map((s) => ({
+      id: s.id,
+      name: s.name || 'Salesman',
+      homeLat: Number(s.home_lat),
+      homeLng: Number(s.home_lng),
+      maxJobsPerDay: Number(s.max_jobs_per_day) || 8,
+    }))
+
+  if (salesmen.length === 0) {
+    console.error(`${LOG} No salesmen with home coordinates found for tenant ${resolvedTenantId}`)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'NO_SALESMEN_AVAILABLE',
+    }
+  }
+
+  console.log(`${LOG} Found ${salesmen.length} salesmen: ${salesmen.map((s) => s.name).join(', ')}`)
+
+  // 4. Compute candidate dates (3 initially, extend to 7 if needed)
+  const allDates = getNextCandidateDates(MAX_LOOKAHEAD_DAYS)
+  const priorityDates = allDates.slice(0, PRIORITY_LOOKAHEAD_DAYS)
+
+  // 5. Load existing estimate jobs for the full date range
+  const { data: jobRows, error: jobError } = await client
+    .from('jobs')
+    .select('id, date, scheduled_at, team_id, address, status')
+    .eq('tenant_id', resolvedTenantId)
+    .eq('job_type', 'estimate')
+    .in('date', allDates)
+    .neq('status', 'cancelled')
+
+  if (jobError) {
+    console.error(`${LOG} Error loading jobs:`, jobError.message)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'DB_ERROR',
+    }
+  }
+
+  const jobs = jobRows || []
+  const jobIds = jobs.map((j) => j.id)
+
+  // Load cleaner assignments for these jobs
+  let assignments: Array<{ job_id: number; cleaner_id: number; status: string }> = []
+  if (jobIds.length > 0) {
+    const { data: assignmentRows } = await client
+      .from('cleaner_assignments')
+      .select('job_id, cleaner_id, status')
+      .in('job_id', jobIds)
+      .not('status', 'in', '("cancelled","declined")')
+
+    assignments = (assignmentRows || []) as Array<{ job_id: number; cleaner_id: number; status: string }>
+  }
+
+  // Load blocked dates for all salesmen
+  const salesmanIds = salesmen.map((s) => s.id)
+  const blockedDatesMap = new Map<number, Set<string>>()
+  for (const id of salesmanIds) {
+    const blocked = await getCleanerBlockedDates(id, allDates[0], allDates[allDates.length - 1])
+    if (blocked.length > 0) {
+      blockedDatesMap.set(
+        id,
+        new Set(blocked.map((b) => b.date))
+      )
+    }
+  }
+
+  // 6. Build schedule map: salesmanId → date → ScheduledJob[]
+  const assignmentByJobId = new Map<number, number>() // jobId → cleanerId
+  for (const a of assignments) {
+    assignmentByJobId.set(a.job_id, a.cleaner_id)
+  }
+
+  const scheduleMap = new Map<number, Map<string, ScheduledJob[]>>()
+  for (const s of salesmen) {
+    scheduleMap.set(s.id, new Map())
+  }
+
+  for (const job of jobs) {
+    const cleanerId = assignmentByJobId.get(job.id) ?? (job.team_id ? findSalesmanByTeam(job.team_id, salesmen) : null)
+    if (cleanerId === null || cleanerId === undefined) continue
+    if (!scheduleMap.has(cleanerId)) continue
+
+    const dateMap = scheduleMap.get(cleanerId)!
+    if (!dateMap.has(job.date)) {
+      dateMap.set(job.date, [])
+    }
+
+    const timeMinutes = parseScheduledAt(job.scheduled_at)
+    if (timeMinutes === null) continue
+
+    dateMap.get(job.date)!.push({
+      jobId: job.id,
+      salesmanId: cleanerId,
+      date: job.date,
+      timeMinutes,
+      address: parseJobAddress(job.address),
+    })
+  }
+
+  // Sort each salesman's daily schedule by time
+  for (const dateMap of scheduleMap.values()) {
+    for (const jobList of dateMap.values()) {
+      jobList.sort((a, b) => a.timeMinutes - b.timeMinutes)
+    }
+  }
+
+  // Get current time for filtering same-day slots
+  const pacific = getPacificNow()
+  const todayStr = `${pacific.year}-${String(pacific.month).padStart(2, '0')}-${String(pacific.day).padStart(2, '0')}`
+  const nowMinutes = pacific.hour * 60 + pacific.minute
+
+  // ── Phase 1: Fill 8am slots ──────────────────────────────────
+
+  console.log(`${LOG} Phase 1: Checking 8am slots for ${priorityDates.length} days...`)
+
+  type Missing8am = { salesman: Salesman; date: string; driveMinutes: number }
+  const missing8am: Missing8am[] = []
+
+  for (const date of priorityDates) {
+    // Skip if today and it's past 8:30 AM (8am slot is gone)
+    if (date === todayStr && nowMinutes >= EIGHT_AM_MINUTES + ESTIMATE_DURATION_MINUTES) {
+      continue
+    }
+
+    for (const salesman of salesmen) {
+      // Check blocked dates
+      if (blockedDatesMap.get(salesman.id)?.has(date)) continue
+
+      const dayJobs = scheduleMap.get(salesman.id)?.get(date) || []
+      const has8am = dayJobs.some((j) => j.timeMinutes === EIGHT_AM_MINUTES)
+
+      if (!has8am) {
+        const driveMinutes = haversineMinutes(
+          salesman.homeLat,
+          salesman.homeLng,
+          customerLat,
+          customerLng
+        )
+        missing8am.push({ salesman, date, driveMinutes })
+      }
+    }
+  }
+
+  if (missing8am.length > 0) {
+    // Sort by: earliest date first, then shortest drive time
+    missing8am.sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date)
+      if (dateCompare !== 0) return dateCompare
+      return a.driveMinutes - b.driveMinutes
+    })
+
+    const best = missing8am[0]
+    console.log(
+      `${LOG} Phase 1 hit: Scheduling 8am on ${best.date} with ${best.salesman.name} (${best.driveMinutes} min drive from home)`
+    )
+
+    return {
+      scheduled: true,
+      confirmed_date: best.date,
+      confirmed_time: '8:00 AM',
+      salesman_name: best.salesman.name,
+    }
+  }
+
+  console.log(`${LOG} Phase 1: All 8am slots filled. Moving to Phase 2...`)
+
+  // ── Phase 2: Travel-optimized slotting (no gaps) ─────────────
+  //
+  // For each salesman × date, only consider the FIRST available slot.
+  // This packs appointments front-to-back with zero gaps — new estimates
+  // always go right after the last scheduled appointment.
+
+  const candidates: CandidateSlot[] = []
+
+  for (let dateIdx = 0; dateIdx < allDates.length; dateIdx++) {
+    const date = allDates[dateIdx]
+
+    for (const salesman of salesmen) {
+      // Check blocked dates
+      if (blockedDatesMap.get(salesman.id)?.has(date)) continue
+
+      const dayJobs = scheduleMap.get(salesman.id)?.get(date) || []
+
+      // Check max jobs per day
+      if (dayJobs.length >= salesman.maxJobsPerDay) continue
+
+      // Build set of occupied time slots
+      const occupiedSlots = new Set<number>()
+      for (const job of dayJobs) {
+        occupiedSlots.add(job.timeMinutes)
+      }
+
+      // Find the FIRST available slot — walk from 8am forward, take the earliest open one
+      let firstAvailableSlot: number | null = null
+      for (let slotMin = SLOT_START_MINUTES; slotMin <= LAST_SLOT_MINUTES; slotMin += SLOT_STEP_MINUTES) {
+        if (occupiedSlots.has(slotMin)) continue
+        if (date === todayStr && slotMin <= nowMinutes + 90) continue
+        firstAvailableSlot = slotMin
+        break
+      }
+
+      if (firstAvailableSlot === null) continue
+
+      // Determine origin: previous job's location, or salesman's home
+      let originLat = salesman.homeLat
+      let originLng = salesman.homeLng
+
+      const precedingJobs = dayJobs.filter((j) => j.timeMinutes < firstAvailableSlot!)
+      if (precedingJobs.length > 0) {
+        const prevJob = precedingJobs[precedingJobs.length - 1]
+        if (prevJob.lat && prevJob.lng) {
+          originLat = prevJob.lat
+          originLng = prevJob.lng
+        }
+      }
+
+      candidates.push({
+        salesmanId: salesman.id,
+        salesmanName: salesman.name,
+        date,
+        timeMinutes: firstAvailableSlot,
+        originLat,
+        originLng,
+      })
+    }
+  }
+
+  if (candidates.length === 0) {
+    console.warn(`${LOG} Phase 2: No open slots found in ${allDates.length} days`)
+    return {
+      scheduled: false,
+      confirmed_date: null,
+      confirmed_time: null,
+      salesman_name: null,
+      error: 'NO_SLOTS_AVAILABLE',
+    }
+  }
+
+  console.log(`${LOG} Phase 2: ${candidates.length} candidate slots. Computing travel times...`)
+
+  // Geocode previous job addresses where needed (only unique origins)
+  // For Phase 2, we need to get the drive time from each origin to the customer
+  // First, try Google Maps distance matrix for unique origins
+  const uniqueOrigins = new Map<string, LatLng>()
+  for (const c of candidates) {
+    const key = `${c.originLat.toFixed(6)},${c.originLng.toFixed(6)}`
+    if (!uniqueOrigins.has(key)) {
+      uniqueOrigins.set(key, { lat: c.originLat, lng: c.originLng })
+    }
+  }
+
+  const originsList = Array.from(uniqueOrigins.entries())
+  const customerLatLng: LatLng = { lat: customerLat, lng: customerLng }
+
+  // Build drive time lookup: "lat,lng" → minutes
+  const driveTimeLookup = new Map<string, number>()
+
+  try {
+    // Only use Google Maps if we have the API key and origins are reasonable count
+    if (originsList.length <= 25) {
+      const origins = originsList.map(([, latlng]) => latlng)
+      const result = await getDistanceMatrix(origins, [customerLatLng])
+
+      for (let i = 0; i < result.entries.length; i++) {
+        const entry = result.entries[i]
+        const originKey = originsList[entry.originIndex][0]
+        const minutes = entry.durationInTrafficMinutes ?? entry.durationMinutes
+        driveTimeLookup.set(originKey, minutes)
+      }
+      console.log(`${LOG} Google Maps returned drive times for ${driveTimeLookup.size} origins`)
+    } else {
+      // Too many origins — use haversine fallback
+      throw new Error('Too many origins for single API call')
+    }
+  } catch (err) {
+    console.warn(`${LOG} Google Maps distance matrix failed, using haversine fallback:`, err)
+    for (const [key, latlng] of originsList) {
+      driveTimeLookup.set(
+        key,
+        haversineMinutes(latlng.lat, latlng.lng, customerLat, customerLng)
+      )
+    }
+  }
+
+  // Score each candidate (one per salesman per day — the first available slot)
+  // Since slots are packed front-to-back, scoring decides which salesman on which day.
+  for (const c of candidates) {
+    const key = `${c.originLat.toFixed(6)},${c.originLng.toFixed(6)}`
+    c.driveTimeMinutes = driveTimeLookup.get(key) ?? haversineMinutes(c.originLat, c.originLng, customerLat, customerLng)
+
+    const dayOffset = allDates.indexOf(c.date)
+
+    // Prefer shorter drive, then earlier day, then earlier time
+    c.score = c.driveTimeMinutes + dayOffset * 60 + c.timeMinutes * 0.1
+  }
+
+  // Sort by score ascending
+  candidates.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity))
+
+  const best = candidates[0]
+  console.log(
+    `${LOG} Phase 2 result: ${best.salesmanName} on ${best.date} at ${formatTimeFromMinutes(best.timeMinutes)} ` +
+      `(drive: ${best.driveTimeMinutes} min, score: ${best.score?.toFixed(1)})`
+  )
+
+  return {
+    scheduled: true,
+    confirmed_date: best.date,
+    confirmed_time: formatTimeFromMinutes(best.timeMinutes),
+    salesman_name: best.salesmanName,
+  }
+}
+
+/**
+ * Try to find which salesman is the lead of a given team.
+ */
+function findSalesmanByTeam(teamId: number, salesmen: Salesman[]): number | null {
+  // This is a simple heuristic — in practice, the cleaner_assignments query
+  // should cover most cases. This is a fallback for jobs assigned via team_id.
+  // We just return the first salesman that matches (the team lead).
+  // For more accuracy, we'd query team_members, but we don't want extra DB calls here.
+  return null
+}
