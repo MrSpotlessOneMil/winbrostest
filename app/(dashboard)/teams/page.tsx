@@ -29,6 +29,7 @@ import {
   Send,
   Wrench,
   Briefcase,
+  GripVertical,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
@@ -110,6 +111,23 @@ export default function TeamsPage() {
   const [sendText, setSendText] = useState("")
   const [sending, setSending] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+
+  // Drag and drop state
+  const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null)
+  const [dragOverTeamId, setDragOverTeamId] = useState<string | null>(null) // "unassigned" for the unassigned zone
+
+  async function handleMoveMember(cleanerId: string, targetTeamId: string | null) {
+    try {
+      await fetch("/api/manage-teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "move_cleaner", cleaner_id: Number(cleanerId), team_id: targetTeamId ? Number(targetTeamId) : null }),
+      })
+      await loadTeams()
+    } catch {
+      // silently fail
+    }
+  }
 
   async function loadTeams() {
     setLoading(true)
@@ -401,7 +419,22 @@ export default function TeamsPage() {
             const revenuePercent = target > 0 ? (revenue / target) * 100 : 0
 
             return (
-              <Card key={team.id} className={cn(team.status === "off" && "opacity-60")}>
+              <Card
+                key={team.id}
+                className={cn(
+                  team.status === "off" && "opacity-60",
+                  draggingMemberId && "transition-all duration-150",
+                  dragOverTeamId === String(team.id) && "ring-2 ring-purple-500/50 bg-purple-500/5"
+                )}
+                onDragOver={(e) => { e.preventDefault(); setDragOverTeamId(String(team.id)) }}
+                onDragLeave={() => setDragOverTeamId(null)}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  setDragOverTeamId(null)
+                  const memberId = e.dataTransfer.getData("text/plain")
+                  if (memberId) handleMoveMember(memberId, String(team.id))
+                }}
+              >
                 <CardHeader className="pb-2 pt-4 px-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -432,15 +465,20 @@ export default function TeamsPage() {
                       return (
                         <div
                           key={m.id}
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
+                          onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
                           className={cn(
                             "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
                             isSelected
                               ? "bg-purple-500/10 border border-purple-500/30"
-                              : "hover:bg-muted/50"
+                              : "hover:bg-muted/50",
+                            draggingMemberId === m.id && "opacity-40"
                           )}
                           onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
                         >
                           <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
                             <span className={cn(
                               "text-sm font-medium truncate",
                               isSelected ? "text-purple-300" : "text-foreground"
@@ -501,9 +539,23 @@ export default function TeamsPage() {
             )
           })}
 
-          {/* Unassigned cleaners (not in any team) */}
-          {unassignedCleaners.length > 0 && (
-            <Card className="border-dashed">
+          {/* Unassigned cleaners — always visible as drop target when dragging */}
+          {(unassignedCleaners.length > 0 || draggingMemberId) && (
+            <Card
+              className={cn(
+                "border-dashed",
+                draggingMemberId && "transition-all duration-150",
+                dragOverTeamId === "unassigned" && "ring-2 ring-orange-500/50 bg-orange-500/5"
+              )}
+              onDragOver={(e) => { e.preventDefault(); setDragOverTeamId("unassigned") }}
+              onDragLeave={() => setDragOverTeamId(null)}
+              onDrop={(e) => {
+                e.preventDefault()
+                setDragOverTeamId(null)
+                const memberId = e.dataTransfer.getData("text/plain")
+                if (memberId) handleMoveMember(memberId, null)
+              }}
+            >
               <CardHeader className="pb-2 pt-4 px-4">
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-base">Unassigned</CardTitle>
@@ -519,15 +571,20 @@ export default function TeamsPage() {
                     return (
                       <div
                         key={m.id}
+                        draggable
+                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
+                        onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
                         className={cn(
                           "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
                           isSelected
                             ? "bg-purple-500/10 border border-purple-500/30"
-                            : "hover:bg-muted/50"
+                            : "hover:bg-muted/50",
+                          draggingMemberId === m.id && "opacity-40"
                         )}
                         onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
                           <span className={cn(
                             "text-sm font-medium truncate",
                             isSelected ? "text-purple-300" : "text-foreground"
@@ -573,6 +630,9 @@ export default function TeamsPage() {
                       </div>
                     )
                   })}
+                  {unassignedCleaners.length === 0 && draggingMemberId && (
+                    <p className="text-xs text-muted-foreground py-3 px-2.5 text-center">Drop here to unassign</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
