@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 import { normalizePhone, toE164 } from "@/lib/phone-utils"
+import { logSystemEvent } from "@/lib/system-events"
 
 /**
  * Reset all data for a customer by phone number
@@ -192,6 +193,15 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[admin] Reset complete for ${phone}:`, deletionLog)
+
+    // Log the reset as a system event so it's visible in the debug page
+    await logSystemEvent({
+      event_type: "SYSTEM_RESET" as any,
+      source: "system" as any,
+      message: `Reset all data for ${phone}`,
+      phone_number: phone,
+      metadata: { deletions: deletionLog, raw_phone: rawPhone },
+    })
 
     return NextResponse.json({
       success: true,

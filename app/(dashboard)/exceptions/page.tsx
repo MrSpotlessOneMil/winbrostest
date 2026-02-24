@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertTriangle, Beaker, RefreshCcw, Activity, Search, Filter, Check } from "lucide-react"
+import { AlertTriangle, Beaker, RefreshCcw, Activity, Search, Filter, Check, Copy } from "lucide-react"
 
 interface SystemEvent {
   id: number
@@ -88,6 +88,8 @@ export default function ExceptionsPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [expandedEvent, setExpandedEvent] = useState<number | null>(null)
   const [copiedEventId, setCopiedEventId] = useState<number | null>(null)
+  const [copiedLogs, setCopiedLogs] = useState(false)
+  const [copyingLogs, setCopyingLogs] = useState(false)
 
   async function refreshExceptions() {
     setExceptionsError(null)
@@ -120,6 +122,62 @@ export default function ExceptionsPage() {
       setEventsError(e?.message || "Failed to load events")
     } finally {
       setEventsLoading(false)
+    }
+  }
+
+  async function copyRecentLogs() {
+    setCopyingLogs(true)
+    try {
+      // Fetch a large batch of recent events
+      const res = await fetch("/api/system-events?per_page=1000", { cache: "no-store" })
+      const json = await res.json()
+      const allEvents: SystemEvent[] = Array.isArray(json?.data) ? json.data : []
+
+      // Find the last SYSTEM_RESET for Jack's phone (+14157204580)
+      const jackPhones = ["+14157204580", "4157204580", "14157204580"]
+      const lastReset = allEvents.find(
+        (e) => e.event_type === "SYSTEM_RESET" && jackPhones.includes(e.phone_number || "")
+      )
+
+      const now = new Date()
+      const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000)
+      const resetTime = lastReset ? new Date(lastReset.created_at) : null
+
+      // Use the MORE RECENT cutoff (shorter window)
+      const cutoff = resetTime && resetTime > thirtyMinAgo ? resetTime : thirtyMinAgo
+
+      // Filter events to those at or after the cutoff, sorted oldest-first
+      const filtered = allEvents
+        .filter((e) => new Date(e.created_at) >= cutoff)
+        .reverse()
+
+      // Format each event as a full dump
+      const lines = filtered.map((e) => {
+        const parts = [
+          `[${e.created_at}] ${e.source} / ${e.event_type}`,
+          `Message: ${e.message}`,
+        ]
+        if (e.phone_number) parts.push(`Phone: ${e.phone_number}`)
+        if (e.job_id) parts.push(`Job ID: ${e.job_id}`)
+        if (e.lead_id) parts.push(`Lead ID: ${e.lead_id}`)
+        if (e.cleaner_id) parts.push(`Cleaner ID: ${e.cleaner_id}`)
+        if (e.metadata && Object.keys(e.metadata).length > 0) {
+          parts.push(`Metadata: ${JSON.stringify(e.metadata, null, 2)}`)
+        }
+        return parts.join("\n")
+      })
+
+      const header = resetTime && resetTime > thirtyMinAgo
+        ? `--- Logs since Jack reset at ${resetTime.toISOString()} (${filtered.length} events) ---`
+        : `--- Logs for the last 30 minutes (${filtered.length} events) ---`
+
+      navigator.clipboard.writeText(header + "\n\n" + lines.join("\n\n---\n\n"))
+      setCopiedLogs(true)
+      setTimeout(() => setCopiedLogs(false), 2000)
+    } catch (err) {
+      console.error("Failed to copy logs:", err)
+    } finally {
+      setCopyingLogs(false)
     }
   }
 
@@ -164,12 +222,24 @@ export default function ExceptionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
-          <AlertTriangle className="h-7 w-7 text-warning" />
-          Exceptions & Events
-        </h1>
-        <p className="text-sm text-muted-foreground">Issues requiring attention, system events log, and demo data generator</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
+            <AlertTriangle className="h-7 w-7 text-warning" />
+            Exceptions & Events
+          </h1>
+          <p className="text-sm text-muted-foreground">Issues requiring attention, system events log, and demo data generator</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={copyRecentLogs}
+          disabled={copyingLogs}
+          className="gap-2"
+        >
+          {copiedLogs ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+          {copiedLogs ? "Copied!" : copyingLogs ? "Copying..." : "Copy Recent Logs"}
+        </Button>
       </div>
 
       <Tabs defaultValue="events" className="space-y-4">
