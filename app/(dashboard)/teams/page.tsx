@@ -27,6 +27,8 @@ import {
   MessageSquare,
   MessageCircle,
   Send,
+  Wrench,
+  Briefcase,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
@@ -84,7 +86,7 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editingMember, setEditingMember] = useState<{
-    id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean
+    id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean; employee_type: EmployeeType
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState<EmployeeType>("technician")
@@ -226,6 +228,7 @@ export default function TeamsPage() {
           email: editingMember.email,
           telegram_id: editingMember.telegram_id,
           is_team_lead: editingMember.is_team_lead,
+          employee_type: editingMember.employee_type,
         }),
       })
       setEditingMember(null)
@@ -457,6 +460,7 @@ export default function TeamsPage() {
                                   email: "",
                                   telegram_id: m.telegram_id || "",
                                   is_team_lead: m.role === "lead",
+                                  employee_type: m.employee_type || "technician",
                                 })
                               }}
                             >
@@ -537,6 +541,7 @@ export default function TeamsPage() {
                                 email: "",
                                 telegram_id: m.telegram_id || "",
                                 is_team_lead: m.role === "lead",
+                                employee_type: m.employee_type || "technician",
                               })
                             }}
                           >
@@ -699,6 +704,47 @@ export default function TeamsPage() {
                   className="rounded border-border"
                 />
                 <label htmlFor="is_team_lead" className="text-sm text-foreground">Team Lead</label>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Role</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingMember({ ...editingMember, employee_type: "technician" })}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2.5 rounded-lg border-2 transition-all",
+                      editingMember.employee_type === "technician"
+                        ? "border-blue-500 bg-blue-500/15 text-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.15)]"
+                        : "border-border/50 bg-card/50 text-muted-foreground hover:border-border hover:bg-card"
+                    )}
+                  >
+                    <div className={cn(
+                      "flex items-center justify-center h-8 w-8 rounded-full",
+                      editingMember.employee_type === "technician" ? "bg-blue-500/20" : "bg-muted/50"
+                    )}>
+                      <Wrench className="h-4 w-4" />
+                    </div>
+                    <span className="text-sm font-medium">Technician</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingMember({ ...editingMember, employee_type: "salesman" })}
+                    className={cn(
+                      "flex items-center gap-2.5 px-3 py-2.5 rounded-lg border-2 transition-all",
+                      editingMember.employee_type === "salesman"
+                        ? "border-amber-500 bg-amber-500/15 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.15)]"
+                        : "border-border/50 bg-card/50 text-muted-foreground hover:border-border hover:bg-card"
+                    )}
+                  >
+                    <div className={cn(
+                      "flex items-center justify-center h-8 w-8 rounded-full",
+                      editingMember.employee_type === "salesman" ? "bg-amber-500/20" : "bg-muted/50"
+                    )}>
+                      <Briefcase className="h-4 w-4" />
+                    </div>
+                    <span className="text-sm font-medium">Salesman</span>
+                  </button>
+                </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 <Button variant="outline" onClick={() => setEditingMember(null)}>Cancel</Button>
