@@ -295,6 +295,22 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.log(`${tag} Call outcome was 'booked', skipping follow-up sequence`)
 
+              // DEDUP: Check if a job was already created for this phone+tenant in the last 2 minutes
+              const dedupCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+              const { data: recentJob } = await client
+                .from("jobs")
+                .select("id")
+                .eq("phone_number", phone)
+                .eq("tenant_id", tenant.id)
+                .gte("created_at", dedupCutoff)
+                .limit(1)
+                .maybeSingle()
+
+              if (recentJob) {
+                console.log(`${tag} DEDUP: Job ${recentJob.id} already created for ${phone} in last 2 min, skipping duplicate`)
+                return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJob.id })
+              }
+
               let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
               const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
               const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
@@ -441,6 +457,22 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
           if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
+
+            // DEDUP: Check if a job was already created for this phone+tenant in the last 2 minutes
+            const dedupCutoffExisting = new Date(Date.now() - 2 * 60 * 1000).toISOString()
+            const { data: recentJobExisting } = await client
+              .from("jobs")
+              .select("id")
+              .eq("phone_number", phone)
+              .eq("tenant_id", tenant.id)
+              .gte("created_at", dedupCutoffExisting)
+              .limit(1)
+              .maybeSingle()
+
+            if (recentJobExisting) {
+              console.log(`${tag} DEDUP: Job ${recentJobExisting.id} already created for ${phone} in last 2 min, skipping duplicate (existing lead path)`)
+              return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJobExisting.id })
+            }
 
             let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
             const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null

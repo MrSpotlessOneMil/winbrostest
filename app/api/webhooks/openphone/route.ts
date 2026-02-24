@@ -1236,6 +1236,20 @@ export async function POST(request: NextRequest) {
                 ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
                 : 'Standard cleaning'
 
+              // Fallback date: if customer didn't provide a specific date, use next business day
+              let jobDate = bookingData.preferredDate || null
+              if (!jobDate) {
+                const now = new Date()
+                // Start from tomorrow
+                const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+                // Skip weekends (0=Sun, 6=Sat)
+                while (candidate.getDay() === 0 || candidate.getDay() === 6) {
+                  candidate.setDate(candidate.getDate() + 1)
+                }
+                jobDate = candidate.toISOString().split('T')[0]
+                console.log(`[OpenPhone] No preferred date provided — using next business day: ${jobDate}`)
+              }
+
               // Create job (WinBros: estimate type for salesman visit; others: cleaning)
               const { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
@@ -1244,8 +1258,8 @@ export async function POST(request: NextRequest) {
                 service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
                 address: bookingData.address || customer.address || null,
                 price: servicePrice || null,
-                date: bookingData.preferredDate || null,
-                scheduled_at: bookingData.preferredTime || null,
+                date: jobDate,
+                scheduled_at: bookingData.preferredTime || '09:00',
                 status: 'scheduled',
                 booked: true,
                 notes: jobNotes || null,
@@ -1310,8 +1324,8 @@ export async function POST(request: NextRequest) {
                     id: newJob?.id,
                     service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
                     address: bookingData.address || customer.address || null,
-                    date: bookingData.preferredDate || null,
-                    scheduled_at: bookingData.preferredTime || null,
+                    date: jobDate,
+                    scheduled_at: bookingData.preferredTime || '09:00',
                     price: servicePrice || null,
                     phone_number: phone,
                     notes: jobNotes || null,
@@ -1321,6 +1335,19 @@ export async function POST(request: NextRequest) {
                   servicePrice,
                   client,
                 })
+
+                // Assign cleaner and send Telegram notification
+                try {
+                  const { triggerCleanerAssignment } = await import("@/lib/cleaner-assignment")
+                  const assignResult = await triggerCleanerAssignment(String(newJob?.id))
+                  if (assignResult.success) {
+                    console.log(`[OpenPhone] Cleaner assigned to house cleaning job ${newJob?.id}`)
+                  } else {
+                    console.warn(`[OpenPhone] Cleaner assignment failed for job ${newJob?.id}: ${assignResult.error}`)
+                  }
+                } catch (assignErr) {
+                  console.error("[OpenPhone] Cleaner assignment error:", assignErr)
+                }
 
                 await logSystemEvent({
                   tenant_id: tenant?.id,
@@ -1351,16 +1378,16 @@ export async function POST(request: NextRequest) {
               try {
                 const customerName = [bookingData.firstName || customer.first_name, bookingData.lastName || customer.last_name].filter(Boolean).join(' ') || 'Customer'
                 const jobAddress = bookingData.address || customer.address || 'Address TBD'
-                const jobDate = bookingData.preferredDate || 'TBD'
+                const estimateDate = jobDate || 'TBD'
 
                 // Route optimize for salesmen and dispatch
-                if (tenant && bookingData.preferredDate) {
+                if (tenant && jobDate) {
                   const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
                   const { dispatchRoutes } = await import("@/lib/dispatch")
                   const { sendTelegramMessage } = await import("@/lib/telegram")
 
                   const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
-                    await optimizeRoutesIncremental(Number(newJob.id), bookingData.preferredDate, tenant.id, 'salesman')
+                    await optimizeRoutesIncremental(Number(newJob.id), jobDate, tenant.id, 'salesman')
 
                   if (assignedTeamId) {
                     await dispatchRoutes(optimization, tenant.id, {
@@ -1377,7 +1404,7 @@ export async function POST(request: NextRequest) {
                         `Customer: ${customerName}`,
                         `Service: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}`,
                         `Address: ${jobAddress}`,
-                        `Date: ${jobDate} at ${timeStr}`,
+                        `Date: ${estimateDate} at ${timeStr}`,
                         ``,
                         `Please visit the customer to provide an on-site quote.`,
                       ].join('\n')
@@ -1385,7 +1412,7 @@ export async function POST(request: NextRequest) {
                       console.log(`[OpenPhone] Telegram sent to salesman (team ${assignedTeamId}) for estimate job ${newJob.id}`)
                     }
                   } else {
-                    console.warn(`[OpenPhone] No salesman team available for estimate job ${newJob.id} on ${bookingData.preferredDate}`)
+                    console.warn(`[OpenPhone] No salesman team available for estimate job ${newJob.id} on ${jobDate}`)
                   }
                 }
 

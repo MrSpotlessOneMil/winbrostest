@@ -123,7 +123,9 @@ export async function sendSMS(
  */
 export const SMS_TEMPLATES = {
   vapiConfirmation: (name: string, serviceType: string, dateTime: string, address: string): string => {
-    return `Hi ${name}! Just confirming: ${serviceType} cleaning on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, send your best email and I will send over a confirmed price.`
+    // Avoid "Cleaning cleaning" — if serviceType already contains "cleaning", don't append it
+    const serviceLabel = /cleaning/i.test(serviceType) ? serviceType : `${serviceType} cleaning`
+    return `Hi ${name}! Just confirming: ${serviceLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, send your best email and I will send over a confirmed price.`
   },
   paymentConfirmation: (serviceType: string, date: string): string => {
     return `Payment received for your ${serviceType} cleaning on ${date}. We're scheduling your cleaner now and will confirm shortly.`
