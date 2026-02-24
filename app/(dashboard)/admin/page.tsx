@@ -161,8 +161,8 @@ export default function AdminPage() {
   const [copied, setCopied] = useState(false)
 
   // Reset test customers state
-  const [resetting, setResetting] = useState(false)
-  const [resetResult, setResetResult] = useState<{ success: boolean; deletions?: string[]; error?: string } | null>(null)
+  const [resettingPerson, setResettingPerson] = useState<string | null>(null)
+  const [resetResult, setResetResult] = useState<{ success: boolean; deletions?: string[]; error?: string; person?: string } | null>(null)
 
   // Delete business state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -360,51 +360,36 @@ export default function AdminPage() {
     })
   }
 
-  async function resetTestCustomers() {
-    console.log("[ADMIN] resetTestCustomers called")
-    const testPhones = ["4242755847", "4157204580"]
+  const testPersons = [
+    { name: "Dominic", phone: "4242755847" },
+    { name: "Daniel", phone: "4243270461" },
+    { name: "Jack", phone: "4157204580" },
+  ]
 
-    // No confirmation - just do it immediately
-    setResetting(true)
+  async function resetPerson(person: { name: string; phone: string }) {
+    setResettingPerson(person.name)
     setResetResult(null)
-    console.log("[ADMIN] Starting reset...")
 
-    const allDeletions: string[] = []
-    let hasError = false
+    try {
+      const res = await fetch("/api/admin/reset-customer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: person.phone }),
+      })
+      const json = await res.json()
 
-    for (const phone of testPhones) {
-      try {
-        console.log(`[ADMIN] Resetting phone: ${phone}`)
-        const res = await fetch("/api/admin/reset-customer", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phoneNumber: phone }),
-        })
-        console.log(`[ADMIN] Response status for ${phone}:`, res.status)
-        const json = await res.json()
-        console.log(`[ADMIN] Response for ${phone}:`, json)
-
-        if (res.ok && json.success && json.data?.deletions) {
-          allDeletions.push(`--- ${phone} ---`, ...json.data.deletions)
-        } else if (!res.ok) {
-          allDeletions.push(`--- ${phone} --- Error: ${json.error || 'Unknown error'}`)
-          hasError = true
-        } else {
-          allDeletions.push(`--- ${phone} --- No data found`)
-        }
-      } catch (e: any) {
-        console.error(`[ADMIN] Error resetting ${phone}:`, e)
-        allDeletions.push(`--- ${phone} --- Error: ${e.message}`)
-        hasError = true
+      if (res.ok && json.success && json.data?.deletions?.length > 0) {
+        setResetResult({ success: true, deletions: json.data.deletions, person: person.name })
+      } else if (!res.ok) {
+        setResetResult({ success: false, error: json.error || "Unknown error", person: person.name })
+      } else {
+        setResetResult({ success: true, deletions: ["No data found"], person: person.name })
       }
+    } catch (e: any) {
+      setResetResult({ success: false, error: e.message, person: person.name })
     }
 
-    console.log("[ADMIN] Reset complete, deletions:", allDeletions)
-    setResetResult({
-      success: !hasError,
-      deletions: allDeletions.length > 0 ? allDeletions : ["No data found for test numbers"]
-    })
-    setResetting(false)
+    setResettingPerson(null)
   }
 
   async function deleteBusiness(tenantId: string) {
@@ -604,11 +589,51 @@ export default function AdminPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
-          <ShieldCheck className="h-7 w-7 text-primary" />
-          Admin Panel
-        </h1>
+        <div className="flex items-center justify-between">
+          <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
+            <ShieldCheck className="h-7 w-7 text-primary" />
+            Admin Panel
+          </h1>
+          <div className="flex items-center gap-2">
+            {testPersons.map((person) => (
+              <button
+                key={person.name}
+                type="button"
+                onClick={() => resetPerson(person)}
+                disabled={resettingPerson !== null}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 rounded-md disabled:opacity-50 transition-colors"
+                title={`Reset ${person.name} (${person.phone})`}
+              >
+                {resettingPerson === person.name ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCcw className="h-3.5 w-3.5" />
+                )}
+                {resettingPerson === person.name ? "Resetting..." : `Reset ${person.name}`}
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="text-sm text-muted-foreground">Manage businesses, booking flows, and system controls</p>
+        {resetResult && (
+          <div className={`mt-2 p-2 rounded-lg border text-xs ${
+            resetResult.success
+              ? "border-green-500/30 bg-green-500/10"
+              : "border-red-500/30 bg-red-500/10"
+          }`}>
+            {resetResult.success ? (
+              <div className="flex items-center gap-2 text-green-400 font-medium">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {resetResult.person} reset: {resetResult.deletions?.join(", ") || "No data found"}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-red-400">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {resetResult.person} reset failed: {resetResult.error}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -712,20 +737,6 @@ export default function AdminPage() {
                     <Badge variant={currentTenant.active ? "default" : "destructive"}>
                       {currentTenant.active ? "Active" : "Inactive"}
                     </Badge>
-                    <button
-                      type="button"
-                      onClick={() => resetTestCustomers()}
-                      disabled={resetting}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 rounded-md disabled:opacity-50 transition-colors"
-                      title="Reset test customer data"
-                    >
-                      {resetting ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCcw className="h-3.5 w-3.5" />
-                      )}
-                      {resetting ? "Resetting..." : "Reset Data"}
-                    </button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1814,35 +1825,6 @@ export default function AdminPage() {
 
                 </Tabs>
 
-                {/* Reset result display */}
-                {resetResult && (
-                  <div className={`mt-4 p-3 rounded-lg border ${
-                    resetResult.success
-                      ? "border-green-500/30 bg-green-500/10"
-                      : "border-red-500/30 bg-red-500/10"
-                  }`}>
-                    {resetResult.success ? (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-green-400 font-medium text-sm">
-                          <CheckCircle2 className="h-4 w-4" />
-                          Test data reset successfully
-                        </div>
-                        {resetResult.deletions && resetResult.deletions.length > 0 && (
-                          <ul className="text-xs text-muted-foreground list-disc list-inside">
-                            {resetResult.deletions.map((d, i) => (
-                              <li key={i}>{d}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 text-red-400 text-sm">
-                        <AlertTriangle className="h-4 w-4" />
-                        {resetResult.error}
-                      </div>
-                    )}
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
