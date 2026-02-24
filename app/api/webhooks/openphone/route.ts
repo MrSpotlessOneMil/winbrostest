@@ -491,6 +491,13 @@ export async function POST(request: NextRequest) {
       }
 
       const jobId = job?.id || bookedLead.converted_to_job_id || null
+
+      // Skip payment links entirely for estimate jobs — salesman quotes price on-site
+      if (job?.job_type === 'estimate') {
+        console.log(`[OpenPhone] Skipping payment links for estimate job ${jobId} — salesman will quote on-site`)
+        return NextResponse.json({ success: true, flow: "phone_call_email_captured_estimate", leadId: bookedLead.id })
+      }
+
       // Tenants with team routing (WinBros/window cleaning) skip deposit flow — handled after booking
       const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
@@ -1384,6 +1391,7 @@ export async function POST(request: NextRequest) {
                     await dispatchRoutes(optimization, tenant.id, {
                       sendTelegramToTeams: false,
                       sendSmsToCustomers: false,
+                      sendOwnerSummary: false,
                     })
 
                     // Send immediate Telegram to assigned salesman WITH address (salesmen need it for the visit)

@@ -32,6 +32,7 @@ export interface DispatchResult {
 interface DispatchOptions {
   sendTelegramToTeams?: boolean
   sendSmsToCustomers?: boolean
+  sendOwnerSummary?: boolean
   dryRun?: boolean
 }
 
@@ -202,8 +203,9 @@ export async function dispatchRoutes(
     errors,
   }
 
-  // Send owner a summary if there were any issues
-  if (!dryRun) {
+  // Send owner a summary (skip for single-estimate dispatches to avoid noise)
+  const sendOwnerSummary = options?.sendOwnerSummary !== false
+  if (!dryRun && sendOwnerSummary) {
     await sendOwnerDispatchSummary(tenant, optimization, result)
   }
 

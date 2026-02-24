@@ -1821,7 +1821,7 @@ export async function getGHLLeadsNeedingFollowUp(silenceThresholdMs: number): Pr
  */
 export async function hasReminderBeenSent(
   assignmentId: string,
-  reminderType: 'daily_8am' | 'one_hour_before' | 'job_start',
+  reminderType: 'daily_8am' | 'one_hour_before' | 'job_start' | 'evening_before' | 'morning_schedule',
   jobDate: string
 ): Promise<boolean> {
   const client = getSupabaseClient()
@@ -1848,7 +1848,7 @@ export async function hasReminderBeenSent(
  */
 export async function markReminderSent(
   assignmentId: string,
-  reminderType: 'daily_8am' | 'one_hour_before' | 'job_start',
+  reminderType: 'daily_8am' | 'one_hour_before' | 'job_start' | 'evening_before' | 'morning_schedule',
   jobDate: string,
   jobTime?: string
 ): Promise<void> {
