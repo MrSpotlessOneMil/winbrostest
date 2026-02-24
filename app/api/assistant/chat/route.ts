@@ -4,6 +4,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 import { toE164 } from "@/lib/phone-utils"
 import Anthropic from "@anthropic-ai/sdk"
 import { getTenantById, tenantHasIntegration, getTenantServiceDescription, tenantUsesFeature, type Tenant } from "@/lib/tenant"
+import { hasAssistantMemory, buildMemoryContext, saveConversation, extractAndStoreFacts, recordToolUsage } from "@/lib/assistant-memory"
 
 // =====================================================================
 // TOOL DEFINITIONS
@@ -1343,7 +1344,7 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { user } = authResult
 
-  const { messages } = await request.json()
+  const { messages, conversationId } = await request.json()
 
   if (!messages || !Array.isArray(messages)) {
     return NextResponse.json({ success: false, error: "messages required" }, { status: 400 })
@@ -1363,7 +1364,20 @@ export async function POST(request: NextRequest) {
   }
 
   const anthropic = new Anthropic({ apiKey })
-  const systemPrompt = buildSystemPrompt(tenant)
+  const memoryEnabled = hasAssistantMemory(tenant)
+  let systemPrompt = buildSystemPrompt(tenant)
+
+  // Inject memory context for tenants with memory enabled
+  if (memoryEnabled && tenant) {
+    try {
+      const memoryContext = await buildMemoryContext(tenant.id, user.id, messages)
+      if (memoryContext) {
+        systemPrompt += memoryContext
+      }
+    } catch (err) {
+      console.error("[Memory] Failed to build memory context:", err)
+    }
+  }
 
   try {
     const anthropicMessages: Anthropic.MessageParam[] = messages.map((m: any) => ({
@@ -1375,6 +1389,7 @@ export async function POST(request: NextRequest) {
     let finalText = ""
     let iterations = 0
     const MAX_ITERATIONS = 5
+    const toolsUsed: Record<string, number> = {}
 
     while (iterations < MAX_ITERATIONS) {
       iterations++
@@ -1395,6 +1410,7 @@ export async function POST(request: NextRequest) {
           finalText += block.text
         } else if (block.type === "tool_use") {
           hasToolUse = true
+          toolsUsed[block.name] = (toolsUsed[block.name] || 0) + 1
           const toolResult = await executeTool(block.name, block.input as Record<string, any>, user.id, tenant)
 
           toolResults.push({
@@ -1420,6 +1436,32 @@ export async function POST(request: NextRequest) {
 
       currentMessages = [...currentMessages, ...toolResults]
       finalText = "" // Reset — we want the final text response after tool use
+    }
+
+    // Persist conversation and extract facts if memory is enabled
+    if (memoryEnabled && tenant && conversationId) {
+      const allMessages = [...messages, { role: "assistant", content: finalText }]
+
+      // Save conversation to DB (synchronous for consistency)
+      await saveConversation(
+        tenant.id,
+        user.id,
+        conversationId,
+        messages[0]?.content?.slice(0, 80) || "New Chat",
+        allMessages,
+        toolsUsed
+      ).catch((err) => console.error("[Memory] Save error:", err))
+
+      // Extract facts and record stats asynchronously (fire-and-forget)
+      extractAndStoreFacts(tenant.id, user.id, conversationId, allMessages).catch(
+        (err) => console.error("[Memory] Fact extraction error:", err)
+      )
+
+      for (const toolName of Object.keys(toolsUsed)) {
+        recordToolUsage(tenant.id, user.id, toolName).catch(
+          (err) => console.error("[Memory] Stats error:", err)
+        )
+      }
     }
 
     return NextResponse.json({
