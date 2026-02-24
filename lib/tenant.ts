@@ -281,10 +281,9 @@ export async function getTenantByOpenPhoneId(phoneId: string): Promise<Tenant | 
     .select("*")
     .eq("openphone_phone_id", phoneId)
     .eq("active", true)
-    .single()
+    .maybeSingle()
 
   if (error || !data) {
-    // Not found is expected, don't log as error
     return null
   }
 
