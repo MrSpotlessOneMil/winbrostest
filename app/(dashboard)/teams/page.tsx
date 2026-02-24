@@ -89,7 +89,13 @@ export default function TeamsPage() {
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean; employee_type: EmployeeType
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
-  const [employeeTypeFilter, setEmployeeTypeFilter] = useState<EmployeeType>("technician")
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState<EmployeeType>(() => {
+    if (typeof window === "undefined") return "technician"
+    try {
+      const saved = localStorage.getItem("teams-employee-type-filter")
+      return saved === "salesman" ? "salesman" : "technician"
+    } catch { return "technician" }
+  })
 
   // Chat panel state — persist selected member across reloads
   const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(() => {
@@ -171,6 +177,11 @@ export default function TeamsPage() {
     let cancelled = false
     loadTeams().then(() => { if (cancelled) setTeams([]) })
     return () => { cancelled = true }
+  }, [employeeTypeFilter])
+
+  // Persist employee type filter to localStorage
+  useEffect(() => {
+    localStorage.setItem("teams-employee-type-filter", employeeTypeFilter)
   }, [employeeTypeFilter])
 
   // Persist selected chat member to localStorage
