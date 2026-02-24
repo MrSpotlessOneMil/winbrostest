@@ -53,6 +53,7 @@ export interface WorkflowConfig {
   cleaner_assignment_auto: boolean
   require_deposit: boolean
   deposit_percentage: number
+  cleaner_pay_percentage?: number // % of job revenue paid to cleaner (e.g. 40 = 40%)
 
   // Route optimization (WinBros logistics engine)
   use_route_optimization: boolean

@@ -82,6 +82,7 @@ interface JobInfo {
   bathrooms?: number | null
   square_footage?: number | null
   hours?: number | null
+  price?: number | string | null
 }
 
 interface CustomerInfo {
@@ -403,6 +404,17 @@ export async function notifyCleanerAssignment(
   const safeNotes = formatCleanerNotes(job.notes)
   const businessName = tenant.business_name_short || tenant.name
 
+  // Calculate cleaner pay from job price and tenant's cleaner_pay_percentage
+  let payLine = ''
+  const jobPrice = job.price ? parseFloat(String(job.price)) : null
+  const payPct = tenant.workflow_config?.cleaner_pay_percentage
+  if (jobPrice && payPct) {
+    const cleanerPay = (jobPrice * payPct / 100).toFixed(2)
+    payLine = `\nYour Pay: $${cleanerPay}`
+  } else if (jobPrice) {
+    payLine = `\nPay: $${jobPrice.toFixed(2)}`
+  }
+
   const message = `
 <b>New Job Available - ${businessName}!</b>
 
@@ -410,7 +422,7 @@ Date: ${dateStr}, ${timeStr}
 Bedrooms: ${bedrooms}
 Bathrooms: ${bathrooms}
 Square Footage: ${squareFootage}
-Duration: ${duration}
+Duration: ${duration}${payLine}
 Notes: ${safeNotes || 'None'}
 
 Address: ${job.address || customer?.address || 'See details'}

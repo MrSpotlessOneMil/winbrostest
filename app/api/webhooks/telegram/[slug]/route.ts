@@ -643,10 +643,10 @@ export async function POST(
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
 
-    // AI fallback
-    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
-    await sendMsg(chatId, aiResponse, tenant)
-    return NextResponse.json({ success: true, action: "ai_response" })
+    // AI-powered assistant (handles info updates, job questions, general chat)
+    const aiResult = await handleCleanerAI(text, cleaner, chatId, telegramUserId, from.first_name, tenant)
+    await sendMsg(chatId, aiResult.response, tenant)
+    return NextResponse.json({ success: true, action: aiResult.action || "ai_response" })
 
   } catch (error) {
     console.error(`[Telegram/${slug}] Webhook error:`, error)
@@ -917,68 +917,244 @@ async function buildScheduleResponse(userMessage: string, cleanerId: string | nu
   return `${header}\n\n${lines.join('\n\n')}\n\nQuestions? Reply here or use /start to see all commands.`
 }
 
-async function generateAIResponse(
+/**
+ * AI-powered cleaner assistant with tool-calling for info updates.
+ *
+ * Cleaners can:
+ * - Update their phone, address, name, email, availability
+ * - Ask questions about their assigned jobs
+ * - Get general help
+ *
+ * NEVER reveals: full job price, pay percentage, business financials
+ */
+async function handleCleanerAI(
   userMessage: string,
-  userName: string,
-  isTeamLead: boolean,
-  cleanerId: string | null
-): Promise<string> {
+  cleaner: { id: string; name: string; active: boolean; is_team_lead: boolean; phone: string | null; email: string | null } | null,
+  chatId: string,
+  telegramUserId: string,
+  firstName: string,
+  tenant: Tenant
+): Promise<{ response: string; action?: string }> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) return getDefaultFallbackResponse(isTeamLead)
+  if (!anthropicKey) return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
 
   try {
+    const supabase = getSupabaseServiceClient()
+    const userName = cleaner?.name || firstName
+
+    // Build job context for this cleaner
     let jobContext = ""
-    if (cleanerId) {
-      const supabase = getSupabaseServiceClient()
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+    let cleanerInfoContext = ""
+    if (cleaner?.id) {
+      // Get current cleaner info
+      const { data: cleanerData } = await supabase
+        .from("cleaners")
+        .select("name, phone, email, home_address, availability")
+        .eq("id", cleaner.id)
+        .single()
+      if (cleanerData) {
+        const avail = cleanerData.availability as { rules?: { days?: string[]; start?: string; end?: string }[] } | null
+        const availStr = avail?.rules?.[0]
+          ? `${(avail.rules[0].days || []).join(', ')} ${avail.rules[0].start || ''}-${avail.rules[0].end || ''}`
+          : 'Not set'
+        cleanerInfoContext = `\n\nCLEANER'S CURRENT INFO:\nName: ${cleanerData.name}\nPhone: ${cleanerData.phone || 'Not set'}\nEmail: ${cleanerData.email || 'Not set'}\nHome Address: ${cleanerData.home_address || 'Not set'}\nAvailability: ${availStr}`
+      }
+
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: tenant.timezone || 'America/Chicago' })
       const { data: assignments } = await supabase
         .from("cleaner_assignments")
         .select("job_id")
-        .eq("cleaner_id", cleanerId)
+        .eq("cleaner_id", cleaner.id)
         .in("status", ["confirmed", "pending"])
       const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
       if (jobIds.length > 0) {
         const { data: jobs } = await supabase
           .from("jobs")
-          .select("id, date, scheduled_at, address, service_type, status")
+          .select("id, date, scheduled_at, address, service_type, status, hours, notes")
           .in("id", jobIds)
           .gte("date", today)
           .order("date", { ascending: true })
           .limit(10)
         if (jobs && jobs.length > 0) {
           const jobLines = jobs.map((j: any) =>
-            `- ${j.date || 'TBD'} at ${j.scheduled_at || 'TBD'}: ${j.service_type || 'Cleaning'} at ${j.address || 'Address not set'} (Job #${j.id})`
+            `- Job #${j.id}: ${j.date || 'TBD'} at ${j.scheduled_at || 'TBD'}, ${j.service_type || 'Cleaning'} at ${j.address || 'Address not set'}${j.hours ? `, ~${j.hours}h` : ''}${j.notes ? ` (Notes: ${j.notes})` : ''}`
           )
-          jobContext = `\n\nTHIS CLEANER'S UPCOMING JOBS:\n${jobLines.join('\n')}`
+          jobContext = `\n\nUPCOMING JOBS:\n${jobLines.join('\n')}`
         } else {
-          jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now.`
+          jobContext = `\n\nNo upcoming jobs assigned.`
         }
       } else {
-        jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now.`
+        jobContext = `\n\nNo upcoming jobs assigned.`
       }
     } else {
       jobContext = `\n\nThis user is NOT registered as a cleaner. Tell them to send "join" to register.`
     }
 
+    const tools: Anthropic.Tool[] = cleaner?.id ? [
+      {
+        name: "update_cleaner_info",
+        description: "Update the cleaner's personal information in the system. Use this when they ask to change their phone number, email, name, or home address.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            field: { type: "string", enum: ["name", "phone", "email", "home_address"], description: "The field to update" },
+            value: { type: "string", description: "The new value" }
+          },
+          required: ["field", "value"]
+        }
+      },
+      {
+        name: "update_availability",
+        description: "Update the cleaner's work availability schedule. Use this when they want to change what days/hours they work.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            days: { type: "array", items: { type: "string", enum: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"] }, description: "Days available" },
+            start_time: { type: "string", description: "Start time in HH:MM 24h format (e.g. 08:00)" },
+            end_time: { type: "string", description: "End time in HH:MM 24h format (e.g. 17:00)" }
+          },
+          required: ["days", "start_time", "end_time"]
+        }
+      }
+    ] : []
+
     const client = new Anthropic({ apiKey: anthropicKey })
-    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. The user's name is ${userName}.${isTeamLead ? " They are a team lead." : ""}${jobContext}\n\nRespond in a friendly, concise way (2-4 sentences max). Use plain text only, no markdown.`
+    const systemPrompt = `You are a helpful, friendly assistant for ${tenant.business_name_short || tenant.name}'s cleaning team Telegram bot. The user's name is ${userName}.${cleaner?.is_team_lead ? " They are a team lead." : ""}${cleanerInfoContext}${jobContext}
+
+CAPABILITIES:
+- Answer questions about their assigned jobs (dates, times, addresses, service type, notes)
+- Update their personal info (phone, email, name, address) using the update_cleaner_info tool
+- Update their availability schedule using the update_availability tool
+- Help with tips, upsells, and general questions
+
+STRICT RULES - NEVER VIOLATE:
+- NEVER reveal the price/revenue of any job. If asked "how much does this job pay" or "what's the job price", tell them their pay was shown in the job notification and to check that message.
+- NEVER discuss pay percentages, commission splits, or business revenue.
+- NEVER share other cleaners' personal info, pay, or schedules.
+- If asked about pay structure, say "Your pay is shown on each job notification when it's offered to you."
+- Keep responses concise (2-4 sentences). Use plain text, no markdown.
+- When updating info, use the tools provided. Confirm the update to the user after.
+- For availability updates, convert natural language days to codes: Monday=MO, Tuesday=TU, etc. Convert times to 24h format.`
+
+    let messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }]
 
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      messages: [{ role: "user", content: userMessage }],
+      max_tokens: 500,
+      messages,
       system: systemPrompt,
+      tools: tools.length > 0 ? tools : undefined,
     })
 
-    const textContent = response.content.find(b => b.type === "text")
-    if (textContent?.type === "text" && textContent.text) return textContent.text.trim()
-    return getDefaultFallbackResponse(isTeamLead)
+    // Process tool calls if any
+    const toolUseBlocks = response.content.filter(b => b.type === "tool_use")
+    const textBlocks = response.content.filter(b => b.type === "text")
+
+    if (toolUseBlocks.length > 0 && cleaner?.id) {
+      const toolResults: Anthropic.MessageParam[] = []
+      const toolResultContents: Anthropic.ToolResultBlockParam[] = []
+
+      for (const toolUse of toolUseBlocks) {
+        if (toolUse.type !== "tool_use") continue
+        const input = toolUse.input as Record<string, any>
+
+        if (toolUse.name === "update_cleaner_info") {
+          const { field, value } = input
+          const allowedFields = ["name", "phone", "email", "home_address"]
+          if (!allowedFields.includes(field)) {
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error: Cannot update field "${field}"` })
+            continue
+          }
+
+          const updateData: Record<string, any> = { [field]: value, updated_at: new Date().toISOString() }
+
+          // Geocode if address update
+          if (field === "home_address") {
+            try {
+              const geo = await geocodeAddress(value)
+              if (geo) {
+                updateData.home_lat = geo.lat
+                updateData.home_lng = geo.lng
+                updateData.home_address = geo.formattedAddress
+              }
+            } catch { /* geocode failed, keep raw address */ }
+          }
+
+          // Format phone if phone update
+          if (field === "phone") {
+            const cleanPhone = value.replace(/[\s\-\(\)]/g, '')
+            updateData.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
+          }
+
+          const { error } = await supabase
+            .from("cleaners")
+            .update(updateData)
+            .eq("id", cleaner.id)
+
+          if (error) {
+            console.error(`[Telegram/${tenant.slug}] Failed to update cleaner ${field}:`, error)
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error updating ${field}: ${error.message}` })
+          } else {
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Successfully updated ${field} to "${updateData[field] || value}"` })
+          }
+        }
+
+        if (toolUse.name === "update_availability") {
+          const { days, start_time, end_time } = input
+          const availability = { rules: [{ days, start: start_time, end: end_time }] }
+
+          const { error } = await supabase
+            .from("cleaners")
+            .update({ availability, updated_at: new Date().toISOString() })
+            .eq("id", cleaner.id)
+
+          if (error) {
+            console.error(`[Telegram/${tenant.slug}] Failed to update availability:`, error)
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error updating availability: ${error.message}` })
+          } else {
+            const dayLabels = (days as string[]).map((d: string) => DAY_LABELS[d] || d).join(', ')
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Successfully updated availability to ${dayLabels}, ${start_time}-${end_time}` })
+          }
+        }
+      }
+
+      // Send tool results back to get final response
+      messages = [
+        { role: "user", content: userMessage },
+        { role: "assistant", content: response.content },
+        { role: "user", content: toolResultContents }
+      ]
+
+      const followUp = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages,
+        system: systemPrompt,
+        tools,
+      })
+
+      const followUpText = followUp.content.find(b => b.type === "text")
+      if (followUpText?.type === "text" && followUpText.text) {
+        return { response: followUpText.text.trim(), action: "cleaner_info_updated" }
+      }
+      // If no text in follow-up, use original text blocks
+      if (textBlocks.length > 0 && textBlocks[0].type === "text") {
+        return { response: textBlocks[0].text.trim(), action: "cleaner_info_updated" }
+      }
+      return { response: "Done! Your information has been updated.", action: "cleaner_info_updated" }
+    }
+
+    // No tool calls — just return text
+    if (textBlocks.length > 0 && textBlocks[0].type === "text") {
+      return { response: textBlocks[0].text.trim() }
+    }
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
   } catch (error) {
-    console.error("[Telegram/slug] AI response error:", error)
-    return getDefaultFallbackResponse(isTeamLead)
+    console.error(`[Telegram/${tenant.slug}] AI response error:`, error)
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
   }
 }
 
 function getDefaultFallbackResponse(isTeamLead: boolean): string {
-  return `I didn't quite understand that. Here's what I can help with:\n\n• New cleaner? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Need help? Send /start`
+  return `I didn't quite understand that. Here's what I can help with:\n\n• New cleaner? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Check your schedule: "my schedule"\n• Update your info: "update my phone to 555-123-4567"\n• Need help? Send /start`
 }
