@@ -63,17 +63,18 @@ SET workflow_config = workflow_config || '{
 WHERE slug = 'spotless-scrubbers';
 
 -- ============================================================================
--- Cedar Rapids: Simple flow (call → booked → review, no payment/dispatch)
+-- Cedar Rapids: The Clean Machine tenant (1:1 copy of Spotless Scrubbers)
+-- Call → Booked → Paid → Cleaner dispatched → Review → Retargeting
 -- ============================================================================
 UPDATE tenants
 SET workflow_config = workflow_config || '{
   "use_hcp_mirror": false,
   "use_rainy_day_reschedule": false,
   "use_team_routing": false,
-  "use_cleaner_dispatch": false,
+  "use_cleaner_dispatch": true,
   "use_review_request": true,
-  "use_retargeting": false,
-  "use_payment_collection": false
+  "use_retargeting": true,
+  "use_payment_collection": true
 }'::jsonb
 WHERE slug = 'cedar-rapids';
 

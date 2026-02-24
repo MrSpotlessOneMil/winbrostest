@@ -261,6 +261,142 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["active"],
     },
   },
+  {
+    name: "send_sms",
+    description:
+      "Send an SMS message directly to a customer's phone number via OpenPhone. Use this to send confirmations, updates, or any custom message.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The customer's phone number",
+        },
+        message: {
+          type: "string",
+          description: "The message to send (keep under 300 characters for SMS)",
+        },
+      },
+      required: ["phone_number", "message"],
+    },
+  },
+  {
+    name: "assign_cleaner",
+    description:
+      "Assign a cleaner to a job. Optionally notifies the cleaner via Telegram and the customer via SMS. Use list_cleaners first to get the cleaner ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: {
+          type: "number",
+          description: "The job ID to assign the cleaner to",
+        },
+        cleaner_id: {
+          type: "number",
+          description: "The cleaner's ID (use list_cleaners to find it)",
+        },
+        notify_cleaner: {
+          type: "boolean",
+          description: "Send Telegram notification to the cleaner (default: true)",
+        },
+        notify_customer: {
+          type: "boolean",
+          description: "Send SMS confirmation to the customer (default: true)",
+        },
+      },
+      required: ["job_id", "cleaner_id"],
+    },
+  },
+  {
+    name: "send_payment_link",
+    description:
+      "Generate a Stripe payment link AND send it to the customer via SMS in one step. Requires the customer to have an email on file.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The customer's phone number",
+        },
+        link_type: {
+          type: "string",
+          enum: ["card_on_file", "deposit"],
+          description:
+            "Type of link: 'deposit' collects 50% upfront + 3% fee (default), 'card_on_file' saves card for later",
+        },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "send_review_request",
+    description:
+      "Send a review request SMS to a customer after their job is completed. Uses the business's Google review link if configured.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The customer's phone number",
+        },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "update_job",
+    description:
+      "Update an existing job's status, date, time, notes, or address. If the date/time changes and a cleaner is assigned, they'll be notified via Telegram.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: {
+          type: "number",
+          description: "The job ID to update",
+        },
+        status: {
+          type: "string",
+          description: "New status: 'scheduled', 'in_progress', 'completed', 'cancelled'",
+        },
+        date: {
+          type: "string",
+          description: "New date in YYYY-MM-DD format",
+        },
+        time: {
+          type: "string",
+          description: "New time in HH:MM format (24-hour)",
+        },
+        notes: {
+          type: "string",
+          description: "Updated notes/instructions",
+        },
+        address: {
+          type: "string",
+          description: "Updated service address",
+        },
+      },
+      required: ["job_id"],
+    },
+  },
+  {
+    name: "update_customer",
+    description:
+      "Update a customer's details: email, name, or address. Useful for adding an email before generating payment links.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The customer's phone number (used to find them)",
+        },
+        first_name: { type: "string", description: "Updated first name" },
+        last_name: { type: "string", description: "Updated last name" },
+        email: { type: "string", description: "Updated email address" },
+        address: { type: "string", description: "Updated service address" },
+      },
+      required: ["phone_number"],
+    },
+  },
 ]
 
 // =====================================================================
@@ -811,6 +947,305 @@ async function executeTool(
       : `System is now **OFF** for ${tenantData.name}. All automated responses, follow-ups, and SMS are paused. Just let me know when you want to turn it back on!`
   }
 
+  // ----- SEND SMS -----
+  if (toolName === "send_sms") {
+    try {
+      if (!tenant) return "Cannot send SMS: your account isn't linked to a business yet."
+      const phone = toolInput.phone_number as string
+      const message = toolInput.message as string
+
+      const { sendSMS } = await import("@/lib/openphone")
+      const result = await sendSMS(tenant, phone, message)
+
+      if (!result.success) {
+        return `Failed to send SMS: ${result.error}`
+      }
+
+      return `SMS sent to ${phone}: "${message.slice(0, 100)}${message.length > 100 ? "..." : ""}"`
+    } catch (err: any) {
+      return `Error sending SMS: ${err.message}`
+    }
+  }
+
+  // ----- ASSIGN CLEANER -----
+  if (toolName === "assign_cleaner") {
+    try {
+      if (!tenantId) return "Cannot assign cleaner: your account isn't linked to a business yet."
+
+      const jobId = toolInput.job_id as number
+      const cleanerId = toolInput.cleaner_id as number
+      const notifyCleaner = toolInput.notify_cleaner !== false
+      const notifyCustomer = toolInput.notify_customer !== false
+
+      // Fetch job
+      const { data: job } = await client
+        .from("jobs")
+        .select("*")
+        .eq("id", jobId)
+        .eq("tenant_id", tenantId)
+        .single()
+      if (!job) return `Job #${jobId} not found.`
+
+      // Fetch cleaner
+      const { data: cleaner } = await client
+        .from("cleaners")
+        .select("*")
+        .eq("id", cleanerId)
+        .eq("tenant_id", tenantId)
+        .single()
+      if (!cleaner) return `Cleaner #${cleanerId} not found. Use list_cleaners to see available cleaners.`
+
+      // Create assignment
+      const { data: assignment, error: assignErr } = await client
+        .from("cleaner_assignments")
+        .insert({
+          tenant_id: tenantId,
+          job_id: jobId,
+          cleaner_id: cleanerId,
+          status: "confirmed",
+        })
+        .select("id")
+        .single()
+
+      if (assignErr) return `Failed to create assignment: ${assignErr.message}`
+
+      // Update job with assigned cleaner
+      await client
+        .from("jobs")
+        .update({ assigned_cleaner_id: cleanerId, updated_at: new Date().toISOString() })
+        .eq("id", jobId)
+
+      const results: string[] = [`Assigned **${cleaner.name}** to job #${jobId}`]
+
+      // Notify cleaner via Telegram
+      if (notifyCleaner && cleaner.telegram_id && tenant) {
+        const { notifyCleanerAssignment } = await import("@/lib/telegram")
+        const customer: any = job.phone_number
+          ? await findCustomerByPhone(client, job.phone_number, tenantId, "first_name, last_name, address")
+          : null
+        await notifyCleanerAssignment(tenant, cleaner, job, customer, assignment.id?.toString())
+        results.push("Cleaner notified via Telegram")
+      } else if (notifyCleaner && !cleaner.telegram_id) {
+        results.push("Cleaner does NOT have Telegram set up — no notification sent")
+      }
+
+      // Notify customer via SMS
+      if (notifyCustomer && job.phone_number && tenant) {
+        const { cleanerAssigned } = await import("@/lib/sms-templates")
+        const { sendSMS } = await import("@/lib/openphone")
+        const customer: any = await findCustomerByPhone(client, job.phone_number, tenantId, "first_name")
+        const dateStr = job.date || "TBD"
+        const timeStr = job.scheduled_at || "TBD"
+        const msg = cleanerAssigned(
+          customer?.first_name || "there",
+          cleaner.name,
+          cleaner.phone || "",
+          dateStr,
+          timeStr
+        )
+        await sendSMS(tenant, job.phone_number, msg)
+        results.push("Customer notified via SMS")
+      }
+
+      return results.join("\n")
+    } catch (err: any) {
+      return `Error assigning cleaner: ${err.message}`
+    }
+  }
+
+  // ----- SEND PAYMENT LINK -----
+  if (toolName === "send_payment_link") {
+    try {
+      if (!tenant) return "Cannot send payment link: your account isn't linked to a business yet."
+      const phone = toolInput.phone_number as string
+      const linkType = (toolInput.link_type as string) || "deposit"
+      const customer: any = await findCustomerByPhone(client, phone, tenantId)
+
+      if (!customer) return `No customer found with phone number ${phone}. Create one first.`
+      if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. Use update_customer to add their email first.`
+
+      // Get latest job
+      const { data: jobs } = await client
+        .from("jobs")
+        .select("*")
+        .eq("phone_number", customer.phone_number)
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+
+      const job = jobs?.[0]
+      if (!job) return `${customer.first_name || "This customer"} doesn't have any jobs yet. Create one first.`
+
+      let linkUrl = ""
+      let amount = 0
+
+      if (linkType === "deposit") {
+        const { createDepositPaymentLink } = await import("@/lib/stripe-client")
+        const result = await createDepositPaymentLink(customer, job)
+        if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
+        linkUrl = result.url
+        amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
+      } else {
+        const { createCardOnFileLink } = await import("@/lib/stripe-client")
+        const result = await createCardOnFileLink(customer, String(job.id))
+        if (!result.success || !result.url) return `Failed to generate card-on-file link: ${result.error || "Unknown error"}`
+        linkUrl = result.url
+      }
+
+      // Send via SMS
+      const { sendSMS } = await import("@/lib/openphone")
+      const { paymentLink } = await import("@/lib/sms-templates")
+      const name = customer.first_name || "there"
+      const smsAmount = linkType === "deposit" ? amount : job.price || 0
+      const msg = paymentLink(name, smsAmount, linkUrl)
+      const smsResult = await sendSMS(tenant, customer.phone_number, msg)
+
+      if (!smsResult.success) {
+        return `Payment link created but SMS failed: ${smsResult.error}\n\nLink: ${linkUrl}`
+      }
+
+      const amountStr = linkType === "deposit" ? `$${amount.toFixed(2)} deposit` : "card-on-file"
+      return `Payment link sent to ${customer.first_name || phone} via SMS!\n- Type: ${amountStr}\n- Link: ${linkUrl}`
+    } catch (err: any) {
+      return `Error sending payment link: ${err.message}`
+    }
+  }
+
+  // ----- SEND REVIEW REQUEST -----
+  if (toolName === "send_review_request") {
+    try {
+      if (!tenant) return "Cannot send review: your account isn't linked to a business yet."
+      const phone = toolInput.phone_number as string
+      const customer: any = await findCustomerByPhone(client, phone, tenantId, "first_name, phone_number")
+
+      if (!customer) return `No customer found with phone number ${phone}.`
+
+      const { sendSMS } = await import("@/lib/openphone")
+      const reviewLink = tenant.google_review_link
+
+      let msg: string
+      if (reviewLink) {
+        const { postCleaningReview } = await import("@/lib/sms-templates")
+        msg = postCleaningReview(customer.first_name || "there", reviewLink)
+      } else {
+        const { reviewOnlyFollowup } = await import("@/lib/sms-templates")
+        msg = reviewOnlyFollowup(customer.first_name || "there", "")
+      }
+
+      const result = await sendSMS(tenant, customer.phone_number, msg)
+
+      if (!result.success) return `Failed to send review request: ${result.error}`
+      return `Review request sent to ${customer.first_name || phone} via SMS!${!reviewLink ? "\n\n**Note:** No Google review link is configured for your business. Set one up in the tenants table to include it in review requests." : ""}`
+    } catch (err: any) {
+      return `Error sending review request: ${err.message}`
+    }
+  }
+
+  // ----- UPDATE JOB -----
+  if (toolName === "update_job") {
+    try {
+      if (!tenantId) return "Cannot update job: your account isn't linked to a business yet."
+
+      const jobId = toolInput.job_id as number
+      const updates: Record<string, any> = {}
+
+      if (toolInput.status) updates.status = toolInput.status
+      if (toolInput.date) updates.date = toolInput.date
+      if (toolInput.time) updates.scheduled_at = toolInput.time
+      if (toolInput.notes) updates.notes = toolInput.notes
+      if (toolInput.address) updates.address = toolInput.address
+      updates.updated_at = new Date().toISOString()
+
+      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change (status, date, time, notes, address)."
+
+      // Fetch current job for comparison
+      const { data: oldJob } = await client
+        .from("jobs")
+        .select("*, assigned_cleaner_id")
+        .eq("id", jobId)
+        .eq("tenant_id", tenantId)
+        .single()
+
+      if (!oldJob) return `Job #${jobId} not found.`
+
+      const { data: updatedJob, error } = await client
+        .from("jobs")
+        .update(updates)
+        .eq("id", jobId)
+        .eq("tenant_id", tenantId)
+        .select("*")
+        .single()
+
+      if (error) return `Failed to update job: ${error.message}`
+
+      const results: string[] = [`Job #${jobId} updated!`]
+      if (toolInput.status) results.push(`- Status: ${updatedJob.status}`)
+      if (toolInput.date) results.push(`- Date: ${updatedJob.date}`)
+      if (toolInput.time) results.push(`- Time: ${updatedJob.scheduled_at}`)
+      if (toolInput.notes) results.push(`- Notes: ${updatedJob.notes}`)
+      if (toolInput.address) results.push(`- Address: ${updatedJob.address}`)
+
+      // Notify cleaner if date/time changed
+      if ((toolInput.date || toolInput.time) && oldJob.assigned_cleaner_id && tenant) {
+        const { data: cleaner } = await client
+          .from("cleaners")
+          .select("name, telegram_id")
+          .eq("id", oldJob.assigned_cleaner_id)
+          .single()
+
+        if (cleaner?.telegram_id) {
+          const { notifyScheduleChange } = await import("@/lib/telegram")
+          await notifyScheduleChange(
+            tenant,
+            cleaner as any,
+            updatedJob as any,
+            oldJob.date || "",
+            oldJob.scheduled_at || ""
+          )
+          results.push(`- ${cleaner.name} notified of schedule change via Telegram`)
+        }
+      }
+
+      return results.join("\n")
+    } catch (err: any) {
+      return `Error updating job: ${err.message}`
+    }
+  }
+
+  // ----- UPDATE CUSTOMER -----
+  if (toolName === "update_customer") {
+    try {
+      if (!tenantId) return "Cannot update customer: your account isn't linked to a business yet."
+
+      const phone = toolInput.phone_number as string
+      const customer: any = await findCustomerByPhone(client, phone, tenantId, "id, first_name, last_name, phone_number")
+
+      if (!customer) return `No customer found with phone number ${phone}.`
+
+      const updates: Record<string, any> = {}
+      if (toolInput.first_name) updates.first_name = toolInput.first_name
+      if (toolInput.last_name) updates.last_name = toolInput.last_name
+      if (toolInput.email) updates.email = toolInput.email
+      if (toolInput.address) updates.address = toolInput.address
+      updates.updated_at = new Date().toISOString()
+
+      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change (first_name, last_name, email, address)."
+
+      const { error } = await client
+        .from("customers")
+        .update(updates)
+        .eq("id", customer.id)
+
+      if (error) return `Failed to update customer: ${error.message}`
+
+      const name = [toolInput.first_name || customer.first_name, toolInput.last_name || customer.last_name].filter(Boolean).join(" ") || customer.phone_number
+      const changed = Object.keys(updates).filter(k => k !== "updated_at").join(", ")
+      return `Updated ${name}: ${changed}`
+    } catch (err: any) {
+      return `Error updating customer: ${err.message}`
+    }
+  }
+
   return `Unknown tool: ${toolName}`
 }
 
@@ -852,18 +1287,35 @@ Today is ${dayOfWeek}, ${today}.
 1. **Look up a customer** — Find details and job history by phone number
 1b. **Search customers by name** — Find a customer by first/last name. If there's exactly one match, use it directly. If there are multiple matches, list them briefly (name + phone) and ask which one they mean.
 2. **Create a customer** — Add someone new to the system
-3. **Price estimate** — Calculate pricing by service type, bedrooms, bathrooms
-4. **Create a job** — Set up a job with auto-pricing
-5. **Stripe card-on-file link** — Save a customer's card for later
-6. **Stripe deposit link** — Collect 50% + 3% upfront
-7. **Wave invoice** — Create and email a professional invoice${waveEnabled === "No" ? " (not configured)" : ""}
-8. **Add a cleaner** — Add a new team member
-9. **List the team** — See all active cleaners
-10. **Compose a message** — Draft a ready-to-send SMS in a code block
-11. **Dashboard tutorials** — Step-by-step guides for any feature
-12. **Today's summary** — Quick snapshot of jobs, revenue, and leads
-13. **Reset a customer** — Clear booking data for a fresh start
-14. **Toggle the system** — Turn automation on or off
+3. **Update a customer** — Change their email, name, or address
+4. **Price estimate** — Calculate pricing by service type, bedrooms, bathrooms
+5. **Create a job** — Set up a job with auto-pricing
+6. **Update a job** — Change status, date, time, notes, or address (notifies cleaner if rescheduled)
+7. **Assign a cleaner** — Assign a cleaner to a job (notifies them via Telegram + customer via SMS)
+8. **Send SMS** — Send any text message directly to a customer
+9. **Send payment link** — Generate a Stripe link AND text it to the customer in one step
+10. **Send review request** — Text a post-job review link to the customer
+11. **Stripe card-on-file link** — Save a customer's card for later (no SMS)
+12. **Stripe deposit link** — Collect 50% + 3% upfront (no SMS)
+13. **Wave invoice** — Create and email a professional invoice${waveEnabled === "No" ? " (not configured)" : ""}
+14. **Add a cleaner** — Add a new team member
+15. **List the team** — See all active cleaners
+16. **Compose a message** — Draft a ready-to-send SMS in a code block
+17. **Dashboard tutorials** — Step-by-step guides for any feature
+18. **Today's summary** — Quick snapshot of jobs, revenue, and leads
+19. **Reset a customer** — Clear booking data for a fresh start
+20. **Toggle the system** — Turn automation on or off
+
+## BOOKING FLOW
+When the owner wants to book a job from a manual intake (e.g. "I just got a call from..."), follow this order:
+1. **Create or look up the customer** — get their phone, name, address, email
+2. **Create the job** — service type, date, beds/baths → auto-calculates price
+3. **Send confirmation SMS** — text the customer their booking details
+4. **Assign a cleaner** — pick from the team, notifies them via Telegram
+5. **Send payment link** — generates Stripe link and texts it to the customer
+6. After the job: **Send review request** — texts the customer a review link
+
+You don't have to do all steps at once — the owner can ask you to start at any step. If info is missing (e.g. no email for payment link), ask for it or use update_customer to add it.
 
 ## COMPOSING MESSAGES
 When drafting messages for the owner to copy and send, put the message inside a markdown code block (\`\`\`) so it's easy to copy. Keep SMS messages under 300 characters. Make them professional and on-brand for ${businessName}.
