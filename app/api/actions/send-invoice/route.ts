@@ -23,11 +23,12 @@ import { getClientConfig } from '@/lib/client-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { sendDocuSignContract } from '@/lib/docusign'
 import { logSystemEvent } from '@/lib/system-events'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
+  const { tenant: authTenant } = authResult
 
   try {
     const body = await request.json()
@@ -40,9 +41,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get job details
+    // Get job details and verify tenant ownership
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== authTenant.id) {
       return NextResponse.json(
         { error: 'Job not found' },
         { status: 404 }

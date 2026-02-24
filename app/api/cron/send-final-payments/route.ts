@@ -13,8 +13,8 @@ import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { getAllJobs, updateJob, getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 
-// Import the complete-job logic (existing pattern) and retry-payment core function
-import { POST as completeJobAction } from '@/app/api/actions/complete-job/route'
+// Import extracted core functions — called directly, no mock-request needed
+import { executeCompleteJob } from '@/app/api/actions/complete-job/route'
 import { executeRetryPayment } from '@/app/api/actions/retry-payment/route'
 
 const MAX_AUTO_RETRIES = 3
@@ -77,14 +77,7 @@ async function executeHandler() {
     }
 
     try {
-      const mockRequest = new Request('http://localhost/api/actions/complete-job', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: job.id }),
-      })
-
-      const response = await completeJobAction(mockRequest as NextRequest)
-      const result = await response.json()
+      const result = await executeCompleteJob(job.id!)
 
       if (!result.success) {
         throw new Error(result.error || 'Complete job failed')
