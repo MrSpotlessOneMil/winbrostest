@@ -500,9 +500,9 @@ export async function POST(request: NextRequest) {
           const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
 
           try {
-            // Window cleaning tenants ask for service type (not bedrooms/bathrooms)
+            // Window cleaning tenants (WinBros) use the estimate flow — just collect info for a free estimate visit
             const initialMessage = tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')
-              ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
+              ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to get you set up with a free estimate — one of our team members will come out and give you an exact quote on the spot. Can I just confirm your address so we can get that scheduled?`
               : `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
 
             let smsResult
