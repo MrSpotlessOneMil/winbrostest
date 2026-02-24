@@ -59,7 +59,7 @@ export interface Job {
   created_at?: string
   updated_at?: string
   // Lead automation fields
-  payment_status?: 'pending' | 'deposit_paid' | 'fully_paid'
+  payment_status?: 'pending' | 'deposit_paid' | 'fully_paid' | 'payment_failed'
   stripe_payment_intent_id?: string
   confirmed_at?: string
   cleaner_confirmed?: boolean
@@ -419,8 +419,8 @@ export async function upsertCustomerWithNotifications(
   return updatedCustomer
 }
 
-export async function getCustomerByPhone(phoneNumber: string): Promise<Customer | null> {
-  const client = getSupabaseClient()
+export async function getCustomerByPhone(phoneNumber: string, overrideClient?: SupabaseClient): Promise<Customer | null> {
+  const client = overrideClient || getSupabaseClient()
   const dbPhone = toE164(phoneNumber)
 
   if (!dbPhone) {
@@ -444,9 +444,10 @@ export async function getCustomerByPhone(phoneNumber: string): Promise<Customer 
 
 export async function appendToTextingTranscript(
   phoneNumber: string,
-  newText: string
+  newText: string,
+  overrideClient?: SupabaseClient
 ): Promise<boolean> {
-  const client = getSupabaseClient()
+  const client = overrideClient || getSupabaseClient()
   const dbPhone = toE164(phoneNumber)
 
   if (!dbPhone) {
@@ -455,7 +456,7 @@ export async function appendToTextingTranscript(
   }
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const customer = await getCustomerByPhone(phoneNumber)
+    const customer = await getCustomerByPhone(phoneNumber, client)
     const currentTranscript = customer?.texting_transcript || ''
     const updatedTranscript = currentTranscript
       ? `${currentTranscript}\n${newText}`
@@ -700,9 +701,10 @@ export async function createJob(
 export async function updateJob(
   jobId: string,
   data: Partial<Job>,
-  options: HubSpotSyncOptions = {}
+  options: HubSpotSyncOptions = {},
+  overrideClient?: SupabaseClient
 ): Promise<Job | null> {
-  const client = getSupabaseClient()
+  const client = overrideClient || getSupabaseClient()
 
   const { data: job, error } = await client
     .from('jobs')
@@ -857,8 +859,8 @@ export async function getJobsByPhone(phoneNumber: string, userId?: number): Prom
   return data || []
 }
 
-export async function getJobById(jobId: string): Promise<Job | null> {
-  const client = getSupabaseClient()
+export async function getJobById(jobId: string, overrideClient?: SupabaseClient): Promise<Job | null> {
+  const client = overrideClient || getSupabaseClient()
 
   const { data, error } = await client
     .from('jobs')
@@ -889,8 +891,8 @@ export async function getJobByStripeInvoiceId(invoiceId: string): Promise<Job | 
   return data
 }
 
-export async function getAllJobs(userId?: number): Promise<Job[]> {
-  const client = getSupabaseClient()
+export async function getAllJobs(userId?: number, overrideClient?: SupabaseClient): Promise<Job[]> {
+  const client = overrideClient || getSupabaseClient()
 
   let query = client
     .from('jobs')

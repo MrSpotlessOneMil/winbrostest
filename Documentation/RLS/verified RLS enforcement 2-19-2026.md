@@ -112,6 +112,31 @@ Supabase API Gateway logs showed `"Not a JWT, invalid structure"` for every requ
 
 ---
 
+## Post-Fix: Standalone Client Discrepancy (Fixed 2-19-2026)
+
+### Problem
+
+Two library files — `lib/winbros-alerts.ts` and `lib/crew-performance.ts` — created their own standalone Supabase clients by importing `createClient` directly from `@supabase/supabase-js` and passing `SUPABASE_SERVICE_ROLE_KEY`. This bypassed the centralized client pattern established in `lib/supabase.ts`.
+
+Originally these were top-level `const supabase = createClient(...)` calls, which broke Vercel builds (env vars undefined at build time). A prior fix converted them to a lazy singleton `getSupabase()` pattern — but still using a standalone `createClient()` instead of the centralized `getSupabaseServiceClient()`.
+
+Additionally, `lib/crew-performance.ts` had a **runtime bug**: several functions still referenced the old bare `supabase` variable (from before the lazy singleton refactor), which would throw `ReferenceError: supabase is not defined` at runtime. Affected functions: `recordJobCompletion`, `recordUpsell`, `recordTip`, `trackReviewSent`, `recordReviewReceived`.
+
+### Security Impact
+
+**No RLS conflict** — both files handle cross-tenant operations (alerts, crew performance) so service role access is correct. The issue was consistency, not security. However, the bare `supabase` references in `crew-performance.ts` would cause runtime crashes in any code path that called those functions.
+
+### Fix
+
+Replaced the standalone `createClient` import and lazy singleton with `getSupabaseServiceClient()` from `lib/supabase.ts`. All `getSupabase()` and bare `supabase` call sites updated.
+
+| File | Before | After |
+|------|--------|-------|
+| `lib/winbros-alerts.ts` | `import { createClient }` + local `getSupabase()` singleton (7 call sites) | `import { getSupabaseServiceClient } from './supabase'` (7 call sites) |
+| `lib/crew-performance.ts` | `import { createClient }` + local `getSupabase()` singleton + bare `supabase` refs (13 call sites) | `import { getSupabaseServiceClient } from './supabase'` (13 call sites) |
+
+---
+
 ## Summary
 
-The vulnerability allowed any authenticated tenant user to potentially see other tenants' data because the service role key bypassed all RLS. The fix enforces isolation at the database level using signed JWTs and Supabase RLS policies. The RESTRICTIVE policy test (0 customers returned) confirms RLS is active and enforced on the live deployment.
+The vulnerability allowed any authenticated tenant user to potentially see other tenants' data because the service role key bypassed all RLS. The fix enforces isolation at the database level using signed JWTs and Supabase RLS policies. The RESTRICTIVE policy test (0 customers returned) confirms RLS is active and enforced on the live deployment. A follow-up fix consolidated two library files (`winbros-alerts.ts`, `crew-performance.ts`) that were creating standalone service-role clients outside the centralized pattern, and fixed a runtime bug where bare `supabase` references would crash `crew-performance.ts` functions.

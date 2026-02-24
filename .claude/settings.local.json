@@ -5,5 +5,10 @@
       "Bash(wc -l:*)",
       "Bash(python3:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "supabase",
+    "vercel"
+  ],
+  "enableAllProjectMcpServers": true
 }
