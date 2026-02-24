@@ -29,11 +29,15 @@ const EIGHT_AM_MINUTES = 480
 
 // ── Types ──────────────────────────────────────────────────────
 
+export type EstimateOption = {
+  date: string // "2026-02-25"
+  time: string // "8:00 AM"
+  salesman_name: string
+}
+
 export type VapiEstimateResponse = {
   scheduled: boolean
-  confirmed_date: string | null // "2026-02-25"
-  confirmed_time: string | null // "8:00 AM"
-  salesman_name: string | null
+  options: EstimateOption[]
   error?: string
 }
 
@@ -201,13 +205,7 @@ export async function scheduleEstimate(
 
   if (!addressRaw || typeof addressRaw !== 'string' || !addressRaw.trim()) {
     console.warn(`${LOG} No address in payload. Keys: ${Object.keys(payload).join(', ')}`)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'MISSING_ADDRESS',
-    }
+    return { scheduled: false, options: [], error: 'MISSING_ADDRESS' }
   }
 
   const customerAddress = String(addressRaw).trim()
@@ -220,26 +218,14 @@ export async function scheduleEstimate(
     const geo = await geocodeAddress(customerAddress)
     if (!geo) {
       console.error(`${LOG} Geocoding returned null for: ${customerAddress}`)
-      return {
-        scheduled: false,
-        confirmed_date: null,
-        confirmed_time: null,
-        salesman_name: null,
-        error: 'GEOCODE_FAILED',
-      }
+      return { scheduled: false, options: [], error: 'GEOCODE_FAILED' }
     }
     customerLat = geo.lat
     customerLng = geo.lng
     console.log(`${LOG} Geocoded to ${customerLat}, ${customerLng}`)
   } catch (err) {
     console.error(`${LOG} Geocoding error:`, err)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'GEOCODE_FAILED',
-    }
+    return { scheduled: false, options: [], error: 'GEOCODE_FAILED' }
   }
 
   // 3. Load active salesmen
@@ -256,13 +242,7 @@ export async function scheduleEstimate(
 
   if (salesmenError) {
     console.error(`${LOG} Error loading salesmen:`, salesmenError.message)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'DB_ERROR',
-    }
+    return { scheduled: false, options: [], error: 'DB_ERROR' }
   }
 
   const salesmen: Salesman[] = (salesmenRows || [])
@@ -277,13 +257,7 @@ export async function scheduleEstimate(
 
   if (salesmen.length === 0) {
     console.error(`${LOG} No salesmen with home coordinates found for tenant ${resolvedTenantId}`)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'NO_SALESMEN_AVAILABLE',
-    }
+    return { scheduled: false, options: [], error: 'NO_SALESMEN_AVAILABLE' }
   }
 
   console.log(`${LOG} Found ${salesmen.length} salesmen: ${salesmen.map((s) => s.name).join(', ')}`)
@@ -303,13 +277,7 @@ export async function scheduleEstimate(
 
   if (jobError) {
     console.error(`${LOG} Error loading jobs:`, jobError.message)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'DB_ERROR',
-    }
+    return { scheduled: false, options: [], error: 'DB_ERROR' }
   }
 
   const jobs = jobRows || []
@@ -425,17 +393,26 @@ export async function scheduleEstimate(
       return a.driveMinutes - b.driveMinutes
     })
 
-    const best = missing8am[0]
+    // Return up to 3 8am options — keep filling 8am until every salesman has one
+    const seen = new Set<string>() // dedup by "date|salesmanId"
+    const options: EstimateOption[] = []
+    for (const entry of missing8am) {
+      const key = `${entry.date}|${entry.salesman.id}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      options.push({
+        date: entry.date,
+        time: '8:00 AM',
+        salesman_name: entry.salesman.name,
+      })
+      if (options.length >= 3) break
+    }
+
     console.log(
-      `${LOG} Phase 1 hit: Scheduling 8am on ${best.date} with ${best.salesman.name} (${best.driveMinutes} min drive from home)`
+      `${LOG} Phase 1: Returning ${options.length} 8am options: ${options.map((o) => `${o.date} with ${o.salesman_name}`).join(', ')}`
     )
 
-    return {
-      scheduled: true,
-      confirmed_date: best.date,
-      confirmed_time: '8:00 AM',
-      salesman_name: best.salesman.name,
-    }
+    return { scheduled: true, options }
   }
 
   console.log(`${LOG} Phase 1: All 8am slots filled. Moving to Phase 2...`)
@@ -503,13 +480,7 @@ export async function scheduleEstimate(
 
   if (candidates.length === 0) {
     console.warn(`${LOG} Phase 2: No open slots found in ${allDates.length} days`)
-    return {
-      scheduled: false,
-      confirmed_date: null,
-      confirmed_time: null,
-      salesman_name: null,
-      error: 'NO_SLOTS_AVAILABLE',
-    }
+    return { scheduled: false, options: [], error: 'NO_SLOTS_AVAILABLE' }
   }
 
   console.log(`${LOG} Phase 2: ${candidates.length} candidate slots. Computing travel times...`)
@@ -570,21 +541,21 @@ export async function scheduleEstimate(
     c.score = c.driveTimeMinutes + dayOffset * 60 + c.timeMinutes * 0.1
   }
 
-  // Sort by score ascending
+  // Sort by score ascending and return top 3
   candidates.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity))
 
-  const best = candidates[0]
+  const top3 = candidates.slice(0, 3)
+  const options: EstimateOption[] = top3.map((c) => ({
+    date: c.date,
+    time: formatTimeFromMinutes(c.timeMinutes),
+    salesman_name: c.salesmanName,
+  }))
+
   console.log(
-    `${LOG} Phase 2 result: ${best.salesmanName} on ${best.date} at ${formatTimeFromMinutes(best.timeMinutes)} ` +
-      `(drive: ${best.driveTimeMinutes} min, score: ${best.score?.toFixed(1)})`
+    `${LOG} Phase 2: Returning ${options.length} options: ${options.map((o) => `${o.date} ${o.time} with ${o.salesman_name}`).join(', ')}`
   )
 
-  return {
-    scheduled: true,
-    confirmed_date: best.date,
-    confirmed_time: formatTimeFromMinutes(best.timeMinutes),
-    salesman_name: best.salesmanName,
-  }
+  return { scheduled: true, options }
 }
 
 /**
