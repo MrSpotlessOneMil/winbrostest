@@ -1389,30 +1389,18 @@ export async function POST(request: NextRequest) {
                   }
                 }
 
-                // Send confirmation SMS to customer (no payment link)
-                const confirmMsg = `You're all set! A member of our team will visit on ${jobDate} to provide a free estimate. We'll send a confirmation to ${finalEmail}. Thanks for choosing WinBros!`
-                const confirmSms = await sendSMS(tenant!, phone, confirmMsg)
-                if (confirmSms.success) {
-                  await client.from("messages").insert({
-                    tenant_id: tenant?.id,
-                    customer_id: customer.id,
-                    phone_number: phone,
-                    role: "assistant",
-                    content: confirmMsg,
-                    direction: "outbound",
-                    message_type: "sms",
-                    ai_generated: false,
-                    timestamp: new Date().toISOString(),
-                    source: "estimate_booked",
-                    metadata: {
-                      lead_id: existingLead.id,
-                      job_id: newJob?.id,
-                      booking_source: "sms_flow",
-                      job_type: "estimate",
-                    },
-                  })
-                  console.log(`[OpenPhone] Estimate confirmation sent to ${phone} (SMS booking flow)`)
-                }
+                // Mark the AI's auto-response as the estimate_booked confirmation
+                // (the AI already sent a nicely formatted confirmation with address + date + time)
+                // This source tag lets the dedup guard prevent duplicate booking completions
+                await client.from("messages")
+                  .update({ source: "estimate_booked" })
+                  .eq("phone_number", phone)
+                  .eq("tenant_id", tenant?.id)
+                  .eq("role", "assistant")
+                  .eq("ai_generated", true)
+                  .order("timestamp", { ascending: false })
+                  .limit(1)
+                console.log(`[OpenPhone] Marked AI response as estimate_booked for ${phone}`)
 
                 await logSystemEvent({
                   tenant_id: tenant?.id,
