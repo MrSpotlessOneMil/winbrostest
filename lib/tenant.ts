@@ -383,8 +383,9 @@ export function tenantUsesFeature(
   >
 ): boolean {
   const val = tenant.workflow_config?.[feature]
-  // If flag is explicitly set, use it; otherwise default to true for backward compat
-  return val !== undefined ? Boolean(val) : true
+  // If flag is explicitly set, use it; otherwise default to false (opt-in, not opt-out)
+  // This prevents new tenants from accidentally getting features they didn't enable
+  return val !== undefined ? Boolean(val) : false
 }
 
 /**

@@ -107,7 +107,6 @@ export type SystemEventType =
   | 'SEASONAL_REMINDER_SENT'
   // Lead stage changes
   | 'LEAD_STAGE_CHANGED'
-  | 'PAYMENT_LINK_SENT'
   | 'PAYMENT_RETRY_SENT'
   | 'SMS_ROUTING'
   // Telegram Onboarding

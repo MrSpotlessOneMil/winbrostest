@@ -7,7 +7,10 @@
     "dev": "next dev",
     "lint": "eslint .",
     "start": "next start",
-    "setup-qstash": "tsx scripts/setup-qstash-schedule.ts"
+    "setup-qstash": "tsx scripts/setup-qstash-schedule.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cedar": "vitest run tests/cedar-rapids --reporter=verbose"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
@@ -83,12 +86,14 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.0.18",
     "eslint": "^9",
     "eslint-config-next": "16.1.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tsx": "^4.21.0",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
