@@ -1165,7 +1165,7 @@ export async function POST(request: NextRequest) {
                 const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
                 bookingData = await extractHouseCleaningBookingData(conversationHistory)
               }
-              console.log(`[OpenPhone] Extracted booking data (${isWinBrosTenant ? 'winbros' : 'house_cleaning'}):`, JSON.stringify(bookingData))
+              console.log(`[OpenPhone] Extracted booking data (${isWindowCleaningTenant ? 'winbros' : 'house_cleaning'}):`, JSON.stringify(bookingData))
 
               // Use extracted email if AI found one, otherwise use the one from booking
               const finalEmail = bookingData.email || bookingEmail
@@ -1198,7 +1198,7 @@ export async function POST(request: NextRequest) {
 
               // Determine price — WinBros estimate flow skips pricing (salesman handles it on-site)
               let servicePrice: number | null = null
-              if (isWinBrosTenant) {
+              if (isWindowCleaningTenant) {
                 // WinBros estimate flow: no price — salesman will quote on-site
                 servicePrice = null
               } else {
@@ -1210,7 +1210,7 @@ export async function POST(request: NextRequest) {
               const { buildWinBrosJobNotes } = await import("@/lib/winbros-sms-prompt")
               let jobNotes = ''
 
-              if (isWinBrosTenant) {
+              if (isWindowCleaningTenant) {
                 // WinBros: service-specific notes (window/pressure/gutter)
                 jobNotes = buildWinBrosJobNotes(bookingData)
               } else {
@@ -1231,7 +1231,7 @@ export async function POST(request: NextRequest) {
               }
 
               // Default service type based on tenant and booking data
-              const defaultServiceType = isWinBrosTenant
+              const defaultServiceType = isWindowCleaningTenant
                 ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
                 : 'Standard cleaning'
 
@@ -1248,7 +1248,7 @@ export async function POST(request: NextRequest) {
                 status: 'scheduled',
                 booked: true,
                 notes: jobNotes || null,
-                job_type: isWinBrosTenant ? 'estimate' : 'cleaning',
+                job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
               }).select("id").single()
 
               if (jobError || !newJob?.id) {
@@ -1279,9 +1279,9 @@ export async function POST(request: NextRequest) {
                   scheduledDate: bookingData.preferredDate || null,
                   scheduledTime: bookingData.preferredTime || null,
                   price: servicePrice,
-                  notes: isWinBrosTenant ? 'Estimate Visit | Booked via SMS' : 'Booked via SMS',
+                  notes: isWindowCleaningTenant ? 'Estimate Visit | Booked via SMS' : 'Booked via SMS',
                   source: 'sms',
-                  isEstimate: isWinBrosTenant,
+                  isEstimate: isWindowCleaningTenant,
                 })
               }
 
@@ -1299,7 +1299,7 @@ export async function POST(request: NextRequest) {
                 .eq("id", existingLead.id)
 
               // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
-              if (!isWinBrosTenant && tenant) {
+              if (!isWindowCleaningTenant && tenant) {
                 const depositFlowResult = await sendDepositPaymentFlow({
                   tenant,
                   phone,
