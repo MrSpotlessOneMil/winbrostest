@@ -20,6 +20,7 @@ import {
 // @ts-ignore - import needed to resolve correct file
 import { notifyCleanerAssignment } from './telegram'
 import { logSystemEvent } from './system-events'
+import { getTenantById, getDefaultTenant } from './tenant'
 
 // Extended Cleaner type with location data (now included in base Cleaner interface)
 export type CleanerWithLocation = Cleaner
@@ -374,9 +375,14 @@ export async function triggerCleanerAssignment(
       ? await getCustomerByPhone(job.phone_number)
       : null
 
+    // Look up the correct tenant from job.tenant_id (not default)
+    const jobTenantId = (job as any).tenant_id
+    const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+
     // Send Telegram notification to the cleaner
-    if (cleaner.telegram_id) {
+    if (cleaner.telegram_id && tenant) {
       const notifyResult = await notifyCleanerAssignment(
+        tenant,
         cleaner,
         job,
         customer || undefined,

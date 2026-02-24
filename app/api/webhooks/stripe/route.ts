@@ -611,13 +611,28 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
   console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${phone_number}, session: ${session.id}`)
 
-  const tenant = await getDefaultTenant()
+  const client = getSupabaseServiceClient()
+
+  // Look up tenant from job's tenant_id (not default) to route SMS/Telegram correctly
+  let tenant: Awaited<ReturnType<typeof getDefaultTenant>> = null
+  if (job_id && !job_id.startsWith('lead-')) {
+    const { data: jobRow } = await client
+      .from('jobs')
+      .select('tenant_id')
+      .eq('id', job_id)
+      .maybeSingle()
+    if (jobRow?.tenant_id) {
+      tenant = await getTenantById(jobRow.tenant_id)
+    }
+  }
+  if (!tenant) {
+    tenant = await getDefaultTenant()
+  }
   if (!tenant) {
     console.error('[Stripe Webhook] No tenant configured, cannot process card-on-file')
     return
   }
-
-  const client = getSupabaseServiceClient()
+  console.log(`[Stripe Webhook] Using tenant ${tenant.slug} for card-on-file processing`)
 
   // Send confirmation SMS to customer
   if (phone_number) {

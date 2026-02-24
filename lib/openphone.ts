@@ -128,7 +128,8 @@ export const SMS_TEMPLATES = {
     return `Hi ${name}! Just confirming: ${serviceLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, send your best email and I will send over a confirmed price.`
   },
   paymentConfirmation: (serviceType: string, date: string): string => {
-    return `Payment received for your ${serviceType} cleaning on ${date}. We're scheduling your cleaner now and will confirm shortly.`
+    const serviceLabel = /cleaning/i.test(serviceType) ? serviceType : `${serviceType} cleaning`
+    return `Payment received for your ${serviceLabel} on ${date}. We're scheduling your cleaner now and will confirm shortly.`
   },
   invoiceSent: (email: string, invoiceUrl?: string): string => {
     const linkLine = invoiceUrl ? `\nInvoice link: ${invoiceUrl}` : ''

@@ -380,9 +380,24 @@ export async function notifyCleanerAssignment(
     : 'TBD'
 
   const timeStr = formatCleanerTime(job.scheduled_at)
-  const bedrooms = customer?.bedrooms ?? job.bedrooms ?? 'N/A'
-  const bathrooms = customer?.bathrooms ?? job.bathrooms ?? 'N/A'
-  const squareFootage = customer?.square_footage ?? job.square_footage ?? 'N/A'
+
+  // Extract bed/bath/sqft from OVERRIDE tags in job.notes as fallback
+  let bedrooms: string | number = customer?.bedrooms ?? job.bedrooms ?? 'N/A'
+  let bathrooms: string | number = customer?.bathrooms ?? job.bathrooms ?? 'N/A'
+  let squareFootage: string | number = customer?.square_footage ?? job.square_footage ?? 'N/A'
+
+  if (bedrooms === 'N/A' || bathrooms === 'N/A' || squareFootage === 'N/A') {
+    try {
+      const { getOverridesFromNotes } = await import('./pricing-config')
+      const overrides = getOverridesFromNotes(job.notes)
+      if (bedrooms === 'N/A' && overrides.bedrooms) bedrooms = overrides.bedrooms
+      if (bathrooms === 'N/A' && overrides.bathrooms) bathrooms = overrides.bathrooms
+      if (squareFootage === 'N/A' && overrides.squareFootage) squareFootage = overrides.squareFootage
+    } catch {
+      // pricing-config not available, keep N/A
+    }
+  }
+
   const duration = job.hours ? `${job.hours} hours` : 'TBD'
 
   const safeNotes = formatCleanerNotes(job.notes)
@@ -442,9 +457,24 @@ export async function notifyCleanerAwarded(
     : 'TBD'
 
   const timeStr = formatCleanerTime(job.scheduled_at)
-  const bedrooms = customer?.bedrooms ?? job.bedrooms ?? 'N/A'
-  const bathrooms = customer?.bathrooms ?? job.bathrooms ?? 'N/A'
-  const squareFootage = customer?.square_footage ?? job.square_footage ?? 'N/A'
+
+  // Extract bed/bath/sqft from OVERRIDE tags in job.notes as fallback
+  let bedrooms: string | number = customer?.bedrooms ?? job.bedrooms ?? 'N/A'
+  let bathrooms: string | number = customer?.bathrooms ?? job.bathrooms ?? 'N/A'
+  let squareFootage: string | number = customer?.square_footage ?? job.square_footage ?? 'N/A'
+
+  if (bedrooms === 'N/A' || bathrooms === 'N/A' || squareFootage === 'N/A') {
+    try {
+      const { getOverridesFromNotes } = await import('./pricing-config')
+      const overrides = getOverridesFromNotes(job.notes)
+      if (bedrooms === 'N/A' && overrides.bedrooms) bedrooms = overrides.bedrooms
+      if (bathrooms === 'N/A' && overrides.bathrooms) bathrooms = overrides.bathrooms
+      if (squareFootage === 'N/A' && overrides.squareFootage) squareFootage = overrides.squareFootage
+    } catch {
+      // pricing-config not available, keep N/A
+    }
+  }
+
   const duration = job.hours ? `${job.hours} hours` : 'TBD'
 
   const serviceType = job.service_type ? humanizeText(job.service_type) : 'Standard cleaning'
@@ -606,6 +636,13 @@ You have no jobs scheduled for today. Enjoy your day off!
     return timeA.localeCompare(timeB)
   })
 
+  // Import override parser for bed/bath/sqft fallback
+  let parseOverrides: ((notes?: string | null) => { bedrooms?: number; bathrooms?: number; squareFootage?: number }) | null = null
+  try {
+    const { getOverridesFromNotes } = await import('./pricing-config')
+    parseOverrides = getOverridesFromNotes
+  } catch { /* ignore */ }
+
   const jobsList = sortedJobs.map((job, index) => {
     const time = formatCleanerTime(job.scheduled_at)
     const address = job.address || job.customer?.address || 'See details'
@@ -615,9 +652,17 @@ You have no jobs scheduled for today. Enjoy your day off!
     const isWindowCleaning = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
 
     // WinBros doesn't need bedrooms/bathrooms — it's a window cleaning company
-    const propertyLine = isWindowCleaning
-      ? ''
-      : `- ${job.customer?.bedrooms ?? job.bedrooms ?? '?'}BR / ${job.customer?.bathrooms ?? job.bathrooms ?? '?'}BA\n`
+    let propertyLine = ''
+    if (!isWindowCleaning) {
+      let bed: string | number = job.customer?.bedrooms ?? job.bedrooms ?? '?'
+      let bath: string | number = job.customer?.bathrooms ?? job.bathrooms ?? '?'
+      if ((bed === '?' || bath === '?') && parseOverrides) {
+        const ov = parseOverrides(job.notes)
+        if (bed === '?' && ov.bedrooms) bed = ov.bedrooms
+        if (bath === '?' && ov.bathrooms) bath = ov.bathrooms
+      }
+      propertyLine = `- ${bed}BR / ${bath}BA\n`
+    }
 
     return `
 <b>${index + 1}. ${time}</b>
