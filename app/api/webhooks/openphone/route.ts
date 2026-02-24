@@ -300,8 +300,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, action: "debounced_newer_message" })
   }
 
-  // Double-guard: check if another webhook already sent an AI response recently
-  const recentOutboundCutoff = new Date(Date.now() - 15000).toISOString()
+  // Double-guard: check if another webhook already sent an AI response AFTER this inbound message
+  // This prevents duplicate responses from race conditions, but allows legitimate conversation
+  // continuations (customer replies quickly after bot response)
   const { data: recentOutbound } = await client
     .from("messages")
     .select("id")
@@ -309,11 +310,11 @@ export async function POST(request: NextRequest) {
     .eq("tenant_id", tenant?.id)
     .eq("role", "assistant")
     .eq("ai_generated", true)
-    .gte("timestamp", recentOutboundCutoff)
+    .gte("timestamp", receivedAt)
     .limit(1)
 
   if (recentOutbound && recentOutbound.length > 0) {
-    console.log(`[OpenPhone] AI response already sent in last 15s, skipping duplicate`)
+    console.log(`[OpenPhone] AI response already sent after this inbound message, skipping duplicate`)
     return NextResponse.json({ success: true, action: "debounced_recent_outbound" })
   }
 
