@@ -15,6 +15,7 @@ import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { geocodeAddress } from "@/lib/google-maps"
+import { executeCompleteJob } from "@/app/api/actions/complete-job/route"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
@@ -201,6 +202,7 @@ interface TelegramUpdate {
 const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d{2})?)/i
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
+const DONE_PATTERN = /^(?:done|finished|completed?|job\s+done|job\s+finished|job\s+completed?)\s+(?:job\s+)?#?(\d+)$/i
 const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 const JOIN_PATTERNS = [
@@ -634,6 +636,88 @@ export async function POST(
         await client.from("jobs").update({ team_id: teamId }).eq("id", numericJobId)
       }
       return NextResponse.json({ success: true, action: "job_confirmed" })
+    }
+
+    // "done job 90" — cleaner marks job complete → final payment + review countdown
+    const doneMatch = text.match(DONE_PATTERN)
+    if (doneMatch) {
+      const [, jobId] = doneMatch
+      const numericJobId = Number(jobId)
+
+      // Verify this cleaner is actually assigned to this job
+      if (!cleaner?.id) {
+        await sendMsg(chatId, `You're not registered as a cleaner. Send "join" to register.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      const { data: assignment } = await client
+        .from("cleaner_assignments")
+        .select("id, status")
+        .eq("job_id", numericJobId)
+        .eq("cleaner_id", cleaner.id)
+        .in("status", ["confirmed", "pending"])
+        .limit(1)
+        .maybeSingle()
+
+      if (!assignment) {
+        await sendMsg(chatId, `You don't have an active assignment for Job #${jobId}. Check your job number and try again.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      const job = await getJobById(String(numericJobId))
+      if (!job) {
+        await sendMsg(chatId, `Job #${jobId} not found.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      if (job.status === "completed") {
+        await sendMsg(chatId, `Job #${jobId} is already marked as completed.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      // Update assignment status
+      await client
+        .from("cleaner_assignments")
+        .update({ status: "completed", responded_at: new Date().toISOString() })
+        .eq("id", assignment.id)
+
+      // Set completed_at on the job
+      await updateJob(String(numericJobId), {
+        completed_at: new Date().toISOString(),
+      } as Record<string, unknown>)
+
+      // Execute complete job → sends final payment link + marks completed
+      const completeResult = await executeCompleteJob(String(numericJobId))
+
+      if (completeResult.success) {
+        if (completeResult.paymentUrl) {
+          await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\nThe customer has been sent their final payment link.\nThe review request will go out in ~2 hours.\n\nGreat work, ${cleaner.name}!`, tenant)
+        } else {
+          await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\nThe job was fully prepaid — no final payment needed.\nThe review request will go out in ~2 hours.\n\nGreat work, ${cleaner.name}!`, tenant)
+        }
+      } else {
+        // Even if final payment fails, still mark the job done
+        await updateJob(String(numericJobId), { status: "completed" } as Record<string, unknown>)
+        await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\n⚠️ Note: Final payment couldn't be processed automatically (${completeResult.error || 'unknown error'}). The office will follow up.\n\nGreat work, ${cleaner.name}!`, tenant)
+      }
+
+      await logSystemEvent({
+        source: "telegram",
+        event_type: "JOB_COMPLETED",
+        message: `Cleaner ${cleaner.name} marked job ${jobId} as complete via Telegram`,
+        job_id: String(numericJobId),
+        cleaner_id: cleaner.id,
+        tenant_id: tenant.id,
+        phone_number: job.phone_number,
+        metadata: {
+          telegram_user_id: telegramUserId,
+          assignment_id: assignment.id,
+          final_payment_sent: !!completeResult.paymentUrl,
+          completed_via: "telegram_done_command",
+        },
+      })
+
+      return NextResponse.json({ success: true, action: "job_completed", job_id: jobId })
     }
 
     // Schedule query
