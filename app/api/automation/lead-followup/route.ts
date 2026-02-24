@@ -8,6 +8,7 @@ import { getClientConfig } from "@/lib/client-config"
 import { logSystemEvent } from "@/lib/system-events"
 import { toE164 } from "@/lib/phone-utils"
 import { getDefaultTenant, getTenantById, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
+import type { Tenant } from "@/lib/tenant"
 
 interface LeadFollowupPayload {
   leadId: string
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
     switch (stage) {
       case 1:
         // Stage 1: Send initial follow-up SMS
-        result = await executeStage1(leadPhone, firstName, businessName, lead.brand, lead.customer_id)
+        result = await executeStage1(leadPhone, firstName, businessName, tenant, lead.customer_id)
         await updateLeadAfterOutreach(leadId, lead, { smsIncrement: 1, stage: 1 })
         break
 
@@ -107,13 +108,13 @@ export async function POST(request: NextRequest) {
 
       case 4:
         // Stage 4: Send second follow-up SMS
-        result = await executeStage4(leadPhone, firstName, lead.brand, lead.customer_id)
+        result = await executeStage4(leadPhone, firstName, tenant, lead.customer_id)
         await updateLeadAfterOutreach(leadId, lead, { smsIncrement: 1, stage: 4 })
         break
 
       case 5:
         // Stage 5: Call + payment link
-        result = await executeStage5(lead, firstName, leadPhone)
+        result = await executeStage5(lead, firstName, leadPhone, tenant)
         await updateLeadAfterOutreach(leadId, lead, { callIncrement: 1, smsIncrement: 1, stage: 5 })
         break
 
@@ -184,15 +185,15 @@ async function executeStage1(
   phone: string,
   name: string,
   businessName: string,
-  brand?: string,
+  tenant: Tenant | null,
   customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupInitial(name, businessName)
-  const result = await sendSMS(phone, message, brand)
+  const result = tenant ? await sendSMS(tenant, phone, message) : await sendSMS(phone, message)
 
   // Save to messages table
   if (result.success) {
-    await saveOutboundMessage(phone, message, customerId)
+    await saveOutboundMessage(phone, message, tenant, customerId)
   }
 
   return {
@@ -282,15 +283,15 @@ async function executeStage3(
 async function executeStage4(
   phone: string,
   name: string,
-  brand?: string,
+  tenant: Tenant | null,
   customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupSecond(name)
-  const result = await sendSMS(phone, message, brand)
+  const result = tenant ? await sendSMS(tenant, phone, message) : await sendSMS(phone, message)
 
   // Save to messages table
   if (result.success) {
-    await saveOutboundMessage(phone, message, customerId)
+    await saveOutboundMessage(phone, message, tenant, customerId)
   }
 
   return {
@@ -306,7 +307,8 @@ async function executeStage4(
 async function executeStage5(
   lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; brand?: string },
   name: string,
-  phone: string
+  phone: string,
+  tenant: Tenant | null
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   // First, initiate VAPI call
   const callResult = await triggerVAPIOutboundCall({
@@ -341,11 +343,11 @@ async function executeStage5(
           paymentLinkResult.amount || 0,
           paymentLinkResult.url
         )
-        const smsResult = await sendSMS(phone, paymentMessage, lead.brand)
+        const smsResult = tenant ? await sendSMS(tenant, phone, paymentMessage) : await sendSMS(phone, paymentMessage)
 
         if (smsResult.success) {
           // Save to messages table
-          await saveOutboundMessage(phone, paymentMessage, lead.customer_id)
+          await saveOutboundMessage(phone, paymentMessage, tenant, lead.customer_id)
         } else {
           console.warn(`[lead-followup] Failed to send payment link SMS: ${smsResult.error}`)
         }
@@ -431,15 +433,16 @@ function sleep(ms: number): Promise<void> {
 async function saveOutboundMessage(
   phone: string,
   content: string,
+  tenant: Tenant | null,
   customerId?: string
 ): Promise<void> {
   try {
     const client = getSupabaseClient()
-    const tenant = await getDefaultTenant()
+    const effectiveTenant = tenant || await getDefaultTenant()
     const e164Phone = toE164(phone)
 
     const { error } = await client.from("messages").insert({
-      tenant_id: tenant?.id,
+      tenant_id: effectiveTenant?.id,
       customer_id: customerId || null,
       phone_number: e164Phone,
       role: "assistant",

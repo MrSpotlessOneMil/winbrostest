@@ -208,7 +208,13 @@ async function executeCheckTimeouts(request: NextRequest) {
             `This job still needs to be assigned manually.`,
           ].join(' ')
 
-          await sendSMS(OWNER_PHONE, alertMessage)
+          const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+          const ownerPhone = jobTenant?.owner_phone || OWNER_PHONE
+          if (jobTenant) {
+            await sendSMS(jobTenant, ownerPhone, alertMessage)
+          } else {
+            await sendSMS(ownerPhone, alertMessage)
+          }
           ownerAlerts++
 
           await logSystemEvent({
@@ -273,7 +279,13 @@ async function executeCheckTimeouts(request: NextRequest) {
           const urgencyTag = timeoutMinutes === URGENT_TIMEOUT_MINUTES ? 'URGENT' : 'ALERT'
           const pendingList = pendingCleanerNames.length > 0 ? pendingCleanerNames.join(', ') : 'no names recorded'
           const alertMessage = `${urgencyTag}: No cleaner response within ${OWNER_ALERT_MINUTES} minutes for ${dateStr} at ${job.scheduled_at || 'TBD'}. Pending: ${pendingList}. Manual follow-up needed.`
-          await sendSMS(OWNER_PHONE, alertMessage)
+          const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+          const ownerPhone = jobTenant?.owner_phone || OWNER_PHONE
+          if (jobTenant) {
+            await sendSMS(jobTenant, ownerPhone, alertMessage)
+          } else {
+            await sendSMS(ownerPhone, alertMessage)
+          }
           ownerAlerts++
 
           await logSystemEvent({
@@ -507,14 +519,20 @@ async function handleCancelReassign(
     })
     if (!ownerAlerted) {
       const alertMessage = await buildOwnerCancelAlert(job, cancelEvent.cleaner_id)
-      await sendSMS(OWNER_PHONE, alertMessage)
+      const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+      const ownerPhone = jobTenant?.owner_phone || OWNER_PHONE
+      if (jobTenant) {
+        await sendSMS(jobTenant, ownerPhone, alertMessage)
+      } else {
+        await sendSMS(ownerPhone, alertMessage)
+      }
 
       await logSystemEvent({
         source: 'cron',
         event_type: 'OWNER_ALERT',
         message: 'Owner alerted: no cleaner response after cancellation.',
         job_id: jobId,
-        phone_number: OWNER_PHONE,
+        phone_number: ownerPhone,
         metadata: {
           reason: 'cancelled',
           minutes_since_cancel: minutesSinceCancel,
