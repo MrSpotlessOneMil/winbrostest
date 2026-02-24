@@ -431,9 +431,9 @@ async function generateWinBrosResponse(
     if (knownCustomerInfo.email) {
       parts.push(`Email on file: ${knownCustomerInfo.email}`)
     }
-    if (knownCustomerInfo.source) {
-      parts.push(`Lead source: ${knownCustomerInfo.source}`)
-    }
+    // NOTE: knownCustomerInfo.source is an internal system field (e.g. "sms", "housecall_pro")
+    // that tracks how the lead was created — NOT how the customer heard about the business.
+    // Do NOT include it — the AI would mistake it for the "how did you hear about us" answer.
     if (parts.length > 0) {
       knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking. But still follow the step order — don't jump ahead to confirm these early.\n`
     }
@@ -682,9 +682,9 @@ async function generateHouseCleaningResponse(
     if (knownCustomerInfo.email) {
       parts.push(`Email on file: ${knownCustomerInfo.email}`)
     }
-    if (knownCustomerInfo.source) {
-      parts.push(`Lead source: ${knownCustomerInfo.source}`)
-    }
+    // NOTE: knownCustomerInfo.source is an internal system field (e.g. "sms", "housecall_pro")
+    // that tracks how the lead was created — NOT how the customer heard about the business.
+    // Do NOT include it — the AI would mistake it for the "how did you hear about us" answer.
     if (parts.length > 0) {
       knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking. But still follow the step order — don't jump ahead to confirm these early.\n`
     }
