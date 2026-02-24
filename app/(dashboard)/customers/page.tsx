@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2, Trash2 } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -119,6 +119,7 @@ export default function CustomersPage() {
   const [smsMessage, setSmsMessage] = useState("")
   const [sendingSms, setSendingSms] = useState(false)
   const [deletingCustomer, setDeletingCustomer] = useState(false)
+  const [copied, setCopied] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -492,6 +493,33 @@ export default function CustomersPage() {
     }
   }
 
+  const handleCopyTranscript = () => {
+    if (!selectedCustomer) return
+    const customerName = getCustomerName(selectedCustomer)
+    const timeline = getCustomerTimeline(selectedCustomer)
+    const lines = timeline.map((item) => {
+      if (item.type === "message") {
+        const msg = item.data as Message
+        let sender: string
+        if (msg.role === "client") sender = customerName
+        else if (msg.role === "assistant") sender = "Mary (AI)"
+        else if (msg.role === "business") sender = "WinBros"
+        else sender = "System"
+        return `${sender}: ${msg.content}`
+      } else {
+        const call = item.data as Call
+        const dir = call.direction === "inbound" ? "Inbound" : "Outbound"
+        const dur = call.duration_seconds ? ` (${Math.floor(call.duration_seconds / 60)}m ${call.duration_seconds % 60}s)` : ""
+        let text = `[${dir} Call${dur}]`
+        if (call.transcript) text += `\n${call.transcript}`
+        return text
+      }
+    })
+    navigator.clipboard.writeText(lines.join("\n\n"))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
   const tabs: { id: TabType; label: string; count?: number }[] = selectedCustomer
     ? [
         {
@@ -627,6 +655,15 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Copy Transcript */}
+                      <button
+                        onClick={handleCopyTranscript}
+                        className="p-1.5 rounded text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10 transition-colors"
+                        title="Copy transcript"
+                      >
+                        {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+
                       {/* Delete Customer */}
                       <button
                         onClick={handleDeleteCustomer}
