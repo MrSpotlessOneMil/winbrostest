@@ -422,8 +422,8 @@ async function generateWinBrosResponse(
   let knownInfoBlock = ''
   if (knownCustomerInfo) {
     const parts: string[] = []
-    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
-      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    if (knownCustomerInfo.firstName) {
+      parts.push(`First name: ${knownCustomerInfo.firstName}`)
     }
     if (knownCustomerInfo.address) {
       parts.push(`Address on file: ${knownCustomerInfo.address}`)
@@ -551,8 +551,8 @@ async function generateHouseCleaningResponse(
   let knownInfoBlock = ''
   if (knownCustomerInfo) {
     const parts: string[] = []
-    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
-      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    if (knownCustomerInfo.firstName) {
+      parts.push(`First name: ${knownCustomerInfo.firstName}`)
     }
     if (knownCustomerInfo.address) {
       parts.push(`Address on file: ${knownCustomerInfo.address}`)
