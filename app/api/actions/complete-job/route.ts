@@ -19,10 +19,9 @@ import {
   getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stripe-client'
+import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
-import { getClientConfig } from '@/lib/client-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 
@@ -132,9 +131,8 @@ export async function executeCompleteJob(jobId: string): Promise<{
     },
   })
 
-  // Create a payment link using the price
-  const config = getClientConfig()
-  const domain = config.domain.endsWith('/') ? config.domain.slice(0, -1) : config.domain
+  // Create a payment link using the tenant's domain (not OSIRIS)
+  const domain = await getTenantRedirectDomain(job.tenant_id)
   const paymentMetadata: Record<string, string> = {
     job_id: jobId,
     phone_number: job.phone_number,

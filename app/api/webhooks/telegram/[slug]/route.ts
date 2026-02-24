@@ -689,17 +689,12 @@ export async function POST(
       // Execute complete job → sends final payment link + marks completed
       const completeResult = await executeCompleteJob(String(numericJobId))
 
-      if (completeResult.success) {
-        if (completeResult.paymentUrl) {
-          await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\nThe customer has been sent their final payment link.\nThe review request will go out in ~2 hours.\n\nGreat work, ${cleaner.name}!`, tenant)
-        } else {
-          await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\nThe job was fully prepaid — no final payment needed.\nThe review request will go out in ~2 hours.\n\nGreat work, ${cleaner.name}!`, tenant)
-        }
-      } else {
+      if (!completeResult.success) {
         // Even if final payment fails, still mark the job done
         await updateJob(String(numericJobId), { status: "completed" } as Record<string, unknown>)
-        await sendMsg(chatId, `<b>Job #${jobId} marked complete!</b>\n\n⚠️ Note: Final payment couldn't be processed automatically (${completeResult.error || 'unknown error'}). The office will follow up.\n\nGreat work, ${cleaner.name}!`, tenant)
       }
+
+      await sendMsg(chatId, `<b>Job #${jobId} complete!</b>\n\nGreat work, ${cleaner.name}! Thanks for getting it done.`, tenant)
 
       await logSystemEvent({
         source: "telegram",

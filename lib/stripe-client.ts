@@ -48,7 +48,7 @@ function getClientDomain(): string {
  * Get redirect domain for a tenant (Stripe success/cancel URLs).
  * Prefers tenant.website_url, falls back to deployment URL.
  */
-async function getTenantRedirectDomain(tenantId?: string): Promise<string> {
+export async function getTenantRedirectDomain(tenantId?: string): Promise<string> {
   if (tenantId) {
     const { getTenantById } = await import('./tenant')
     const tenant = await getTenantById(tenantId)
