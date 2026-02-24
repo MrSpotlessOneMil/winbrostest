@@ -198,7 +198,7 @@ export async function extractHouseCleaningBookingData(
 For address: Look at BOTH the assistant's and the customer's messages. If the assistant mentions a full address and the customer later corrects part of it, return the CORRECTED full address.
 For names: If the customer corrects their name (e.g., "my last name is Smith not Smyth"), return the corrected spelling.
 For email: Look for an email address in the customer's messages.
-For serviceType: Map "standard cleaning" to "standard_cleaning", "deep cleaning" to "deep_cleaning", "move in/out" or "move-in/move-out" to "move_in_out".
+For serviceType: Map "standard cleaning" or "regular cleaning" to "standard_cleaning", "deep cleaning" or "deep clean" to "deep_cleaning". Any mention of moving, "move in", "move out", "move-in", "move-out", "moving in", "moving out", "just moved", "new place" cleaning to "move_in_out". If the customer mentions they just moved or are moving into a new place, the service type is "move_in_out".
 For bedrooms/bathrooms: Extract the numbers. "2 bed 2 bath" = bedrooms: 2, bathrooms: 2. Handle "1.5 bath" as bathrooms: 1.5.
 
 IMPORTANT: If the customer corrects ANY information, always return the CORRECTED version, not the original.

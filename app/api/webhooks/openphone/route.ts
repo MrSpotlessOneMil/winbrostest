@@ -1836,7 +1836,8 @@ async function sendDepositPaymentFlow(params: {
     const depositResult = await createDepositPaymentLink(
       { ...customer, email } as any,
       { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { lead_id: leadId }
+      { lead_id: leadId },
+      tenant.id
     )
 
     if (depositResult.success && depositResult.url) {
