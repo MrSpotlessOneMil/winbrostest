@@ -76,6 +76,7 @@ export interface WorkflowConfig {
   use_review_request?: boolean       // Send review SMS after job completion
   use_retargeting?: boolean          // Monthly re-engagement + frequency nudge campaigns
   use_payment_collection?: boolean   // Stripe deposit + full payment collection flow
+  use_assistant_memory?: boolean     // OpenClaw-style memory system for dashboard assistant
 }
 
 export interface SeasonalCampaign {
@@ -280,10 +281,9 @@ export async function getTenantByOpenPhoneId(phoneId: string): Promise<Tenant | 
     .select("*")
     .eq("openphone_phone_id", phoneId)
     .eq("active", true)
-    .single()
+    .maybeSingle()
 
   if (error || !data) {
-    // Not found is expected, don't log as error
     return null
   }
 
@@ -378,6 +378,7 @@ export function tenantUsesFeature(
     | 'monthly_followup_enabled'
     | 'cleaner_assignment_auto'
     | 'require_deposit'
+    | 'use_assistant_memory'
   >
 ): boolean {
   const val = tenant.workflow_config?.[feature]

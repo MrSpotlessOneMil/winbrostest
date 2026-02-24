@@ -218,8 +218,11 @@ export default function AssistantPage() {
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  const [memoryEnabled, setMemoryEnabled] = useState(false)
+  const [initLoaded, setInitLoaded] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const prevConvIdRef = useRef<string | null>(null)
 
   function handleCopyMessage(text: string, idx: number) {
     navigator.clipboard.writeText(text)
@@ -227,19 +230,72 @@ export default function AssistantPage() {
     setTimeout(() => setCopiedIdx(null), 2000)
   }
 
-  // Load conversations on mount
+  // Load conversations on mount — try server first (memory mode), fall back to localStorage
   useEffect(() => {
-    const loaded = loadConversations()
-    if (loaded.length > 0) {
-      setConversations(loaded)
-      setCurrentId(loaded[0].id)
-      setMessages(loaded[0].messages)
-    } else {
-      const fresh = createConversation()
-      setConversations([fresh])
-      setCurrentId(fresh.id)
-      setMessages([])
+    async function init() {
+      try {
+        const res = await fetch("/api/assistant/conversations")
+        if (res.ok) {
+          const data = await res.json()
+          if (data.memoryEnabled) {
+            setMemoryEnabled(true)
+            const serverConvs: Conversation[] = (data.conversations || []).map((c: any) => ({
+              id: c.id,
+              title: c.title,
+              messages: [],
+              createdAt: c.updated_at,
+              updatedAt: c.updated_at,
+            }))
+            if (serverConvs.length > 0) {
+              setConversations(serverConvs)
+              // Load full messages for the most recent conversation
+              const latestId = serverConvs[0].id
+              setCurrentId(latestId)
+              try {
+                const convRes = await fetch(`/api/assistant/conversations/${latestId}`)
+                if (convRes.ok) {
+                  const convData = await convRes.json()
+                  setMessages(convData.conversation?.messages || [])
+                }
+              } catch { /* ignore, messages will be empty */ }
+            } else {
+              // Create a new server-side conversation
+              const createRes = await fetch("/api/assistant/conversations", { method: "POST" })
+              if (createRes.ok) {
+                const { id } = await createRes.json()
+                const fresh: Conversation = {
+                  id,
+                  title: "New Chat",
+                  messages: [],
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                }
+                setConversations([fresh])
+                setCurrentId(id)
+                setMessages([])
+              }
+            }
+            setInitLoaded(true)
+            return
+          }
+        }
+      } catch { /* server not available, fall back to localStorage */ }
+
+      // Fallback: localStorage mode
+      const loaded = loadConversations()
+      if (loaded.length > 0) {
+        setConversations(loaded)
+        setCurrentId(loaded[0].id)
+        setMessages(loaded[0].messages)
+      } else {
+        const fresh = createConversation()
+        setConversations([fresh])
+        setCurrentId(fresh.id)
+        setMessages([])
+      }
+      setInitLoaded(true)
     }
+    init()
   }, [])
 
   // Auto-scroll on new messages
@@ -256,18 +312,21 @@ export default function AssistantPage() {
   const persistMessages = useCallback(
     (updatedMessages: Message[]) => {
       if (!currentId) return
+
+      // Update local state (title + sort order)
+      const firstUserMsg = updatedMessages.find((m) => m.role === "user")
+      const title = firstUserMsg
+        ? firstUserMsg.content.length > 40
+          ? firstUserMsg.content.slice(0, 40) + "..."
+          : firstUserMsg.content
+        : "New Chat"
+
       setConversations((prev) => {
         const updated = prev.map((c) => {
           if (c.id !== currentId) return c
-          const firstUserMsg = updatedMessages.find((m) => m.role === "user")
-          const title = firstUserMsg
-            ? firstUserMsg.content.length > 40
-              ? firstUserMsg.content.slice(0, 40) + "..."
-              : firstUserMsg.content
-            : "New Chat"
           return {
             ...c,
-            messages: updatedMessages,
+            messages: memoryEnabled ? [] : updatedMessages, // Don't store full messages in state for memory mode
             title,
             updatedAt: new Date().toISOString(),
           }
@@ -275,11 +334,13 @@ export default function AssistantPage() {
         const sorted = updated.sort(
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
         )
-        saveConversations(sorted)
+        if (!memoryEnabled) {
+          saveConversations(sorted)
+        }
         return sorted
       })
     },
-    [currentId]
+    [currentId, memoryEnabled]
   )
 
   async function handleSend() {
@@ -297,7 +358,10 @@ export default function AssistantPage() {
       const res = await fetch("/api/assistant/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({
+          messages: newMessages,
+          ...(memoryEnabled && currentId ? { conversationId: currentId } : {}),
+        }),
       })
 
       const data = await res.json()
@@ -337,7 +401,33 @@ export default function AssistantPage() {
     }
   }
 
-  function handleNewChat() {
+  async function handleNewChat() {
+    // Trigger summarization for the conversation we're leaving
+    if (memoryEnabled && currentId && messages.length > 1) {
+      fetch(`/api/assistant/conversations/${currentId}/summarize`, { method: "POST" }).catch(() => {})
+    }
+
+    if (memoryEnabled) {
+      try {
+        const res = await fetch("/api/assistant/conversations", { method: "POST" })
+        if (res.ok) {
+          const { id } = await res.json()
+          const fresh: Conversation = {
+            id,
+            title: "New Chat",
+            messages: [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          }
+          setConversations((prev) => [fresh, ...prev])
+          setCurrentId(id)
+          setMessages([])
+          setInput("")
+          return
+        }
+      } catch { /* fall through to localStorage */ }
+    }
+
     const fresh = createConversation()
     setConversations((prev) => {
       const updated = [fresh, ...prev]
@@ -349,7 +439,26 @@ export default function AssistantPage() {
     setInput("")
   }
 
-  function handleSelectConversation(id: string) {
+  async function handleSelectConversation(id: string) {
+    // Trigger summarization for the conversation we're leaving
+    if (memoryEnabled && currentId && currentId !== id && messages.length > 1) {
+      fetch(`/api/assistant/conversations/${currentId}/summarize`, { method: "POST" }).catch(() => {})
+    }
+
+    if (memoryEnabled) {
+      setCurrentId(id)
+      setMessages([]) // Clear while loading
+      setInput("")
+      try {
+        const res = await fetch(`/api/assistant/conversations/${id}`)
+        if (res.ok) {
+          const data = await res.json()
+          setMessages(data.conversation?.messages || [])
+        }
+      } catch { /* ignore */ }
+      return
+    }
+
     const conv = conversations.find((c) => c.id === id)
     if (conv) {
       setCurrentId(id)
@@ -358,7 +467,11 @@ export default function AssistantPage() {
     }
   }
 
-  function handleDeleteConversation(id: string) {
+  async function handleDeleteConversation(id: string) {
+    if (memoryEnabled) {
+      fetch(`/api/assistant/conversations/${id}`, { method: "DELETE" }).catch(() => {})
+    }
+
     setConversations((prev) => {
       const updated = prev.filter((c) => c.id !== id)
 
@@ -366,16 +479,25 @@ export default function AssistantPage() {
       if (id === currentId) {
         if (updated.length > 0) {
           setCurrentId(updated[0].id)
-          setMessages(updated[0].messages)
+          if (!memoryEnabled) {
+            setMessages(updated[0].messages)
+          } else {
+            setMessages([])
+            // Lazy-load messages for the new current conversation
+            fetch(`/api/assistant/conversations/${updated[0].id}`)
+              .then((res) => res.json())
+              .then((data) => setMessages(data.conversation?.messages || []))
+              .catch(() => {})
+          }
         } else {
-          const fresh = createConversation()
-          updated.push(fresh)
-          setCurrentId(fresh.id)
-          setMessages([])
+          // Create a new conversation
+          handleNewChat()
         }
       }
 
-      saveConversations(updated)
+      if (!memoryEnabled) {
+        saveConversations(updated)
+      }
       return updated
     })
   }
