@@ -5,7 +5,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getTenantBySlug, getDefaultTenant } from "@/lib/tenant"
+import { getTenantBySlug, getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
 import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
@@ -306,7 +306,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               }
 
               // Build notes — use WinBros-specific helper for window/pressure/gutter services
-              const isWinBros = tenant.slug === 'winbros'
+              const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
               const jobNotes = isWinBros
                 ? buildWinBrosJobNotes({
                     serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
@@ -453,7 +453,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             }
 
             // Build notes — use WinBros-specific helper for window/pressure/gutter services
-            const isWinBrosExisting = tenant.slug === 'winbros'
+            const isWinBrosExisting = tenantUsesFeature(tenant, 'use_hcp_mirror')
             const existingLeadNotes = isWinBrosExisting
               ? buildWinBrosJobNotes({
                   serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,

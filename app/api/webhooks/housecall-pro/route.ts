@@ -6,7 +6,7 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
@@ -426,8 +426,8 @@ export async function POST(request: NextRequest) {
           const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
 
           try {
-            // WinBros asks for service type (not bedrooms/bathrooms)
-            const initialMessage = tenant?.slug === 'winbros'
+            // Window cleaning tenants ask for service type (not bedrooms/bathrooms)
+            const initialMessage = tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')
               ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
               : `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
 

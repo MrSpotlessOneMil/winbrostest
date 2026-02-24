@@ -66,6 +66,16 @@ export interface WorkflowConfig {
   frequency_nudge_days?: number
   review_only_followup_enabled?: boolean
   seasonal_campaigns?: SeasonalCampaign[]
+
+  // Per-tenant flow flags (multi-tenant v2)
+  // These express which steps are active for each business's flow
+  use_hcp_mirror?: boolean           // Mirror jobs/customers into HouseCall Pro (WinBros)
+  use_rainy_day_reschedule?: boolean // Show rainy day reschedule option in dashboard (WinBros)
+  use_team_routing?: boolean         // Route optimization + optimal job distance (WinBros)
+  use_cleaner_dispatch?: boolean     // Dispatch cleaner via Telegram after booking confirmed
+  use_review_request?: boolean       // Send review SMS after job completion
+  use_retargeting?: boolean          // Monthly re-engagement + frequency nudge campaigns
+  use_payment_collection?: boolean   // Stripe deposit + full payment collection flow
 }
 
 export interface SeasonalCampaign {
@@ -346,6 +356,33 @@ export function tenantHasIntegration(
     default:
       return false
   }
+}
+
+/**
+ * Check if a tenant has a specific flow feature enabled.
+ * Use this for the newer per-flow flags (use_review_request, use_cleaner_dispatch, etc.)
+ * Defaults to true for legacy flags that weren't present before (backward compatible).
+ */
+export function tenantUsesFeature(
+  tenant: Tenant,
+  feature: keyof Pick<WorkflowConfig,
+    | 'use_hcp_mirror'
+    | 'use_rainy_day_reschedule'
+    | 'use_team_routing'
+    | 'use_cleaner_dispatch'
+    | 'use_review_request'
+    | 'use_retargeting'
+    | 'use_payment_collection'
+    | 'lead_followup_enabled'
+    | 'post_cleaning_followup_enabled'
+    | 'monthly_followup_enabled'
+    | 'cleaner_assignment_auto'
+    | 'require_deposit'
+  >
+): boolean {
+  const val = tenant.workflow_config?.[feature]
+  // If flag is explicitly set, use it; otherwise default to true for backward compat
+  return val !== undefined ? Boolean(val) : true
 }
 
 /**
