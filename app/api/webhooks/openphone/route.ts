@@ -1336,18 +1336,9 @@ export async function POST(request: NextRequest) {
                   client,
                 })
 
-                // Assign cleaner and send Telegram notification
-                try {
-                  const { triggerCleanerAssignment } = await import("@/lib/cleaner-assignment")
-                  const assignResult = await triggerCleanerAssignment(String(newJob?.id))
-                  if (assignResult.success) {
-                    console.log(`[OpenPhone] Cleaner assigned to house cleaning job ${newJob?.id}`)
-                  } else {
-                    console.warn(`[OpenPhone] Cleaner assignment failed for job ${newJob?.id}: ${assignResult.error}`)
-                  }
-                } catch (assignErr) {
-                  console.error("[OpenPhone] Cleaner assignment error:", assignErr)
-                }
+                // NOTE: Cleaner assignment is NOT triggered here — it happens AFTER the customer
+                // pays the deposit, via handleDepositPayment in stripe/route.ts. Triggering it
+                // here would cause a double assignment (one before payment, one after).
 
                 await logSystemEvent({
                   tenant_id: tenant?.id,

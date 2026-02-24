@@ -914,7 +914,7 @@ export async function getAllJobs(userId?: number, overrideClient?: SupabaseClien
 }
 
 // Cleaner operations
-export async function getCleaners(userId?: number): Promise<Cleaner[]> {
+export async function getCleaners(userId?: number, tenantId?: string): Promise<Cleaner[]> {
   const client = getSupabaseClient()
 
   let query = client
@@ -925,6 +925,10 @@ export async function getCleaners(userId?: number): Promise<Cleaner[]> {
 
   if (userId) {
     query = query.eq('user_id', userId)
+  }
+
+  if (tenantId) {
+    query = query.eq('tenant_id', tenantId)
   }
 
   const { data, error } = await query
@@ -1155,17 +1159,21 @@ function isCleanerAvailableByRules(
   return jobMinutes >= startMinutes && jobMinutes <= endMinutes
 }
 
-export async function getCleanerAvailability(date: string, jobTime?: string): Promise<Cleaner[]> {
-  // Get all active cleaners
-  const cleaners = await getCleaners()
+export async function getCleanerAvailability(date: string, jobTime?: string, tenantId?: string): Promise<Cleaner[]> {
+  // Get active cleaners (scoped to tenant if provided)
+  const cleaners = await getCleaners(undefined, tenantId)
 
-  // Get jobs scheduled for that date
+  // Get jobs scheduled for that date (scoped to tenant if provided)
   const client = getSupabaseClient()
-  const { data: scheduledJobs } = await client
+  let jobQuery = client
     .from('jobs')
     .select('*')
     .eq('date', date)
     .not('status', 'eq', 'cancelled')
+  if (tenantId) {
+    jobQuery = jobQuery.eq('tenant_id', tenantId)
+  }
+  const { data: scheduledJobs } = await jobQuery
 
   // Get cleaner assignments for those jobs
   const jobIds = (scheduledJobs || []).map(j => j.id)

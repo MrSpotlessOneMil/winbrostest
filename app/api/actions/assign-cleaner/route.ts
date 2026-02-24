@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const availableCleaners = await getCleanerAvailability(job.date)
+      const availableCleaners = await getCleanerAvailability(job.date, undefined, (job as any).tenant_id)
       if (availableCleaners.length === 0) {
         return NextResponse.json(
           { error: 'No cleaners available for this date' },

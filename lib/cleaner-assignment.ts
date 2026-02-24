@@ -78,12 +78,14 @@ export async function findBestCleaners(
   jobLng: number,
   jobDate: string,
   jobTime?: string,
-  maxCandidates: number = 5
+  maxCandidates: number = 5,
+  tenantId?: string
 ): Promise<Array<{ cleaner: CleanerWithLocation; distance: number }>> {
-  // Get available cleaners for the job date/time
+  // Get available cleaners for the job date/time (scoped to tenant)
   const availableCleaners = (await getCleanerAvailability(
     jobDate,
-    jobTime
+    jobTime,
+    tenantId
   )) as CleanerWithLocation[]
 
   if (availableCleaners.length === 0) {
@@ -165,7 +167,8 @@ export async function findBestCleaners(
  */
 export async function assignNextAvailableCleaner(
   jobId: string,
-  excludeCleanerIds: string[] = []
+  excludeCleanerIds: string[] = [],
+  tenantId?: string
 ): Promise<{
   success: boolean
   cleaner?: CleanerWithLocation
@@ -185,6 +188,9 @@ export async function assignNextAvailableCleaner(
     return { success: false }
   }
 
+  // Use job's tenant_id for scoping if not explicitly provided
+  const effectiveTenantId = tenantId || (job as any).tenant_id || undefined
+
   // Get existing assignments to see who's already been contacted
   const existingAssignments = await getCleanerAssignmentsForJob(jobId)
   const alreadyContactedIds = new Set(
@@ -197,10 +203,11 @@ export async function assignNextAvailableCleaner(
     ...Array.from(alreadyContactedIds),
   ])
 
-  // Get all available cleaners for this job's date/time
+  // Get all available cleaners for this job's date/time (scoped to tenant)
   const availableCleaners = (await getCleanerAvailability(
     job.date,
-    job.scheduled_at || undefined
+    job.scheduled_at || undefined,
+    effectiveTenantId
   )) as CleanerWithLocation[]
 
   // Filter out excluded cleaners
@@ -324,16 +331,19 @@ export async function triggerCleanerAssignment(
       }
     }
 
-    // Check if job already has an accepted/confirmed assignment
+    // Check if job already has a pending/accepted/confirmed assignment
     const existingAssignments = await getCleanerAssignmentsForJob(jobId)
-    const hasAcceptedAssignment = existingAssignments.some(
-      (a) => a.status === 'accepted' || a.status === 'confirmed'
+    const hasActiveAssignment = existingAssignments.some(
+      (a) => a.status === 'pending' || a.status === 'accepted' || a.status === 'confirmed'
     )
 
-    if (hasAcceptedAssignment) {
+    if (hasActiveAssignment) {
+      const activeStatus = existingAssignments.find(
+        (a) => a.status === 'pending' || a.status === 'accepted' || a.status === 'confirmed'
+      )?.status
       return {
         success: false,
-        error: `Job ${jobId} already has an accepted cleaner assignment`,
+        error: `Job ${jobId} already has a ${activeStatus} cleaner assignment`,
       }
     }
 
@@ -454,14 +464,15 @@ export async function findBestCleanersForJob(
     return []
   }
 
-  // Get best cleaners sorted by distance
+  // Get best cleaners sorted by distance (scoped to tenant)
   const candidates = await findBestCleaners(
     job.address || 'Unknown',
     jobLat,
     jobLng,
     job.date,
     job.scheduled_at || undefined,
-    maxCandidates + excludeCleanerIds.length // Get extra to account for excludes
+    maxCandidates + excludeCleanerIds.length, // Get extra to account for excludes
+    (job as any).tenant_id
   )
 
   // Filter out excluded cleaners
