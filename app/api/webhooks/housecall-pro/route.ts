@@ -407,16 +407,6 @@ export async function POST(request: NextRequest) {
       case "lead.created":
         console.log("[OSIRIS] New lead created in HCP")
         if (phone) {
-          // Upsert customer
-          const { data: customerRecord } = await client
-            .from("customers")
-            .upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
-            .select("id")
-            .single()
-
           // --- Dedup: check if OSIRIS already has a recent lead or outbound message for this phone ---
           // This prevents feedback loops: SMS webhook syncs to HCP → HCP fires lead.created back → duplicate greeting
           const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString()
@@ -442,6 +432,8 @@ export async function POST(request: NextRequest) {
 
           if (existingLead || recentOutbound) {
             // OSIRIS already has an active conversation — just store the HCP link, skip the greeting
+            // IMPORTANT: Do NOT upsert customer here — OSIRIS is already handling this lead and
+            // HCP may have stale data from a previous interaction that would overwrite fresh OSIRIS state
             const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id
             console.log(
               `[OSIRIS] HCP Webhook: Skipping lead.created greeting for ${phone} — ` +
@@ -469,6 +461,15 @@ export async function POST(request: NextRequest) {
           }
 
           // No existing conversation — this is a genuinely new HCP-sourced lead
+          // Upsert customer now (only for non-deduped leads so stale HCP data doesn't overwrite OSIRIS state)
+          const { data: customerRecord } = await client
+            .from("customers")
+            .upsert(
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { onConflict: "tenant_id,phone_number" }
+            )
+            .select("id")
+            .single()
           const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
           const { data: leadRecord } = await client.from("leads").insert({
             tenant_id: tenant?.id,
