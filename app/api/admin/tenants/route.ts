@@ -72,7 +72,12 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { name, slug, email, password } = body
+  const {
+    name, slug, email, password,
+    business_name, business_name_short, service_area,
+    sdr_persona, owner_phone, owner_email, timezone,
+    flow_flags, // optional: { use_hcp_mirror, use_team_routing, use_cleaner_dispatch, ... }
+  } = body
 
   if (!name || !slug) {
     return NextResponse.json({ success: false, error: "Name and slug are required" }, { status: 400 })
@@ -103,9 +108,16 @@ export async function POST(request: NextRequest) {
       name,
       slug,
       email: email || null,
-      business_name: name,
+      business_name: business_name || name,
+      business_name_short: business_name_short || null,
+      service_area: service_area || null,
+      sdr_persona: sdr_persona || 'Mary',
+      owner_phone: owner_phone || null,
+      owner_email: owner_email || email || null,
+      timezone: timezone || 'America/Chicago',
       active: true,
       workflow_config: {
+        // Integration toggles
         use_housecall_pro: false,
         use_vapi_inbound: true,
         use_vapi_outbound: true,
@@ -113,19 +125,37 @@ export async function POST(request: NextRequest) {
         use_stripe: true,
         use_wave: false,
         use_route_optimization: false,
+        // Lead follow-up
         lead_followup_enabled: true,
         lead_followup_stages: 5,
         skip_calls_for_sms_leads: true,
         followup_delays_minutes: [0, 10, 15, 20, 30],
+        // Post-cleaning follow-up
         post_cleaning_followup_enabled: true,
         post_cleaning_delay_hours: 2,
+        // Monthly follow-up
         monthly_followup_enabled: true,
         monthly_followup_days: 30,
         monthly_followup_discount: "15%",
+        // Cleaner assignment
         cleaner_assignment_auto: true,
         require_deposit: true,
         deposit_percentage: 50,
         sms_auto_response_enabled: true,
+        // Lifecycle messaging
+        seasonal_reminders_enabled: false,
+        frequency_nudge_enabled: false,
+        frequency_nudge_days: 21,
+        review_only_followup_enabled: false,
+        seasonal_campaigns: [],
+        // Flow flags (set based on body.flow_flags or default to standard house cleaning flow)
+        use_hcp_mirror: body.flow_flags?.use_hcp_mirror ?? false,
+        use_rainy_day_reschedule: body.flow_flags?.use_rainy_day_reschedule ?? false,
+        use_team_routing: body.flow_flags?.use_team_routing ?? false,
+        use_cleaner_dispatch: body.flow_flags?.use_cleaner_dispatch ?? true,
+        use_review_request: body.flow_flags?.use_review_request ?? true,
+        use_retargeting: body.flow_flags?.use_retargeting ?? true,
+        use_payment_collection: body.flow_flags?.use_payment_collection ?? true,
       },
     })
     .select()

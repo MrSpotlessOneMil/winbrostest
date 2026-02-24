@@ -6,7 +6,7 @@ import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-respons
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
+import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
@@ -490,7 +490,8 @@ export async function POST(request: NextRequest) {
       }
 
       const jobId = job?.id || bookedLead.converted_to_job_id || null
-      const isWinBros = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+      // Tenants with team routing (WinBros/window cleaning) skip deposit flow — handled after booking
+      const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
       // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
       if (!isWinBros && tenant) {
@@ -523,8 +524,8 @@ export async function POST(request: NextRequest) {
         if (cardResult.success && cardResult.url) {
           // Determine service price
           let servicePrice: number | null = null
-          if (tenant?.slug === "winbros") {
-            // WinBros: ALWAYS use pricebook — never trust job.price or AI-extracted prices
+          if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
+            // Window cleaning tenants: ALWAYS use pricebook — never trust job.price or AI-extracted prices
             try {
               const { lookupPrice } = await import("@/lib/pricebook")
               const { parseFormData } = await import("@/lib/utils")
@@ -1152,10 +1153,12 @@ export async function POST(request: NextRequest) {
 
               // Extract all booking data from conversation
               // Use the right extractor based on tenant type
-              const isWinBrosTenant = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+              // Use window cleaning extractor for HCP-mirror tenants (WinBros-style),
+              // house cleaning extractor for everyone else
+              const isWindowCleaningTenant = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
               let bookingData: any
 
-              if (isWinBrosTenant) {
+              if (isWindowCleaningTenant) {
                 const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
                 bookingData = await extractBookingData(conversationHistory)
               } else {

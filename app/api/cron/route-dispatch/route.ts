@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getAllActiveTenants } from '@/lib/tenant'
+import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 import { optimizeRoutesForDate } from '@/lib/route-optimizer'
 import { dispatchRoutes } from '@/lib/dispatch'
 
@@ -39,10 +39,7 @@ export async function GET(request: NextRequest) {
 
   for (const tenant of tenants) {
     // Skip tenants without route optimization
-    const useRouteOpt =
-      tenant.workflow_config?.use_route_optimization === true ||
-      tenant.slug === 'winbros'
-    if (!useRouteOpt) continue
+    if (!tenantUsesFeature(tenant, 'use_team_routing')) continue
 
     const tz = tenant.timezone || 'America/Chicago'
     const localHour = getLocalHour(now, tz)

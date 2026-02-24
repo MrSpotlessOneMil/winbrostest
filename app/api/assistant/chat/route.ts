@@ -3,7 +3,7 @@ import { requireAuth } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { toE164 } from "@/lib/phone-utils"
 import Anthropic from "@anthropic-ai/sdk"
-import { getTenantById, tenantHasIntegration, getTenantServiceDescription, type Tenant } from "@/lib/tenant"
+import { getTenantById, tenantHasIntegration, getTenantServiceDescription, tenantUsesFeature, type Tenant } from "@/lib/tenant"
 
 // =====================================================================
 // TOOL DEFINITIONS
@@ -687,7 +687,7 @@ async function executeTool(
 
   // ----- DASHBOARD TUTORIAL -----
   if (toolName === "dashboard_tutorial") {
-    const usesRouteOpt = tenant?.workflow_config?.use_route_optimization || tenant?.slug === "winbros"
+    const usesRouteOpt = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
     const flowType = usesRouteOpt ? "route optimization (auto-assign)" : "accept/decline cascade"
     const businessName = tenant?.business_name_short || tenant?.name || "your business"
     const serviceType = tenant ? getTenantServiceDescription(tenant) : "cleaning"

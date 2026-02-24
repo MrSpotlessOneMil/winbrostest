@@ -4,7 +4,7 @@
  */
 
 import type { Tenant } from './tenant'
-import { getDefaultTenant } from './tenant'
+import { getDefaultTenant, tenantUsesFeature } from './tenant'
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org/bot'
 
@@ -612,7 +612,7 @@ You have no jobs scheduled for today. Enjoy your day off!
     const customerName = job.customer?.first_name || 'Customer'
     const safeNotes = formatCleanerNotes(job.notes)
     const serviceType = job.service_type ? humanizeText(job.service_type) : 'Standard cleaning'
-    const isWindowCleaning = tenant?.slug === 'winbros'
+    const isWindowCleaning = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
 
     // WinBros doesn't need bedrooms/bathrooms — it's a window cleaning company
     const propertyLine = isWindowCleaning

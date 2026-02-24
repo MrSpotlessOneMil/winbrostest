@@ -63,6 +63,14 @@ interface WorkflowConfig {
   frequency_nudge_days?: number
   review_only_followup_enabled?: boolean
   seasonal_campaigns?: SeasonalCampaign[]
+  // Flow flags (multi-tenant v2)
+  use_hcp_mirror?: boolean
+  use_rainy_day_reschedule?: boolean
+  use_team_routing?: boolean
+  use_cleaner_dispatch?: boolean
+  use_review_request?: boolean
+  use_retargeting?: boolean
+  use_payment_collection?: boolean
 }
 
 interface SeasonalCampaign {
@@ -433,17 +441,26 @@ export default function AdminPage() {
   }
 
   function getFlowType(config: WorkflowConfig): string {
-    if (config.use_housecall_pro && config.use_route_optimization) return "winbros"
-    if (!config.use_housecall_pro && !config.use_route_optimization) return "spotless"
+    if (config.use_hcp_mirror && config.use_team_routing) return "winbros"
+    if (!config.use_hcp_mirror && !config.use_team_routing && config.use_payment_collection) return "spotless"
+    if (!config.use_hcp_mirror && !config.use_team_routing && !config.use_payment_collection) return "cedar"
     return "custom"
   }
 
   async function setFlowType(tenant: Tenant, flowType: string) {
     if (flowType === "winbros") {
+      // Window washing: full flow with HCP mirror + team routing + dispatch + reviews + retargeting
       await updateTenant(tenant.id, {
         workflow_config: {
           use_housecall_pro: true,
           use_route_optimization: true,
+          use_hcp_mirror: true,
+          use_rainy_day_reschedule: true,
+          use_team_routing: true,
+          use_cleaner_dispatch: true,
+          use_review_request: true,
+          use_retargeting: true,
+          use_payment_collection: true,
           cleaner_assignment_auto: true,
           skip_calls_for_sms_leads: true,
           use_vapi_inbound: true,
@@ -451,14 +468,41 @@ export default function AdminPage() {
         },
       })
     } else if (flowType === "spotless") {
+      // House cleaning: call → booked → paid → dispatch → review → retargeting
       await updateTenant(tenant.id, {
         workflow_config: {
           use_housecall_pro: false,
           use_route_optimization: false,
+          use_hcp_mirror: false,
+          use_rainy_day_reschedule: false,
+          use_team_routing: false,
+          use_cleaner_dispatch: true,
+          use_review_request: true,
+          use_retargeting: true,
+          use_payment_collection: true,
           cleaner_assignment_auto: false,
           skip_calls_for_sms_leads: false,
           use_vapi_inbound: true,
           use_vapi_outbound: true,
+        },
+      })
+    } else if (flowType === "cedar") {
+      // Simple: call → booked → review only (no payment, no dispatch)
+      await updateTenant(tenant.id, {
+        workflow_config: {
+          use_housecall_pro: false,
+          use_route_optimization: false,
+          use_hcp_mirror: false,
+          use_rainy_day_reschedule: false,
+          use_team_routing: false,
+          use_cleaner_dispatch: false,
+          use_review_request: true,
+          use_retargeting: false,
+          use_payment_collection: false,
+          cleaner_assignment_auto: false,
+          skip_calls_for_sms_leads: true,
+          use_vapi_inbound: true,
+          use_vapi_outbound: false,
         },
       })
     }
@@ -987,6 +1031,105 @@ export default function AdminPage() {
                               updateTenant(currentTenant.id, {
                                 workflow_config: { cleaner_assignment_auto: checked },
                               })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Flow Flags (multi-tenant) */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium text-sm">Flow Steps</div>
+                      <p className="text-xs text-muted-foreground">Toggle which steps are active for this business&apos;s automation flow.</p>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Payment collection</Label>
+                            <p className="text-xs text-muted-foreground/60">Stripe deposit + full payment flow</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_payment_collection !== false}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_payment_collection: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Cleaner dispatch</Label>
+                            <p className="text-xs text-muted-foreground/60">Notify cleaner via Telegram after booking</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_cleaner_dispatch !== false}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_cleaner_dispatch: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Team routing</Label>
+                            <p className="text-xs text-muted-foreground/60">Route optimization + optimal job distance</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_team_routing === true}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_team_routing: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">HCP mirror</Label>
+                            <p className="text-xs text-muted-foreground/60">Mirror jobs + customers into HouseCall Pro</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_hcp_mirror === true}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_hcp_mirror: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Review request</Label>
+                            <p className="text-xs text-muted-foreground/60">Send Google review SMS after job completion</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_review_request !== false}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_review_request: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Retargeting</Label>
+                            <p className="text-xs text-muted-foreground/60">Monthly re-engagement + frequency nudge campaigns</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_retargeting !== false}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_retargeting: checked } })
+                            }
+                            disabled={updating === currentTenant.id}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm text-muted-foreground">Rainy day reschedule</Label>
+                            <p className="text-xs text-muted-foreground/60">Show reschedule option in dashboard (outdoor services)</p>
+                          </div>
+                          <Switch
+                            checked={currentTenant.workflow_config.use_rainy_day_reschedule === true}
+                            onCheckedChange={(checked) =>
+                              updateTenant(currentTenant.id, { workflow_config: { use_rainy_day_reschedule: checked } })
                             }
                             disabled={updating === currentTenant.id}
                           />

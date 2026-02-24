@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
-import { getTenantServiceDescription, getTenantBusinessContext } from './tenant'
+import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
 
 export interface AutoResponseResult {
   response: string
@@ -70,17 +70,17 @@ export async function generateAutoResponse(
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
 
-  // WinBros-specific SMS booking flow (window cleaning)
-  if (tenant?.slug === 'winbros') {
+  // Window cleaning SMS booking flow (tenants with HCP mirror = window cleaning service type)
+  if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
-      console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
+      console.error('[Auto-Response] Window cleaning response failed, falling back to generic:', error)
     }
   }
 
-  // House cleaning SMS booking flow (all non-WinBros tenants)
-  if (tenant && tenant.slug !== 'winbros') {
+  // House cleaning SMS booking flow (all non-window-cleaning tenants)
+  if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
