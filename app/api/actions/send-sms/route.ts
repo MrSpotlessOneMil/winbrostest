@@ -8,13 +8,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
-import { appendToTextingTranscript, getTenantScopedClient, getSupabaseServiceClient } from '@/lib/supabase'
+import { appendToTextingTranscript, getTenantScopedClient } from '@/lib/supabase'
 import { getTenantBusinessName } from '@/lib/tenant'
-import { requireAuth, getAuthTenant } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
+  const { tenant: authTenant } = authResult
 
   try {
     const body = await request.json()
@@ -42,13 +43,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get tenant for proper phone formatting
-    const tenant = await getAuthTenant(request)
-
     // Send the SMS (use tenant for proper OpenPhone routing)
-    const result = tenant
-      ? await sendSMS(tenant, phoneNumber, message)
-      : await sendSMS(phoneNumber, message)
+    const result = await sendSMS(authTenant, phoneNumber, message)
 
     if (!result.success) {
       return NextResponse.json(
@@ -58,7 +54,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Save outbound message to messages table for UI display
-    const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
+    const client = await getTenantScopedClient(authTenant.id)
     const e164Phone = toE164(phoneNumber)
 
     // Find customer by phone number
@@ -66,11 +62,11 @@ export async function POST(request: NextRequest) {
       .from('customers')
       .select('id')
       .eq('phone_number', e164Phone)
-      .eq('tenant_id', tenant?.id)
+      .eq('tenant_id', authTenant.id)
       .maybeSingle()
 
     const { error: msgError } = await client.from('messages').insert({
-      tenant_id: tenant?.id,
+      tenant_id: authTenant.id,
       customer_id: customer?.id || null,
       phone_number: e164Phone,
       role: 'assistant',
@@ -90,7 +86,7 @@ export async function POST(request: NextRequest) {
 
     // Update texting transcript (legacy)
     const timestamp = new Date().toISOString()
-    const businessNameShort = tenant ? getTenantBusinessName(tenant, true) : 'Team'
+    const businessNameShort = getTenantBusinessName(authTenant, true)
     await appendToTextingTranscript(
       phoneNumber,
       `[${timestamp}] ${businessNameShort}: ${message}`

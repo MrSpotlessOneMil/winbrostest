@@ -7,7 +7,7 @@ import { createDepositPaymentLink } from "@/lib/stripe-client"
 import { getClientConfig } from "@/lib/client-config"
 import { logSystemEvent } from "@/lib/system-events"
 import { toE164 } from "@/lib/phone-utils"
-import { getDefaultTenant, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
+import { getDefaultTenant, getTenantById, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
 
 interface LeadFollowupPayload {
   leadId: string
@@ -74,8 +74,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, skipped: true, reason: `Lead ${lead.status}` })
   }
 
-  // Look up tenant from lead's brand for dynamic business name
-  const tenant = lead.brand ? await getTenantBySlug(lead.brand) : null
+  // Resolve tenant from DB-sourced tenant_id (preferred) with brand slug fallback
+  const leadTenantId = (lead as unknown as { tenant_id?: string }).tenant_id
+  const tenant = leadTenantId
+    ? await getTenantById(leadTenantId)
+    : lead.brand ? await getTenantBySlug(lead.brand) : null
   const businessName = tenant ? getTenantBusinessName(tenant) : getClientConfig(lead.brand).businessName
   const firstName = leadName || lead.first_name || "there"
 

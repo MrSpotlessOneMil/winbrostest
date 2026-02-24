@@ -15,12 +15,12 @@ import {
   updateJob,
 } from '@/lib/supabase'
 import { notifyCleanerAssignment } from '@/lib/telegram'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
-  const { user } = authResult
+  const { tenant } = authResult
 
   try {
     const body = await request.json()
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
     // Get job details
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== tenant.id) {
       return NextResponse.json(
         { error: 'Job not found' },
         { status: 404 }

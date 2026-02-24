@@ -26,7 +26,7 @@ import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stri
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
 import { getClientConfig } from '@/lib/client-config'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 import { getDefaultTenant, getTenantById } from '@/lib/tenant'
 import { paymentRetry as paymentRetryTemplate } from '@/lib/sms-templates'
 
@@ -198,8 +198,9 @@ export async function executeRetryPayment(jobId: string): Promise<{
 }
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
 
   try {
     const body = await request.json()
@@ -209,6 +210,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Job ID is required' },
         { status: 400 }
+      )
+    }
+
+    // Verify job belongs to the authenticated user's tenant
+    const serviceClient = getSupabaseServiceClient()
+    const job = await getJobById(jobId, serviceClient)
+    if (!job || job.tenant_id !== tenant.id) {
+      return NextResponse.json(
+        { error: 'Job not found' },
+        { status: 404 }
       )
     }
 

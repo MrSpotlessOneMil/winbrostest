@@ -262,6 +262,35 @@ export async function getAuthTenant(request: NextRequest): Promise<Tenant | null
 }
 
 /**
+ * Require auth and resolve the user's tenant in one call.
+ * Returns { user, tenant } or a 401/403 NextResponse.
+ * Use this in dashboard action routes to enforce tenant ownership.
+ */
+export async function requireAuthWithTenant(
+  request: NextRequest
+): Promise<{ user: AuthUser; tenant: Tenant } | NextResponse> {
+  const user = await getAuthUser(request)
+
+  if (!user) {
+    return NextResponse.json(
+      { success: false, error: 'Unauthorized' },
+      { status: 401 }
+    )
+  }
+
+  const tenant = await getAuthTenant(request)
+
+  if (!tenant) {
+    return NextResponse.json(
+      { success: false, error: 'Forbidden' },
+      { status: 403 }
+    )
+  }
+
+  return { user, tenant }
+}
+
+/**
  * Check if the request is from an admin user.
  * Verifies the session cookie against the database (expiry-checked).
  * Use this as a single source of truth for all admin-only API routes.

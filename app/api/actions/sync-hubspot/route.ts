@@ -13,11 +13,12 @@ import {
 } from '@/lib/supabase'
 import { syncHubSpotContact, syncHubSpotDeal } from '@/lib/hubspot'
 import { getClientConfig } from '@/lib/client-config'
-import { requireAuth } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
 
   try {
     const config = getClientConfig()
@@ -31,9 +32,14 @@ export async function POST(request: NextRequest) {
     let job = null
     if (jobId) {
       job = await getJobById(jobId)
+      // Verify job belongs to the authenticated user's tenant
+      if (job && job.tenant_id !== tenant.id) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+      }
     } else if (phone) {
       const jobs = await getJobsByPhone(phone)
-      job = jobs[0] || null
+      // Filter to only jobs belonging to this tenant
+      job = jobs.find(j => j.tenant_id === tenant.id) || null
     }
 
     let customer = null
