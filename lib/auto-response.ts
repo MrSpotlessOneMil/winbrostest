@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
-import { getTenantServiceDescription, getTenantBusinessContext } from './tenant'
+import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
 
 export interface AutoResponseResult {
   response: string
@@ -70,17 +70,17 @@ export async function generateAutoResponse(
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
 
-  // WinBros-specific SMS booking flow (window cleaning)
-  if (tenant?.slug === 'winbros') {
+  // Window cleaning SMS booking flow (tenants with HCP mirror = window cleaning service type)
+  if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
-      console.error('[Auto-Response] WinBros response failed, falling back to generic:', error)
+      console.error('[Auto-Response] Window cleaning response failed, falling back to generic:', error)
     }
   }
 
-  // House cleaning SMS booking flow (all non-WinBros tenants)
-  if (tenant && tenant.slug !== 'winbros') {
+  // House cleaning SMS booking flow (all non-window-cleaning tenants)
+  if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
     } catch (error) {
@@ -197,7 +197,7 @@ async function generateWithClaude(
     : ''
 
   const response = await client.messages.create({
-    model: 'claude-3-5-haiku-20241022',
+    model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
     messages: [
       {
@@ -399,9 +399,9 @@ function generateFallbackResponse(
 // =====================================================================
 
 /**
- * Generate a WinBros-specific SMS response using the dedicated booking prompt.
- * This mirrors the WinBros phone script, collecting service type, sqft,
- * pricing, etc. instead of bedrooms/bathrooms.
+ * Generate a WinBros-specific SMS response using the dedicated estimate prompt.
+ * Mirrors the VAPI phone call flow: service type, name, address, referral,
+ * then system provides 3 available times, customer picks, then email.
  */
 async function generateWinBrosResponse(
   message: string,
@@ -410,9 +410,9 @@ async function generateWinBrosResponse(
   knownCustomerInfo?: KnownCustomerInfo,
   isReturningCustomer?: boolean
 ): Promise<AutoResponseResult> {
-  const { buildWinBrosSmsSystemPrompt, detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
+  const { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = buildWinBrosSmsSystemPrompt()
+  const systemPrompt = buildWinBrosEstimatePrompt()
 
   const historyContext = conversationHistory?.length
     ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
@@ -422,8 +422,8 @@ async function generateWinBrosResponse(
   let knownInfoBlock = ''
   if (knownCustomerInfo) {
     const parts: string[] = []
-    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
-      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    if (knownCustomerInfo.firstName) {
+      parts.push(`First name: ${knownCustomerInfo.firstName}`)
     }
     if (knownCustomerInfo.address) {
       parts.push(`Address on file: ${knownCustomerInfo.address}`)
@@ -444,7 +444,7 @@ async function generateWinBrosResponse(
     returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
   }
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and escalation tag if needed). Nothing else.`
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -466,7 +466,26 @@ async function generateWinBrosResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const isScheduleReady = detectScheduleReady(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
+
+    // If the AI says it's ready to schedule, call the estimate scheduler
+    // and append the available time options to the response
+    if (isScheduleReady) {
+      const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
+      if (timeOptions) {
+        cleanResponse = cleanResponse + '\n\n' + timeOptions
+      } else {
+        // Scheduler failed — escalate so a human can schedule manually
+        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
+        return {
+          response: cleanResponse,
+          shouldSend: true,
+          reason: 'WinBros AI — scheduler failed, escalating',
+          escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
+        }
+      }
+    }
 
     return {
       response: cleanResponse,
@@ -499,7 +518,24 @@ async function generateWinBrosResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const isScheduleReady = detectScheduleReady(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
+
+    // Same scheduling logic for OpenAI fallback
+    if (isScheduleReady) {
+      const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
+      if (timeOptions) {
+        cleanResponse = cleanResponse + '\n\n' + timeOptions
+      } else {
+        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
+        return {
+          response: cleanResponse,
+          shouldSend: true,
+          reason: 'WinBros AI (OpenAI) — scheduler failed, escalating',
+          escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
+        }
+      }
+    }
 
     return {
       response: cleanResponse,
@@ -514,10 +550,96 @@ async function generateWinBrosResponse(
   const hasHistory = conversationHistory && conversationHistory.length > 0
   return {
     response: hasHistory
-      ? `Thanks for your message! Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
-      : `Hi! This is Mary from WinBros Window Cleaning. Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`,
+      ? `Thanks for your message! I'd love to get you set up with a free estimate. What's your full name?`
+      : `Hi! This is Mary from WinBros Window Cleaning. I'd love to get you set up with a free estimate. What's your full name?`,
     shouldSend: true,
     reason: 'WinBros template fallback',
+  }
+}
+
+/**
+ * Call the estimate scheduler to get available time slots for a WinBros customer.
+ * Extracts the customer address from conversation history or known info,
+ * then calls the scheduler to get up to 3 optimal time options.
+ * Returns a formatted string like "Wednesday Feb 25th at 8:00 AM, Thursday Feb 26th at 8:00 AM, or Friday Feb 27th at 9:30 AM"
+ */
+async function getEstimateTimeOptions(
+  tenant: Tenant,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownCustomerInfo?: KnownCustomerInfo,
+): Promise<string | null> {
+  try {
+    const { scheduleEstimate } = await import('./vapi-estimate-scheduler')
+
+    // Extract address: prefer known info, then scan conversation history
+    let address = knownCustomerInfo?.address || null
+
+    if (!address && conversationHistory?.length) {
+      // Look for address in conversation — find messages after bot asked for address
+      for (let i = 0; i < conversationHistory.length - 1; i++) {
+        const msg = conversationHistory[i]
+        if (msg.role === 'assistant' && /address/i.test(msg.content) && !/email/i.test(msg.content)) {
+          // Collect all client messages until next assistant message
+          const addressParts: string[] = []
+          for (let j = i + 1; j < conversationHistory.length; j++) {
+            if (conversationHistory[j].role === 'client') {
+              addressParts.push(conversationHistory[j].content.trim())
+            } else {
+              break
+            }
+          }
+          if (addressParts.length > 0) {
+            address = addressParts.join(', ')
+          }
+          break
+        }
+      }
+    }
+
+    // Last resort: scan all client messages for something that looks like an address
+    if (!address && conversationHistory?.length) {
+      const clientMessages = conversationHistory.filter(m => m.role === 'client').map(m => m.content)
+      for (const msg of clientMessages) {
+        // Match patterns like "123 Main St" or "456 Oak Ave, Springfield IL 62704"
+        if (/\d+\s+\w+\s+(st|street|ave|avenue|blvd|boulevard|dr|drive|rd|road|ln|lane|ct|court|way|pl|place|cir|circle)\b/i.test(msg)) {
+          address = msg.trim()
+          break
+        }
+      }
+    }
+
+    if (!address) {
+      console.error('[WinBros Schedule] No address found in conversation or known info')
+      return null
+    }
+
+    console.log(`[WinBros Schedule] Calling scheduler with address: "${address}" for tenant ${tenant.id}`)
+    const result = await scheduleEstimate({ address }, tenant.id)
+
+    if (!result.scheduled || !result.options || result.options.length === 0) {
+      console.warn(`[WinBros Schedule] No slots available: ${result.error || 'unknown reason'}`)
+      return null
+    }
+
+    // Format the options as a readable list for SMS
+    const formatted = result.options.map(opt => {
+      const d = new Date(opt.date + 'T12:00:00')
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+      const monthDay = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })
+      return `${dayName} ${monthDay} at ${opt.time}`
+    })
+
+    if (formatted.length === 1) {
+      return `We have ${formatted[0]} available for your estimate. Does that work for you?`
+    } else if (formatted.length === 2) {
+      return `We have a couple times available — ${formatted[0]} or ${formatted[1]}. Which works best for you?`
+    } else {
+      const last = formatted.pop()
+      return `We have a few times available — ${formatted.join(', ')}, or ${last}. Which works best for you?`
+    }
+  } catch (err) {
+    console.error('[WinBros Schedule] Error calling estimate scheduler:', err)
+    return null
   }
 }
 
@@ -551,8 +673,8 @@ async function generateHouseCleaningResponse(
   let knownInfoBlock = ''
   if (knownCustomerInfo) {
     const parts: string[] = []
-    if (knownCustomerInfo.firstName || knownCustomerInfo.lastName) {
-      parts.push(`Name: ${[knownCustomerInfo.firstName, knownCustomerInfo.lastName].filter(Boolean).join(' ')}`)
+    if (knownCustomerInfo.firstName) {
+      parts.push(`First name: ${knownCustomerInfo.firstName}`)
     }
     if (knownCustomerInfo.address) {
       parts.push(`Address on file: ${knownCustomerInfo.address}`)

@@ -149,54 +149,79 @@ export async function validateOpenPhoneWebhook(
   signature: string | null,
   timestamp?: string | null
 ): Promise<boolean> {
-  // OpenPhone doesn't have a per-tenant webhook secret in our schema
-  // Use a global secret from env or skip validation
-  const webhookSecret = process.env.OPENPHONE_WEBHOOK_SECRET
-
-  // If no secret configured, skip validation (not recommended for production)
-  if (!webhookSecret) {
-    console.warn('OPENPHONE_WEBHOOK_SECRET not configured - skipping validation')
-    return true
-  }
-
   if (!signature) {
     console.warn('No signature provided in webhook request')
     return false
   }
 
+  // Collect all secrets to try: global env var + all per-tenant secrets
+  const secretsToTry: string[] = []
+
+  // 1. Global env var (backward compat)
+  const globalSecret = process.env.OPENPHONE_WEBHOOK_SECRET
+  if (globalSecret) secretsToTry.push(globalSecret)
+
+  // 2. Per-tenant secrets from DB (each tenant has their own OpenPhone account)
+  try {
+    const { getSupabaseServiceClient } = await import('./supabase')
+    const client = getSupabaseServiceClient()
+    const { data: tenants } = await client
+      .from('tenants')
+      .select('openphone_webhook_secret')
+      .not('openphone_webhook_secret', 'is', null)
+      .eq('active', true)
+    if (tenants) {
+      for (const t of tenants) {
+        if (t.openphone_webhook_secret && !secretsToTry.includes(t.openphone_webhook_secret)) {
+          secretsToTry.push(t.openphone_webhook_secret)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[OpenPhone] Could not fetch tenant webhook secrets:', err)
+  }
+
+  // If no secrets configured anywhere, skip validation
+  if (secretsToTry.length === 0) {
+    console.warn('No OpenPhone webhook secrets configured - skipping validation')
+    return true
+  }
+
   const candidateSignatures = extractSignatureCandidates(signature)
-  const candidateKeys = getCandidateKeys(webhookSecret)
   const payloadVariants = getPayloadVariants(payload, timestamp)
 
-  // OpenPhone uses HMAC-SHA256 for webhook signatures
+  // Try each secret until one matches
   try {
-    for (const keyBytes of candidateKeys) {
-      for (const payloadBytes of payloadVariants) {
-        const signatureBytes = createHmac('sha256', keyBytes)
-          .update(payloadBytes)
-          .digest()
+    for (const secret of secretsToTry) {
+      const candidateKeys = getCandidateKeys(secret)
+      for (const keyBytes of candidateKeys) {
+        for (const payloadBytes of payloadVariants) {
+          const signatureBytes = createHmac('sha256', keyBytes)
+            .update(payloadBytes)
+            .digest()
 
-        const hexSig = signatureBytes.toString('hex')
-        const base64Sig = signatureBytes.toString('base64')
-        const base64UrlSig = base64Sig
-          .replace(/\+/g, '-')
-          .replace(/\//g, '_')
-          .replace(/=+$/g, '')
+          const hexSig = signatureBytes.toString('hex')
+          const base64Sig = signatureBytes.toString('base64')
+          const base64UrlSig = base64Sig
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/g, '')
 
-        for (const candidate of candidateSignatures) {
-          const cleaned = candidate.trim()
-          if (!cleaned) continue
-          if (cleaned.toLowerCase() === hexSig) {
-            return true
-          }
-          if (cleaned === base64Sig || cleaned === base64UrlSig) {
-            return true
+          for (const candidate of candidateSignatures) {
+            const cleaned = candidate.trim()
+            if (!cleaned) continue
+            if (cleaned.toLowerCase() === hexSig) {
+              return true
+            }
+            if (cleaned === base64Sig || cleaned === base64UrlSig) {
+              return true
+            }
           }
         }
       }
     }
 
-    console.warn('[OpenPhone] Signature validation failed')
+    console.warn('[OpenPhone] Signature validation failed against all secrets')
     return false
   } catch (error) {
     console.error('Error validating webhook signature:', error)

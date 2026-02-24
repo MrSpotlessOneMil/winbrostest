@@ -5,7 +5,7 @@ import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById, getAllActiveTenants } from '@/lib/tenant'
+import { getDefaultTenant, getTenantById, getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
@@ -746,12 +746,17 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   // WinBros (route optimization): auto-assign job to team, no accept/decline
   // Other tenants: trigger individual cleaner assignment cascade (accept/decline)
   // If deposit was already paid, cleaner assignment was already triggered in handleDepositPayment — skip here
-  const useRouteOptimization = tenant.workflow_config?.use_route_optimization === true || tenant.slug === 'winbros'
+  const useRouteOptimization = tenantUsesFeature(tenant, 'use_team_routing')
   let assignmentOutcome = 'no_job'
 
   if (job && job.payment_status === 'deposit_paid') {
     assignmentOutcome = 'already_assigned_via_deposit'
     console.log(`[Stripe Webhook] Job ${actualJobId} already has deposit_paid status — skipping redundant assignment`)
+  } else if (job && (job as any).job_type === 'estimate') {
+    // WinBros estimate jobs should never trigger route optimization from Stripe
+    // (salesman handles estimates, not the payment flow)
+    assignmentOutcome = 'skipped_estimate'
+    console.log(`[Stripe Webhook] Job ${actualJobId} is an estimate — skipping route optimization`)
   } else if (job) {
     if (useRouteOptimization) {
       // WinBros flow: full route optimization across all teams for this day

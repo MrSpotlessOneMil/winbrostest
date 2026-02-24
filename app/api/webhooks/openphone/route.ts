@@ -6,7 +6,7 @@ import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-respons
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled } from "@/lib/tenant"
+import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
@@ -490,7 +490,8 @@ export async function POST(request: NextRequest) {
       }
 
       const jobId = job?.id || bookedLead.converted_to_job_id || null
-      const isWinBros = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+      // Tenants with team routing (WinBros/window cleaning) skip deposit flow — handled after booking
+      const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
       // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
       if (!isWinBros && tenant) {
@@ -523,8 +524,8 @@ export async function POST(request: NextRequest) {
         if (cardResult.success && cardResult.url) {
           // Determine service price
           let servicePrice: number | null = null
-          if (tenant?.slug === "winbros") {
-            // WinBros: ALWAYS use pricebook — never trust job.price or AI-extracted prices
+          if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
+            // Window cleaning tenants: ALWAYS use pricebook — never trust job.price or AI-extracted prices
             try {
               const { lookupPrice } = await import("@/lib/pricebook")
               const { parseFormData } = await import("@/lib/utils")
@@ -1128,7 +1129,7 @@ export async function POST(request: NextRequest) {
               .select("id")
               .eq("phone_number", phone)
               .eq("tenant_id", tenant?.id)
-              .in("source", ["card_on_file", "deposit", "invoice"])
+              .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked"])
               .limit(1)
               .maybeSingle()
 
@@ -1152,10 +1153,12 @@ export async function POST(request: NextRequest) {
 
               // Extract all booking data from conversation
               // Use the right extractor based on tenant type
-              const isWinBrosTenant = tenant?.slug === 'winbros' || tenant?.workflow_config?.use_route_optimization === true
+              // Use window cleaning extractor for HCP-mirror tenants (WinBros-style),
+              // house cleaning extractor for everyone else
+              const isWindowCleaningTenant = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
               let bookingData: any
 
-              if (isWinBrosTenant) {
+              if (isWindowCleaningTenant) {
                 const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
                 bookingData = await extractBookingData(conversationHistory)
               } else {
@@ -1193,31 +1196,11 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // Determine price — for WinBros, ALWAYS use pricebook, NEVER AI-extracted prices
+              // Determine price — WinBros estimate flow skips pricing (salesman handles it on-site)
               let servicePrice: number | null = null
               if (isWinBrosTenant) {
-                try {
-                  const { lookupPrice } = await import("@/lib/pricebook")
-                  const lookupInput = {
-                    serviceType: bookingData.serviceType || null,
-                    squareFootage: bookingData.squareFootage || null,
-                    scope: bookingData.scope || null,
-                    pressureWashingSurfaces: bookingData.pressureWashingSurfaces || null,
-                    propertyType: bookingData.propertyType || null,
-                  }
-                  console.log(`[OpenPhone] Pricebook lookup inputs (SMS): scope="${bookingData.scope}", sqft=${bookingData.squareFootage}, service="${bookingData.serviceType}", surfaces=${JSON.stringify(bookingData.pressureWashingSurfaces)}, propertyType=${bookingData.propertyType}`)
-                  const priceLookup = lookupPrice(lookupInput)
-                  if (priceLookup) {
-                    servicePrice = priceLookup.price
-                    console.log(`[OpenPhone] Pricebook result: ${priceLookup.serviceName} = $${priceLookup.price} (tier: ${priceLookup.tier || 'flat'})`)
-                  } else {
-                    console.warn(`[OpenPhone] Pricebook returned null for inputs — no price will be shown`)
-                  }
-                } catch (pbErr) {
-                  console.error("[OpenPhone] Pricebook lookup error:", pbErr)
-                }
-                // NO fallback — if pricebook can't determine price, don't show one
-                // AI-extracted prices are unreliable and have caused wrong quotes
+                // WinBros estimate flow: no price — salesman will quote on-site
+                servicePrice = null
               } else {
                 servicePrice = bookingData.price || null
               }
@@ -1252,7 +1235,7 @@ export async function POST(request: NextRequest) {
                 ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
                 : 'Standard cleaning'
 
-              // Create job
+              // Create job (WinBros: estimate type for salesman visit; others: cleaning)
               const { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
                 customer_id: customer.id,
@@ -1265,6 +1248,7 @@ export async function POST(request: NextRequest) {
                 status: 'scheduled',
                 booked: true,
                 notes: jobNotes || null,
+                job_type: isWinBrosTenant ? 'estimate' : 'cleaning',
               }).select("id").single()
 
               if (jobError || !newJob?.id) {
@@ -1295,8 +1279,9 @@ export async function POST(request: NextRequest) {
                   scheduledDate: bookingData.preferredDate || null,
                   scheduledTime: bookingData.preferredTime || null,
                   price: servicePrice,
-                  notes: `Booked via SMS`,
+                  notes: isWinBrosTenant ? 'Estimate Visit | Booked via SMS' : 'Booked via SMS',
                   source: 'sms',
+                  isEstimate: isWinBrosTenant,
                 })
               }
 
@@ -1361,94 +1346,94 @@ export async function POST(request: NextRequest) {
                 })
               }
 
-              // WinBros: Send card-on-file link (window cleaning flow)
+              // WinBros: Estimate flow — assign salesman via route optimization (NO payment link)
               try {
-                const { createCardOnFileLink } = await import("@/lib/stripe-client")
-                const cardResult = await createCardOnFileLink(
-                  { ...customer, email: finalEmail } as any,
-                  newJob?.id || `lead-${existingLead.id}`,
-                )
+                const customerName = [bookingData.firstName || customer.first_name, bookingData.lastName || customer.last_name].filter(Boolean).join(' ') || 'Customer'
+                const jobAddress = bookingData.address || customer.address || 'Address TBD'
+                const jobDate = bookingData.preferredDate || 'TBD'
 
-                if (cardResult.success && cardResult.url) {
-                  const priceStr = servicePrice ? `Your total is $${Number(servicePrice).toFixed(2)}. ` : ""
-                  const cardMessage = `${priceStr}Put your card on file so we can get you all set up: ${cardResult.url}`
-                  const cardSms = await sendSMS(tenant!, phone, cardMessage)
+                // Route optimize for salesmen and dispatch
+                if (tenant && bookingData.preferredDate) {
+                  const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
+                  const { dispatchRoutes } = await import("@/lib/dispatch")
+                  const { sendTelegramMessage } = await import("@/lib/telegram")
 
-                  if (cardSms.success) {
-                    await client.from("messages").insert({
-                      tenant_id: tenant?.id,
-                      customer_id: customer.id,
-                      phone_number: phone,
-                      role: "assistant",
-                      content: cardMessage,
-                      direction: "outbound",
-                      message_type: "sms",
-                      ai_generated: false,
-                      timestamp: new Date().toISOString(),
-                      source: "card_on_file",
-                      metadata: {
-                        lead_id: existingLead.id,
-                        job_id: newJob?.id,
-                        card_on_file_url: cardResult.url,
-                        booking_source: "sms_flow",
-                      },
+                  const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
+                    await optimizeRoutesIncremental(Number(newJob.id), bookingData.preferredDate, tenant.id, 'salesman')
+
+                  if (assignedTeamId) {
+                    await dispatchRoutes(optimization, tenant.id, {
+                      sendTelegramToTeams: false,
+                      sendSmsToCustomers: false,
                     })
-                    console.log(`[OpenPhone] Card-on-file link sent to ${phone} (SMS booking flow)`)
-                  }
 
-                  // Send confirmation email to customer
-                  try {
-                    const { sendConfirmationEmail } = await import("@/lib/gmail-client")
-                    const emailResult = await sendConfirmationEmail({
-                      customer: {
-                        ...customer,
-                        email: finalEmail,
-                        first_name: bookingData.firstName || customer.first_name,
-                        last_name: bookingData.lastName || customer.last_name,
-                      } as any,
-                      job: {
-                        id: newJob?.id,
-                        service_type: bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning',
-                        address: bookingData.address || customer.address || null,
-                        date: bookingData.preferredDate || null,
-                        scheduled_at: null,
-                        price: servicePrice || null,
-                      } as any,
-                      stripeDepositUrl: cardResult.url,
-                    })
-                    if (emailResult.success) {
-                      console.log(`[OpenPhone] Confirmation email sent to ${finalEmail} (SMS booking flow)`)
-                    } else {
-                      console.error(`[OpenPhone] Confirmation email failed: ${emailResult.error}`)
+                    // Send immediate Telegram to assigned salesman WITH address (salesmen need it for the visit)
+                    if (assignedLeadTelegramId) {
+                      const timeStr = bookingData.preferredTime || 'Time TBD'
+                      const salesmanMsg = [
+                        `<b>New Estimate Assigned - WinBros</b>`,
+                        ``,
+                        `Customer: ${customerName}`,
+                        `Service: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}`,
+                        `Address: ${jobAddress}`,
+                        `Date: ${jobDate} at ${timeStr}`,
+                        ``,
+                        `Please visit the customer to provide an on-site quote.`,
+                      ].join('\n')
+                      await sendTelegramMessage(tenant, assignedLeadTelegramId, salesmanMsg, 'HTML')
+                      console.log(`[OpenPhone] Telegram sent to salesman (team ${assignedTeamId}) for estimate job ${newJob.id}`)
                     }
-                  } catch (emailErr) {
-                    console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
+                  } else {
+                    console.warn(`[OpenPhone] No salesman team available for estimate job ${newJob.id} on ${bookingData.preferredDate}`)
                   }
+                }
 
-                  await logSystemEvent({
+                // Send confirmation SMS to customer (no payment link)
+                const confirmMsg = `You're all set! A member of our team will visit on ${jobDate} to provide a free estimate. We'll send a confirmation to ${finalEmail}. Thanks for choosing WinBros!`
+                const confirmSms = await sendSMS(tenant!, phone, confirmMsg)
+                if (confirmSms.success) {
+                  await client.from("messages").insert({
                     tenant_id: tenant?.id,
-                    source: "openphone",
-                    event_type: "SMS_BOOKING_COMPLETED",
-                    message: `SMS booking completed for ${phone} — job ${newJob?.id}, card-on-file link sent, email sent to ${finalEmail}`,
+                    customer_id: customer.id,
                     phone_number: phone,
+                    role: "assistant",
+                    content: confirmMsg,
+                    direction: "outbound",
+                    message_type: "sms",
+                    ai_generated: false,
+                    timestamp: new Date().toISOString(),
+                    source: "estimate_booked",
                     metadata: {
                       lead_id: existingLead.id,
                       job_id: newJob?.id,
-                      booking_data: bookingData,
-                      card_on_file_url: cardResult.url,
-                      email_sent_to: finalEmail,
+                      booking_source: "sms_flow",
+                      job_type: "estimate",
                     },
                   })
-                } else {
-                  console.error("[OpenPhone] Card-on-file link creation failed:", cardResult.error)
+                  console.log(`[OpenPhone] Estimate confirmation sent to ${phone} (SMS booking flow)`)
                 }
-              } catch (cardErr) {
-                console.error("[OpenPhone] Failed to create card-on-file link:", cardErr)
+
+                await logSystemEvent({
+                  tenant_id: tenant?.id,
+                  source: "openphone",
+                  event_type: "SMS_ESTIMATE_BOOKED",
+                  message: `SMS estimate booked for ${phone} — job ${newJob?.id}, salesman visit scheduled`,
+                  phone_number: phone,
+                  metadata: {
+                    lead_id: existingLead.id,
+                    job_id: newJob?.id,
+                    booking_data: bookingData,
+                    job_type: "estimate",
+                    email_sent_to: finalEmail,
+                  },
+                })
+              } catch (estimateErr) {
+                console.error("[OpenPhone] Failed to process estimate booking:", estimateErr)
               }
 
               return NextResponse.json({
                 success: true,
-                flow: "sms_booking_complete",
+                flow: "sms_estimate_booked",
                 existingLeadId: existingLead.id,
                 jobId: newJob?.id,
               })

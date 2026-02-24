@@ -100,6 +100,7 @@ interface OptimizeOptions {
   maxJobsPerTeam?: number     // default 6
   maxDriveMinutes?: number    // default 50
   dailyTargetRevenue?: number // default 1200
+  employeeType?: 'technician' | 'salesman'  // Filter teams/jobs by employee type (WinBros)
 }
 
 // ── Main Entry Point ───────────────────────────────────────────
@@ -117,11 +118,14 @@ export async function optimizeRoutesForDate(
   const maxDrive = options?.maxDriveMinutes ?? 50
   const dailyTarget = options?.dailyTargetRevenue ?? 1200
 
-  console.log(`[RouteOptimizer] Optimizing routes for ${date}, tenant ${tenantId}`)
+  const employeeType = options?.employeeType
+  console.log(`[RouteOptimizer] Optimizing routes for ${date}, tenant ${tenantId}${employeeType ? `, employeeType=${employeeType}` : ''}`)
 
-  // 1. Load teams and jobs
-  const { teams, skippedWarnings } = await loadTeamsWithLocations(tenantId)
-  const jobs = await loadJobsForDate(date, tenantId)
+  // 1. Load teams and jobs (filtered by employee type when provided)
+  const { teams, skippedWarnings } = await loadTeamsWithLocations(tenantId, employeeType)
+  // Map employee type to job type: salesman → estimate, technician → cleaning
+  const jobTypeFilter = employeeType === 'salesman' ? 'estimate' : employeeType === 'technician' ? 'cleaning' : undefined
+  const jobs = await loadJobsForDate(date, tenantId, jobTypeFilter)
 
   if (teams.length === 0) {
     return buildEmptyResult(date, jobs, 0, [
@@ -294,10 +298,11 @@ export async function optimizeRoutesIncremental(
   jobId: number,
   date: string,
   tenantId: string,
+  employeeType?: 'technician' | 'salesman',
 ): Promise<{ optimization: OptimizationResult; assignedTeamId?: number; assignedLeadId?: number; assignedLeadTelegramId?: string }> {
-  console.log(`[RouteOptimizer] Incremental re-optimization for job ${jobId}, date ${date}, tenant ${tenantId}`)
+  console.log(`[RouteOptimizer] Incremental re-optimization for job ${jobId}, date ${date}, tenant ${tenantId}${employeeType ? `, employeeType=${employeeType}` : ''}`)
 
-  const optimization = await optimizeRoutesForDate(date, tenantId)
+  const optimization = await optimizeRoutesForDate(date, tenantId, { employeeType })
 
   // Find which team got the new job
   let assignedTeamId: number | undefined
@@ -328,7 +333,7 @@ export async function optimizeRoutesIncremental(
 /**
  * Load active teams with their lead's home location.
  */
-export async function loadTeamsWithLocations(tenantId: string): Promise<{
+export async function loadTeamsWithLocations(tenantId: string, employeeType?: 'technician' | 'salesman'): Promise<{
   teams: TeamForRouting[]
   skippedWarnings: string[]
 }> {
@@ -336,7 +341,7 @@ export async function loadTeamsWithLocations(tenantId: string): Promise<{
 
   const { data, error } = await client
     .from('teams')
-    .select('id, name, active, team_members ( id, role, is_active, cleaner_id, cleaners ( id, name, phone, telegram_id, is_team_lead, home_lat, home_lng, max_jobs_per_day, active ) )')
+    .select('id, name, active, team_members ( id, role, is_active, cleaner_id, cleaners ( id, name, phone, telegram_id, is_team_lead, home_lat, home_lng, max_jobs_per_day, active, employee_type ) )')
     .eq('tenant_id', tenantId)
     .eq('active', true)
 
@@ -350,7 +355,13 @@ export async function loadTeamsWithLocations(tenantId: string): Promise<{
 
   for (const team of data) {
     const members = (team.team_members || []) as any[]
-    const leadMember = members.find((m: any) => m.role === 'lead' && m.is_active && m.cleaners?.active)
+    const leadMember = members.find((m: any) => {
+      const isLead = m.role === 'lead' && m.is_active && m.cleaners?.active
+      if (!isLead) return false
+      // If employee type filter is specified, only match leads of that type
+      if (employeeType && m.cleaners?.employee_type !== employeeType) return false
+      return true
+    })
 
     if (!leadMember?.cleaners) {
       const msg = `Team "${team.name}" has no active lead assigned — skipped from routing`
@@ -381,7 +392,11 @@ export async function loadTeamsWithLocations(tenantId: string): Promise<{
       homeLng: Number(lead.home_lng),
       maxJobsPerDay: lead.max_jobs_per_day || 6,
       members: members
-        .filter((m: any) => m.is_active && m.cleaners?.active)
+        .filter((m: any) => {
+          if (!m.is_active || !m.cleaners?.active) return false
+          if (employeeType && m.cleaners?.employee_type !== employeeType) return false
+          return true
+        })
         .map((m: any) => ({
           id: m.cleaners.id,
           name: m.cleaners.name,
@@ -397,16 +412,23 @@ export async function loadTeamsWithLocations(tenantId: string): Promise<{
 /**
  * Load jobs for the date that need routing.
  */
-export async function loadJobsForDate(date: string, tenantId: string): Promise<JobForRouting[]> {
+export async function loadJobsForDate(date: string, tenantId: string, jobType?: 'estimate' | 'cleaning'): Promise<JobForRouting[]> {
   const client = getSupabaseServiceClient()
 
-  const { data, error } = await client
+  let query = client
     .from('jobs')
     .select('id, address, date, scheduled_at, service_type, price, hours, notes, team_id, phone_number, customers ( first_name, last_name, phone_number )')
     .eq('tenant_id', tenantId)
     .eq('date', date)
     .neq('status', 'cancelled')
-    .order('scheduled_at', { ascending: true })
+
+  if (jobType) {
+    query = query.eq('job_type', jobType)
+  }
+
+  query = query.order('scheduled_at', { ascending: true })
+
+  const { data, error } = await query
 
   if (error || !data) {
     console.error('[RouteOptimizer] Failed to load jobs:', error)

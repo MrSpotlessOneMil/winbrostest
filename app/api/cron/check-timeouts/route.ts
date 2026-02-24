@@ -40,6 +40,18 @@ const CANCEL_REASSIGN_LOOKBACK_MINUTES = 180
 const PACIFIC_TIME_ZONE = 'America/Los_Angeles'
 const OWNER_PHONE = process.env.OWNER_PHONE || ''
 
+/**
+ * Get the owner phone to alert for a given job.
+ * Uses tenant's owner_phone if available, falls back to env var.
+ */
+async function getOwnerPhoneForJob(job: Job): Promise<string> {
+  if (job.tenant_id) {
+    const tenant = await getTenantById(job.tenant_id)
+    if (tenant?.owner_phone) return tenant.owner_phone
+  }
+  return OWNER_PHONE
+}
+
 // Main GET handler - supports Vercel Cron and manual CRON_SECRET triggers
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -528,11 +540,13 @@ async function rebroadcastJobToCleaners(
   }
   const jobId = String(job.id)
   const allCleaners = await getCleaners()
+  // Filter cleaners to only those belonging to the same tenant as the job
   const eligibleCleaners = allCleaners.filter(
     (cleaner) =>
       cleaner.telegram_id &&
       cleaner.id &&
-      (!excludeCleanerId || String(cleaner.id) !== String(excludeCleanerId))
+      (!excludeCleanerId || String(cleaner.id) !== String(excludeCleanerId)) &&
+      (!job.tenant_id || cleaner.tenant_id === job.tenant_id)
   )
   if (eligibleCleaners.length === 0) {
     return

@@ -3,8 +3,8 @@ import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 type TeamRow = { id: number; name: string; active: boolean; deleted_at?: string | null }
-type CleanerRow = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; active: boolean; deleted_at?: string | null; is_team_lead?: boolean }
-type TeamMemberRow = { id: number; team_id: number; cleaner_id: number; role: "lead" | "technician"; is_active: boolean }
+type CleanerRow = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; active: boolean; deleted_at?: string | null; is_team_lead?: boolean; employee_type?: 'technician' | 'salesman' }
+type TeamMemberRow = { id: number; team_id: number; cleaner_id: number; role: "lead" | "technician" | "salesman"; is_active: boolean }
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ success: false, error: message }, { status })
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
     : getSupabaseServiceClient()
 
   let teamsQ = client.from("teams").select("id,name,active,deleted_at").is("deleted_at", null).order("created_at", { ascending: true })
-  let cleanersQ = client.from("cleaners").select("id,name,phone,email,telegram_id,active,deleted_at,is_team_lead").is("deleted_at", null).order("created_at", { ascending: true })
+  let cleanersQ = client.from("cleaners").select("id,name,phone,email,telegram_id,active,deleted_at,is_team_lead,employee_type").is("deleted_at", null).order("created_at", { ascending: true })
   let membersQ = client.from("team_members").select("id,team_id,cleaner_id,role,is_active").order("created_at", { ascending: true })
   if (tenant) {
     teamsQ = teamsQ.eq("tenant_id", tenant.id)
@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
     const email = body.email != null ? String(body.email).trim() : null
     const telegram_id = body.telegram_id != null ? String(body.telegram_id).trim() : null
     const is_team_lead = Boolean(body.is_team_lead)
+    const employee_type = body.employee_type === 'salesman' ? 'salesman' : 'technician'
 
     if (!name) return jsonError("Cleaner name is required")
 
@@ -105,9 +106,10 @@ export async function POST(request: NextRequest) {
         email: email || null,
         telegram_id: telegram_id || null,
         is_team_lead,
+        employee_type,
         active: true
       })
-      .select("id,name,phone,email,telegram_id,is_team_lead,active,deleted_at")
+      .select("id,name,phone,email,telegram_id,is_team_lead,employee_type,active,deleted_at")
       .single()
     if (error) return jsonError(error.message, 500)
     return NextResponse.json({ success: true, data })
@@ -123,6 +125,7 @@ export async function POST(request: NextRequest) {
     if (body.email != null) updates.email = String(body.email).trim() || null
     if (body.telegram_id != null) updates.telegram_id = String(body.telegram_id).trim() || null
     if (body.is_team_lead != null) updates.is_team_lead = Boolean(body.is_team_lead)
+    if (body.employee_type != null) updates.employee_type = body.employee_type === 'salesman' ? 'salesman' : 'technician'
 
     if (Object.keys(updates).length === 0) return jsonError("No updates provided")
 
@@ -131,7 +134,7 @@ export async function POST(request: NextRequest) {
       .update(updates)
       .eq("tenant_id", tenant.id)
       .eq("id", cleaner_id)
-      .select("id,name,phone,email,telegram_id,is_team_lead,active,deleted_at")
+      .select("id,name,phone,email,telegram_id,is_team_lead,employee_type,active,deleted_at")
       .single()
     if (error) return jsonError(error.message, 500)
     return NextResponse.json({ success: true, data })
@@ -151,10 +154,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, data: { cleaner_id, team_id: null } })
     }
 
+    // Look up the cleaner's employee_type to derive the correct team_members role
+    const { data: cleanerRow } = await client
+      .from("cleaners")
+      .select("employee_type")
+      .eq("id", cleaner_id)
+      .maybeSingle()
+    const memberRole = (cleanerRow as any)?.employee_type === 'salesman' ? 'salesman' : 'technician'
+
     // Insert single membership row
     const insert = await client
       .from("team_members")
-      .insert({ tenant_id: tenant.id, team_id, cleaner_id, role: "technician", is_active: true })
+      .insert({ tenant_id: tenant.id, team_id, cleaner_id, role: memberRole, is_active: true })
       .select("id,team_id,cleaner_id,role,is_active")
       .single()
 

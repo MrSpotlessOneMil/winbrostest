@@ -15,7 +15,7 @@ import {
   failTask,
   type ScheduledTask,
 } from '@/lib/scheduler'
-import { getTenantById, getTenantServiceDescription } from '@/lib/tenant'
+import { getTenantById, getTenantServiceDescription, tenantUsesFeature } from '@/lib/tenant'
 import { processFollowUp, getPendingFollowups } from '@/integrations/ghl/follow-up-scheduler'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { sendSMS } from '@/lib/openphone'
@@ -172,8 +172,8 @@ async function processLeadFollowup(
   const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
   const serviceType = tenant ? getTenantServiceDescription(tenant) : 'cleaning'
 
-  // WinBros uses service type + sqft, other tenants use bedrooms/bathrooms
-  const isWinBros = tenant?.slug === 'winbros'
+  // Window cleaning tenants (use_hcp_mirror) use service type + sqft; others use bedrooms/bathrooms
+  const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
 
   // Build service-specific quote question
   const quoteQuestion = isWinBros
