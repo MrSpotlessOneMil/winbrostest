@@ -527,6 +527,7 @@ export async function POST(request: NextRequest) {
         const cardResult = await createCardOnFileLink(
           { ...customer, email: providedEmail } as any,
           jobId || `lead-${bookedLead.id}`,
+          tenant?.id,
         )
 
         if (cardResult.success && cardResult.url) {

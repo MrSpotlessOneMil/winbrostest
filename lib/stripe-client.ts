@@ -44,6 +44,21 @@ function getClientDomain(): string {
   return domain.endsWith('/') ? domain.slice(0, -1) : domain
 }
 
+/**
+ * Get redirect domain for a tenant (Stripe success/cancel URLs).
+ * Prefers tenant.website_url, falls back to deployment URL.
+ */
+async function getTenantRedirectDomain(tenantId?: string): Promise<string> {
+  if (tenantId) {
+    const { getTenantById } = await import('./tenant')
+    const tenant = await getTenantById(tenantId)
+    if (tenant?.website_url) {
+      return tenant.website_url.replace(/\/+$/, '')
+    }
+  }
+  return getClientDomain()
+}
+
 type StripePaymentType = 'DEPOSIT' | 'ADDON' | 'FINAL'
 
 function resolveStripeTestChargeCents(): number | null {
@@ -297,7 +312,8 @@ export async function getInvoice(invoiceId: string): Promise<Stripe.Invoice | nu
  */
 export async function createCardOnFileLink(
   customer: Customer,
-  jobId: string
+  jobId: string,
+  tenantId?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -305,14 +321,13 @@ export async function createCardOnFileLink(
 
   try {
     const stripe = getStripeClient()
-    const domain = getClientDomain()
 
     // Find or create Stripe customer
     const stripeCustomer = await findOrCreateStripeCustomer(customer)
 
     // Create checkout session in setup mode (card on file)
-    // Redirect to business website (not the dashboard) after card is saved
-    const cardOnFileRedirect = 'https://winbrosservices.com'
+    // Redirect to tenant's website after card is saved
+    const cardOnFileRedirect = await getTenantRedirectDomain(tenantId)
     const sessionMetadata = {
       job_id: jobId,
       phone_number: customer.phone_number,
@@ -354,7 +369,8 @@ export async function createCardOnFileLink(
 export async function createDepositPaymentLink(
   customer: Customer,
   job: Job,
-  extraMetadata?: Record<string, string>
+  extraMetadata?: Record<string, string>,
+  tenantId?: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -366,7 +382,7 @@ export async function createDepositPaymentLink(
 
   try {
     const stripe = getStripeClient()
-    const domain = getClientDomain()
+    const domain = await getTenantRedirectDomain(tenantId || (job as any).tenant_id)
 
     // Find or create Stripe customer
     const stripeCustomer = await findOrCreateStripeCustomer(customer)
@@ -446,7 +462,7 @@ export async function createAddOnPaymentLink(
 
   try {
     const stripe = getStripeClient()
-    const domain = getClientDomain()
+    const domain = await getTenantRedirectDomain((job as any).tenant_id)
     const stripeCustomer = await findOrCreateStripeCustomer(customer)
 
     const defaultAmountWithFee = Math.round(addOnAmount * 1.03 * 100)

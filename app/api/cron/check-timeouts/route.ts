@@ -557,7 +557,7 @@ async function rebroadcastJobToCleaners(
     return
   }
   const jobId = String(job.id)
-  const allCleaners = await getCleaners()
+  const allCleaners = await getCleaners(undefined, job.tenant_id || undefined)
   // Filter cleaners to only those belonging to the same tenant as the job
   const eligibleCleaners = allCleaners.filter(
     (cleaner) =>

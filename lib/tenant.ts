@@ -140,6 +140,7 @@ export interface Tenant {
   owner_phone: string | null
   owner_email: string | null
   google_review_link: string | null
+  website_url: string | null
 
   // Status
   active: boolean

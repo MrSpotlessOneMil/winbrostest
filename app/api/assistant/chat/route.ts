@@ -698,7 +698,7 @@ async function executeTool(
 
       if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (result.success && result.url) {
           const depositAmt = result.amount ? `$${result.amount.toFixed(2)}` : `$${(Math.round((job.price / 2) * 1.03 * 100) / 100).toFixed(2)}`
           return `Here's the deposit payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nDeposit amount: ${depositAmt} (50% of $${job.price} + 3% processing fee)`
@@ -706,7 +706,7 @@ async function executeTool(
         return `Failed to generate deposit link: ${result.error || "Unknown error"}`
       } else {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id))
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
         if (result.success && result.url) {
           return `Here's the card-on-file link for ${customer.first_name || phone}:\n\n${result.url}\n\nThis saves their card for future charges — no payment is taken now.`
         }
@@ -1082,13 +1082,13 @@ async function executeTool(
 
       if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
       } else {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id))
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
         if (!result.success || !result.url) return `Failed to generate card-on-file link: ${result.error || "Unknown error"}`
         linkUrl = result.url
       }

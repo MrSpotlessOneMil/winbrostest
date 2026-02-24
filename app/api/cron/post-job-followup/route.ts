@@ -97,7 +97,8 @@ export async function GET(request: NextRequest) {
 
         // Get review link and tip link from tenant config
         const reviewLink = tenant.google_review_link || 'https://g.page/review'
-        const tipLink = `https://spotless-scrubbers-api.vercel.app/tip/${job.job_id}`
+        const appDomain = tenant.website_url || process.env.NEXT_PUBLIC_APP_URL || 'https://spotless-scrubbers-api.vercel.app'
+        const tipLink = `${appDomain.replace(/\/+$/, '')}/tip/${job.job_id}`
         const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
         // Check if this job has payment info - if not and review-only is enabled, send simpler message

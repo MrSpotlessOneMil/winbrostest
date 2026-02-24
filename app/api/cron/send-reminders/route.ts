@@ -9,7 +9,7 @@ import {
 } from '@/lib/supabase'
 import { sendDailySchedule, sendJobReminder, sendTelegramMessage } from '@/lib/telegram'
 import { logSystemEvent } from '@/lib/system-events'
-import { getAllActiveTenants } from '@/lib/tenant'
+import { getAllActiveTenants, getTenantById } from '@/lib/tenant'
 
 /**
  * Unique timezones across all active tenants, used to run
@@ -62,7 +62,10 @@ export async function GET(request: NextRequest) {
 
     // 1. Send daily 8am PST route/schedule — team leads only
     if (currentHour === 8 && currentMinute < 15) {
-      const cleaners = await getCleaners()
+      const tenants = await getAllActiveTenants()
+
+      for (const t of tenants) {
+      const cleaners = await getCleaners(undefined, t.id)
 
       for (const cleaner of cleaners) {
         if (!cleaner.id || !cleaner.telegram_id) continue
@@ -83,12 +86,12 @@ export async function GET(request: NextRequest) {
 
         if (alreadySent) continue
 
-        // Send daily schedule
+        // Send daily schedule (with tenant for correct Telegram bot)
         const jobs = jobsData.map(jd => ({
           ...jd.job,
           customer: jd.customer,
         }))
-        const result = await sendDailySchedule(cleaner, jobs)
+        const result = await sendDailySchedule(t, cleaner, jobs)
 
         if (result.success) {
           dailySent += 1
@@ -108,6 +111,7 @@ export async function GET(request: NextRequest) {
         } else {
           errors.push(`Daily reminder failed for cleaner ${cleaner.id}: ${result.error}`)
         }
+      }
       }
     }
 

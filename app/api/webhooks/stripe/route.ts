@@ -199,6 +199,7 @@ async function handleDepositPayment(
         const cardResult = await createCardOnFileLink(
           { email: custEmail, phone_number: updatedJob.phone_number } as any,
           jobId,
+          jobTenantId,
         )
 
         if (cardResult.success && cardResult.url) {

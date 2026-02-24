@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { runDailyAlertChecks } from '@/lib/winbros-alerts'
+import { getTenantById } from '@/lib/tenant'
 
 function getSupabaseClient() {
   return createClient(
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
     // 2. Fetch all active team leads with a Telegram ID
     const { data: teamLeads, error: leadErr } = await client
       .from('cleaners')
-      .select('id, name, telegram_id, team_id')
+      .select('id, name, telegram_id, team_id, tenant_id')
       .eq('is_team_lead', true)
       .eq('active', true)
       .not('telegram_id', 'is', null)
@@ -60,29 +61,39 @@ export async function POST(request: NextRequest) {
     // 3. For each team lead, build and send the briefing
     for (const lead of teamLeads) {
       try {
-        // Today's jobs for this team
-        const { data: todaysJobs } = await client
+        // Resolve tenant for this cleaner (used for Telegram bot token + query scoping)
+        const leadTenantId = (lead as any).tenant_id
+        const tenant = leadTenantId ? await getTenantById(leadTenantId) : null
+
+        // Today's jobs for this team (scoped by tenant)
+        let todaysJobsQuery = client
           .from('jobs')
           .select('id, scheduled_at, address, status')
           .eq('date', today)
           .eq('team_id', lead.team_id)
           .order('scheduled_at')
+        if (leadTenantId) todaysJobsQuery = todaysJobsQuery.eq('tenant_id', leadTenantId)
+        const { data: todaysJobs } = await todaysJobsQuery
 
-        // Jobs needing crew assignment (no team assigned, upcoming)
-        const { count: unassignedCount } = await client
+        // Jobs needing crew assignment (scoped by tenant)
+        let unassignedQuery = client
           .from('jobs')
           .select('*', { count: 'exact', head: true })
           .gte('date', today)
           .is('team_id', null)
           .in('status', ['scheduled', 'confirmed'])
+        if (leadTenantId) unassignedQuery = unassignedQuery.eq('tenant_id', leadTenantId)
+        const { count: unassignedCount } = await unassignedQuery
 
         // Yesterday's upsell total for this team
-        const { data: upsells } = await client
+        let upsellQuery = client
           .from('upsells')
           .select('value')
           .eq('team_id', lead.team_id)
           .gte('created_at', `${yesterday}T00:00:00`)
           .lt('created_at', `${today}T00:00:00`)
+        if (leadTenantId) upsellQuery = upsellQuery.eq('tenant_id', leadTenantId)
+        const { data: upsells } = await upsellQuery
 
         const upsellTotal = (upsells || []).reduce((sum: number, u: { value: number }) => sum + (u.value || 0), 0)
 
@@ -117,7 +128,11 @@ export async function POST(request: NextRequest) {
           msg += `Please assign crew via the dashboard.\n`
         }
 
-        await sendTelegramMessage(lead.telegram_id, msg, 'HTML')
+        if (tenant) {
+          await sendTelegramMessage(tenant, lead.telegram_id, msg, 'HTML')
+        } else {
+          await sendTelegramMessage(lead.telegram_id, msg, 'HTML')
+        }
         results.briefingsSent++
         console.log(`[crew-briefing] Sent briefing to ${lead.name} (${lead.telegram_id})`)
       } catch (err) {
