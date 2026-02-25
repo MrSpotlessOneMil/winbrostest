@@ -128,6 +128,9 @@ interface Tenant {
   active: boolean
   created_at: string
   updated_at: string
+  // Injected by GET route (not in DB)
+  cleaner_count: number
+  pricing_tier_count: number
 }
 
 // Helper to mask API keys for display
@@ -183,6 +186,18 @@ export default function AdminPage() {
     enabled: true,
   })
 
+  // Connection test state
+  const [testingService, setTestingService] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+
+  // Webhook registration state
+  const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
+  const [webhookResults, setWebhookResults] = useState<Record<string, { success: boolean; message: string }>>({})
+
+  // Bulk action state
+  const [testingAll, setTestingAll] = useState(false)
+  const [registeringAll, setRegisteringAll] = useState(false)
+
   async function fetchTenants() {
     setLoading(true)
     setError(null)
@@ -199,7 +214,7 @@ export default function AdminPage() {
       }
       setTenants(json.data || [])
       if (json.data?.length > 0 && !selectedTenant) {
-        setSelectedTenant(json.data[0].id)
+        selectTenant(json.data[0].id)
       }
     } catch (e: any) {
       setError(e.message || "Failed to load tenants")
@@ -269,7 +284,7 @@ export default function AdminPage() {
       await fetchTenants()
       // Select the newly created tenant
       if (json.data?.id) {
-        setSelectedTenant(json.data.id)
+        selectTenant(json.data.id)
       }
     } catch (e: any) {
       setError(e.message || "Failed to create business")
@@ -405,7 +420,7 @@ export default function AdminPage() {
         throw new Error(json.error || "Failed to delete business")
       }
       setShowDeleteConfirm(false)
-      setSelectedTenant(null)
+      selectTenant(null)
       await fetchTenants()
     } catch (e: any) {
       setError(e.message || "Failed to delete business")
@@ -584,7 +599,185 @@ export default function AdminPage() {
     completed_customers: "Past Completed",
   }
 
-  const currentTenant = tenants.find((t) => t.id === selectedTenant)
+  // --- Setup progress & connection testing helpers ---
+
+  function selectTenant(id: string | null) {
+    setSelectedTenant(id)
+    setTestResults({})
+    setWebhookResults({})
+    setEditingCredentials({})
+    setRevealedFields(new Set())
+  }
+
+  function computeSetupChecks(tenant: Tenant) {
+    const config = tenant.workflow_config
+    const checks: { label: string; complete: boolean; enabled: boolean }[] = [
+      {
+        label: "Business Info",
+        complete: !!(tenant.business_name && tenant.business_name_short && tenant.service_area && tenant.owner_phone),
+        enabled: true,
+      },
+      {
+        label: "OpenPhone",
+        complete: !!(tenant.openphone_api_key && tenant.openphone_phone_id && tenant.openphone_phone_number),
+        enabled: true,
+      },
+      {
+        label: "Stripe",
+        complete: !!tenant.stripe_secret_key,
+        enabled: !!config.use_stripe,
+      },
+      {
+        label: "VAPI",
+        complete: !!(tenant.vapi_api_key && tenant.vapi_assistant_id),
+        enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound),
+      },
+      {
+        label: "Telegram",
+        complete: !!(tenant.telegram_bot_token && tenant.owner_telegram_chat_id),
+        enabled: true,
+      },
+      {
+        label: "HousecallPro",
+        complete: !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id),
+        enabled: !!config.use_housecall_pro,
+      },
+      {
+        label: "GHL",
+        complete: !!tenant.ghl_location_id,
+        enabled: !!config.use_ghl,
+      },
+      {
+        label: "Wave",
+        complete: !!(tenant.wave_api_token && tenant.wave_business_id),
+        enabled: !!config.use_wave,
+      },
+      {
+        label: "Cleaners",
+        complete: (tenant.cleaner_count || 0) >= 1,
+        enabled: true,
+      },
+      {
+        label: "Pricing",
+        complete: (tenant.pricing_tier_count || 0) >= 1,
+        enabled: true,
+      },
+    ]
+
+    const enabledChecks = checks.filter((c) => c.enabled)
+    const completedCount = enabledChecks.filter((c) => c.complete).length
+    const totalCount = enabledChecks.length
+    const percentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+
+    return { checks, enabledChecks, completedCount, totalCount, percentage }
+  }
+
+  type IntegrationStatus = "connected" | "untested" | "not_configured"
+
+  function getIntegrationStatus(service: string, tenant: Tenant): IntegrationStatus {
+    const hasKeys = (() => {
+      switch (service) {
+        case "openphone": return !!(tenant.openphone_api_key && tenant.openphone_phone_id)
+        case "stripe": return !!tenant.stripe_secret_key
+        case "vapi": return !!(tenant.vapi_api_key && tenant.vapi_assistant_id)
+        case "telegram": return !!tenant.telegram_bot_token
+        case "housecall_pro": return !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id)
+        case "ghl": return !!tenant.ghl_location_id
+        case "wave": return !!(tenant.wave_api_token && tenant.wave_business_id)
+        default: return false
+      }
+    })()
+
+    if (!hasKeys) return "not_configured"
+    if (testResults[service]?.success) return "connected"
+    return "untested"
+  }
+
+  async function testConnection(service: string) {
+    if (!selectedTenant) return
+    setTestingService(service)
+    try {
+      const res = await fetch("/api/admin/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant, service }),
+      })
+      const json = await res.json()
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+      }))
+    } catch (err: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: err.message || "Test failed" },
+      }))
+    } finally {
+      setTestingService(null)
+    }
+  }
+
+  async function registerWebhook(service: string) {
+    if (!selectedTenant) return
+    setRegisteringWebhook(service)
+    try {
+      const res = await fetch("/api/admin/register-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant, service }),
+      })
+      const json = await res.json()
+      setWebhookResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+      }))
+      if (json.success) {
+        await fetchTenants()
+      }
+    } catch (err: any) {
+      setWebhookResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: err.message || "Registration failed" },
+      }))
+    } finally {
+      setRegisteringWebhook(null)
+    }
+  }
+
+  async function testAllConnections() {
+    if (!currentTenantRef) return
+    if (Object.keys(editingCredentials).length > 0) {
+      setError("Save pending credential changes before running Test All.")
+      return
+    }
+    setTestingAll(true)
+    const config = currentTenantRef.workflow_config
+    const services: string[] = ["openphone", "telegram"]
+    if (config.use_stripe) services.push("stripe")
+    if (config.use_vapi_inbound || config.use_vapi_outbound) services.push("vapi")
+
+    for (const service of services) {
+      await testConnection(service)
+    }
+    setTestingAll(false)
+  }
+
+  async function registerAllWebhooks() {
+    if (!currentTenantRef) return
+    setRegisteringAll(true)
+    const services: string[] = []
+    if (currentTenantRef.telegram_bot_token) services.push("telegram")
+    if (currentTenantRef.workflow_config.use_stripe && currentTenantRef.stripe_secret_key) services.push("stripe")
+    if (currentTenantRef.openphone_api_key) services.push("openphone")
+
+    for (const service of services) {
+      await registerWebhook(service)
+    }
+    setRegisteringAll(false)
+  }
+
+  const currentTenantRef = tenants.find((t) => t.id === selectedTenant)
+  const currentTenant = currentTenantRef
 
   return (
     <div className="space-y-6">
@@ -675,7 +868,7 @@ export default function AdminPage() {
                 return (
                   <button
                     key={tenant.id}
-                    onClick={() => setSelectedTenant(tenant.id)}
+                    onClick={() => selectTenant(tenant.id)}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
                       selectedTenant === tenant.id
                         ? "border-primary bg-primary/5"
@@ -749,6 +942,37 @@ export default function AdminPage() {
                   </div>
                 </div>
               </CardHeader>
+
+              {/* Setup Progress Bar */}
+              {(() => {
+                const setup = computeSetupChecks(currentTenant)
+                return (
+                  <div className="px-6 pb-4 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Setup Progress</span>
+                      <span className="font-medium text-green-500">
+                        {setup.completedCount}/{setup.totalCount} Complete
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all duration-500"
+                        style={{ width: `${setup.percentage}%` }}
+                      />
+                    </div>
+                    {setup.percentage < 100 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {setup.enabledChecks.filter((c) => !c.complete).map((c) => (
+                          <Badge key={c.label} variant="outline" className="text-xs text-orange-400 border-orange-500/30">
+                            {c.label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                   <TabsList>
@@ -1152,8 +1376,35 @@ export default function AdminPage() {
                   {/* Credentials Tab */}
                   <TabsContent value="credentials" className="space-y-6">
                     {/* Action buttons */}
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={copyAllCredentials}>
+                    <div className="flex justify-end gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={testAllConnections}
+                        disabled={testingAll || Object.keys(editingCredentials).length > 0}
+                        title={Object.keys(editingCredentials).length > 0 ? "Save changes before testing" : "Test all configured integrations"}
+                      >
+                        {testingAll ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="h-4 w-4 mr-2" />
+                        )}
+                        {testingAll ? "Testing..." : "Test All"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={registerAllWebhooks}
+                        disabled={registeringAll}
+                      >
+                        {registeringAll ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Settings2 className="h-4 w-4 mr-2" />
+                        )}
+                        {registeringAll ? "Registering..." : "Register All Webhooks"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={copyAllCredentials}>
                         {copied ? (
                           <Check className="h-4 w-4 mr-2 text-green-500" />
                         ) : (
@@ -1162,7 +1413,7 @@ export default function AdminPage() {
                         {copied ? "Copied!" : "Copy All"}
                       </Button>
                       {Object.keys(editingCredentials).length > 0 && (
-                        <Button onClick={saveCredentials} disabled={savingCredentials}>
+                        <Button size="sm" onClick={saveCredentials} disabled={savingCredentials}>
                           <Save className="h-4 w-4 mr-2" />
                           {savingCredentials ? "Saving..." : "Save Changes"}
                         </Button>
@@ -1249,6 +1500,12 @@ export default function AdminPage() {
                       <div className="font-medium flex items-center gap-2">
                         <Phone className="h-4 w-4" />
                         OpenPhone
+                        {(() => {
+                          const status = getIntegrationStatus("openphone", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1286,13 +1543,36 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("openphone")} disabled={testingService === "openphone" || !currentTenant.openphone_api_key}>
+                          {testingService === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("openphone")} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
+                          {registeringWebhook === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {testResults["openphone"] && (
+                          <span className={`text-xs ${testResults["openphone"].success ? "text-green-400" : "text-red-400"}`}>{testResults["openphone"].message}</span>
+                        )}
+                        {webhookResults["openphone"] && (
+                          <span className={`text-xs ${webhookResults["openphone"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["openphone"].message}</span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* VAPI */}
+                    {/* VAPI - hidden if disabled */}
+                    {(currentTenant.workflow_config.use_vapi_inbound || currentTenant.workflow_config.use_vapi_outbound) && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
                         VAPI (Voice AI)
+                        {(() => {
+                          const status = getIntegrationStatus("vapi", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       {/* Auto-generated Server URL */}
                       <div className="space-y-2">
@@ -1357,13 +1637,30 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("vapi")} disabled={testingService === "vapi" || !currentTenant.vapi_api_key}>
+                          {testingService === "vapi" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["vapi"] && (
+                          <span className={`text-xs ${testResults["vapi"].success ? "text-green-400" : "text-red-400"}`}>{testResults["vapi"].message}</span>
+                        )}
+                      </div>
                     </div>
+                    )}
 
-                    {/* Stripe */}
+                    {/* Stripe - hidden if disabled */}
+                    {currentTenant.workflow_config.use_stripe && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Key className="h-4 w-4" />
                         Stripe
+                        {(() => {
+                          const status = getIntegrationStatus("stripe", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1403,13 +1700,37 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("stripe")} disabled={testingService === "stripe" || !currentTenant.stripe_secret_key}>
+                          {testingService === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("stripe")} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
+                          {registeringWebhook === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {testResults["stripe"] && (
+                          <span className={`text-xs ${testResults["stripe"].success ? "text-green-400" : "text-red-400"}`}>{testResults["stripe"].message}</span>
+                        )}
+                        {webhookResults["stripe"] && (
+                          <span className={`text-xs ${webhookResults["stripe"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["stripe"].message}</span>
+                        )}
+                      </div>
                     </div>
+                    )}
 
-                    {/* HousecallPro */}
+                    {/* HousecallPro - hidden if disabled */}
+                    {currentTenant.workflow_config.use_housecall_pro && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         HousecallPro
+                        {(() => {
+                          const status = getIntegrationStatus("housecall_pro", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1458,12 +1779,20 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </div>
+                    )}
 
-                    {/* GoHighLevel */}
+                    {/* GoHighLevel - hidden if disabled */}
+                    {currentTenant.workflow_config.use_ghl && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         GoHighLevel
+                        {(() => {
+                          const status = getIntegrationStatus("ghl", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1494,12 +1823,19 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </div>
+                    )}
 
                     {/* Telegram */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
                         Telegram
+                        {(() => {
+                          const status = getIntegrationStatus("telegram", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1529,13 +1865,36 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("telegram")} disabled={testingService === "telegram" || !currentTenant.telegram_bot_token}>
+                          {testingService === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("telegram")} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
+                          {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {testResults["telegram"] && (
+                          <span className={`text-xs ${testResults["telegram"].success ? "text-green-400" : "text-red-400"}`}>{testResults["telegram"].message}</span>
+                        )}
+                        {webhookResults["telegram"] && (
+                          <span className={`text-xs ${webhookResults["telegram"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["telegram"].message}</span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Wave */}
+                    {/* Wave - hidden if disabled */}
+                    {currentTenant.workflow_config.use_wave && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         Wave Accounting
+                        {(() => {
+                          const status = getIntegrationStatus("wave", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2">
@@ -1574,6 +1933,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </div>
+                    )}
                   </TabsContent>
 
                   {/* Campaigns Tab */}

@@ -62,7 +62,42 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, data: tenants })
+  // Batch-fetch cleaner and pricing counts per tenant
+  const tenantIds = (tenants || []).map((t: any) => t.id)
+
+  const { data: cleanerRows } = tenantIds.length > 0
+    ? await client
+        .from("cleaners")
+        .select("tenant_id")
+        .in("tenant_id", tenantIds)
+        .eq("active", true)
+        .is("deleted_at", null)
+    : { data: [] }
+
+  const { data: pricingRows } = tenantIds.length > 0
+    ? await client
+        .from("pricing_tiers")
+        .select("tenant_id")
+        .in("tenant_id", tenantIds)
+    : { data: [] }
+
+  const cleanerCountMap: Record<string, number> = {}
+  for (const row of cleanerRows || []) {
+    cleanerCountMap[row.tenant_id] = (cleanerCountMap[row.tenant_id] || 0) + 1
+  }
+
+  const pricingCountMap: Record<string, number> = {}
+  for (const row of pricingRows || []) {
+    pricingCountMap[row.tenant_id] = (pricingCountMap[row.tenant_id] || 0) + 1
+  }
+
+  const enrichedTenants = (tenants || []).map((t: any) => ({
+    ...t,
+    cleaner_count: cleanerCountMap[t.id] || 0,
+    pricing_tier_count: pricingCountMap[t.id] || 0,
+  }))
+
+  return NextResponse.json({ success: true, data: enrichedTenants })
 }
 
 // POST - Create new tenant
