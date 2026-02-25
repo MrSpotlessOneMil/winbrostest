@@ -10,14 +10,12 @@
 - [ ] Dedicated job/payment exception handling UI
 - [ ] Strip debug logging from production code
 
-## Feature
-- [ ] Assistant Tab
-
 ## Polish
 - [ ] Replace 3-second polling with Supabase Realtime subscriptions
 
 ## TypeScript Debt
 - [ ] Add `tenant_id` to `GHLLead` and `Cleaner` interfaces (DB columns exist, accessed via casts)
+- [ ] Fix `cleanerAssigned()` call signature (5 args passed, 4 expected) in assistant chat route
 
 ## QA
 - [ ] Complete E2E test plan (`Documentation/E2E-TEST-PLAN.md`) — 130 items, all unchecked
@@ -140,6 +138,10 @@
 
 ## AI Assistant
 
+- [x] **Multi-tool call fix** — Tool result accumulation bug caused 400 API errors when Claude called 2+ tools in one turn; fixed message structure to one assistant msg + one user msg with all tool_results (2-25)
+- [x] **Cross-tenant job query isolation** — Added `tenant_id` filter to `lookup_customer`, `generate_stripe_link`, `create_wave_invoice` job queries (were leaking jobs across tenants) (2-25)
+- [x] **search_customers lead query guard** — Lead query now guards against undefined `tenantId` instead of passing it raw to `.eq()` (2-25)
+- [x] **handleDeleteConversation React fix** — Moved side effects out of `setConversations` updater to prevent nested state updates (2-25)
 - [x] Model upgraded to Claude Opus 4.6 (2-24)
 - [x] Tenant-aware language + reset actually deletes data (2-22)
 

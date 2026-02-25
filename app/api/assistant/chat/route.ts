@@ -1194,7 +1194,6 @@ async function executeTool(
         const msg = cleanerAssigned(
           customer?.first_name || "there",
           cleaner.name,
-          cleaner.phone || "",
           dateStr,
           timeStr
         )
