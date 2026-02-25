@@ -186,6 +186,12 @@ export async function executeCompleteJob(jobId: string): Promise<{
   // Update job status
   await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
 
+  // Sync lead status to "completed" so dashboard pipeline updates
+  await serviceClient
+    .from("leads")
+    .update({ status: "completed" })
+    .eq("converted_to_job_id", Number(jobId))
+
   // Send SMS with payment link
   const smsMessage = `Hi! Thanks so much for choosing ${businessName}. Here's the link for your remaining balance: ${paymentLink.url}`
 

@@ -291,6 +291,12 @@ async function handleAcceptCallback(
 
     await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
 
+    // Sync lead status to "assigned" so dashboard pipeline updates
+    await client
+      .from("leads")
+      .update({ status: "assigned" })
+      .eq("converted_to_job_id", Number(jobId))
+
     // Cancel all other pending assignments for this job (broadcast mode: first to accept wins)
     const { data: otherAssignments } = await client
       .from("cleaner_assignments")
@@ -751,6 +757,13 @@ export async function POST(
         // Even if final payment fails, still mark the job done
         await updateJob(String(numericJobId), { status: "completed" } as Record<string, unknown>)
       }
+
+      // Sync lead status to "completed" so dashboard pipeline updates
+      const serviceClient = getSupabaseServiceClient()
+      await serviceClient
+        .from("leads")
+        .update({ status: "completed" })
+        .eq("converted_to_job_id", numericJobId)
 
       // Send review request SMS immediately (don't wait for 2h cron)
       let reviewSent = false
