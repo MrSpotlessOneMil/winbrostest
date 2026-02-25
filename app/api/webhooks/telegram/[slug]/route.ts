@@ -297,84 +297,109 @@ async function handleAcceptCallback(
       .update({ status: "assigned" })
       .eq("converted_to_job_id", Number(jobId))
 
-    // Cancel all other pending assignments for this job (broadcast mode: first to accept wins)
-    const { data: otherAssignments } = await client
+    // Check how many cleaners this job needs vs how many have accepted
+    const cleanersNeeded = (job as any).cleaners || 1
+    const { data: confirmedAssignments } = await client
       .from("cleaner_assignments")
       .select("id, cleaner_id")
       .eq("job_id", Number(jobId))
-      .eq("status", "pending")
-      .neq("id", Number(assignmentId))
+      .in("status", ["accepted", "confirmed"])
 
-    if (otherAssignments && otherAssignments.length > 0) {
-      const otherIds = otherAssignments.map((a: any) => a.id)
-      await client
+    const confirmedCount = confirmedAssignments?.length || 0
+    const allCleanersFilled = confirmedCount >= cleanersNeeded
+
+    if (allCleanersFilled) {
+      // All slots filled — cancel remaining pending assignments
+      const { data: otherAssignments } = await client
         .from("cleaner_assignments")
-        .update({ status: "cancelled", responded_at: new Date().toISOString() })
-        .in("id", otherIds)
+        .select("id, cleaner_id")
+        .eq("job_id", Number(jobId))
+        .eq("status", "pending")
+        .neq("id", Number(assignmentId))
 
-      // Notify other cleaners the job was taken
-      for (const other of otherAssignments) {
-        const { data: otherCleaner } = await client
-          .from("cleaners")
-          .select("telegram_id, name")
-          .eq("id", other.cleaner_id)
-          .single()
-        if (otherCleaner?.telegram_id) {
-          sendTelegramMessage(tenant, otherCleaner.telegram_id, `The job on ${job.date || 'TBD'} has been claimed by another cleaner. Thanks for your interest!`).catch(() => {})
+      if (otherAssignments && otherAssignments.length > 0) {
+        const otherIds = otherAssignments.map((a: any) => a.id)
+        await client
+          .from("cleaner_assignments")
+          .update({ status: "cancelled", responded_at: new Date().toISOString() })
+          .in("id", otherIds)
+
+        // Notify other cleaners the job was taken
+        for (const other of otherAssignments) {
+          const { data: otherCleaner } = await client
+            .from("cleaners")
+            .select("telegram_id, name")
+            .eq("id", other.cleaner_id)
+            .single()
+          if (otherCleaner?.telegram_id) {
+            sendTelegramMessage(tenant, otherCleaner.telegram_id, `The job on ${job.date || 'TBD'} has been filled. Thanks for your interest!`).catch(() => {})
+          }
         }
+
+        console.log(`[Telegram/${tenant.slug}] Cancelled ${otherIds.length} other pending assignments for job ${jobId} (all ${cleanersNeeded} slots filled)`)
       }
 
-      console.log(`[Telegram/${tenant.slug}] Cancelled ${otherIds.length} other pending assignments for job ${jobId}`)
-    }
+      // Notify customer with all confirmed cleaner names
+      let customerNotified = false
+      if (job.phone_number) {
+        const customer = await getCustomerByPhone(job.phone_number)
 
-    let customerNotified = false
-    if (job.phone_number) {
-      const customer = await getCustomerByPhone(job.phone_number)
-      const cleaner = await getCleanerById(assignment.cleaner_id)
+        if (customer) {
+          // Get all confirmed cleaner names for this job
+          const confirmedCleanerIds = (confirmedAssignments || []).map((a: any) => a.cleaner_id)
+          const { data: confirmedCleaners } = await client
+            .from("cleaners")
+            .select("name")
+            .in("id", confirmedCleanerIds)
+          const cleanerNames = (confirmedCleaners || []).map((c: any) => c.name)
+          const cleanerNamesStr = cleanerNames.length > 1
+            ? cleanerNames.slice(0, -1).join(", ") + " and " + cleanerNames[cleanerNames.length - 1]
+            : cleanerNames[0] || "your cleaner"
 
-      if (customer && cleaner) {
-        const dateStr = job.date
-          ? new Date(job.date + "T12:00:00").toLocaleDateString("en-US", {
-              weekday: "long", month: "long", day: "numeric",
+          const dateStr = job.date
+            ? new Date(job.date + "T12:00:00").toLocaleDateString("en-US", {
+                weekday: "long", month: "long", day: "numeric",
+              })
+            : "your scheduled date"
+          const timeStr = job.scheduled_at || "your scheduled time"
+
+          const smsMessage = cleanerAssigned(
+            customer.first_name || "there",
+            cleanerNamesStr,
+            dateStr,
+            timeStr
+          )
+
+          const smsResult = await sendSMS(tenant, job.phone_number, smsMessage)
+          customerNotified = smsResult.success
+
+          if (customerNotified) {
+            await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
+            const supabase = getSupabaseServiceClient()
+            supabase.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id || null,
+              phone_number: job.phone_number,
+              role: "assistant",
+              content: smsMessage,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              source: "cleaner_assigned",
+              job_id: Number(jobId),
+              timestamp: new Date().toISOString(),
+            }).then(({ error: logErr }) => {
+              if (logErr) console.error(`[Telegram/${tenant.slug}] Failed to log cleaner-assigned SMS:`, logErr)
             })
-          : "your scheduled date"
-        const timeStr = job.scheduled_at || "your scheduled time"
-        const cleanerPhone = cleaner.phone || "our office number"
-
-        const smsMessage = cleanerAssigned(
-          customer.first_name || "there",
-          cleaner.name,
-          cleanerPhone,
-          dateStr,
-          timeStr
-        )
-
-        const smsResult = await sendSMS(tenant, job.phone_number, smsMessage)
-        customerNotified = smsResult.success
-
-        if (customerNotified) {
-          await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
-          const supabase = getSupabaseServiceClient()
-          supabase.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id || null,
-            phone_number: job.phone_number,
-            role: "assistant",
-            content: smsMessage,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            source: "cleaner_assigned",
-            job_id: Number(jobId),
-            timestamp: new Date().toISOString(),
-          }).then(({ error: logErr }) => {
-            if (logErr) console.error(`[Telegram/${tenant.slug}] Failed to log cleaner-assigned SMS:`, logErr)
-          })
+          }
         }
       }
+    } else {
+      console.log(`[Telegram/${tenant.slug}] Job ${jobId}: ${confirmedCount}/${cleanersNeeded} cleaners filled — waiting for more`)
     }
 
-    await sendMsg(chatId, `<b>Job Accepted!</b>\n\nYou have been assigned to this job. The customer has been notified.\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nWhen you finish the job, type <b>done job ${jobId}</b> to mark it complete.\n\nThank you!`, tenant)
+    const slotsMsg = cleanersNeeded > 1 ? ` (${confirmedCount}/${cleanersNeeded} cleaners assigned)` : ''
+    await sendMsg(chatId, `<b>Job Accepted!</b>${slotsMsg}\n\nYou have been assigned to this job.${allCleanersFilled ? ' The customer has been notified.' : ''}\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nWhen you finish the job, type <b>done job ${jobId}</b> to mark it complete.\n\nThank you!`, tenant)
 
     await logSystemEvent({
       source: "telegram",

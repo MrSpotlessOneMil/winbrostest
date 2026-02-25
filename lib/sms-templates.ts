@@ -36,11 +36,10 @@ export function paymentLink(name: string, amount: number, link: string): string 
 export function cleanerAssigned(
   customerName: string,
   cleanerName: string,
-  cleanerPhone: string,
   date: string,
   time: string
 ): string {
-  return `Hi ${customerName}! ${cleanerName} will be your cleaner on ${date} at ${time}. Contact them at ${cleanerPhone} if needed. See you soon!`
+  return `Hi ${customerName}! ${cleanerName} will be your cleaner on ${date} at ${time}. See you soon!`
 }
 
 /**

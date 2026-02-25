@@ -364,12 +364,9 @@ async function handleAcceptCallback(
           : "your scheduled date"
 
         const timeStr = job.scheduled_at || "your scheduled time"
-        const cleanerPhone = cleaner.phone || "our office number"
-
         const smsMessage = cleanerAssigned(
           customer.first_name || "there",
           cleaner.name,
-          cleanerPhone,
           dateStr,
           timeStr
         )
