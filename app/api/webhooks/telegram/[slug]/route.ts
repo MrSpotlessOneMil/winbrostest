@@ -857,7 +857,7 @@ export async function POST(
 
     // Schedule query
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, tenant.id)
       await sendMsg(chatId, scheduleMsg, tenant)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
@@ -1054,7 +1054,7 @@ async function handleOnboardingStep(
   }
 }
 
-async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string): Promise<string> {
+async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string, tenantId?: string): Promise<string> {
   if (!cleanerId) {
     return `Hi! You're not registered as a cleaner yet. Send "join" to get set up.`
   }
@@ -1088,6 +1088,7 @@ async function buildScheduleResponse(userMessage: string, cleanerId: string | nu
     .in('id', jobIds)
     .neq('status', 'cancelled')
     .order('date', { ascending: true })
+  if (tenantId) jobQuery = jobQuery.eq('tenant_id', tenantId)
 
   if (askingWeek) {
     const weekEnd = new Date(Date.now() + 7 * 86400000).toLocaleDateString('en-CA', { timeZone: tz })
@@ -1191,7 +1192,9 @@ async function handleCleanerAI(
           .from("jobs")
           .select("id, date, scheduled_at, address, service_type, status, hours, notes")
           .in("id", jobIds)
+          .eq("tenant_id", tenant.id)
           .gte("date", today)
+          .not("status", "in", '("completed","cancelled")')
           .order("date", { ascending: true })
           .limit(10)
         if (jobs && jobs.length > 0) {
