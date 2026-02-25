@@ -994,10 +994,12 @@ export async function POST(request: NextRequest) {
 
         // Build known customer info so the AI can confirm instead of re-asking
         const leadFormData = parseFormData(existingLead.form_data)
+        const intentAnalysis = leadFormData.intent_analysis as Record<string, unknown> | undefined
+        const extractedInfo = (leadFormData.extracted_info || intentAnalysis?.extractedInfo || {}) as Record<string, unknown>
         const knownInfo: KnownCustomerInfo = {
           firstName: customer.first_name || leadFormData.first_name || null,
           lastName: customer.last_name || leadFormData.last_name || null,
-          address: customer.address || leadFormData.address || null,
+          address: customer.address || leadFormData.address || extractedInfo.address as string || null,
           email: customer.email || leadFormData.email || null,
           phone: phone,
           source: existingLead.source || null,

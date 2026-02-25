@@ -600,8 +600,9 @@ async function getEstimateTimeOptions(
     if (!address && conversationHistory?.length) {
       const clientMessages = conversationHistory.filter(m => m.role === 'client').map(m => m.content)
       for (const msg of clientMessages) {
-        // Match patterns like "123 Main St" or "456 Oak Ave, Springfield IL 62704"
-        if (/\d+\s+\w+\s+(st|street|ave|avenue|blvd|boulevard|dr|drive|rd|road|ln|lane|ct|court|way|pl|place|cir|circle)\b/i.test(msg)) {
+        // Match patterns like "123 Main St", "205 E Jefferson St", "456 NW Oak Ave, Springfield IL 62704"
+        // Allows optional direction prefix (N, S, E, W, NE, NW, SE, SW) and multiple words before street suffix
+        if (/\d+\s+(?:(?:N|S|E|W|NE|NW|SE|SW)\.?\s+)?\w+(?:\s+\w+)*\s+(st|street|ave|avenue|blvd|boulevard|dr|drive|rd|road|ln|lane|ct|court|way|pl|place|cir|circle)\b/i.test(msg)) {
           address = msg.trim()
           break
         }
