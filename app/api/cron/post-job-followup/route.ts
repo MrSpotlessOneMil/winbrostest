@@ -119,6 +119,7 @@ export async function GET(request: NextRequest) {
           )
         }
 
+
         const smsResult = await sendSMS(tenant, phone, message)
 
         if (smsResult.success) {
