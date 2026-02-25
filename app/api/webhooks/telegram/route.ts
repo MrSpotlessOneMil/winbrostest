@@ -1536,6 +1536,7 @@ async function generateAIResponse(
           .select("id, date, scheduled_at, address, service_type, notes, status, phone_number")
           .in("id", jobIds)
           .gte("date", today)
+          .not("status", "in", '("completed","cancelled")')
           .order("date", { ascending: true })
           .limit(10)
 
