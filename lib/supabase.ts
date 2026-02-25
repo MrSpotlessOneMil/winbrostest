@@ -1169,7 +1169,7 @@ export async function getCleanerAvailability(date: string, jobTime?: string, ten
     .from('jobs')
     .select('*')
     .eq('date', date)
-    .not('status', 'eq', 'cancelled')
+    .not('status', 'in', '("cancelled","completed")')
   if (tenantId) {
     jobQuery = jobQuery.eq('tenant_id', tenantId)
   }
