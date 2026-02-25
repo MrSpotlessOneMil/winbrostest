@@ -462,72 +462,9 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
               }
 
-              // Send deposit link for non-WinBros tenants (cleaner dispatch happens after deposit)
-              if (!isWinBros && jobPrice && job?.id) {
-                try {
-                  const Stripe = (await import('stripe')).default
-                  const rawKey = process.env.STRIPE_SECRET_KEY
-                  const secretKey = rawKey ? rawKey.replace(/[\r\n]/g, '').trim() : ''
-                  if (secretKey) {
-                    const stripe = new Stripe(secretKey, { apiVersion: '2025-02-24.acacia' as any })
-                    const { resolveStripeChargeCents, getTenantRedirectDomain } = await import('@/lib/stripe-client')
-
-                    const depositDefaultCents = Math.round((jobPrice / 2) * 1.03 * 100)
-                    const { amountCents, testChargeCents } = resolveStripeChargeCents(depositDefaultCents, 'DEPOSIT')
-                    const domain = await getTenantRedirectDomain(tenant.id)
-
-                    const depositMetadata: Record<string, string> = {
-                      job_id: String(job.id),
-                      phone_number: phone,
-                      payment_type: 'DEPOSIT',
-                      lead_id: String(lead.id),
-                    }
-                    if (testChargeCents) depositMetadata.test_charge_cents = String(testChargeCents)
-
-                    const stripePrice = await stripe.prices.create({
-                      currency: 'usd',
-                      unit_amount: amountCents,
-                      product_data: { name: `${serviceType || 'Cleaning'} - DEPOSIT` },
-                    })
-
-                    const paymentLink = await stripe.paymentLinks.create({
-                      line_items: [{ price: stripePrice.id, quantity: 1 }],
-                      metadata: depositMetadata,
-                      payment_intent_data: { metadata: depositMetadata },
-                      after_completion: { type: 'redirect', redirect: { url: `${domain}/thank-you` } },
-                    })
-
-                    // Short delay between confirmation and deposit messages
-                    await new Promise(resolve => setTimeout(resolve, 2000))
-
-                    const depositMsg = `To confirm your booking, please pay the 50% deposit here: ${paymentLink.url}`
-                    const depositSmsResult = await sendSMS(tenant, phone, depositMsg)
-
-                    if (depositSmsResult.success) {
-                      await client.from("messages").insert({
-                        tenant_id: tenant.id,
-                        customer_id: customerId,
-                        phone_number: phone,
-                        role: "assistant",
-                        content: depositMsg,
-                        direction: "outbound",
-                        message_type: "sms",
-                        ai_generated: false,
-                        timestamp: new Date().toISOString(),
-                        source: "deposit",
-                        metadata: { lead_id: String(lead.id), job_id: String(job.id), deposit_url: paymentLink.url },
-                      })
-                    }
-
-                    // Mark job as quoted until deposit is paid — Stripe webhook will set to scheduled
-                    await client.from("jobs").update({ status: 'quoted', booked: false }).eq("id", job.id)
-
-                    console.log(`${tag} Deposit link sent to ${phone}: ${paymentLink.url} ($${(amountCents / 100).toFixed(2)})`)
-                  }
-                } catch (depositErr) {
-                  console.error(`${tag} Error creating deposit link:`, depositErr)
-                }
-              }
+              // Deposit link is NOT sent here — customer must reply with email first.
+              // OpenPhone webhook handles: email received → deposit flow (invoice + Stripe link)
+              // Stripe webhook then triggers cleaner assignment after deposit payment.
             }
           }
         } else {
@@ -711,70 +648,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
             }
 
-            // Send deposit link for non-WinBros tenants (existing lead path)
-            const isWinBrosExistingCheck = tenantUsesFeature(tenant, 'use_hcp_mirror')
-            if (!isWinBrosExistingCheck && existingJobPrice && job?.id) {
-              try {
-                const Stripe = (await import('stripe')).default
-                const rawKey = process.env.STRIPE_SECRET_KEY
-                const secretKey = rawKey ? rawKey.replace(/[\r\n]/g, '').trim() : ''
-                if (secretKey) {
-                  const stripe = new Stripe(secretKey, { apiVersion: '2025-02-24.acacia' as any })
-                  const { resolveStripeChargeCents, getTenantRedirectDomain } = await import('@/lib/stripe-client')
-
-                  const depositDefaultCents = Math.round((existingJobPrice / 2) * 1.03 * 100)
-                  const { amountCents, testChargeCents } = resolveStripeChargeCents(depositDefaultCents, 'DEPOSIT')
-                  const domain = await getTenantRedirectDomain(tenant.id)
-
-                  const depositMetadata: Record<string, string> = {
-                    job_id: String(job.id),
-                    phone_number: phone,
-                    payment_type: 'DEPOSIT',
-                    lead_id: String(existingLead.id),
-                  }
-                  if (testChargeCents) depositMetadata.test_charge_cents = String(testChargeCents)
-
-                  const stripePrice = await stripe.prices.create({
-                    currency: 'usd',
-                    unit_amount: amountCents,
-                    product_data: { name: `${serviceType || 'Cleaning'} - DEPOSIT` },
-                  })
-
-                  const paymentLink = await stripe.paymentLinks.create({
-                    line_items: [{ price: stripePrice.id, quantity: 1 }],
-                    metadata: depositMetadata,
-                    payment_intent_data: { metadata: depositMetadata },
-                    after_completion: { type: 'redirect', redirect: { url: `${domain}/thank-you` } },
-                  })
-
-                  await new Promise(resolve => setTimeout(resolve, 2000))
-
-                  const depositMsg = `To confirm your booking, please pay the 50% deposit here: ${paymentLink.url}`
-                  const depositSmsResult = await sendSMS(tenant, phone, depositMsg)
-
-                  if (depositSmsResult.success) {
-                    await client.from("messages").insert({
-                      tenant_id: tenant.id,
-                      customer_id: customerId,
-                      phone_number: phone,
-                      role: "assistant",
-                      content: depositMsg,
-                      direction: "outbound",
-                      message_type: "sms",
-                      ai_generated: false,
-                      timestamp: new Date().toISOString(),
-                      source: "deposit",
-                      metadata: { lead_id: String(existingLead.id), job_id: String(job.id), deposit_url: paymentLink.url },
-                    })
-                  }
-
-                  await client.from("jobs").update({ status: 'quoted', booked: false }).eq("id", job.id)
-                  console.log(`${tag} Deposit link sent to ${phone} (existing lead): ${paymentLink.url} ($${(amountCents / 100).toFixed(2)})`)
-                }
-              } catch (depositErr) {
-                console.error(`${tag} Error creating deposit link (existing lead):`, depositErr)
-              }
-            }
+            // Deposit link sent later: customer replies with email → OpenPhone handles deposit flow
 
             await logSystemEvent({
               source: "vapi",
