@@ -289,7 +289,7 @@ CREATE TABLE jobs (
 
   -- Payment tracking
   payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN (
-    'pending', 'deposit_paid', 'fully_paid'
+    'pending', 'deposit_paid', 'fully_paid', 'payment_failed'
   )),
   stripe_payment_intent_id TEXT,
   stripe_checkout_session_id TEXT,

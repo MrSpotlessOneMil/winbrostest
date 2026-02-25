@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { AlertTriangle, Clock, Users, MapPin, ChevronRight } from "lucide-react"
+import { AlertTriangle, Clock, Users, MapPin, ChevronRight, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 const typeIcons = {
@@ -29,11 +29,14 @@ type ExceptionItem = {
   time: string
   priority: "high" | "medium" | "low"
   action: string
+  job_id?: string | null
 }
 
 export function ExceptionsList() {
   const [items, setItems] = useState<ExceptionItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionResult, setActionResult] = useState<Record<string, { success: boolean; message: string }>>({})
 
   async function refresh() {
     setError(null)
@@ -54,6 +57,30 @@ export function ExceptionsList() {
   }, [])
 
   const exceptions = useMemo(() => items || [], [items])
+
+  const handleAction = useCallback(async (exception: ExceptionItem) => {
+    if (exception.action === "Retry payment" && exception.job_id) {
+      setActionLoading(exception.id)
+      setActionResult((prev) => { const next = { ...prev }; delete next[exception.id]; return next })
+      try {
+        const res = await fetch("/api/actions/retry-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jobId: exception.job_id }),
+        })
+        const json = await res.json()
+        if (!res.ok || !json.success) {
+          setActionResult((prev) => ({ ...prev, [exception.id]: { success: false, message: json.error || "Retry failed" } }))
+        } else {
+          setActionResult((prev) => ({ ...prev, [exception.id]: { success: true, message: `Retry #${json.retryCount} sent` } }))
+        }
+      } catch {
+        setActionResult((prev) => ({ ...prev, [exception.id]: { success: false, message: "Network error" } }))
+      } finally {
+        setActionLoading(null)
+      }
+    }
+  }, [])
 
   return (
     <Card>
@@ -125,9 +152,25 @@ export function ExceptionsList() {
                     <p className="text-sm text-muted-foreground">{exception.description}</p>
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">{exception.time}</span>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs">
-                        {exception.action}
-                      </Button>
+                      {actionResult[exception.id] ? (
+                        <span className={cn("text-xs font-medium", actionResult[exception.id].success ? "text-success" : "text-destructive")}>
+                          {actionResult[exception.id].message}
+                        </span>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          disabled={actionLoading === exception.id || (exception.action === "Retry payment" && !exception.job_id)}
+                          onClick={() => handleAction(exception)}
+                        >
+                          {actionLoading === exception.id ? (
+                            <><Loader2 className="mr-1 h-3 w-3 animate-spin" />Retrying...</>
+                          ) : (
+                            exception.action
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>

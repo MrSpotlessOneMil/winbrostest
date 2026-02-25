@@ -17,6 +17,7 @@ export type ExceptionItem = {
   event_type?: string
   created_at?: string
   metadata?: Record<string, unknown> | null
+  job_id?: string | null
 }
 
 function relTime(iso?: string | null) {
@@ -70,6 +71,7 @@ function deriveException(row: any): ExceptionItem {
     event_type: eventType,
     created_at: createdAt,
     metadata: (row.metadata as any) || null,
+    job_id: row.job_id ? String(row.job_id) : null,
   }
 }
 
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest) {
   // "Exceptions" are derived from recent system_events that indicate problems / attention needed.
   let exceptionsQuery = client
     .from("system_events")
-    .select("id,event_type,source,message,metadata,created_at")
+    .select("id,event_type,source,message,metadata,created_at,job_id")
     .order("created_at", { ascending: false })
     .limit(limit)
   if (tenant) exceptionsQuery = exceptionsQuery.eq("tenant_id", tenant.id)
