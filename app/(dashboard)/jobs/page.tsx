@@ -152,9 +152,26 @@ function resolveTeamName(job: CalendarJob): string {
 function resolveNotes(job: CalendarJob): string {
   const notes = job.notes
   if (!notes) return ""
-  // Filter out internal system notes (all-caps with underscores or pipes)
-  if (/^[A-Z0-9_|\s]+$/.test(notes.trim())) return ""
-  return notes
+  // Strip internal tags and format for display
+  const lines = notes.split('\n').map(l => l.trim()).filter(Boolean)
+  const cleaned: string[] = []
+  for (const line of lines) {
+    const lower = line.toLowerCase()
+    // Skip internal override tags, payment notes, emails
+    if (lower.startsWith('override:')) continue
+    if (lower.startsWith('hours:') || lower.startsWith('pay:') || lower.startsWith('payment:')) continue
+    if (lower.includes('invoice_url') || lower.includes('@')) continue
+    // Format frequency nicely
+    if (lower.startsWith('frequency:')) {
+      const freq = line.split(':')[1]?.trim().replace(/_/g, ' ')
+      if (freq) cleaned.push(`Frequency: ${freq.charAt(0).toUpperCase() + freq.slice(1)}`)
+      continue
+    }
+    // Filter out all-caps system notes
+    if (/^[A-Z0-9_|\s]+$/.test(line.trim())) continue
+    cleaned.push(line)
+  }
+  return cleaned.join(' | ')
 }
 
 function resolveCleanerFromAssignments(job: CalendarJob): { id: string; name: string } | null {

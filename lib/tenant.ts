@@ -53,6 +53,8 @@ export interface WorkflowConfig {
   cleaner_assignment_auto: boolean
   require_deposit: boolean
   deposit_percentage: number
+  cleaner_pay_percentage?: number // % of job revenue paid to cleaner (e.g. 40 = 40%)
+  use_broadcast_assignment?: boolean // Blast all cleaners at once, first to accept wins (vs distance-based routing)
 
   // Route optimization (WinBros logistics engine)
   use_route_optimization: boolean
@@ -140,6 +142,7 @@ export interface Tenant {
   owner_phone: string | null
   owner_email: string | null
   google_review_link: string | null
+  website_url: string | null
 
   // Status
   active: boolean
@@ -382,8 +385,9 @@ export function tenantUsesFeature(
   >
 ): boolean {
   const val = tenant.workflow_config?.[feature]
-  // If flag is explicitly set, use it; otherwise default to true for backward compat
-  return val !== undefined ? Boolean(val) : true
+  // If flag is explicitly set, use it; otherwise default to false (opt-in, not opt-out)
+  // This prevents new tenants from accidentally getting features they didn't enable
+  return val !== undefined ? Boolean(val) : false
 }
 
 /**

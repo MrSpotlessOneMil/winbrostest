@@ -70,7 +70,11 @@ export async function generateAutoResponse(
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
 
-  // Window cleaning SMS booking flow (tenants with HCP mirror = window cleaning service type)
+  // TENANT ISOLATION — SMS BOOKING PROMPTS:
+  // use_hcp_mirror=true  → WinBros window/pressure/gutter SMS flow
+  // use_hcp_mirror=false → Cedar Rapids house cleaning SMS flow
+  // These use completely different AI prompts. Do NOT merge them.
+  // If adding a new service type, create a new response generator + feature flag.
   if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
@@ -600,8 +604,9 @@ async function getEstimateTimeOptions(
     if (!address && conversationHistory?.length) {
       const clientMessages = conversationHistory.filter(m => m.role === 'client').map(m => m.content)
       for (const msg of clientMessages) {
-        // Match patterns like "123 Main St" or "456 Oak Ave, Springfield IL 62704"
-        if (/\d+\s+\w+\s+(st|street|ave|avenue|blvd|boulevard|dr|drive|rd|road|ln|lane|ct|court|way|pl|place|cir|circle)\b/i.test(msg)) {
+        // Match patterns like "123 Main St", "205 E Jefferson St", "456 NW Oak Ave, Springfield IL 62704"
+        // Allows optional direction prefix (N, S, E, W, NE, NW, SE, SW) and multiple words before street suffix
+        if (/\d+\s+(?:(?:N|S|E|W|NE|NW|SE|SW)\.?\s+)?\w+(?:\s+\w+)*\s+(st|street|ave|avenue|blvd|boulevard|dr|drive|rd|road|ln|lane|ct|court|way|pl|place|cir|circle)\b/i.test(msg)) {
           address = msg.trim()
           break
         }

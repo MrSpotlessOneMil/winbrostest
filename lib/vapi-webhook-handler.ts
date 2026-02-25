@@ -321,7 +321,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 appointmentDate = parseNaturalDate(appointmentDate).date
               }
 
-              // Build notes — use WinBros-specific helper for window/pressure/gutter services
+              // TENANT ISOLATION — Notes formatting:
+              // WinBros (use_hcp_mirror): buildWinBrosJobNotes (window/pressure/gutter)
+              // Cedar Rapids / others: mergeOverridesIntoNotes (bedrooms/bathrooms/sqft)
+              // Do NOT use buildWinBrosJobNotes for house cleaning tenants.
               const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
               const jobNotes = isWinBros
                 ? buildWinBrosJobNotes({
@@ -342,7 +345,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     squareFootage: bookingInfo.squareFootage,
                   })
 
-              // Look up price from pricebook
+              // Look up price from pricebook (WinBros window/pressure/gutter)
               const priceResult = lookupPrice({
                 serviceType: bookingInfo.serviceType || serviceType,
                 squareFootage: bookingInfo.squareFootage || null,
@@ -351,8 +354,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
                 propertyType: bookingInfo.propertyType || null,
               })
-              const jobPrice = priceResult?.price || null
+              let jobPrice = priceResult?.price || null
               if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
+
+              // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
+              if (!jobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
+                try {
+                  const { getPricingRow } = await import('@/lib/pricing-db')
+                  const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                  const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                  const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
+                  if (pricingRow?.price) {
+                    jobPrice = pricingRow.price
+                    console.log(`${tag} Price from DB pricing tiers: $${jobPrice}`)
+                  }
+                } catch (e) {
+                  console.error(`${tag} Failed to look up DB pricing:`, e)
+                }
+              }
 
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
@@ -405,6 +424,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     booking_info: bookingInfo,
                   },
                 })
+
               }
 
               await client
@@ -444,6 +464,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               } else {
                 console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
               }
+
+              // Deposit link is NOT sent here — customer must reply with email first.
+              // OpenPhone webhook handles: email received → deposit flow (invoice + Stripe link)
+              // Stripe webhook then triggers cleaner assignment after deposit payment.
             }
           }
         } else {
@@ -484,7 +508,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               appointmentDate = parseNaturalDate(appointmentDate).date
             }
 
-            // Build notes — use WinBros-specific helper for window/pressure/gutter services
+            // TENANT ISOLATION — see notes formatting comment above (new lead path)
             const isWinBrosExisting = tenantUsesFeature(tenant, 'use_hcp_mirror')
             const existingLeadNotes = isWinBrosExisting
               ? buildWinBrosJobNotes({
@@ -505,7 +529,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   squareFootage: bookingInfo.squareFootage,
                 })
 
-            // Look up price from pricebook
+            // Look up price from pricebook (WinBros window/pressure/gutter)
             const existingPriceResult = lookupPrice({
               serviceType: bookingInfo.serviceType || serviceType,
               squareFootage: bookingInfo.squareFootage || null,
@@ -514,7 +538,23 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
               propertyType: bookingInfo.propertyType || null,
             })
-            const existingJobPrice = existingPriceResult?.price || null
+            let existingJobPrice = existingPriceResult?.price || null
+
+            // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
+            if (!existingJobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
+              try {
+                const { getPricingRow } = await import('@/lib/pricing-db')
+                const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
+                if (pricingRow?.price) {
+                  existingJobPrice = pricingRow.price
+                  console.log(`${tag} Price from DB pricing tiers (existing lead): $${existingJobPrice}`)
+                }
+              } catch (e) {
+                console.error(`${tag} Failed to look up DB pricing (existing lead):`, e)
+              }
+            }
 
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
@@ -553,6 +593,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 price: existingJobPrice,
                 notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
+
             }
 
             await client
@@ -609,6 +650,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             } else {
               console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
             }
+
+            // Deposit link sent later: customer replies with email → OpenPhone handles deposit flow
 
             await logSystemEvent({
               source: "vapi",

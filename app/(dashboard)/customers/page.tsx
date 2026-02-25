@@ -119,6 +119,7 @@ export default function CustomersPage() {
   const [smsMessage, setSmsMessage] = useState("")
   const [sendingSms, setSendingSms] = useState(false)
   const [deletingCustomer, setDeletingCustomer] = useState(false)
+  const deletingRef = useRef(false) // ref to skip polling during delete
   const [copied, setCopied] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -153,6 +154,8 @@ export default function CustomersPage() {
   // Poll for new messages and updates every 3 seconds
   useEffect(() => {
     const pollInterval = setInterval(async () => {
+      // Skip polling while a delete is in progress to avoid race conditions
+      if (deletingRef.current) return
       try {
         const res = await fetch("/api/customers")
         const json = await res.json()
@@ -310,6 +313,7 @@ export default function CustomersPage() {
     if (!confirm(`Delete ${name} and all their data? This cannot be undone.`)) return
 
     setDeletingCustomer(true)
+    deletingRef.current = true
     try {
       const res = await fetch(`/api/customers?id=${selectedCustomer.id}`, { method: "DELETE" })
       const json = await res.json()
@@ -329,6 +333,7 @@ export default function CustomersPage() {
       alert("Failed to delete customer")
     } finally {
       setDeletingCustomer(false)
+      deletingRef.current = false
     }
   }
 

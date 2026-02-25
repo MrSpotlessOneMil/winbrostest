@@ -9,6 +9,7 @@ import { getGHLLeadByContactId } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 import { normalizePhone } from '@/lib/phone-utils'
 import { sendSMS } from '@/lib/openphone'
+import { getTenantBySlug } from '@/lib/tenant'
 import type {
   GHLWebhookPayload,
   GHLContactData,
@@ -109,7 +110,8 @@ export async function processGHLWebhook(
 
   // 6. Send immediate SMS
   const initialMessage = GHL_SMS_TEMPLATES.initial(contactData.firstName)
-  const smsResult = await sendSMS(phoneNumber, initialMessage, brandMode)
+  const tenant = brandMode ? await getTenantBySlug(brandMode) : null
+  const smsResult = tenant ? await sendSMS(tenant, phoneNumber, initialMessage) : await sendSMS(phoneNumber, initialMessage)
 
   if (smsResult.success) {
     await logSystemEvent({

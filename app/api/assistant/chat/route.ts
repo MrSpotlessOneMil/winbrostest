@@ -10,7 +10,12 @@ import { hasAssistantMemory, buildMemoryContext, saveConversation, extractAndSto
 // TOOL DEFINITIONS
 // =====================================================================
 
-const TOOLS: Anthropic.Tool[] = [
+// Build tenant-aware tools — window cleaning tenants get different pricing fields
+function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
+  const serviceType = tenant ? getTenantServiceDescription(tenant) : "cleaning"
+  const isWindowCleaning = serviceType.toLowerCase().includes("window")
+
+  const TOOLS: Anthropic.Tool[] = [
   {
     name: "lookup_customer",
     description:
@@ -62,56 +67,90 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "calculate_price",
-    description:
-      "Calculate a price estimate for a cleaning job based on service type, bedrooms, and bathrooms. Returns a detailed pricing breakdown.",
+    description: isWindowCleaning
+      ? "Calculate a price estimate for a window cleaning job based on service type, number of exterior windows/panes, stories, and any extras like screens or construction residue. Returns a detailed pricing breakdown."
+      : "Calculate a price estimate for a cleaning job based on service type, bedrooms, and bathrooms. Returns a detailed pricing breakdown.",
     input_schema: {
       type: "object" as const,
-      properties: {
-        service_type: {
-          type: "string",
-          description: "Type of cleaning: 'Standard cleaning', 'Deep cleaning', or 'Move in/out'",
-        },
-        bedrooms: { type: "number", description: "Number of bedrooms" },
-        bathrooms: {
-          type: "number",
-          description: "Number of bathrooms (can be 1.5, 2.5, etc.)",
-        },
-        notes: {
-          type: "string",
-          description: "Optional notes with add-on requests like 'inside fridge, inside oven'",
-        },
-      },
-      required: ["service_type", "bedrooms", "bathrooms"],
+      properties: isWindowCleaning
+        ? {
+            service_type: {
+              type: "string",
+              description: "Type of service: 'Window cleaning', 'Pressure washing', or 'Gutter cleaning'",
+            },
+            notes: {
+              type: "string",
+              description: "Job details: number of panes/windows, stories, screens, construction residue, building type, square footage, and any other relevant info",
+            },
+          }
+        : {
+            service_type: {
+              type: "string",
+              description: "Type of cleaning: 'Standard cleaning', 'Deep cleaning', or 'Move in/out'",
+            },
+            bedrooms: { type: "number", description: "Number of bedrooms" },
+            bathrooms: {
+              type: "number",
+              description: "Number of bathrooms (can be 1.5, 2.5, etc.)",
+            },
+            notes: {
+              type: "string",
+              description: "Optional notes with add-on requests like 'inside fridge, inside oven'",
+            },
+          },
+      required: isWindowCleaning ? ["service_type", "notes"] : ["service_type", "bedrooms", "bathrooms"],
     },
   },
   {
     name: "create_job",
-    description:
-      "Create a new job in the system. Automatically calculates pricing. Requires customer phone, service type, and date.",
+    description: isWindowCleaning
+      ? "Create a new window cleaning job in the system. Requires customer phone, service type, and date. Include job details like pane count, stories, and extras in notes."
+      : "Create a new job in the system. Automatically calculates pricing. Requires customer phone, service type, and date.",
     input_schema: {
       type: "object" as const,
-      properties: {
-        phone_number: { type: "string", description: "Customer's phone number" },
-        service_type: {
-          type: "string",
-          description: "Type of cleaning: 'Standard cleaning', 'Deep cleaning', or 'Move in/out'",
-        },
-        date: {
-          type: "string",
-          description: "Job date in YYYY-MM-DD format",
-        },
-        time: {
-          type: "string",
-          description: "Job time in HH:MM format (24-hour), e.g. '09:00' or '14:30'",
-        },
-        bedrooms: { type: "number", description: "Number of bedrooms" },
-        bathrooms: { type: "number", description: "Number of bathrooms" },
-        address: {
-          type: "string",
-          description: "Service address (uses customer address if not provided)",
-        },
-        notes: { type: "string", description: "Special instructions or add-on requests" },
-      },
+      properties: isWindowCleaning
+        ? {
+            phone_number: { type: "string", description: "Customer's phone number" },
+            service_type: {
+              type: "string",
+              description: "Type of service: 'Window cleaning', 'Pressure washing', or 'Gutter cleaning'",
+            },
+            date: {
+              type: "string",
+              description: "Job date in YYYY-MM-DD format",
+            },
+            time: {
+              type: "string",
+              description: "Job time in HH:MM format (24-hour), e.g. '09:00' or '14:30'",
+            },
+            address: {
+              type: "string",
+              description: "Service address (uses customer address if not provided)",
+            },
+            notes: { type: "string", description: "Job details: number of panes/windows, stories, screens, construction residue, building type, square footage, and any other relevant info" },
+          }
+        : {
+            phone_number: { type: "string", description: "Customer's phone number" },
+            service_type: {
+              type: "string",
+              description: "Type of cleaning: 'Standard cleaning', 'Deep cleaning', or 'Move in/out'",
+            },
+            date: {
+              type: "string",
+              description: "Job date in YYYY-MM-DD format",
+            },
+            time: {
+              type: "string",
+              description: "Job time in HH:MM format (24-hour), e.g. '09:00' or '14:30'",
+            },
+            bedrooms: { type: "number", description: "Number of bedrooms" },
+            bathrooms: { type: "number", description: "Number of bathrooms" },
+            address: {
+              type: "string",
+              description: "Service address (uses customer address if not provided)",
+            },
+            notes: { type: "string", description: "Special instructions or add-on requests" },
+          },
       required: ["phone_number", "service_type", "date"],
     },
   },
@@ -235,7 +274,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "reset_customer",
     description:
-      "Reset a customer's data by phone number. Clears their texting transcript, resets lead status to 'new', and clears form data so the booking flow starts fresh.",
+      "Fully reset a customer's data by phone number. Deletes ALL their data: messages, calls, jobs (and related assignments/reviews/tips), leads, scheduled tasks, system events, followup queue entries, and the customer record itself. This is a complete wipe — they'll be gone from the system entirely.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -399,6 +438,9 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 ]
+
+  return TOOLS
+}
 
 // =====================================================================
 // HELPERS
@@ -698,7 +740,7 @@ async function executeTool(
 
       if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (result.success && result.url) {
           const depositAmt = result.amount ? `$${result.amount.toFixed(2)}` : `$${(Math.round((job.price / 2) * 1.03 * 100) / 100).toFixed(2)}`
           return `Here's the deposit payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nDeposit amount: ${depositAmt} (50% of $${job.price} + 3% processing fee)`
@@ -706,7 +748,7 @@ async function executeTool(
         return `Failed to generate deposit link: ${result.error || "Unknown error"}`
       } else {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id))
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
         if (result.success && result.url) {
           return `Here's the card-on-file link for ${customer.first_name || phone}:\n\n${result.url}\n\nThis saves their card for future charges — no payment is taken now.`
         }
@@ -837,7 +879,9 @@ async function executeTool(
       leads: `TUTORIAL: **Leads Page**\n\n1. Leads come in from multiple sources: SMS texts, phone calls (VAPI), Housecall Pro, and Meta/GHL ads\n2. Each lead card shows the customer name, phone, source, and current status\n3. Lead statuses: New → Contacted → Qualified → Booked → Assigned\n4. Click a lead to see the full conversation history\n5. Drag leads between columns to update their status\n\n**Automation:** The SMS bot automatically engages new leads and walks them through the booking flow. Once they provide all details and an email, it sends pricing and payment links automatically.`,
       teams: `TUTORIAL: **Teams Page**\n\n1. View all your cleaning teams and their members\n2. Each team shows the lead cleaner and team members\n3. Click "View Full Details" to see member info, edit contacts, or view message history\n\n**Adding a Cleaner:**\n1. Click "Add Cleaner" or ask me to create one\n2. Enter their name, phone, and email\n3. If using Telegram: Have them message your Telegram bot to connect\n4. Assign them to a team using the team management controls`,
       customers: `TUTORIAL: **Customers Page**\n\n1. View all customers in your database\n2. Each customer card shows their name, phone, and job history\n3. Click a customer to see full details: address, property info, past jobs, messages\n4. The Jobs tab shows all jobs for that customer with status badges\n\n**Quick Actions:** You can ask me to look up any customer by phone number, create new customers, or reset their booking data.`,
-      pricing: `TUTORIAL: **How Pricing Works**\n\nPricing is calculated based on:\n- **Service type**: Standard, Deep, or Move-in/Move-out\n- **Property size**: Bedrooms and bathrooms\n- **Add-ons**: Inside fridge, inside oven, laundry, etc.\n\nThe system auto-calculates prices during the SMS booking flow. You can also ask me for a price estimate anytime — just tell me the service type, bedrooms, and bathrooms.\n\n**Payment Options:**\n- **Card on file**: Saves the customer's card (no immediate charge)\n- **Deposit**: Collects 50% + 3% processing fee upfront\n- **Wave invoice**: Sends a professional invoice via email`,
+      pricing: usesRouteOpt
+        ? `TUTORIAL: **How Pricing Works**\n\nPricing for window cleaning is calculated based on:\n- **Service type**: Window cleaning, Pressure washing, or Gutter cleaning\n- **Number of panes/windows**: How many exterior windows\n- **Stories**: Single-story, two-story, etc.\n- **Extras**: Screens, construction residue, french panes\n- **Building type**: Residential or commercial\n\nThe system auto-calculates prices during the SMS booking flow. You can also ask me for a price estimate anytime — just tell me the service type and job details (panes, stories, screens, etc.).\n\n**Payment Options:**\n- **Card on file**: Saves the customer's card (no immediate charge)`
+        : `TUTORIAL: **How Pricing Works**\n\nPricing is calculated based on:\n- **Service type**: Standard, Deep, or Move-in/Move-out\n- **Property size**: Bedrooms and bathrooms\n- **Add-ons**: Inside fridge, inside oven, laundry, etc.\n\nThe system auto-calculates prices during the SMS booking flow. You can also ask me for a price estimate anytime — just tell me the service type, bedrooms, and bathrooms.\n\n**Payment Options:**\n- **Card on file**: Saves the customer's card (no immediate charge)\n- **Deposit**: Collects 50% + 3% processing fee upfront\n- **Wave invoice**: Sends a professional invoice via email`,
       "adding cleaners": `TUTORIAL: **How to Add a New Cleaner**\n\n**Option 1 — Ask me:**\nJust say "Add a cleaner named [Name]" and I'll create them. I can also compose a welcome message for you to send them.\n\n**Option 2 — Teams Page:**\n1. Go to Teams in the sidebar\n2. Click "Add Cleaner"\n3. Enter their name, phone, email\n4. Assign them to a team\n\n**Setting Up Telegram:**\n${tenant?.telegram_bot_token ? "Your Telegram bot is configured. Have the new cleaner:\n1. Search for your bot on Telegram\n2. Send /start\n3. They'll automatically be linked and will receive job notifications" : "Telegram isn't configured yet. Set it up in Settings > Integrations to enable cleaner notifications."}`,
       stripe: `TUTORIAL: **Stripe Integration**\n\n${tenant?.stripe_secret_key ? "Stripe is configured for your business." : "Stripe is not configured yet. Add your Stripe API keys in Settings > Integrations."}\n\n**Types of Stripe Links:**\n- **Card on File**: Saves the customer's card without charging. Used after the booking flow completes.\n- **Deposit Link**: Charges 50% of the job price + 3% processing fee upfront.\n\n**How to Generate:**\nJust ask me! Say "Generate a card-on-file link for [phone]" or "Create a deposit link for [phone]".`,
       "sms bot": `TUTORIAL: **SMS Bot**\n\nThe SMS bot automatically responds to customer texts and walks them through the booking flow:\n\n${usesRouteOpt ? "**WinBros Flow:**\n1. Service type (Window/Pressure/Gutter)\n2. Scope & building type\n3. French panes check\n4. Square footage\n5. Pane count confirmation\n6. Pricing plans\n7. Name, address, referral source\n8. Preferred date/time\n9. Email → booking complete → payment links sent" : "**Cleaning Flow:**\n1. Service type (Standard/Deep/Move)\n2. Name\n3. Address\n4. Bedrooms/bathrooms/sqft\n5. Frequency\n6. Special requests\n7. Preferred date/time\n8. Email → booking complete → pricing & payment links sent"}\n\n**Note:** The bot uses Claude AI and is designed to sound like a real person, not a robot.`,
@@ -897,31 +941,134 @@ async function executeTool(
   if (toolName === "reset_customer") {
     try {
       const phone = toolInput.phone_number as string
+      const { normalizePhone } = await import("@/lib/phone-utils")
+
+      // Build multiple phone formats to match all possible stored formats
+      const digits10 = normalizePhone(phone)
+      const e164 = toE164(phone)
+      const digits11 = digits10 ? `1${digits10}` : ""
+      const phoneFormats = [e164, digits10, digits11].filter(Boolean) as string[]
+
+      if (phoneFormats.length === 0) {
+        return `Invalid phone number: ${phone}. Double-check the number and try again!`
+      }
+
+      // Find customer to get their name for the response
       const customer: any = await findCustomerByPhone(client, phone, tenantId, "id, first_name, last_name, phone_number")
+      const name = customer ? [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number : phone
 
-      if (!customer) {
-        return `No customer found with phone number ${phone}. Double-check the number and try again!`
+      const deletionLog: string[] = []
+
+      // Helper: add tenant filter to queries
+      const withTenant = <T extends { eq: (col: string, val: string) => T }>(query: T): T => {
+        return tenantId ? query.eq("tenant_id", tenantId) : query
       }
 
-      // Reset customer transcript
-      const { error: custErr } = await client
-        .from("customers")
-        .update({ texting_transcript: "", updated_at: new Date().toISOString() })
-        .eq("id", customer.id)
+      // 1. Find all customer IDs
+      const { data: customers } = await withTenant(
+        client.from("customers").select("id, phone_number")
+      ).in("phone_number", phoneFormats)
+      const customerIds = customers?.map((c: any) => c.id) || []
 
-      if (custErr) {
-        // Retry without texting_transcript in case column doesn't exist
-        await client.from("customers").update({ updated_at: new Date().toISOString() }).eq("id", customer.id)
+      // 2. Find all leads
+      const { data: leads } = await withTenant(
+        client.from("leads").select("id")
+      ).in("phone_number", phoneFormats)
+      const leadIds = leads?.map((l: any) => l.id) || []
+
+      // 3. Find all jobs
+      const { data: jobs } = await withTenant(
+        client.from("jobs").select("id")
+      ).in("phone_number", phoneFormats)
+      const jobIds = jobs?.map((j: any) => j.id) || []
+
+      // 4. Delete scheduled tasks for leads
+      if (leadIds.length > 0) {
+        for (const leadId of leadIds) {
+          await client.from("scheduled_tasks").delete().like("task_key", `lead-${leadId}-%`)
+        }
+        deletionLog.push(`${leadIds.length} lead scheduled tasks`)
       }
 
-      // Reset associated leads
-      await client
-        .from("leads")
-        .update({ status: "new", form_data: {}, updated_at: new Date().toISOString() })
-        .eq("phone_number", customer.phone_number)
+      // 5. Delete system events
+      const { data: events } = await withTenant(
+        client.from("system_events").select("id")
+      ).in("phone_number", phoneFormats)
+      if (events && events.length > 0) {
+        await withTenant(client.from("system_events").delete()).in("phone_number", phoneFormats)
+        deletionLog.push(`${events.length} system events`)
+      }
 
-      const name = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || customer.phone_number
-      return `All done! Reset customer "${name}" (${customer.phone_number}). Their transcript is cleared, lead status is back to "new", and form data is wiped. They can go through the booking flow fresh.`
+      // 6. Delete messages
+      const { data: msgs } = await withTenant(
+        client.from("messages").select("id")
+      ).in("phone_number", phoneFormats)
+      if (msgs && msgs.length > 0) {
+        await withTenant(client.from("messages").delete()).in("phone_number", phoneFormats)
+        deletionLog.push(`${msgs.length} messages`)
+      }
+
+      // 7. Delete calls
+      const { data: calls } = await withTenant(
+        client.from("calls").select("id")
+      ).in("phone_number", phoneFormats)
+      if (calls && calls.length > 0) {
+        await withTenant(client.from("calls").delete()).in("phone_number", phoneFormats)
+        deletionLog.push(`${calls.length} calls`)
+      }
+
+      // 8. Delete job-related data
+      if (jobIds.length > 0) {
+        for (const jobId of jobIds) {
+          await client.from("cleaner_assignments").delete().eq("job_id", jobId)
+          await client.from("reviews").delete().eq("job_id", jobId)
+          await client.from("tips").delete().eq("job_id", jobId)
+          await client.from("upsells").delete().eq("job_id", jobId)
+        }
+        // Clear converted_to_job_id references in leads before deleting jobs
+        await client.from("leads").update({ converted_to_job_id: null }).in("converted_to_job_id", jobIds)
+        deletionLog.push(`${jobIds.length} jobs + related data`)
+      }
+
+      // 9. Delete leads
+      if (leadIds.length > 0) {
+        await client.from("leads").delete().in("id", leadIds)
+        deletionLog.push(`${leadIds.length} leads`)
+      }
+
+      // 10. Delete jobs
+      if (jobIds.length > 0) {
+        await client.from("jobs").delete().in("id", jobIds)
+      }
+
+      // 11. Delete followup queue entries
+      const { data: followups } = await client.from("followup_queue").select("id").in("phone_number", phoneFormats)
+      if (followups && followups.length > 0) {
+        await client.from("followup_queue").delete().in("phone_number", phoneFormats)
+        deletionLog.push(`${followups.length} followup queue entries`)
+      }
+
+      // 12. Delete customer records
+      if (customerIds.length > 0) {
+        await client.from("customers").delete().in("id", customerIds)
+        deletionLog.push(`${customerIds.length} customer record(s)`)
+      }
+
+      // Log the reset as a system event
+      const { logSystemEvent } = await import("@/lib/system-events")
+      await logSystemEvent({
+        event_type: "SYSTEM_RESET" as any,
+        source: "system" as any,
+        message: `Reset all data for ${e164 || phone} via assistant`,
+        phone_number: e164 || phone,
+        metadata: { deletions: deletionLog, triggered_by: "assistant" },
+      }).catch(() => {}) // Don't fail if event logging fails
+
+      if (deletionLog.length === 0) {
+        return `No data found to delete for "${name}" (${phone}). They may have already been reset, or the phone number doesn't match any records.`
+      }
+
+      return `Fully reset "${name}" (${phone}). Deleted: ${deletionLog.join(", ")}. They're completely wiped from the system — if they text in again, they'll start the booking flow from scratch as a brand new lead.`
     } catch (err: any) {
       return `Error resetting customer: ${err.message}`
     }
@@ -1082,13 +1229,13 @@ async function executeTool(
 
       if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
       } else {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id))
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
         if (!result.success || !result.url) return `Failed to generate card-on-file link: ${result.error || "Unknown error"}`
         linkUrl = result.url
       }
@@ -1257,6 +1404,7 @@ async function executeTool(
 function buildSystemPrompt(tenant: Tenant | null): string {
   const businessName = tenant?.business_name_short || tenant?.name || "your business"
   const serviceType = tenant ? getTenantServiceDescription(tenant) : "cleaning"
+  const isWindowCleaning = serviceType.toLowerCase().includes("window")
   const serviceArea = tenant?.service_area || "your area"
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" })
   const dayOfWeek = new Date().toLocaleDateString("en-US", { weekday: "long", timeZone: "America/Chicago" })
@@ -1264,6 +1412,31 @@ function buildSystemPrompt(tenant: Tenant | null): string {
   const stripeEnabled = tenant?.stripe_secret_key ? "Yes" : "No"
   const waveEnabled = tenant ? tenantHasIntegration(tenant, "wave") ? "Yes" : "No" : "No"
   const telegramEnabled = tenant?.telegram_bot_token ? "Yes" : "No"
+
+  // Tenant-specific pricing/job details
+  const priceEstimateDesc = isWindowCleaning
+    ? "**Price estimate** — Calculate pricing by service type (window cleaning, pressure washing, gutter cleaning), number of panes/windows, stories, screens, construction residue, etc."
+    : "**Price estimate** — Calculate pricing by service type, bedrooms, bathrooms"
+  const createJobDesc = isWindowCleaning
+    ? "**Create a job** — Set up a window cleaning job with service details (panes, stories, screens, etc.)"
+    : "**Create a job** — Set up a job with auto-pricing"
+
+  const bookingFlowStep2 = isWindowCleaning
+    ? "2. **Create the job** — service type (window cleaning/pressure washing/gutter cleaning), date, and job details (panes, stories, screens, construction residue, building type) in notes"
+    : "2. **Create the job** — service type, date, beds/baths → auto-calculates price"
+
+  const creatingJobsSection = isWindowCleaning
+    ? `## CREATING JOBS
+- Ask for: customer phone, service type (window cleaning, pressure washing, or gutter cleaning), date
+- Important details to collect: number of exterior windows/panes, number of stories, screens (yes/no), construction residue (yes/no), building type (residential/commercial), square footage
+- Put all job details in the notes field
+- Convert natural dates: "next Tuesday" = the upcoming Tuesday from today (${today}), "tomorrow" = the day after today
+- The date parameter MUST be YYYY-MM-DD format`
+    : `## CREATING JOBS
+- Ask for: customer phone, service type, date
+- Bedrooms/bathrooms are optional but improve pricing accuracy
+- Convert natural dates: "next Tuesday" = the upcoming Tuesday from today (${today}), "tomorrow" = the day after today
+- The date parameter MUST be YYYY-MM-DD format`
 
   return `You are Osiris, the AI assistant for ${businessName} — a professional ${serviceType} business serving ${serviceArea}.
 
@@ -1289,8 +1462,8 @@ Today is ${dayOfWeek}, ${today}.
 1b. **Search customers by name** — Find a customer by first/last name. If there's exactly one match, use it directly. If there are multiple matches, list them briefly (name + phone) and ask which one they mean.
 2. **Create a customer** — Add someone new to the system
 3. **Update a customer** — Change their email, name, or address
-4. **Price estimate** — Calculate pricing by service type, bedrooms, bathrooms
-5. **Create a job** — Set up a job with auto-pricing
+4. ${priceEstimateDesc}
+5. ${createJobDesc}
 6. **Update a job** — Change status, date, time, notes, or address (notifies cleaner if rescheduled)
 7. **Assign a cleaner** — Assign a cleaner to a job (notifies them via Telegram + customer via SMS)
 8. **Send SMS** — Send any text message directly to a customer
@@ -1304,13 +1477,13 @@ Today is ${dayOfWeek}, ${today}.
 16. **Compose a message** — Draft a ready-to-send SMS in a code block
 17. **Dashboard tutorials** — Step-by-step guides for any feature
 18. **Today's summary** — Quick snapshot of jobs, revenue, and leads
-19. **Reset a customer** — Clear booking data for a fresh start
+19. **Reset a customer** — Fully wipe all their data from the system (messages, jobs, leads, everything)
 20. **Toggle the system** — Turn automation on or off
 
 ## BOOKING FLOW
 When the owner wants to book a job from a manual intake (e.g. "I just got a call from..."), follow this order:
 1. **Create or look up the customer** — get their phone, name, address, email
-2. **Create the job** — service type, date, beds/baths → auto-calculates price
+${bookingFlowStep2}
 3. **Send confirmation SMS** — text the customer their booking details
 4. **Assign a cleaner** — pick from the team, notifies them via Telegram
 5. **Send payment link** — generates Stripe link and texts it to the customer
@@ -1321,11 +1494,7 @@ You don't have to do all steps at once — the owner can ask you to start at any
 ## COMPOSING MESSAGES
 When drafting messages for the owner to copy and send, put the message inside a markdown code block (\`\`\`) so it's easy to copy. Keep SMS messages under 300 characters. Make them professional and on-brand for ${businessName}.
 
-## CREATING JOBS
-- Ask for: customer phone, service type, date
-- Bedrooms/bathrooms are optional but improve pricing accuracy
-- Convert natural dates: "next Tuesday" = the upcoming Tuesday from today (${today}), "tomorrow" = the day after today
-- The date parameter MUST be YYYY-MM-DD format
+${creatingJobsSection}
 
 ## INTEGRATIONS
 - Stripe: ${stripeEnabled}
@@ -1365,6 +1534,7 @@ export async function POST(request: NextRequest) {
 
   const anthropic = new Anthropic({ apiKey })
   const memoryEnabled = hasAssistantMemory(tenant)
+  const tools = buildTools(tenant)
   let systemPrompt = buildSystemPrompt(tenant)
 
   // Inject memory context for tenants with memory enabled
@@ -1395,10 +1565,10 @@ export async function POST(request: NextRequest) {
       iterations++
 
       const response = await anthropic.messages.create({
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-opus-4-6",
         max_tokens: 2048,
         system: systemPrompt,
-        tools: TOOLS,
+        tools: tools,
         messages: currentMessages,
       })
 

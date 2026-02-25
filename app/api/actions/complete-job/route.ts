@@ -19,10 +19,9 @@ import {
   getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stripe-client'
+import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
-import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
-import { getClientConfig } from '@/lib/client-config'
+import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 
@@ -76,8 +75,34 @@ export async function executeCompleteJob(jobId: string): Promise<{
     return { success: false, error: 'Customer email required for final payment' }
   }
 
+  // TENANT ISOLATION — Price resolution:
+  // Cedar Rapids uses DB pricing tiers (pricing_tiers table, keyed by bed/bath/sqft)
+  // WinBros uses static pricebook (lib/pricebook.ts, keyed by service type/sqft)
+  // This fallback uses getPricingRow which works for house cleaning tenants.
+  // WinBros jobs should already have price set from pricebook at booking time.
+  let resolvedPrice = job.price ? parseFloat(String(job.price)) : 0
+  if (!resolvedPrice && job.tenant_id) {
+    try {
+      const { getPricingRow } = await import('@/lib/pricing-db')
+      const overrides = getOverridesFromNotes(job.notes)
+      if (overrides.bedrooms && overrides.bathrooms) {
+        const svcRaw = (job.service_type || 'standard cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+        const tier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+        const row = await getPricingRow(tier as any, overrides.bedrooms, overrides.bathrooms, overrides.squareFootage || null, job.tenant_id)
+        if (row?.price) {
+          resolvedPrice = row.price
+          // Persist the corrected price on the job
+          await updateJob(jobId, { price: resolvedPrice }, {}, serviceClient)
+          console.log(`[complete-job] Resolved missing price for job ${jobId}: $${resolvedPrice}`)
+        }
+      }
+    } catch (e) {
+      console.error(`[complete-job] Failed to look up pricing for job ${jobId}:`, e)
+    }
+  }
+
   // Calculate remaining 50% (with 3% processing fee)
-  const totalPrice = job.price || 0
+  const totalPrice = resolvedPrice
   const paymentTotals = getPaymentTotalsFromNotes(job.notes)
   const depositPaid = paymentTotals.depositPaid || 0
   const addOnPaid = paymentTotals.addOnPaid || 0
@@ -132,9 +157,8 @@ export async function executeCompleteJob(jobId: string): Promise<{
     },
   })
 
-  // Create a payment link using the price
-  const config = getClientConfig()
-  const domain = config.domain.endsWith('/') ? config.domain.slice(0, -1) : config.domain
+  // Create a payment link using the tenant's domain (not OSIRIS)
+  const domain = await getTenantRedirectDomain(job.tenant_id)
   const paymentMetadata: Record<string, string> = {
     job_id: jobId,
     phone_number: job.phone_number,
@@ -166,8 +190,14 @@ export async function executeCompleteJob(jobId: string): Promise<{
   // Update job status
   await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
 
+  // Sync lead status to "completed" so dashboard pipeline updates
+  await serviceClient
+    .from("leads")
+    .update({ status: "completed" })
+    .eq("converted_to_job_id", Number(jobId))
+
   // Send SMS with payment link
-  const smsMessage = `Thanks for choosing ${businessName}! We hope your home is sparkling clean. Your remaining balance is due. Pay securely here: ${paymentLink.url}`
+  const smsMessage = `Hi! Thanks so much for choosing ${businessName}. Here's the link for your remaining balance: ${paymentLink.url}`
 
   const sendResult = tenant
     ? await sendSMS(tenant, customer.phone_number, smsMessage)

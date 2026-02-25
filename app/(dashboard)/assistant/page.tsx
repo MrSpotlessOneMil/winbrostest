@@ -218,6 +218,7 @@ export default function AssistantPage() {
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
+  const [copiedChat, setCopiedChat] = useState(false)
   const [memoryEnabled, setMemoryEnabled] = useState(false)
   const [initLoaded, setInitLoaded] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -228,6 +229,16 @@ export default function AssistantPage() {
     navigator.clipboard.writeText(text)
     setCopiedIdx(idx)
     setTimeout(() => setCopiedIdx(null), 2000)
+  }
+
+  function handleCopyChat() {
+    const last100 = messages.slice(-100)
+    const formatted = last100
+      .map((m) => `[${m.role === "user" ? "You" : "Assistant"}]: ${m.content}`)
+      .join("\n\n")
+    navigator.clipboard.writeText(formatted)
+    setCopiedChat(true)
+    setTimeout(() => setCopiedChat(false), 2000)
   }
 
   // Load conversations on mount — try server first (memory mode), fall back to localStorage
@@ -530,6 +541,20 @@ export default function AssistantPage() {
                 Your business command center
               </p>
             </div>
+            {messages.length > 0 && (
+              <button
+                onClick={handleCopyChat}
+                className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  copiedChat
+                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "bg-zinc-800 text-zinc-400 border border-zinc-700/50 hover:text-zinc-200 hover:bg-zinc-700/60"
+                }`}
+                title="Copy last 100 messages"
+              >
+                {copiedChat ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedChat ? "Copied!" : "Copy Chat"}
+              </button>
+            )}
           </div>
 
           {/* Messages area */}

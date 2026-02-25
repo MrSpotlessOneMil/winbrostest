@@ -340,14 +340,16 @@ export async function POST(request: NextRequest) {
     console.log(`[OpenPhone] Combined ${recentInbound.length} messages: "${combinedMessage.slice(0, 100)}"`)
   }
 
-  // Get recent conversation history for context (more messages for better AI context)
+  // Get recent conversation history for context
+  // Needs to be large enough to capture the full booking conversation (name, address, service type
+  // are provided early but extractBookingData runs at the end after 15-20+ messages)
   const { data: recentMessages } = await client
     .from("messages")
     .select("role, content")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
-    .limit(10)
+    .limit(30)
 
   const conversationHistory = recentMessages?.reverse().map(m => ({
     role: m.role as 'client' | 'assistant',
@@ -491,7 +493,20 @@ export async function POST(request: NextRequest) {
       }
 
       const jobId = job?.id || bookedLead.converted_to_job_id || null
-      // Tenants with team routing (WinBros/window cleaning) skip deposit flow — handled after booking
+
+      // Skip payment links entirely for estimate jobs — salesman quotes price on-site
+      if (job?.job_type === 'estimate') {
+        console.log(`[OpenPhone] Skipping payment links for estimate job ${jobId} — salesman will quote on-site`)
+        return NextResponse.json({ success: true, flow: "phone_call_email_captured_estimate", leadId: bookedLead.id })
+      }
+
+      // ──────────────────────────────────────────────────────────────────────
+      // TENANT ISOLATION — PAYMENT FLOW AFTER EMAIL CAPTURE:
+      // WinBros (use_team_routing=true): Skip deposit, card-on-file only
+      // Cedar Rapids (use_team_routing=false): Wave invoice + Stripe deposit link
+      //   → Customer pays deposit → Stripe webhook → cleaner broadcast assignment
+      // Do NOT change the deposit flow without testing Cedar Rapids end-to-end.
+      // ──────────────────────────────────────────────────────────────────────
       const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
       // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
@@ -520,6 +535,7 @@ export async function POST(request: NextRequest) {
         const cardResult = await createCardOnFileLink(
           { ...customer, email: providedEmail } as any,
           jobId || `lead-${bookedLead.id}`,
+          tenant?.id,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -984,10 +1000,12 @@ export async function POST(request: NextRequest) {
 
         // Build known customer info so the AI can confirm instead of re-asking
         const leadFormData = parseFormData(existingLead.form_data)
+        const intentAnalysis = leadFormData.intent_analysis as Record<string, unknown> | undefined
+        const extractedInfo = (leadFormData.extracted_info || intentAnalysis?.extractedInfo || {}) as Record<string, unknown>
         const knownInfo: KnownCustomerInfo = {
           firstName: customer.first_name || leadFormData.first_name || null,
           lastName: customer.last_name || leadFormData.last_name || null,
-          address: customer.address || leadFormData.address || null,
+          address: customer.address || leadFormData.address || extractedInfo.address as string || null,
           email: customer.email || leadFormData.email || null,
           phone: phone,
           source: existingLead.source || null,
@@ -1203,7 +1221,29 @@ export async function POST(request: NextRequest) {
                 // WinBros estimate flow: no price — salesman will quote on-site
                 servicePrice = null
               } else {
+                // Look up price from database pricing tiers
                 servicePrice = bookingData.price || null
+                if (!servicePrice && bookingData.bedrooms && bookingData.bathrooms && tenant?.id) {
+                  try {
+                    const { getPricingRow } = await import("@/lib/pricing-db")
+                    // Map service type: "standard cleaning" → "standard", "deep cleaning" → "deep", etc.
+                    const svcRaw = (bookingData.serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                    const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                    const pricingRow = await getPricingRow(
+                      pricingTier as 'standard' | 'deep' | 'move',
+                      bookingData.bedrooms,
+                      bookingData.bathrooms,
+                      bookingData.squareFootage || null,
+                      tenant.id
+                    )
+                    if (pricingRow?.price) {
+                      servicePrice = pricingRow.price
+                      console.log(`[OpenPhone] Price from DB pricing tier: $${servicePrice} (${pricingTier} ${bookingData.bedrooms}bed/${bookingData.bathrooms}bath/${bookingData.squareFootage || '?'}sqft)`)
+                    }
+                  } catch (pricingErr) {
+                    console.error('[OpenPhone] Failed to look up pricing tier:', pricingErr)
+                  }
+                }
               }
 
               // Build job notes with OVERRIDE tags for pricing engine
@@ -1384,6 +1424,7 @@ export async function POST(request: NextRequest) {
                     await dispatchRoutes(optimization, tenant.id, {
                       sendTelegramToTeams: false,
                       sendSmsToCustomers: false,
+                      sendOwnerSummary: false,
                     })
 
                     // Send immediate Telegram to assigned salesman WITH address (salesmen need it for the visit)
@@ -1635,6 +1676,19 @@ export async function POST(request: NextRequest) {
     } else if (lead?.id) {
       console.log(`[OpenPhone] Lead created: ${lead.id}`)
 
+      // Update customer record with extracted info immediately (don't wait for booking completion)
+      const extractedAddr = intentResult.extractedInfo.address || null
+      const extractedEmail = intentResult.extractedInfo.email || null
+      const custUpdates: Record<string, string | null> = {}
+      if (firstName && !customer.first_name) custUpdates.first_name = firstName
+      if (lastName && !customer.last_name) custUpdates.last_name = lastName
+      if (extractedAddr && !customer.address) custUpdates.address = extractedAddr
+      if (extractedEmail && !customer.email) custUpdates.email = extractedEmail
+      if (Object.keys(custUpdates).length > 0) {
+        await client.from("customers").update(custUpdates).eq("id", customer.id)
+        console.log(`[OpenPhone] Updated customer ${customer.id} with extracted info:`, custUpdates)
+      }
+
       // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
       const hcpResult = await createLeadInHCP({
         firstName: firstName || undefined,
@@ -1827,7 +1881,8 @@ async function sendDepositPaymentFlow(params: {
     const depositResult = await createDepositPaymentLink(
       { ...customer, email } as any,
       { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { lead_id: leadId }
+      { lead_id: leadId },
+      tenant.id
     )
 
     if (depositResult.success && depositResult.url) {

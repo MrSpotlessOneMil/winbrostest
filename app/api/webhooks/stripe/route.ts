@@ -5,7 +5,7 @@ import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById, getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
+import { getDefaultTenant, getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
@@ -159,7 +159,10 @@ async function handleDepositPayment(
 
   // Get tenant for this job to send SMS notifications
   const jobTenantId = (updatedJob as any).tenant_id
-  const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+  if (!jobTenantId) {
+    console.error(`[Stripe Webhook] CRITICAL: Job ${jobId} has no tenant_id — cannot determine tenant. Skipping SMS/notifications.`)
+  }
+  const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
 
   // Send payment confirmation SMS to customer
   if (updatedJob.phone_number && tenant) {
@@ -199,6 +202,7 @@ async function handleDepositPayment(
         const cardResult = await createCardOnFileLink(
           { email: custEmail, phone_number: updatedJob.phone_number } as any,
           jobId,
+          jobTenantId,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -255,7 +259,7 @@ async function handleDepositPayment(
   // Convert HCP lead to job (two-way sync)
   let hcpJobId: string | undefined
   if (hcpLeadId && !hcpLeadId.startsWith('vapi-') && !hcpLeadId.startsWith('sms-')) {
-    const hcpTenant = tenant || await getDefaultTenant()
+    const hcpTenant = tenant
     if (hcpTenant) {
       console.log(`[Stripe Webhook] Converting HCP lead ${hcpLeadId} to job...`)
       const hcpResult = await convertHCPLeadToJob(hcpTenant, hcpLeadId, {
@@ -511,7 +515,10 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
 
   // Get tenant for notifications
   const jobTenantId = (job as any).tenant_id
-  const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+  if (!jobTenantId) {
+    console.error(`[Stripe Webhook] CRITICAL: Job ${job_id} has no tenant_id — cannot determine tenant for payment failure. Skipping SMS/notifications.`)
+  }
+  const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
 
   // Send customer SMS with retry info
   // Payment links are persistent — the customer can click the same link again
@@ -614,7 +621,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   const client = getSupabaseServiceClient()
 
   // Look up tenant from job's tenant_id (not default) to route SMS/Telegram correctly
-  let tenant: Awaited<ReturnType<typeof getDefaultTenant>> = null
+  let tenant: Tenant | null = null
   if (job_id && !job_id.startsWith('lead-')) {
     const { data: jobRow } = await client
       .from('jobs')
@@ -626,10 +633,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     }
   }
   if (!tenant) {
-    tenant = await getDefaultTenant()
-  }
-  if (!tenant) {
-    console.error('[Stripe Webhook] No tenant configured, cannot process card-on-file')
+    console.error(`[Stripe Webhook] CRITICAL: No tenant_id found for card-on-file job ${job_id} — refusing to fall back to default tenant. Skipping processing.`)
     return
   }
   console.log(`[Stripe Webhook] Using tenant ${tenant.slug} for card-on-file processing`)
@@ -719,7 +723,12 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
         booked: true,
-        notes: buildWinBrosJobNotes(bookingData) || null,
+        // TENANT ISOLATION: buildWinBrosJobNotes is window-cleaning-specific.
+        // Cedar Rapids house cleaning uses mergeOverridesIntoNotes instead.
+        // Do NOT use buildWinBrosJobNotes for non-WinBros tenants.
+        notes: (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror'))
+          ? buildWinBrosJobNotes(bookingData) || null
+          : null,
       }).select('id').single()
 
       if (retryJob) {
@@ -758,9 +767,18 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     console.log(`[Stripe Webhook] No job_id for card-on-file, skipping assignment`)
   }
 
-  // WinBros (route optimization): auto-assign job to team, no accept/decline
-  // Other tenants: trigger individual cleaner assignment cascade (accept/decline)
-  // If deposit was already paid, cleaner assignment was already triggered in handleDepositPayment — skip here
+  // ──────────────────────────────────────────────────────────────────────
+  // TENANT ISOLATION — CLEANER ASSIGNMENT MODES (do NOT merge these paths):
+  //
+  // WinBros (use_team_routing=true):
+  //   Full route optimization → auto-assign to closest team → Telegram owner notify
+  //
+  // Cedar Rapids (use_broadcast_assignment=true):
+  //   Broadcast to ALL cleaners → first to accept wins → customer notified
+  //   Assignment triggered in handleDepositPayment (after deposit paid), NOT here.
+  //
+  // If deposit was already paid, cleaner assignment was already triggered — skip here.
+  // ──────────────────────────────────────────────────────────────────────
   const useRouteOptimization = tenantUsesFeature(tenant, 'use_team_routing')
   let assignmentOutcome = 'no_job'
 

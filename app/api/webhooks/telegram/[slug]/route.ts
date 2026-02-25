@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getTenantBySlug } from "@/lib/tenant"
+import { getTenantBySlug, tenantUsesFeature } from "@/lib/tenant"
 import {
   getSupabaseServiceClient,
   getJobById,
@@ -15,6 +15,7 @@ import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { geocodeAddress } from "@/lib/google-maps"
+import { executeCompleteJob } from "@/app/api/actions/complete-job/route"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
@@ -201,6 +202,7 @@ interface TelegramUpdate {
 const TIP_PATTERN = /tip\s+(?:accepted\s+)?job\s+(\d+)\s*[-–]\s*\$?(\d+(?:\.\d{2})?)/i
 const UPSELL_PATTERN = /upsold?\s+job\s+(\d+)\s*[-–]\s*(.+)/i
 const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
+const DONE_PATTERN = /^(?:done|finished|completed?|job\s+done|job\s+finished|job\s+completed?)\s+(?:job\s+)?#?(\d+)$/i
 const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 const JOIN_PATTERNS = [
@@ -261,6 +263,7 @@ async function handleAcceptCallback(
   tenant: Tenant
 ): Promise<NextResponse> {
   try {
+    const client = getSupabaseServiceClient()
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your acceptance...")
 
     const assignment = await getCleanerAssignmentById(assignmentId)
@@ -286,56 +289,125 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
 
-    let customerNotified = false
-    if (job.phone_number) {
-      const customer = await getCustomerByPhone(job.phone_number)
-      const cleaner = await getCleanerById(assignment.cleaner_id)
+    // Sync lead status to "assigned" so dashboard pipeline updates
+    await client
+      .from("leads")
+      .update({ status: "assigned" })
+      .eq("converted_to_job_id", Number(jobId))
 
-      if (customer && cleaner) {
-        const dateStr = job.date
-          ? new Date(job.date + "T12:00:00").toLocaleDateString("en-US", {
-              weekday: "long", month: "long", day: "numeric",
+    // ──────────────────────────────────────────────────────────────────────
+    // TENANT ISOLATION — MULTI-CLEANER BROADCAST LOGIC:
+    // Cedar Rapids uses broadcast mode: ALL cleaners get notified, first to accept wins.
+    // For multi-cleaner jobs (job.cleaners > 1), we keep accepting until all slots filled.
+    // Only THEN do we cancel remaining pending assignments and notify the customer.
+    // WinBros uses distance routing (handled in cleaner-assignment.ts), not this path.
+    // Do NOT change this logic without testing both single and multi-cleaner flows.
+    // ──────────────────────────────────────────────────────────────────────
+    // Check how many cleaners this job needs vs how many have accepted
+    const cleanersNeeded = (job as any).cleaners || 1
+    const { data: confirmedAssignments } = await client
+      .from("cleaner_assignments")
+      .select("id, cleaner_id")
+      .eq("job_id", Number(jobId))
+      .in("status", ["accepted", "confirmed"])
+
+    const confirmedCount = confirmedAssignments?.length || 0
+    const allCleanersFilled = confirmedCount >= cleanersNeeded
+
+    if (allCleanersFilled) {
+      // All slots filled — cancel remaining pending assignments
+      const { data: otherAssignments } = await client
+        .from("cleaner_assignments")
+        .select("id, cleaner_id")
+        .eq("job_id", Number(jobId))
+        .eq("status", "pending")
+        .neq("id", Number(assignmentId))
+
+      if (otherAssignments && otherAssignments.length > 0) {
+        const otherIds = otherAssignments.map((a: any) => a.id)
+        await client
+          .from("cleaner_assignments")
+          .update({ status: "cancelled", responded_at: new Date().toISOString() })
+          .in("id", otherIds)
+
+        // Notify other cleaners the job was taken
+        for (const other of otherAssignments) {
+          const { data: otherCleaner } = await client
+            .from("cleaners")
+            .select("telegram_id, name")
+            .eq("id", other.cleaner_id)
+            .single()
+          if (otherCleaner?.telegram_id) {
+            sendTelegramMessage(tenant, otherCleaner.telegram_id, `The job on ${job.date || 'TBD'} has been filled. Thanks for your interest!`).catch(() => {})
+          }
+        }
+
+        console.log(`[Telegram/${tenant.slug}] Cancelled ${otherIds.length} other pending assignments for job ${jobId} (all ${cleanersNeeded} slots filled)`)
+      }
+
+      // Notify customer with all confirmed cleaner names
+      let customerNotified = false
+      if (job.phone_number) {
+        const customer = await getCustomerByPhone(job.phone_number)
+
+        if (customer) {
+          // Get all confirmed cleaner names for this job
+          const confirmedCleanerIds = (confirmedAssignments || []).map((a: any) => a.cleaner_id)
+          const { data: confirmedCleaners } = await client
+            .from("cleaners")
+            .select("name")
+            .in("id", confirmedCleanerIds)
+          const cleanerNames = (confirmedCleaners || []).map((c: any) => c.name)
+          const cleanerNamesStr = cleanerNames.length > 1
+            ? cleanerNames.slice(0, -1).join(", ") + " and " + cleanerNames[cleanerNames.length - 1]
+            : cleanerNames[0] || "your cleaner"
+
+          const dateStr = job.date
+            ? new Date(job.date + "T12:00:00").toLocaleDateString("en-US", {
+                weekday: "long", month: "long", day: "numeric",
+              })
+            : "your scheduled date"
+          const timeStr = job.scheduled_at || "your scheduled time"
+
+          const smsMessage = cleanerAssigned(
+            customer.first_name || "there",
+            cleanerNamesStr,
+            dateStr,
+            timeStr
+          )
+
+          const smsResult = await sendSMS(tenant, job.phone_number, smsMessage)
+          customerNotified = smsResult.success
+
+          if (customerNotified) {
+            await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
+            const supabase = getSupabaseServiceClient()
+            supabase.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id || null,
+              phone_number: job.phone_number,
+              role: "assistant",
+              content: smsMessage,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              source: "cleaner_assigned",
+              job_id: Number(jobId),
+              timestamp: new Date().toISOString(),
+            }).then(({ error: logErr }) => {
+              if (logErr) console.error(`[Telegram/${tenant.slug}] Failed to log cleaner-assigned SMS:`, logErr)
             })
-          : "your scheduled date"
-        const timeStr = job.scheduled_at || "your scheduled time"
-        const cleanerPhone = cleaner.phone || "our office number"
-
-        const smsMessage = cleanerAssigned(
-          customer.first_name || "there",
-          cleaner.name,
-          cleanerPhone,
-          dateStr,
-          timeStr
-        )
-
-        const smsResult = await sendSMS(tenant, job.phone_number, smsMessage)
-        customerNotified = smsResult.success
-
-        if (customerNotified) {
-          await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
-          const supabase = getSupabaseServiceClient()
-          supabase.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id || null,
-            phone_number: job.phone_number,
-            role: "assistant",
-            content: smsMessage,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            source: "cleaner_assigned",
-            job_id: Number(jobId),
-            timestamp: new Date().toISOString(),
-          }).then(({ error: logErr }) => {
-            if (logErr) console.error(`[Telegram/${tenant.slug}] Failed to log cleaner-assigned SMS:`, logErr)
-          })
+          }
         }
       }
+    } else {
+      console.log(`[Telegram/${tenant.slug}] Job ${jobId}: ${confirmedCount}/${cleanersNeeded} cleaners filled — waiting for more`)
     }
 
-    await sendMsg(chatId, `<b>Job Accepted!</b>\n\nYou have been assigned to this job. The customer has been notified.\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nThank you!`, tenant)
+    const slotsMsg = cleanersNeeded > 1 ? ` (${confirmedCount}/${cleanersNeeded} cleaners assigned)` : ''
+    await sendMsg(chatId, `<b>Job Accepted!</b>${slotsMsg}\n\nYou have been assigned to this job.${allCleanersFilled ? ' The customer has been notified.' : ''}\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nWhen you finish the job, type <b>done job ${jobId}</b> to mark it complete.\n\nThank you!`, tenant)
 
     await logSystemEvent({
       source: "telegram",
@@ -386,9 +458,35 @@ async function handleDeclineCallback(
     await updateCleanerAssignment(assignmentId, "declined")
     await sendMsg(chatId, "No problem! We'll find another cleaner for this job.", tenant)
 
-    const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
+    // Check if this tenant uses broadcast mode
+    const isBroadcast = tenantUsesFeature(tenant, 'use_broadcast_assignment')
 
-    if (!assignResult.success && assignResult.exhausted) {
+    // In broadcast mode, check if there are still other pending assignments
+    // Only escalate if ALL cleaners have declined (no pending left)
+    let allDeclined = false
+    let nextAssigned = false
+
+    if (isBroadcast) {
+      const client = getSupabaseServiceClient()
+      const { data: remainingPending } = await client
+        .from("cleaner_assignments")
+        .select("id")
+        .eq("job_id", Number(jobId))
+        .eq("status", "pending")
+
+      if (!remainingPending || remainingPending.length === 0) {
+        // All cleaners have declined or been cancelled — no one left
+        allDeclined = true
+      }
+      // Otherwise, other cleaners still have pending assignments, do nothing
+    } else {
+      // Routing mode: cascade to next cleaner
+      const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
+      nextAssigned = assignResult.success
+      allDeclined = !assignResult.success && (assignResult.exhausted || false)
+    }
+
+    if (allDeclined) {
       if (job.phone_number) {
         const customer = await getCustomerByPhone(job.phone_number)
         const dateStr = job.date
@@ -414,7 +512,7 @@ async function handleDeclineCallback(
         message: `No cleaners available for job ${jobId} - all declined or unavailable`,
         job_id: jobId,
         phone_number: job.phone_number,
-        metadata: { reason: "cleaner_assignment_exhausted", last_declined_cleaner_id: assignment.cleaner_id },
+        metadata: { reason: "cleaner_assignment_exhausted", last_declined_cleaner_id: assignment.cleaner_id, mode: isBroadcast ? 'broadcast' : 'routing' },
       })
     }
 
@@ -428,8 +526,9 @@ async function handleDeclineCallback(
       metadata: {
         assignment_id: assignmentId,
         telegram_user_id: telegramUserId,
-        next_cleaner_assigned: assignResult.success,
-        exhausted: assignResult.exhausted || false,
+        next_cleaner_assigned: nextAssigned,
+        all_declined: allDeclined,
+        mode: isBroadcast ? 'broadcast' : 'routing',
       },
     })
 
@@ -636,6 +735,126 @@ export async function POST(
       return NextResponse.json({ success: true, action: "job_confirmed" })
     }
 
+    // "done job 90" — cleaner marks job complete → final payment + review countdown
+    const doneMatch = text.match(DONE_PATTERN)
+    if (doneMatch) {
+      const [, jobId] = doneMatch
+      const numericJobId = Number(jobId)
+
+      // Verify this cleaner is actually assigned to this job
+      if (!cleaner?.id) {
+        await sendMsg(chatId, `You're not registered as a cleaner. Send "join" to register.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      const { data: assignment } = await client
+        .from("cleaner_assignments")
+        .select("id, status")
+        .eq("job_id", numericJobId)
+        .eq("cleaner_id", cleaner.id)
+        .in("status", ["confirmed", "pending"])
+        .limit(1)
+        .maybeSingle()
+
+      if (!assignment) {
+        await sendMsg(chatId, `You don't have an active assignment for Job #${jobId}. Check your job number and try again.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      const job = await getJobById(String(numericJobId))
+      if (!job) {
+        await sendMsg(chatId, `Job #${jobId} not found.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      if (job.status === "completed") {
+        await sendMsg(chatId, `Job #${jobId} is already marked as completed.`, tenant)
+        return NextResponse.json({ success: true })
+      }
+
+      // Update assignment status
+      await client
+        .from("cleaner_assignments")
+        .update({ status: "completed", responded_at: new Date().toISOString() })
+        .eq("id", assignment.id)
+
+      // Set completed_at on the job
+      await updateJob(String(numericJobId), {
+        completed_at: new Date().toISOString(),
+      } as Record<string, unknown>)
+
+      // Execute complete job → sends final payment link + marks completed
+      const completeResult = await executeCompleteJob(String(numericJobId))
+
+      if (!completeResult.success) {
+        // Even if final payment fails, still mark the job done
+        await updateJob(String(numericJobId), { status: "completed" } as Record<string, unknown>)
+      }
+
+      // Sync lead status to "completed" so dashboard pipeline updates
+      const serviceClient = getSupabaseServiceClient()
+      await serviceClient
+        .from("leads")
+        .update({ status: "completed" })
+        .eq("converted_to_job_id", numericJobId)
+
+      // Send review request SMS immediately (don't wait for 2h cron)
+      let reviewSent = false
+      if (job.phone_number && tenantUsesFeature(tenant, 'use_review_request')) {
+        const reviewCustomer = await getCustomerByPhone(job.phone_number)
+        const customerName = reviewCustomer?.first_name || 'there'
+        const reviewLink = tenant.google_review_link || 'https://g.page/review'
+        const appDomain = (tenant.website_url || '').replace(/\/+$/, '')
+        const tipLink = `${appDomain}/tip/${numericJobId}`
+        const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+
+        const { postJobFollowup } = await import('@/lib/sms-templates')
+        const reviewMsg = postJobFollowup(customerName, cleaner.name, reviewLink, tipLink, recurringDiscount)
+        const reviewResult = await sendSMS(tenant, job.phone_number, reviewMsg)
+        reviewSent = reviewResult.success
+
+        if (!reviewSent) {
+          console.error(`[Telegram/${tenant.slug}] Review SMS failed for job ${numericJobId}:`, JSON.stringify(reviewResult))
+        }
+
+        if (reviewSent) {
+          // Mark followup_sent_at so the 2h cron doesn't double-send
+          await updateJob(String(numericJobId), { followup_sent_at: new Date().toISOString() } as Record<string, unknown>)
+
+          await logSystemEvent({
+            source: 'telegram',
+            event_type: 'POST_JOB_FOLLOWUP_SENT',
+            message: `Immediate post-job follow-up sent for job ${numericJobId} (cleaner marked done)`,
+            tenant_id: tenant.id,
+            job_id: String(numericJobId),
+            phone_number: job.phone_number,
+            metadata: { triggered_by: 'telegram_done_command', cleaner_name: cleaner.name },
+          })
+        }
+      }
+
+      await sendMsg(chatId, `<b>Job #${jobId} complete!</b>\n\nGreat work, ${cleaner.name}! Thanks for getting it done.`, tenant)
+
+      await logSystemEvent({
+        source: "telegram",
+        event_type: "JOB_COMPLETED",
+        message: `Cleaner ${cleaner.name} marked job ${jobId} as complete via Telegram`,
+        job_id: String(numericJobId),
+        cleaner_id: cleaner.id,
+        tenant_id: tenant.id,
+        phone_number: job.phone_number,
+        metadata: {
+          telegram_user_id: telegramUserId,
+          assignment_id: assignment.id,
+          final_payment_sent: !!completeResult.paymentUrl,
+          review_sent: reviewSent,
+          completed_via: "telegram_done_command",
+        },
+      })
+
+      return NextResponse.json({ success: true, action: "job_completed", job_id: jobId })
+    }
+
     // Schedule query
     if (SCHEDULE_PATTERN.test(text)) {
       const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name)
@@ -643,10 +862,10 @@ export async function POST(
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
 
-    // AI fallback
-    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
-    await sendMsg(chatId, aiResponse, tenant)
-    return NextResponse.json({ success: true, action: "ai_response" })
+    // AI-powered assistant (handles info updates, job questions, general chat)
+    const aiResult = await handleCleanerAI(text, cleaner, chatId, telegramUserId, from.first_name, tenant)
+    await sendMsg(chatId, aiResult.response, tenant)
+    return NextResponse.json({ success: true, action: aiResult.action || "ai_response" })
 
   } catch (error) {
     console.error(`[Telegram/${slug}] Webhook error:`, error)
@@ -917,68 +1136,244 @@ async function buildScheduleResponse(userMessage: string, cleanerId: string | nu
   return `${header}\n\n${lines.join('\n\n')}\n\nQuestions? Reply here or use /start to see all commands.`
 }
 
-async function generateAIResponse(
+/**
+ * AI-powered cleaner assistant with tool-calling for info updates.
+ *
+ * Cleaners can:
+ * - Update their phone, address, name, email, availability
+ * - Ask questions about their assigned jobs
+ * - Get general help
+ *
+ * NEVER reveals: full job price, pay percentage, business financials
+ */
+async function handleCleanerAI(
   userMessage: string,
-  userName: string,
-  isTeamLead: boolean,
-  cleanerId: string | null
-): Promise<string> {
+  cleaner: { id: string; name: string; active: boolean; is_team_lead: boolean; phone: string | null; email: string | null } | null,
+  chatId: string,
+  telegramUserId: string,
+  firstName: string,
+  tenant: Tenant
+): Promise<{ response: string; action?: string }> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) return getDefaultFallbackResponse(isTeamLead)
+  if (!anthropicKey) return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
 
   try {
+    const supabase = getSupabaseServiceClient()
+    const userName = cleaner?.name || firstName
+
+    // Build job context for this cleaner
     let jobContext = ""
-    if (cleanerId) {
-      const supabase = getSupabaseServiceClient()
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+    let cleanerInfoContext = ""
+    if (cleaner?.id) {
+      // Get current cleaner info
+      const { data: cleanerData } = await supabase
+        .from("cleaners")
+        .select("name, phone, email, home_address, availability")
+        .eq("id", cleaner.id)
+        .single()
+      if (cleanerData) {
+        const avail = cleanerData.availability as { rules?: { days?: string[]; start?: string; end?: string }[] } | null
+        const availStr = avail?.rules?.[0]
+          ? `${(avail.rules[0].days || []).join(', ')} ${avail.rules[0].start || ''}-${avail.rules[0].end || ''}`
+          : 'Not set'
+        cleanerInfoContext = `\n\nCLEANER'S CURRENT INFO:\nName: ${cleanerData.name}\nPhone: ${cleanerData.phone || 'Not set'}\nEmail: ${cleanerData.email || 'Not set'}\nHome Address: ${cleanerData.home_address || 'Not set'}\nAvailability: ${availStr}`
+      }
+
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: tenant.timezone || 'America/Chicago' })
       const { data: assignments } = await supabase
         .from("cleaner_assignments")
         .select("job_id")
-        .eq("cleaner_id", cleanerId)
+        .eq("cleaner_id", cleaner.id)
         .in("status", ["confirmed", "pending"])
       const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
       if (jobIds.length > 0) {
         const { data: jobs } = await supabase
           .from("jobs")
-          .select("id, date, scheduled_at, address, service_type, status")
+          .select("id, date, scheduled_at, address, service_type, status, hours, notes")
           .in("id", jobIds)
           .gte("date", today)
           .order("date", { ascending: true })
           .limit(10)
         if (jobs && jobs.length > 0) {
           const jobLines = jobs.map((j: any) =>
-            `- ${j.date || 'TBD'} at ${j.scheduled_at || 'TBD'}: ${j.service_type || 'Cleaning'} at ${j.address || 'Address not set'} (Job #${j.id})`
+            `- Job #${j.id}: ${j.date || 'TBD'} at ${j.scheduled_at || 'TBD'}, ${j.service_type || 'Cleaning'} at ${j.address || 'Address not set'}${j.hours ? `, ~${j.hours}h` : ''}${j.notes ? ` (Notes: ${j.notes})` : ''}`
           )
-          jobContext = `\n\nTHIS CLEANER'S UPCOMING JOBS:\n${jobLines.join('\n')}`
+          jobContext = `\n\nUPCOMING JOBS:\n${jobLines.join('\n')}`
         } else {
-          jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now.`
+          jobContext = `\n\nNo upcoming jobs assigned.`
         }
       } else {
-        jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now.`
+        jobContext = `\n\nNo upcoming jobs assigned.`
       }
     } else {
       jobContext = `\n\nThis user is NOT registered as a cleaner. Tell them to send "join" to register.`
     }
 
+    const tools: Anthropic.Tool[] = cleaner?.id ? [
+      {
+        name: "update_cleaner_info",
+        description: "Update the cleaner's personal information in the system. Use this when they ask to change their phone number, email, name, or home address.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            field: { type: "string", enum: ["name", "phone", "email", "home_address"], description: "The field to update" },
+            value: { type: "string", description: "The new value" }
+          },
+          required: ["field", "value"]
+        }
+      },
+      {
+        name: "update_availability",
+        description: "Update the cleaner's work availability schedule. Use this when they want to change what days/hours they work.",
+        input_schema: {
+          type: "object" as const,
+          properties: {
+            days: { type: "array", items: { type: "string", enum: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"] }, description: "Days available" },
+            start_time: { type: "string", description: "Start time in HH:MM 24h format (e.g. 08:00)" },
+            end_time: { type: "string", description: "End time in HH:MM 24h format (e.g. 17:00)" }
+          },
+          required: ["days", "start_time", "end_time"]
+        }
+      }
+    ] : []
+
     const client = new Anthropic({ apiKey: anthropicKey })
-    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. The user's name is ${userName}.${isTeamLead ? " They are a team lead." : ""}${jobContext}\n\nRespond in a friendly, concise way (2-4 sentences max). Use plain text only, no markdown.`
+    const systemPrompt = `You are a helpful, friendly assistant for ${tenant.business_name_short || tenant.name}'s cleaning team Telegram bot. The user's name is ${userName}.${cleaner?.is_team_lead ? " They are a team lead." : ""}${cleanerInfoContext}${jobContext}
+
+CAPABILITIES:
+- Answer questions about their assigned jobs (dates, times, addresses, service type, notes)
+- Update their personal info (phone, email, name, address) using the update_cleaner_info tool
+- Update their availability schedule using the update_availability tool
+- Help with tips, upsells, and general questions
+
+STRICT RULES - NEVER VIOLATE:
+- NEVER reveal the price/revenue of any job. If asked "how much does this job pay" or "what's the job price", tell them their pay was shown in the job notification and to check that message.
+- NEVER discuss pay percentages, commission splits, or business revenue.
+- NEVER share other cleaners' personal info, pay, or schedules.
+- If asked about pay structure, say "Your pay is shown on each job notification when it's offered to you."
+- Keep responses concise (2-4 sentences). Use plain text, no markdown.
+- When updating info, use the tools provided. Confirm the update to the user after.
+- For availability updates, convert natural language days to codes: Monday=MO, Tuesday=TU, etc. Convert times to 24h format.`
+
+    let messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }]
 
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 300,
-      messages: [{ role: "user", content: userMessage }],
+      max_tokens: 500,
+      messages,
       system: systemPrompt,
+      tools: tools.length > 0 ? tools : undefined,
     })
 
-    const textContent = response.content.find(b => b.type === "text")
-    if (textContent?.type === "text" && textContent.text) return textContent.text.trim()
-    return getDefaultFallbackResponse(isTeamLead)
+    // Process tool calls if any
+    const toolUseBlocks = response.content.filter(b => b.type === "tool_use")
+    const textBlocks = response.content.filter(b => b.type === "text")
+
+    if (toolUseBlocks.length > 0 && cleaner?.id) {
+      const toolResults: Anthropic.MessageParam[] = []
+      const toolResultContents: Anthropic.ToolResultBlockParam[] = []
+
+      for (const toolUse of toolUseBlocks) {
+        if (toolUse.type !== "tool_use") continue
+        const input = toolUse.input as Record<string, any>
+
+        if (toolUse.name === "update_cleaner_info") {
+          const { field, value } = input
+          const allowedFields = ["name", "phone", "email", "home_address"]
+          if (!allowedFields.includes(field)) {
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error: Cannot update field "${field}"` })
+            continue
+          }
+
+          const updateData: Record<string, any> = { [field]: value, updated_at: new Date().toISOString() }
+
+          // Geocode if address update
+          if (field === "home_address") {
+            try {
+              const geo = await geocodeAddress(value)
+              if (geo) {
+                updateData.home_lat = geo.lat
+                updateData.home_lng = geo.lng
+                updateData.home_address = geo.formattedAddress
+              }
+            } catch { /* geocode failed, keep raw address */ }
+          }
+
+          // Format phone if phone update
+          if (field === "phone") {
+            const cleanPhone = value.replace(/[\s\-\(\)]/g, '')
+            updateData.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
+          }
+
+          const { error } = await supabase
+            .from("cleaners")
+            .update(updateData)
+            .eq("id", cleaner.id)
+
+          if (error) {
+            console.error(`[Telegram/${tenant.slug}] Failed to update cleaner ${field}:`, error)
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error updating ${field}: ${error.message}` })
+          } else {
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Successfully updated ${field} to "${updateData[field] || value}"` })
+          }
+        }
+
+        if (toolUse.name === "update_availability") {
+          const { days, start_time, end_time } = input
+          const availability = { rules: [{ days, start: start_time, end: end_time }] }
+
+          const { error } = await supabase
+            .from("cleaners")
+            .update({ availability, updated_at: new Date().toISOString() })
+            .eq("id", cleaner.id)
+
+          if (error) {
+            console.error(`[Telegram/${tenant.slug}] Failed to update availability:`, error)
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Error updating availability: ${error.message}` })
+          } else {
+            const dayLabels = (days as string[]).map((d: string) => DAY_LABELS[d] || d).join(', ')
+            toolResultContents.push({ type: "tool_result", tool_use_id: toolUse.id, content: `Successfully updated availability to ${dayLabels}, ${start_time}-${end_time}` })
+          }
+        }
+      }
+
+      // Send tool results back to get final response
+      messages = [
+        { role: "user", content: userMessage },
+        { role: "assistant", content: response.content },
+        { role: "user", content: toolResultContents }
+      ]
+
+      const followUp = await client.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages,
+        system: systemPrompt,
+        tools,
+      })
+
+      const followUpText = followUp.content.find(b => b.type === "text")
+      if (followUpText?.type === "text" && followUpText.text) {
+        return { response: followUpText.text.trim(), action: "cleaner_info_updated" }
+      }
+      // If no text in follow-up, use original text blocks
+      if (textBlocks.length > 0 && textBlocks[0].type === "text") {
+        return { response: textBlocks[0].text.trim(), action: "cleaner_info_updated" }
+      }
+      return { response: "Done! Your information has been updated.", action: "cleaner_info_updated" }
+    }
+
+    // No tool calls — just return text
+    if (textBlocks.length > 0 && textBlocks[0].type === "text") {
+      return { response: textBlocks[0].text.trim() }
+    }
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
   } catch (error) {
-    console.error("[Telegram/slug] AI response error:", error)
-    return getDefaultFallbackResponse(isTeamLead)
+    console.error(`[Telegram/${tenant.slug}] AI response error:`, error)
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
   }
 }
 
 function getDefaultFallbackResponse(isTeamLead: boolean): string {
-  return `I didn't quite understand that. Here's what I can help with:\n\n• New cleaner? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Need help? Send /start`
+  return `I didn't quite understand that. Here's what I can help with:\n\n• New cleaner? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Check your schedule: "my schedule"\n• Update your info: "update my phone to 555-123-4567"\n• Need help? Send /start`
 }

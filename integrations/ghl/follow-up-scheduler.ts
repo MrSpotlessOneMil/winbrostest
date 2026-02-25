@@ -21,6 +21,8 @@ import type { GHLFollowUp } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getClientConfig } from '@/lib/client-config'
+import { getTenantBySlug } from '@/lib/tenant'
+import type { Tenant } from '@/lib/tenant'
 import type { GHLFollowUpType, ScheduleFollowUpInput } from './types'
 import {
   GHL_TIMING,
@@ -103,25 +105,28 @@ export async function processFollowUp(
       return { success: true, action: 'skipped_inactive_lead' }
     }
 
+    // Resolve tenant from lead's brand slug
+    const tenant = lead.brand ? await getTenantBySlug(lead.brand) : null
+
     // Process based on follow-up type
     switch (followUp.followup_type) {
       case 'initial_sms':
-        return await processInitialSMS(followUp, lead)
+        return await processInitialSMS(followUp, lead, tenant)
 
       case 'trigger_call':
         return await processTriggerCall(followUp, lead)
 
       case 'post_voicemail_sms':
       case 'post_no_answer_sms':
-        return await processPostCallSMS(followUp, lead)
+        return await processPostCallSMS(followUp, lead, tenant)
 
       case 'followup_sms_1':
       case 'followup_sms_2':
       case 'final_attempt':
-        return await processFollowUpSMS(followUp, lead)
+        return await processFollowUpSMS(followUp, lead, tenant)
 
       case 'silence_reminder':
-        return await processSilenceReminder(followUp, lead)
+        return await processSilenceReminder(followUp, lead, tenant)
 
       default:
         await updateGHLFollowUp(followUp.id!, {
@@ -147,10 +152,11 @@ export async function processFollowUp(
  */
 async function processInitialSMS(
   followUp: GHLFollowUp,
-  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; brand?: string }
+  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; brand?: string },
+  tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   const message = GHL_SMS_TEMPLATES.initial(lead.first_name)
-  const result = await sendSMS(followUp.phone_number, message, lead.brand)
+  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -302,14 +308,15 @@ async function processTriggerCall(
  */
 async function processPostCallSMS(
   followUp: GHLFollowUp,
-  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string }
+  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string },
+  tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   const isVoicemail = followUp.followup_type === 'post_voicemail_sms'
   const message = isVoicemail
     ? GHL_SMS_TEMPLATES.postVoicemail(lead.first_name)
     : GHL_SMS_TEMPLATES.postNoAnswer(lead.first_name)
 
-  const result = await sendSMS(followUp.phone_number, message, lead.brand)
+  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -360,7 +367,8 @@ async function processPostCallSMS(
  */
 async function processFollowUpSMS(
   followUp: GHLFollowUp,
-  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string }
+  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string },
+  tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   // Select message based on follow-up type
   let message: string
@@ -386,7 +394,7 @@ async function processFollowUpSMS(
       message = GHL_SMS_TEMPLATES.followUp1(lead.first_name)
   }
 
-  const result = await sendSMS(followUp.phone_number, message, lead.brand)
+  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -460,10 +468,11 @@ async function processFollowUpSMS(
  */
 async function processSilenceReminder(
   followUp: GHLFollowUp,
-  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string }
+  lead: { id?: string; first_name?: string; phone_number: string; job_id?: string; customer_id?: string; sms_attempt_count?: number; brand?: string },
+  tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   const message = GHL_SMS_TEMPLATES.silenceWarning(lead.first_name)
-  const result = await sendSMS(followUp.phone_number, message, lead.brand)
+  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
