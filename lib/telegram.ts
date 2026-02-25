@@ -399,10 +399,24 @@ export async function notifyCleanerAssignment(
     }
   }
 
-  const duration = job.hours ? `${job.hours} hours` : 'TBD'
-
   const safeNotes = formatCleanerNotes(job.notes)
   const businessName = tenant.business_name_short || tenant.name
+
+  // Extract frequency from notes if present
+  let frequency = ''
+  if (job.notes) {
+    const freqMatch = job.notes.match(/Frequency:\s*(\S+)/i)
+    if (freqMatch) {
+      frequency = freqMatch[1].replace(/_/g, ' ')
+      // Capitalize first letter
+      frequency = frequency.charAt(0).toUpperCase() + frequency.slice(1)
+    }
+  }
+
+  // Format service type for display
+  const serviceType = job.service_type
+    ? job.service_type.split(/[\s_]+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+    : null
 
   // Calculate cleaner pay from job price and tenant's cleaner_pay_percentage
   let payLine = ''
@@ -415,15 +429,22 @@ export async function notifyCleanerAssignment(
     payLine = `\nPay: $${jobPrice.toFixed(2)}`
   }
 
+  // Build message lines
+  const detailLines = [
+    serviceType ? `Service: ${serviceType}` : null,
+    `Date: ${dateStr}, ${timeStr}`,
+    `Bedrooms: ${bedrooms}`,
+    `Bathrooms: ${bathrooms}`,
+    `Square Footage: ${squareFootage}`,
+    frequency ? `Frequency: ${frequency}` : null,
+  ].filter(Boolean).join('\n')
+
+  const notesLine = safeNotes ? `\nNotes: ${safeNotes}` : ''
+
   const message = `
 <b>New Job Available - ${businessName}!</b>
 
-Date: ${dateStr}, ${timeStr}
-Bedrooms: ${bedrooms}
-Bathrooms: ${bathrooms}
-Square Footage: ${squareFootage}
-Duration: ${duration}${payLine}
-Notes: ${safeNotes || 'None'}
+${detailLines}${payLine}${notesLine}
 
 Address: ${job.address || customer?.address || 'See details'}
 Customer: ${customer?.first_name || 'Customer'}
@@ -1082,12 +1103,13 @@ function formatCleanerNotes(notes?: string | null): string {
 
   for (const line of lines) {
     const lower = line.toLowerCase()
-    // Skip internal/payment related notes
+    // Skip internal/payment related notes and frequency (shown separately)
     if (
       lower.startsWith('hours:') ||
       lower.startsWith('pay:') ||
       lower.startsWith('payment:') ||
       lower.startsWith('override:') ||
+      lower.startsWith('frequency:') ||
       lower.includes('invoice_url') ||
       lower.includes('@')  // Skip emails
     ) {

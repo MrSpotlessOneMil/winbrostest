@@ -368,7 +368,7 @@ async function handleAcceptCallback(
       }
     }
 
-    await sendMsg(chatId, `<b>Job Accepted!</b>\n\nYou have been assigned to this job. The customer has been notified.\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nThank you!`, tenant)
+    await sendMsg(chatId, `<b>Job Accepted!</b>\n\nYou have been assigned to this job. The customer has been notified.\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nWhen you finish the job, type <b>done job ${jobId}</b> to mark it complete.\n\nThank you!`, tenant)
 
     await logSystemEvent({
       source: "telegram",
