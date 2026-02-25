@@ -15,7 +15,6 @@
 
 ## TypeScript Debt
 - [ ] Add `tenant_id` to `GHLLead` and `Cleaner` interfaces (DB columns exist, accessed via casts)
-- [ ] Fix `cleanerAssigned()` call signature (5 args passed, 4 expected) in assistant chat route
 
 ## QA
 - [ ] Complete E2E test plan (`Documentation/E2E-TEST-PLAN.md`) — 130 items, all unchecked
@@ -142,6 +141,9 @@
 - [x] **Cross-tenant job query isolation** — Added `tenant_id` filter to `lookup_customer`, `generate_stripe_link`, `create_wave_invoice` job queries (were leaking jobs across tenants) (2-25)
 - [x] **search_customers lead query guard** — Lead query now guards against undefined `tenantId` instead of passing it raw to `.eq()` (2-25)
 - [x] **handleDeleteConversation React fix** — Moved side effects out of `setConversations` updater to prevent nested state updates (2-25)
+- [x] **Anti-hallucination guards** — CRITICAL RULES in system prompt + assign_cleaner tool description requires customer lookup before using job IDs (2-25)
+- [x] **cleanerAssigned() SMS fix** — Removed extra `cleaner.phone` arg that shifted date/time params (sent phone as date) (2-25)
+- [x] **assign_cleaner status fix** — Changed from `confirmed` to `pending` so cleaners can accept via Telegram buttons (2-25)
 - [x] Model upgraded to Claude Opus 4.6 (2-24)
 - [x] Tenant-aware language + reset actually deletes data (2-22)
 
