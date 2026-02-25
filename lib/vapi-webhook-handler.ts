@@ -389,6 +389,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 paid: false,
                 notes: jobNotes || null,
                 payment_status: "pending",
+                job_type: isWinBros ? 'estimate' : 'cleaning',
               }).select("id").single()
 
               if (jobErr) {
@@ -572,6 +573,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               paid: false,
               notes: existingLeadNotes,
               payment_status: "pending",
+              job_type: isWinBrosExisting ? 'estimate' : 'cleaning',
             }).select("id").single()
 
             if (jobErr) {

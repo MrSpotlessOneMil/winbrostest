@@ -494,10 +494,94 @@ export async function POST(request: NextRequest) {
 
       const jobId = job?.id || bookedLead.converted_to_job_id || null
 
-      // Skip payment links entirely for estimate jobs — salesman quotes price on-site
-      if (job?.job_type === 'estimate') {
-        console.log(`[OpenPhone] Skipping payment links for estimate job ${jobId} — salesman will quote on-site`)
-        return NextResponse.json({ success: true, flow: "phone_call_email_captured_estimate", leadId: bookedLead.id })
+      // WinBros estimate jobs: NO payment link — send confirmation + assign salesman
+      if (job?.job_type === 'estimate' && tenant) {
+        console.log(`[OpenPhone] Estimate job ${jobId} — sending confirmation and assigning salesman (no payment link)`)
+
+        // Save email to lead form_data
+        await client
+          .from("leads")
+          .update({
+            form_data: {
+              ...parseFormData(bookedLead.form_data),
+              email: providedEmail,
+            },
+          })
+          .eq("id", bookedLead.id)
+
+        // Send confirmation message to customer
+        const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there'
+        const jobDate = job.date || 'your requested date'
+        const jobTime = job.scheduled_at || 'your requested time'
+        const jobAddress = job.address || customer.address || 'your address'
+        const confirmMsg = `You're all confirmed, ${customerName}! Your estimate is set for ${jobDate} at ${jobTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
+
+        const smsResult = await sendSMS(tenant, phone, confirmMsg)
+
+        if (smsResult.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: confirmMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "estimate_booked",
+          })
+        }
+
+        // Route optimize and assign salesman
+        try {
+          if (job.date) {
+            const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
+            const { dispatchRoutes } = await import("@/lib/dispatch")
+            const { sendTelegramMessage } = await import("@/lib/telegram")
+
+            const { optimization, assignedTeamId, assignedLeadTelegramId } =
+              await optimizeRoutesIncremental(Number(jobId), job.date, tenant.id, 'salesman')
+
+            if (assignedTeamId) {
+              await dispatchRoutes(optimization, tenant.id, {
+                sendTelegramToTeams: false,
+                sendSmsToCustomers: false,
+                sendOwnerSummary: false,
+              })
+
+              if (assignedLeadTelegramId) {
+                const salesmanMsg = [
+                  `<b>New Estimate Assigned - ${tenant.name || 'WinBros'}</b>`,
+                  ``,
+                  `Customer: ${customerName}`,
+                  `Service: ${job.service_type || 'Window Cleaning'}`,
+                  `Address: ${jobAddress}`,
+                  `Date: ${jobDate} at ${jobTime}`,
+                  ``,
+                  `Please visit the customer to provide an on-site quote.`,
+                ].join('\n')
+                await sendTelegramMessage(tenant, assignedLeadTelegramId, salesmanMsg, 'HTML')
+                console.log(`[OpenPhone] Telegram sent to salesman for estimate job ${jobId}`)
+              }
+            } else {
+              console.warn(`[OpenPhone] No salesman available for estimate job ${jobId} on ${job.date}`)
+            }
+          }
+        } catch (estimateErr) {
+          console.error("[OpenPhone] Failed to assign salesman for estimate:", estimateErr)
+        }
+
+        await logSystemEvent({
+          tenant_id: tenant.id,
+          source: "openphone",
+          event_type: "SMS_ESTIMATE_BOOKED",
+          message: `Estimate confirmed for ${phone} — job ${jobId}, salesman assignment triggered`,
+          phone_number: phone,
+          metadata: { lead_id: bookedLead.id, job_id: jobId, email: providedEmail },
+        })
+
+        return NextResponse.json({ success: true, flow: "phone_call_estimate_confirmed", leadId: bookedLead.id })
       }
 
       // ──────────────────────────────────────────────────────────────────────
