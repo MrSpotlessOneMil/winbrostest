@@ -12,6 +12,22 @@ import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 
+/** Safely extract a string from VAPI structured data — handles objects, arrays, nulls */
+function safeString(val: unknown): string | null {
+  if (val == null) return null
+  if (typeof val === 'string') return val.trim() || null
+  if (typeof val === 'object') {
+    // Handle address objects like {street, city, state, zip}
+    const obj = val as Record<string, unknown>
+    const parts = [obj.street, obj.address, obj.city, obj.state, obj.zip, obj.zipCode, obj.postal_code]
+      .filter(v => typeof v === 'string' && v.trim())
+    if (parts.length > 0) return parts.join(', ')
+    // Last resort: try JSON but never return [object Object]
+    try { const j = JSON.stringify(val); return j !== '{}' ? j : null } catch { return null }
+  }
+  return String(val)
+}
+
 function estimateJobHours(serviceType: string | null | undefined): number {
   const lower = (serviceType || '').toLowerCase()
   if (lower.includes('pressure') || lower.includes('power wash')) return 3
@@ -311,10 +327,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJob.id })
               }
 
-              let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
-              const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
-              const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-              const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+              let appointmentDate = safeString(structuredData.appointment_date) || bookingInfo.requestedDate || null
+              const appointmentTime = safeString(structuredData.appointment_time) || bookingInfo.requestedTime || null
+              const serviceType = safeString(structuredData.service_type) || bookingInfo.serviceType || "Cleaning"
+              const bookAddress = safeString(structuredData.customer_address) || safeString(structuredData.address) || bookingInfo.address || null
 
               // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
               if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
@@ -328,7 +344,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
               const jobNotes = isWinBros
                 ? buildWinBrosJobNotes({
-                    serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                    serviceType: bookingInfo.serviceType || safeString(structuredData.service_type) || null,
                     squareFootage: bookingInfo.squareFootage || null,
                     scope: bookingInfo.scope || null,
                     planType: bookingInfo.planType || null,
@@ -443,7 +459,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 fullName || "there",
                 serviceType,
                 dateTimeStr,
-                bookAddress || "your address"
+                bookAddress || "your address",
+                isWinBros
               )
 
               const smsResult = await sendSMS(tenant, phone, confirmationMsg)
@@ -499,10 +516,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJobExisting.id })
             }
 
-            let appointmentDate = structuredData.appointment_date as string || bookingInfo.requestedDate || null
-            const appointmentTime = structuredData.appointment_time as string || bookingInfo.requestedTime || null
-            const serviceType = structuredData.service_type as string || bookingInfo.serviceType || "Cleaning"
-            const bookAddress = structuredData.customer_address as string || structuredData.address as string || bookingInfo.address || null
+            let appointmentDate = safeString(structuredData.appointment_date) || bookingInfo.requestedDate || null
+            const appointmentTime = safeString(structuredData.appointment_time) || bookingInfo.requestedTime || null
+            const serviceType = safeString(structuredData.service_type) || bookingInfo.serviceType || "Cleaning"
+            const bookAddress = safeString(structuredData.customer_address) || safeString(structuredData.address) || bookingInfo.address || null
 
             // Normalize date to YYYY-MM-DD (handles "February 21st", "tomorrow", "2/21", etc.)
             if (appointmentDate && !/^\d{4}-\d{2}-\d{2}$/.test(appointmentDate)) {
@@ -513,7 +530,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             const isWinBrosExisting = tenantUsesFeature(tenant, 'use_hcp_mirror')
             const existingLeadNotes = isWinBrosExisting
               ? buildWinBrosJobNotes({
-                  serviceType: bookingInfo.serviceType || structuredData.service_type as string || null,
+                  serviceType: bookingInfo.serviceType || safeString(structuredData.service_type) || null,
                   squareFootage: bookingInfo.squareFootage || null,
                   scope: bookingInfo.scope || null,
                   planType: bookingInfo.planType || null,
@@ -630,7 +647,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               fullName || "there",
               serviceType,
               dateTimeStr,
-              bookAddress || "your address"
+              bookAddress || "your address",
+              isWinBrosExisting
             )
 
             const smsResult = await sendSMS(tenant, phone, confirmationMsg)
