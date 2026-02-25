@@ -1150,14 +1150,14 @@ async function executeTool(
         .single()
       if (!cleaner) return `Cleaner #${cleanerId} not found. Use list_cleaners to see available cleaners.`
 
-      // Create assignment
+      // Create assignment as pending — cleaner confirms via Telegram accept button
       const { data: assignment, error: assignErr } = await client
         .from("cleaner_assignments")
         .insert({
           tenant_id: tenantId,
           job_id: jobId,
           cleaner_id: cleanerId,
-          status: "confirmed",
+          status: "pending",
         })
         .select("id")
         .single()
