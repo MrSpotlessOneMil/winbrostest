@@ -340,14 +340,16 @@ export async function POST(request: NextRequest) {
     console.log(`[OpenPhone] Combined ${recentInbound.length} messages: "${combinedMessage.slice(0, 100)}"`)
   }
 
-  // Get recent conversation history for context (more messages for better AI context)
+  // Get recent conversation history for context
+  // Needs to be large enough to capture the full booking conversation (name, address, service type
+  // are provided early but extractBookingData runs at the end after 15-20+ messages)
   const { data: recentMessages } = await client
     .from("messages")
     .select("role, content")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
-    .limit(10)
+    .limit(30)
 
   const conversationHistory = recentMessages?.reverse().map(m => ({
     role: m.role as 'client' | 'assistant',
