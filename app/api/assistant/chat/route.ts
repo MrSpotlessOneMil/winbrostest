@@ -337,11 +337,7 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
         },
         notify_cleaner: {
           type: "boolean",
-          description: "Send Telegram notification to the cleaner (default: true)",
-        },
-        notify_customer: {
-          type: "boolean",
-          description: "Send SMS confirmation to the customer (default: true)",
+          description: "Send Telegram notification to the cleaner (default: true). Customer is notified automatically when the cleaner accepts.",
         },
       },
       required: ["job_id", "cleaner_id"],
@@ -1184,22 +1180,8 @@ async function executeTool(
         results.push("Cleaner does NOT have Telegram set up — no notification sent")
       }
 
-      // Notify customer via SMS
-      if (notifyCustomer && job.phone_number && tenant) {
-        const { cleanerAssigned } = await import("@/lib/sms-templates")
-        const { sendSMS } = await import("@/lib/openphone")
-        const customer: any = await findCustomerByPhone(client, job.phone_number, tenantId, "first_name")
-        const dateStr = job.date || "TBD"
-        const timeStr = job.scheduled_at || "TBD"
-        const msg = cleanerAssigned(
-          customer?.first_name || "there",
-          cleaner.name,
-          dateStr,
-          timeStr
-        )
-        await sendSMS(tenant, job.phone_number, msg)
-        results.push("Customer notified via SMS")
-      }
+      // Customer SMS is sent automatically when the cleaner accepts via Telegram
+      results.push("Customer will be notified via SMS once the cleaner accepts")
 
       return results.join("\n")
     } catch (err: any) {
