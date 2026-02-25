@@ -767,6 +767,10 @@ export async function POST(
         const reviewResult = await sendSMS(tenant, job.phone_number, reviewMsg)
         reviewSent = reviewResult.success
 
+        if (!reviewSent) {
+          console.error(`[Telegram/${tenant.slug}] Review SMS failed for job ${numericJobId}:`, JSON.stringify(reviewResult))
+        }
+
         if (reviewSent) {
           // Mark followup_sent_at so the 2h cron doesn't double-send
           await updateJob(String(numericJobId), { followup_sent_at: new Date().toISOString() } as Record<string, unknown>)

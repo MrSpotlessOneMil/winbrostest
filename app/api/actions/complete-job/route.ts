@@ -21,7 +21,7 @@ import {
 import { sendSMS } from '@/lib/openphone'
 import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
-import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
+import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 
@@ -75,8 +75,30 @@ export async function executeCompleteJob(jobId: string): Promise<{
     return { success: false, error: 'Customer email required for final payment' }
   }
 
+  // If job price is missing, try to look it up from DB pricing tiers
+  let resolvedPrice = job.price ? parseFloat(String(job.price)) : 0
+  if (!resolvedPrice && job.tenant_id) {
+    try {
+      const { getPricingRow } = await import('@/lib/pricing-db')
+      const overrides = getOverridesFromNotes(job.notes)
+      if (overrides.bedrooms && overrides.bathrooms) {
+        const svcRaw = (job.service_type || 'standard cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+        const tier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+        const row = await getPricingRow(tier as any, overrides.bedrooms, overrides.bathrooms, overrides.squareFootage || null, job.tenant_id)
+        if (row?.price) {
+          resolvedPrice = row.price
+          // Persist the corrected price on the job
+          await updateJob(jobId, { price: resolvedPrice }, {}, serviceClient)
+          console.log(`[complete-job] Resolved missing price for job ${jobId}: $${resolvedPrice}`)
+        }
+      }
+    } catch (e) {
+      console.error(`[complete-job] Failed to look up pricing for job ${jobId}:`, e)
+    }
+  }
+
   // Calculate remaining 50% (with 3% processing fee)
-  const totalPrice = job.price || 0
+  const totalPrice = resolvedPrice
   const paymentTotals = getPaymentTotalsFromNotes(job.notes)
   const depositPaid = paymentTotals.depositPaid || 0
   const addOnPaid = paymentTotals.addOnPaid || 0

@@ -150,7 +150,20 @@ export async function getPricingRow(
     (row) => row.bedrooms === bedrooms && row.bathrooms === bathrooms
   )
 
-  if (matching.length === 0) return null
+  if (matching.length === 0) {
+    // No exact match — fall back to the largest available tier for this service type
+    // (e.g., 5bed/5bath gets the 4bed/3bath max tier price)
+    if (rows.length > 0) {
+      const sorted = [...rows].sort((a, b) => {
+        if (b.bedrooms !== a.bedrooms) return b.bedrooms - a.bedrooms
+        if (b.bathrooms !== a.bathrooms) return b.bathrooms - a.bathrooms
+        return b.max_sq_ft - a.max_sq_ft
+      })
+      console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — using largest tier: ${sorted[0].bedrooms}bed/${sorted[0].bathrooms}bath ($${sorted[0].price})`)
+      return sorted[0]
+    }
+    return null
+  }
 
   // Sort by max_sq_ft ascending
   const sorted = [...matching].sort((a, b) => a.max_sq_ft - b.max_sq_ft)

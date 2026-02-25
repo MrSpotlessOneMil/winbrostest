@@ -441,9 +441,11 @@ export async function notifyCleanerAssignment(
 
   const notesLine = safeNotes ? `\nNotes: ${safeNotes}` : ''
 
+  const jobIdLine = job.id ? `Job #${job.id}` : ''
+
   const message = `
 <b>New Job Available - ${businessName}!</b>
-
+${jobIdLine ? `\n${jobIdLine}` : ''}
 ${detailLines}${payLine}${notesLine}
 
 Address: ${job.address || customer?.address || 'See details'}
