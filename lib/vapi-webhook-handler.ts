@@ -342,7 +342,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     squareFootage: bookingInfo.squareFootage,
                   })
 
-              // Look up price from pricebook
+              // Look up price from pricebook (WinBros window/pressure/gutter)
               const priceResult = lookupPrice({
                 serviceType: bookingInfo.serviceType || serviceType,
                 squareFootage: bookingInfo.squareFootage || null,
@@ -351,8 +351,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
                 propertyType: bookingInfo.propertyType || null,
               })
-              const jobPrice = priceResult?.price || null
+              let jobPrice = priceResult?.price || null
               if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
+
+              // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
+              if (!jobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
+                try {
+                  const { getPricingRow } = await import('@/lib/pricing-db')
+                  const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                  const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                  const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
+                  if (pricingRow?.price) {
+                    jobPrice = pricingRow.price
+                    console.log(`${tag} Price from DB pricing tiers: $${jobPrice}`)
+                  }
+                } catch (e) {
+                  console.error(`${tag} Failed to look up DB pricing:`, e)
+                }
+              }
 
               const { data: job, error: jobErr } = await client.from("jobs").insert({
                 tenant_id: tenant.id,
@@ -405,6 +421,22 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                     booking_info: bookingInfo,
                   },
                 })
+
+                // Trigger cleaner assignment for broadcast tenants (Cedar Rapids etc.)
+                // WinBros triggers assignment via Stripe payment webhook instead
+                if (tenantUsesFeature(tenant, 'use_broadcast_assignment')) {
+                  try {
+                    const { triggerCleanerAssignment } = await import('@/lib/cleaner-assignment')
+                    const assignResult = await triggerCleanerAssignment(String(job.id))
+                    if (assignResult.success) {
+                      console.log(`${tag} Cleaner assignment triggered for job ${job.id}`)
+                    } else {
+                      console.error(`${tag} Cleaner assignment failed: ${assignResult.error}`)
+                    }
+                  } catch (assignErr) {
+                    console.error(`${tag} Error triggering cleaner assignment:`, assignErr)
+                  }
+                }
               }
 
               await client
@@ -505,7 +537,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   squareFootage: bookingInfo.squareFootage,
                 })
 
-            // Look up price from pricebook
+            // Look up price from pricebook (WinBros window/pressure/gutter)
             const existingPriceResult = lookupPrice({
               serviceType: bookingInfo.serviceType || serviceType,
               squareFootage: bookingInfo.squareFootage || null,
@@ -514,7 +546,23 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
               propertyType: bookingInfo.propertyType || null,
             })
-            const existingJobPrice = existingPriceResult?.price || null
+            let existingJobPrice = existingPriceResult?.price || null
+
+            // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
+            if (!existingJobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
+              try {
+                const { getPricingRow } = await import('@/lib/pricing-db')
+                const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
+                if (pricingRow?.price) {
+                  existingJobPrice = pricingRow.price
+                  console.log(`${tag} Price from DB pricing tiers (existing lead): $${existingJobPrice}`)
+                }
+              } catch (e) {
+                console.error(`${tag} Failed to look up DB pricing (existing lead):`, e)
+              }
+            }
 
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
@@ -553,6 +601,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 price: existingJobPrice,
                 notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
+
+              // Trigger cleaner assignment for broadcast tenants (Cedar Rapids etc.)
+              if (tenantUsesFeature(tenant, 'use_broadcast_assignment')) {
+                try {
+                  const { triggerCleanerAssignment } = await import('@/lib/cleaner-assignment')
+                  const assignResult = await triggerCleanerAssignment(String(job.id))
+                  if (assignResult.success) {
+                    console.log(`${tag} Cleaner assignment triggered for job ${job.id} (existing lead)`)
+                  } else {
+                    console.error(`${tag} Cleaner assignment failed (existing lead): ${assignResult.error}`)
+                  }
+                } catch (assignErr) {
+                  console.error(`${tag} Error triggering cleaner assignment (existing lead):`, assignErr)
+                }
+              }
             }
 
             await client
