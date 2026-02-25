@@ -70,7 +70,11 @@ export async function generateAutoResponse(
   const isAffirmativeResponse = ['yes', 'yeah', 'yep', 'yup', 'sure', 'absolutely', 'definitely'].includes(lowerMessage)
   const isNegativeResponse = ['no', 'nope', 'nah', 'not really', 'no thanks'].includes(lowerMessage)
 
-  // Window cleaning SMS booking flow (tenants with HCP mirror = window cleaning service type)
+  // TENANT ISOLATION — SMS BOOKING PROMPTS:
+  // use_hcp_mirror=true  → WinBros window/pressure/gutter SMS flow
+  // use_hcp_mirror=false → Cedar Rapids house cleaning SMS flow
+  // These use completely different AI prompts. Do NOT merge them.
+  // If adding a new service type, create a new response generator + feature flag.
   if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
       return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)

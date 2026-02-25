@@ -321,7 +321,10 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 appointmentDate = parseNaturalDate(appointmentDate).date
               }
 
-              // Build notes — use WinBros-specific helper for window/pressure/gutter services
+              // TENANT ISOLATION — Notes formatting:
+              // WinBros (use_hcp_mirror): buildWinBrosJobNotes (window/pressure/gutter)
+              // Cedar Rapids / others: mergeOverridesIntoNotes (bedrooms/bathrooms/sqft)
+              // Do NOT use buildWinBrosJobNotes for house cleaning tenants.
               const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
               const jobNotes = isWinBros
                 ? buildWinBrosJobNotes({
@@ -505,7 +508,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               appointmentDate = parseNaturalDate(appointmentDate).date
             }
 
-            // Build notes — use WinBros-specific helper for window/pressure/gutter services
+            // TENANT ISOLATION — see notes formatting comment above (new lead path)
             const isWinBrosExisting = tenantUsesFeature(tenant, 'use_hcp_mirror')
             const existingLeadNotes = isWinBrosExisting
               ? buildWinBrosJobNotes({

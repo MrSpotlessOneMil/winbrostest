@@ -723,7 +723,12 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
         booked: true,
-        notes: buildWinBrosJobNotes(bookingData) || null,
+        // TENANT ISOLATION: buildWinBrosJobNotes is window-cleaning-specific.
+        // Cedar Rapids house cleaning uses mergeOverridesIntoNotes instead.
+        // Do NOT use buildWinBrosJobNotes for non-WinBros tenants.
+        notes: (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror'))
+          ? buildWinBrosJobNotes(bookingData) || null
+          : null,
       }).select('id').single()
 
       if (retryJob) {
@@ -762,9 +767,18 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     console.log(`[Stripe Webhook] No job_id for card-on-file, skipping assignment`)
   }
 
-  // WinBros (route optimization): auto-assign job to team, no accept/decline
-  // Other tenants: trigger individual cleaner assignment cascade (accept/decline)
-  // If deposit was already paid, cleaner assignment was already triggered in handleDepositPayment — skip here
+  // ──────────────────────────────────────────────────────────────────────
+  // TENANT ISOLATION — CLEANER ASSIGNMENT MODES (do NOT merge these paths):
+  //
+  // WinBros (use_team_routing=true):
+  //   Full route optimization → auto-assign to closest team → Telegram owner notify
+  //
+  // Cedar Rapids (use_broadcast_assignment=true):
+  //   Broadcast to ALL cleaners → first to accept wins → customer notified
+  //   Assignment triggered in handleDepositPayment (after deposit paid), NOT here.
+  //
+  // If deposit was already paid, cleaner assignment was already triggered — skip here.
+  // ──────────────────────────────────────────────────────────────────────
   const useRouteOptimization = tenantUsesFeature(tenant, 'use_team_routing')
   let assignmentOutcome = 'no_job'
 

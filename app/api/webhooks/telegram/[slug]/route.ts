@@ -297,6 +297,14 @@ async function handleAcceptCallback(
       .update({ status: "assigned" })
       .eq("converted_to_job_id", Number(jobId))
 
+    // ──────────────────────────────────────────────────────────────────────
+    // TENANT ISOLATION — MULTI-CLEANER BROADCAST LOGIC:
+    // Cedar Rapids uses broadcast mode: ALL cleaners get notified, first to accept wins.
+    // For multi-cleaner jobs (job.cleaners > 1), we keep accepting until all slots filled.
+    // Only THEN do we cancel remaining pending assignments and notify the customer.
+    // WinBros uses distance routing (handled in cleaner-assignment.ts), not this path.
+    // Do NOT change this logic without testing both single and multi-cleaner flows.
+    // ──────────────────────────────────────────────────────────────────────
     // Check how many cleaners this job needs vs how many have accepted
     const cleanersNeeded = (job as any).cleaners || 1
     const { data: confirmedAssignments } = await client

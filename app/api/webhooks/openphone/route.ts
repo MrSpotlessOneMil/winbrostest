@@ -500,7 +500,13 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, flow: "phone_call_email_captured_estimate", leadId: bookedLead.id })
       }
 
-      // Tenants with team routing (WinBros/window cleaning) skip deposit flow — handled after booking
+      // ──────────────────────────────────────────────────────────────────────
+      // TENANT ISOLATION — PAYMENT FLOW AFTER EMAIL CAPTURE:
+      // WinBros (use_team_routing=true): Skip deposit, card-on-file only
+      // Cedar Rapids (use_team_routing=false): Wave invoice + Stripe deposit link
+      //   → Customer pays deposit → Stripe webhook → cleaner broadcast assignment
+      // Do NOT change the deposit flow without testing Cedar Rapids end-to-end.
+      // ──────────────────────────────────────────────────────────────────────
       const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
       // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)

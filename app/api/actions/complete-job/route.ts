@@ -75,7 +75,11 @@ export async function executeCompleteJob(jobId: string): Promise<{
     return { success: false, error: 'Customer email required for final payment' }
   }
 
-  // If job price is missing, try to look it up from DB pricing tiers
+  // TENANT ISOLATION — Price resolution:
+  // Cedar Rapids uses DB pricing tiers (pricing_tiers table, keyed by bed/bath/sqft)
+  // WinBros uses static pricebook (lib/pricebook.ts, keyed by service type/sqft)
+  // This fallback uses getPricingRow which works for house cleaning tenants.
+  // WinBros jobs should already have price set from pricebook at booking time.
   let resolvedPrice = job.price ? parseFloat(String(job.price)) : 0
   if (!resolvedPrice && job.tenant_id) {
     try {

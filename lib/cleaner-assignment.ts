@@ -351,12 +351,26 @@ export async function triggerCleanerAssignment(
     const jobTenantId = (job as any).tenant_id
     const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
 
-    // BROADCAST MODE: Send to ALL available cleaners, first to accept wins
+    // ──────────────────────────────────────────────────────────────────────
+    // TENANT ISOLATION — TWO MUTUALLY EXCLUSIVE ASSIGNMENT MODES:
+    //
+    // BROADCAST (Cedar Rapids: use_broadcast_assignment=true):
+    //   Notify ALL available cleaners at once. First to click "Available" wins.
+    //   Multi-cleaner jobs: keep accepting until all slots filled.
+    //   Customer SMS sent only after all slots filled.
+    //
+    // DISTANCE ROUTING (WinBros default: use_broadcast_assignment=false):
+    //   Pick one cleaner at a time (closest first). Cascade on decline.
+    //
+    // Do NOT merge these code paths or add cross-dependencies between them.
+    // ──────────────────────────────────────────────────────────────────────
     if (tenant && tenantUsesFeature(tenant, 'use_broadcast_assignment')) {
+      console.log(`[cleaner-assignment] BROADCAST MODE for tenant ${tenant.slug}, job ${jobId}`)
       return await triggerBroadcastAssignment(jobId, job, tenant)
     }
 
     // ROUTING MODE (default): Pick one cleaner at a time based on distance
+    console.log(`[cleaner-assignment] DISTANCE ROUTING MODE for tenant ${tenant?.slug || 'unknown'}, job ${jobId}`)
     const assignResult = await assignNextAvailableCleaner(jobId)
 
     if (!assignResult.success) {
