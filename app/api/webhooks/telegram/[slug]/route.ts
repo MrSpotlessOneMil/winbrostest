@@ -289,7 +289,7 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>, {}, client)
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'scheduled', cleaner_id: assignment.cleaner_id } as Record<string, unknown>, {}, client)
 
     // Sync lead status to "assigned" so dashboard pipeline updates
     await client
