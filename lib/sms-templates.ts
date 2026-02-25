@@ -79,16 +79,10 @@ export function postJobFollowup(
   customerName: string,
   cleanerName: string,
   reviewLink: string,
-  tipLink: string,
-  recurringDiscount: string
+  tipLink?: string,
+  recurringDiscount?: string
 ): string {
-  return `Hi ${customerName}! Hope your home is sparkling!
-
-A quick review helps us grow: ${reviewLink}
-
-Want ${recurringDiscount} off future cleanings? Reply RECURRING
-
-Loved ${cleanerName}'s work? Tips appreciated: ${tipLink}`
+  return `Hi ${customerName}! We hope everything looks amazing. If ${cleanerName} did a great job, we'd really appreciate a quick review — it means a lot to us: ${reviewLink}`
 }
 
 /**

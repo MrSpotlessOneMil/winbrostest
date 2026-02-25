@@ -187,7 +187,7 @@ export async function executeCompleteJob(jobId: string): Promise<{
   await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
 
   // Send SMS with payment link
-  const smsMessage = `Thanks for choosing ${businessName}! We hope your home is sparkling clean. Your remaining balance is due. Pay securely here: ${paymentLink.url}`
+  const smsMessage = `Hi! Thanks so much for choosing ${businessName}. Here's the link for your remaining balance: ${paymentLink.url}`
 
   const sendResult = tenant
     ? await sendSMS(tenant, customer.phone_number, smsMessage)
