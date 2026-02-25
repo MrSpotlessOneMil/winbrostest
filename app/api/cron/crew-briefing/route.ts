@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     for (const lead of teamLeads) {
       try {
         // Resolve tenant for this cleaner (used for Telegram bot token + query scoping)
-        const leadTenantId = (lead as any).tenant_id
+        const leadTenantId = lead.tenant_id
         const tenant = leadTenantId ? await getTenantById(leadTenantId) : null
 
         // Today's jobs for this team (scoped by tenant)

@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
-import { getAllJobs, updateJob, getSupabaseServiceClient } from '@/lib/supabase'
+import { updateJob, getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
 
 // Import extracted core functions — called directly, no mock-request needed
@@ -49,106 +49,113 @@ async function executeHandler() {
   // Use service client — crons don't have tenant JWT, anon key is blocked by RLS
   const serviceClient = getSupabaseServiceClient()
 
-  const jobs = await getAllJobs(undefined, serviceClient)
-
-  // --- Part 1: Scheduled final payments (existing logic) ---
-  const scheduledJobs = jobs.filter(job =>
-    (job.status === 'scheduled' || job.status === 'in_progress') &&
-    job.paid === true &&
-    job.notes?.includes('SCHEDULED_FINAL_PAYMENT')
-  )
-
-  console.log(`[send-final-payments] Checking ${scheduledJobs.length} jobs for scheduled final payment`)
-
   let sentCount = 0
+  let retryCountTotal = 0
   const errors: Array<{ jobId: string; error: string }> = []
 
-  for (const job of scheduledJobs) {
-    const scheduledTime = extractScheduledFinalPayment(job.notes)
+  // --- Part 1: Atomically claim scheduled final payment jobs via RPC ---
+  const { data: claimedScheduled, error: schedErr } = await serviceClient
+    .rpc('claim_jobs_for_final_payments', { p_batch_size: 20 })
+
+  if (schedErr) {
+    console.error('[send-final-payments] RPC claim_jobs_for_final_payments error:', schedErr)
+  }
+
+  const scheduledRows = claimedScheduled || []
+  console.log(`[send-final-payments] Claimed ${scheduledRows.length} jobs for scheduled final payment`)
+
+  for (const row of scheduledRows) {
+    const jobId = String(row.job_id)
+    const scheduledTime = extractScheduledFinalPayment(row.job_notes)
 
     if (!scheduledTime || scheduledTime > now) {
-      continue // Not yet time
-    }
-
-    if (job.status === 'completed') {
-      const updatedNotes = (job.notes || '').replace(/SCHEDULED_FINAL_PAYMENT:[^\n]+\n?/, '')
-      await updateJob(job.id!, { notes: updatedNotes }, {}, serviceClient)
+      // Not yet time — release claim
+      await updateJob(jobId, { final_payment_claimed_at: null } as Record<string, unknown>, {}, serviceClient)
       continue
     }
 
     try {
-      const result = await executeCompleteJob(job.id!)
+      const result = await executeCompleteJob(jobId)
 
       if (!result.success) {
         throw new Error(result.error || 'Complete job failed')
       }
 
-      const updatedNotes = (job.notes || '').replace(/SCHEDULED_FINAL_PAYMENT:[^\n]+\n?/, '')
-      await updateJob(job.id!, { notes: updatedNotes }, {}, serviceClient)
+      // Clear the SCHEDULED_FINAL_PAYMENT marker
+      const updatedNotes = (row.job_notes || '').replace(/SCHEDULED_FINAL_PAYMENT:[^\n]+\n?/, '')
+      await updateJob(jobId, { notes: updatedNotes }, {}, serviceClient)
 
       sentCount++
 
       await logSystemEvent({
         source: 'cron',
         event_type: 'AUTO_FINAL_PAYMENT_SENT',
-        message: `Automatic final payment sent for job ${job.id}`,
-        job_id: job.id,
-        customer_id: job.customer_id,
-        phone_number: job.phone_number,
+        message: `Automatic final payment sent for job ${jobId}`,
+        job_id: jobId,
+        customer_id: row.customer_id,
+        phone_number: row.phone_number,
         metadata: {
           scheduled_time: scheduledTime.toISOString(),
           actual_time: now.toISOString(),
         },
       })
     } catch (error) {
-      console.error(`Failed to send final payment for job ${job.id}:`, error)
+      console.error(`Failed to send final payment for job ${jobId}:`, error)
+      // Release claim on failure so next cron run can retry
+      await updateJob(jobId, { final_payment_claimed_at: null } as Record<string, unknown>, {}, serviceClient)
       errors.push({
-        jobId: job.id!,
+        jobId,
         error: error instanceof Error ? error.message : 'Unknown error',
       })
     }
   }
 
-  // --- Part 2: Auto-retry failed payments ---
-  const failedJobs = jobs.filter(job =>
-    job.payment_status === 'payment_failed' &&
-    job.notes?.includes('PAYMENT_FAILED:')
-  )
+  // --- Part 2: Atomically claim failed payment jobs for auto-retry via RPC ---
+  const { data: claimedFailed, error: failErr } = await serviceClient
+    .rpc('claim_failed_payments_for_retry', { p_batch_size: 20 })
 
-  console.log(`[send-final-payments] Checking ${failedJobs.length} jobs for payment retry`)
+  if (failErr) {
+    console.error('[send-final-payments] RPC claim_failed_payments_for_retry error:', failErr)
+  }
 
-  let retryCount = 0
+  const failedRows = claimedFailed || []
+  console.log(`[send-final-payments] Claimed ${failedRows.length} jobs for payment retry`)
 
-  for (const job of failedJobs) {
-    const retries = extractRetryCount(job.notes)
-    const failedAt = extractPaymentFailedTime(job.notes)
+  for (const row of failedRows) {
+    const jobId = String(row.job_id)
+    const retries = extractRetryCount(row.job_notes)
+    const failedAt = extractPaymentFailedTime(row.job_notes)
 
     // Stop after MAX_AUTO_RETRIES
     if (retries >= MAX_AUTO_RETRIES) {
+      // Release claim — this job has exhausted retries
+      await updateJob(jobId, { payment_retry_claimed_at: null } as Record<string, unknown>, {}, serviceClient)
       continue
     }
 
     // Wait at least RETRY_INTERVAL_MS since failure before retrying
     if (!failedAt || (now.getTime() - failedAt.getTime()) < RETRY_INTERVAL_MS) {
+      // Release claim — not yet time
+      await updateJob(jobId, { payment_retry_claimed_at: null } as Record<string, unknown>, {}, serviceClient)
       continue
     }
 
     try {
-      const result = await executeRetryPayment(job.id!)
+      const result = await executeRetryPayment(jobId)
 
       if (!result.success) {
         throw new Error(result.error || 'Retry payment failed')
       }
 
-      retryCount++
+      retryCountTotal++
 
       await logSystemEvent({
         source: 'cron',
         event_type: 'PAYMENT_RETRY_SENT',
-        message: `Auto-retry #${retries + 1} sent for job ${job.id}`,
-        job_id: job.id,
-        customer_id: job.customer_id,
-        phone_number: job.phone_number,
+        message: `Auto-retry #${retries + 1} sent for job ${jobId}`,
+        job_id: jobId,
+        customer_id: row.customer_id,
+        phone_number: row.phone_number,
         metadata: {
           retry_number: retries + 1,
           max_retries: MAX_AUTO_RETRIES,
@@ -156,9 +163,11 @@ async function executeHandler() {
         },
       })
     } catch (error) {
-      console.error(`Failed to retry payment for job ${job.id}:`, error)
+      console.error(`Failed to retry payment for job ${jobId}:`, error)
+      // Release claim on failure so next cron run can retry
+      await updateJob(jobId, { payment_retry_claimed_at: null } as Record<string, unknown>, {}, serviceClient)
       errors.push({
-        jobId: job.id!,
+        jobId,
         error: error instanceof Error ? error.message : 'Unknown error',
       })
     }
@@ -166,10 +175,10 @@ async function executeHandler() {
 
   return NextResponse.json({
     success: true,
-    scheduled_checked: scheduledJobs.length,
+    scheduled_claimed: scheduledRows.length,
     scheduled_sent: sentCount,
-    failed_checked: failedJobs.length,
-    retries_sent: retryCount,
+    failed_claimed: failedRows.length,
+    retries_sent: retryCountTotal,
     errors: errors.length > 0 ? errors : undefined,
   })
 }

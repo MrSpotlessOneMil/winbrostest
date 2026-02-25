@@ -77,6 +77,7 @@ export interface Job {
 
 export interface Cleaner {
   id?: string
+  tenant_id?: string
   name: string
   phone?: string
   email?: string
@@ -1160,6 +1161,12 @@ function isCleanerAvailableByRules(
 }
 
 export async function getCleanerAvailability(date: string, jobTime?: string, tenantId?: string): Promise<Cleaner[]> {
+  // Tenant isolation guard: without tenantId, this returns ALL tenants' cleaners
+  if (!tenantId) {
+    console.error('[getCleanerAvailability] WARN: tenantId not provided — returning empty to prevent cross-tenant leakage')
+    return []
+  }
+
   // Get active cleaners (scoped to tenant if provided)
   const cleaners = await getCleaners(undefined, tenantId)
 
@@ -1215,6 +1222,18 @@ export async function createCleanerAssignment(
 
   if (!job?.tenant_id) {
     console.error('Error creating assignment: could not resolve tenant_id for job', jobId)
+    return null
+  }
+
+  // Cross-tenant validation: cleaner must belong to the same tenant as the job
+  const { data: cleaner } = await client
+    .from('cleaners')
+    .select('tenant_id')
+    .eq('id', cleanerId)
+    .single()
+
+  if (!cleaner || cleaner.tenant_id !== job.tenant_id) {
+    console.error(`createCleanerAssignment: cleaner ${cleanerId} (tenant=${cleaner?.tenant_id}) does not belong to job tenant ${job.tenant_id}`)
     return null
   }
 
@@ -1530,6 +1549,7 @@ function normalizeCallDuration(value: unknown): number | undefined {
 
 export interface GHLLead {
   id?: string
+  tenant_id?: string
   source_id: string
   ghl_location_id?: string
   phone_number: string

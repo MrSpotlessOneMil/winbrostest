@@ -318,31 +318,37 @@ async function handleAcceptCallback(
     // 1. Answer the callback query immediately
     await answerCallbackQuery(callbackQueryId, "Processing your acceptance...")
 
-    // 2. Fetch the assignment and validate
-    const assignment = await getCleanerAssignmentById(assignmentId)
-    if (!assignment) {
-      await sendTelegramMessage(chatId, "Sorry, this assignment could not be found.")
-      return NextResponse.json({ success: false, error: "Assignment not found" })
-    }
+    // 2. Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
+    const serviceClient = getSupabaseServiceClient()
+    const { data: claimed, error: claimErr } = await serviceClient
+      .from('cleaner_assignments')
+      .update({
+        status: 'confirmed',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', assignmentId)
+      .eq('status', 'pending')  // atomic guard — only one concurrent request succeeds
+      .select('*')
+      .maybeSingle()
 
-    // Check if assignment is still pending
-    if (assignment.status !== "pending") {
-      await sendTelegramMessage(chatId, `This job has already been ${assignment.status}.`)
+    if (claimErr || !claimed) {
+      // Assignment doesn't exist, or was already claimed by another click
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendTelegramMessage(chatId, statusMsg)
       return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
+
+    // Use the claimed assignment data going forward
+    const assignment = claimed
 
     // 3. Fetch the job
     const job = await getJobById(jobId)
     if (!job) {
       await sendTelegramMessage(chatId, "Sorry, this job could not be found.")
       return NextResponse.json({ success: false, error: "Job not found" })
-    }
-
-    // 4. Update assignment status to 'confirmed'
-    const updatedAssignment = await updateCleanerAssignment(assignmentId, "confirmed")
-    if (!updatedAssignment) {
-      await sendTelegramMessage(chatId, "Failed to update assignment. Please try again.")
-      return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
     // 5. Update job status to assigned + cleaner_confirmed

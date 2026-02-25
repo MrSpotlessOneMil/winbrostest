@@ -56,6 +56,14 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         )
       }
+      // Cross-tenant check: cleaner must belong to the same tenant as the job
+      if (selectedCleaner.tenant_id !== tenant.id) {
+        console.error(`[assign-cleaner] BLOCKED: Cleaner ${cleanerId} belongs to tenant ${selectedCleaner.tenant_id}, not ${tenant.id}`)
+        return NextResponse.json(
+          { error: 'Cleaner not found' },
+          { status: 404 }
+        )
+      }
     } else {
       // Find available cleaner for the job date
       if (!job.date) {

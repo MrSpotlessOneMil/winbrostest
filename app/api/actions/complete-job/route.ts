@@ -60,6 +60,16 @@ export async function executeCompleteJob(jobId: string): Promise<{
     return { success: false, error: 'Job not found' }
   }
 
+  // Status guard: prevent double-execution (dashboard + cron race)
+  if (job.status === 'completed') {
+    console.log(`[complete-job] Job ${jobId} already completed — skipping`)
+    return { success: true, message: 'Job already completed', jobId }
+  }
+  if (job.payment_status === 'fully_paid') {
+    console.log(`[complete-job] Job ${jobId} already fully paid — skipping`)
+    return { success: true, message: 'Job already fully paid', jobId }
+  }
+
   // Look up tenant for dynamic business name
   const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
   const businessName = tenant ? getTenantBusinessName(tenant) : 'us'
@@ -187,8 +197,11 @@ export async function executeCompleteJob(jobId: string): Promise<{
     },
   })
 
-  // Update job status
-  await updateJob(jobId, { status: 'completed' }, {}, serviceClient)
+  // Update job status + track payment link for dedup
+  const existingNotes = job.notes || ''
+  const cleanedNotes = existingNotes.replace(/LATEST_PAYMENT_LINK:[^\n]*\n?/g, '')
+  const notesWithLink = `${cleanedNotes}\nLATEST_PAYMENT_LINK: ${paymentLink.url}`.trim()
+  await updateJob(jobId, { status: 'completed', notes: notesWithLink }, {}, serviceClient)
 
   // Sync lead status to "completed" so dashboard pipeline updates
   await serviceClient

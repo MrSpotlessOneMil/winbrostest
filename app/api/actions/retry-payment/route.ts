@@ -65,6 +65,23 @@ export async function executeRetryPayment(jobId: string): Promise<{
     return { success: false, error: 'Job not found' }
   }
 
+  // Status guard: skip if already paid
+  if (job.payment_status === 'fully_paid') {
+    console.log(`[retry-payment] Job ${jobId} already fully paid — skipping retry`)
+    return { success: true, jobId }
+  }
+
+  // Max retry limit (same as cron constant)
+  {
+    const MAX_RETRIES = 3
+    const notes = job.notes || ''
+    const match = notes.match(/PAYMENT_RETRY_COUNT:\s*(\d+)/)
+    const retryCount = match ? parseInt(match[1], 10) : 0
+    if (retryCount >= MAX_RETRIES) {
+      return { success: false, error: `Max retries (${MAX_RETRIES}) reached for this job` }
+    }
+  }
+
   // Get customer details
   const customer = await getCustomerByPhone(job.phone_number, serviceClient)
   if (!customer) {

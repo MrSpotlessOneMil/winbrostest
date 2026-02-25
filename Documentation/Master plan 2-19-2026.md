@@ -1,6 +1,6 @@
 # OSIRIS x WinBros — Master Plan
 
-**Last Updated:** 2-25-2026
+**Last Updated:** 2-26-2026
 
 ---
 
@@ -144,6 +144,9 @@
 - [x] **Anti-hallucination guards** — CRITICAL RULES in system prompt + assign_cleaner tool description requires customer lookup before using job IDs (2-25)
 - [x] **cleanerAssigned() SMS fix** — Removed extra `cleaner.phone` arg that shifted date/time params (sent phone as date) (2-25)
 - [x] **assign_cleaner status fix** — Changed from `confirmed` to `pending` so cleaners can accept via Telegram buttons (2-25)
+- [x] **Duplicate assignment prevention** — Dedup check before creating assignment in `assign_cleaner` tool (2-25)
+- [x] **Telegram accept handler fixes** — `updateJob` + `getCustomerByPhone` switched to service client (RLS was blocking anon key); `customerNotified` variable scoping fix (2-25)
+- [x] **`jobs_status_check` constraint fix** — Accept handler set `status: 'assigned'` but CHECK constraint only allows pending/scheduled/in_progress/completed/cancelled; changed to `scheduled` (2-25)
 - [x] Model upgraded to Claude Opus 4.6 (2-24)
 - [x] Tenant-aware language + reset actually deletes data (2-22)
 

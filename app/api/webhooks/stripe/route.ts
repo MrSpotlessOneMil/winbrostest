@@ -23,7 +23,34 @@ import { paymentFailed as paymentFailedTemplate } from '@/lib/sms-templates'
  * and then delegate processing here.
  */
 export async function processStripeEvent(event: Stripe.Event): Promise<void> {
-  console.log(`[Stripe Webhook] Received event: ${event.type}`)
+  console.log(`[Stripe Webhook] Received event: ${event.type} (${event.id})`)
+
+  // --- IDEMPOTENCY: prevent duplicate processing on Stripe retries ---
+  const serviceClient = getSupabaseServiceClient()
+  const { data: alreadyProcessed } = await serviceClient
+    .from('stripe_processed_events')
+    .select('id')
+    .eq('event_id', event.id)
+    .maybeSingle()
+
+  if (alreadyProcessed) {
+    console.log(`[Stripe Webhook] Event ${event.id} already processed — skipping`)
+    return
+  }
+
+  // Claim this event atomically (UNIQUE constraint on event_id is the true guard)
+  const { error: claimError } = await serviceClient
+    .from('stripe_processed_events')
+    .insert({
+      event_id: event.id,
+      event_type: event.type,
+      metadata: { livemode: event.livemode },
+    })
+
+  if (claimError) {
+    console.log(`[Stripe Webhook] Event ${event.id} claimed by another instance — skipping`)
+    return
+  }
 
   switch (event.type) {
     case 'checkout.session.completed':
