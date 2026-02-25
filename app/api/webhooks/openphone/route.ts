@@ -1670,6 +1670,19 @@ export async function POST(request: NextRequest) {
     } else if (lead?.id) {
       console.log(`[OpenPhone] Lead created: ${lead.id}`)
 
+      // Update customer record with extracted info immediately (don't wait for booking completion)
+      const extractedAddr = intentResult.extractedInfo.address || null
+      const extractedEmail = intentResult.extractedInfo.email || null
+      const custUpdates: Record<string, string | null> = {}
+      if (firstName && !customer.first_name) custUpdates.first_name = firstName
+      if (lastName && !customer.last_name) custUpdates.last_name = lastName
+      if (extractedAddr && !customer.address) custUpdates.address = extractedAddr
+      if (extractedEmail && !customer.email) custUpdates.email = extractedEmail
+      if (Object.keys(custUpdates).length > 0) {
+        await client.from("customers").update(custUpdates).eq("id", customer.id)
+        console.log(`[OpenPhone] Updated customer ${customer.id} with extracted info:`, custUpdates)
+      }
+
       // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
       const hcpResult = await createLeadInHCP({
         firstName: firstName || undefined,

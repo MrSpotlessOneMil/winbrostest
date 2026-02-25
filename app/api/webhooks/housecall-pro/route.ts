@@ -171,19 +171,72 @@ export async function POST(request: NextRequest) {
       (data as any)?.customer?.address ||
       null
 
+    // Helper: check if OSIRIS is actively managing this customer (recent lead or outbound message)
+    // Used to prevent HCP webhooks from overwriting fresh OSIRIS data with stale HCP data
+    async function isOsirisActivelyEngaged(phoneNumber: string): Promise<boolean> {
+      const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString()
+      const { data: recentLead } = await client
+        .from("leads")
+        .select("id")
+        .eq("phone_number", phoneNumber)
+        .eq("tenant_id", tenant?.id)
+        .gte("created_at", sixtySecondsAgo)
+        .limit(1)
+        .maybeSingle()
+      if (recentLead) return true
+      const { data: recentOutbound } = await client
+        .from("messages")
+        .select("id")
+        .eq("phone_number", phoneNumber)
+        .eq("tenant_id", tenant?.id)
+        .eq("role", "assistant")
+        .gte("timestamp", sixtySecondsAgo)
+        .limit(1)
+        .maybeSingle()
+      return !!recentOutbound
+    }
+
     switch (event) {
       case "job.created":
         console.log("[OSIRIS] New job created in HCP, mirroring to Supabase")
         // upsert customer then insert job
         if (phone) {
-          const { data: customer } = await client
-            .from("customers")
-            .upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
-            .select("id")
-            .single()
+          // If OSIRIS is actively engaged, don't overwrite customer data with stale HCP info
+          const osirisActive = await isOsirisActivelyEngaged(phone)
+          let customer: { id: number } | null = null
+          if (osirisActive) {
+            // Customer already exists from OSIRIS flow — just look them up
+            const { data: existing } = await client
+              .from("customers")
+              .select("id")
+              .eq("phone_number", phone)
+              .eq("tenant_id", tenant?.id)
+              .maybeSingle()
+            customer = existing
+            if (!customer) {
+              // Shouldn't happen but create without HCP name data as safety net
+              const { data: created } = await client
+                .from("customers")
+                .upsert(
+                  { phone_number: phone, tenant_id: tenant?.id },
+                  { onConflict: "tenant_id,phone_number" }
+                )
+                .select("id")
+                .single()
+              customer = created
+            }
+            console.log(`[OSIRIS] HCP job.created: OSIRIS active for ${phone}, skipping customer data overwrite`)
+          } else {
+            const { data: upserted } = await client
+              .from("customers")
+              .upsert(
+                { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+                { onConflict: "tenant_id,phone_number" }
+              )
+              .select("id")
+              .single()
+            customer = upserted
+          }
 
           // Extract schedule from top-level job object (HCP sends scheduled_start)
           // then fallback to nested data paths
@@ -373,20 +426,30 @@ export async function POST(request: NextRequest) {
       case "customer.created":
         console.log("[OSIRIS] New customer created in HCP")
         if (phone) {
-          await client.from("customers").upsert(
-            { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-            { onConflict: "tenant_id,phone_number" }
-          )
+          // Don't overwrite fresh OSIRIS data with stale HCP data
+          if (await isOsirisActivelyEngaged(phone)) {
+            console.log(`[OSIRIS] HCP customer.created: OSIRIS active for ${phone}, skipping data overwrite`)
+          } else {
+            await client.from("customers").upsert(
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { onConflict: "tenant_id,phone_number" }
+            )
+          }
         }
         break
 
       case "customer.updated":
         console.log("[OSIRIS] Customer updated in HCP")
         if (phone) {
-          await client.from("customers").upsert(
-            { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-            { onConflict: "tenant_id,phone_number" }
-          )
+          // Don't overwrite fresh OSIRIS data with stale HCP data
+          if (await isOsirisActivelyEngaged(phone)) {
+            console.log(`[OSIRIS] HCP customer.updated: OSIRIS active for ${phone}, skipping data overwrite`)
+          } else {
+            await client.from("customers").upsert(
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { onConflict: "tenant_id,phone_number" }
+            )
+          }
         }
         break
 
