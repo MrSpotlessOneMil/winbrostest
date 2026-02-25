@@ -135,6 +135,19 @@ export interface Tenant {
   wave_business_id: string | null
   wave_income_account_id: string | null
 
+  // Webhook registration timestamps
+  telegram_webhook_registered_at: string | null
+  stripe_webhook_registered_at: string | null
+  openphone_webhook_registered_at: string | null
+
+  // Webhook error tracking
+  telegram_webhook_error: string | null
+  telegram_webhook_error_at: string | null
+  stripe_webhook_error: string | null
+  stripe_webhook_error_at: string | null
+  openphone_webhook_error: string | null
+  openphone_webhook_error_at: string | null
+
   // Workflow configuration
   workflow_config: WorkflowConfig
 

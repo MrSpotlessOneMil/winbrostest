@@ -65,6 +65,15 @@ export async function POST(request: NextRequest) {
         if (!data.ok) {
           throw new Error(data.description || "Failed to set Telegram webhook")
         }
+        await client
+          .from("tenants")
+          .update({
+            telegram_webhook_registered_at: new Date().toISOString(),
+            telegram_webhook_error: null,
+            telegram_webhook_error_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tenantId)
         return NextResponse.json({
           success: true,
           message: `Webhook registered: ${webhookUrl}`,
@@ -96,16 +105,20 @@ export async function POST(request: NextRequest) {
           ],
         })
 
-        // Save the webhook signing secret
-        if (webhook.secret) {
-          await client
-            .from("tenants")
-            .update({
-              stripe_webhook_secret: webhook.secret,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", tenantId)
+        // Save the webhook signing secret and registration timestamp
+        const stripeUpdate: Record<string, any> = {
+          stripe_webhook_registered_at: new Date().toISOString(),
+          stripe_webhook_error: null,
+          stripe_webhook_error_at: null,
+          updated_at: new Date().toISOString(),
         }
+        if (webhook.secret) {
+          stripeUpdate.stripe_webhook_secret = webhook.secret
+        }
+        await client
+          .from("tenants")
+          .update(stripeUpdate)
+          .eq("id", tenantId)
 
         return NextResponse.json({
           success: true,
@@ -157,6 +170,15 @@ export async function POST(request: NextRequest) {
           throw new Error(`OpenPhone API returned ${res.status}: ${errText}`)
         }
 
+        await client
+          .from("tenants")
+          .update({
+            openphone_webhook_registered_at: new Date().toISOString(),
+            openphone_webhook_error: null,
+            openphone_webhook_error_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tenantId)
         return NextResponse.json({
           success: true,
           message: `OpenPhone webhook registered: ${webhookUrl}`,
@@ -167,6 +189,18 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: `Unknown service: ${service}` }, { status: 400 })
     }
   } catch (err: any) {
+    // Persist error to DB so it survives page reload
+    if (service && ["telegram", "stripe", "openphone"].includes(service)) {
+      try {
+        await client.from("tenants").update({
+          [`${service}_webhook_error`]: err.message || "Unknown error",
+          [`${service}_webhook_error_at`]: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq("id", tenantId)
+      } catch {
+        // Don't let error-saving failure mask the original error
+      }
+    }
     return NextResponse.json({ success: false, error: err.message || "Webhook registration failed" }, { status: 500 })
   }
 }

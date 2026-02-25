@@ -123,6 +123,17 @@ interface Tenant {
   wave_api_token: string | null
   wave_business_id: string | null
   wave_income_account_id: string | null
+  // Webhook registration timestamps
+  telegram_webhook_registered_at: string | null
+  stripe_webhook_registered_at: string | null
+  openphone_webhook_registered_at: string | null
+  // Webhook error tracking
+  telegram_webhook_error: string | null
+  telegram_webhook_error_at: string | null
+  stripe_webhook_error: string | null
+  stripe_webhook_error_at: string | null
+  openphone_webhook_error: string | null
+  openphone_webhook_error_at: string | null
   // Status
   workflow_config: WorkflowConfig
   active: boolean
@@ -193,6 +204,10 @@ export default function AdminPage() {
   // Webhook registration state
   const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
   const [webhookResults, setWebhookResults] = useState<Record<string, { success: boolean; message: string }>>({})
+
+  // Webhook verification state
+  const [verifyingWebhooks, setVerifyingWebhooks] = useState(false)
+  const [webhookVerification, setWebhookVerification] = useState<Record<string, { active: boolean; message: string }>>({})
 
   // Bulk action state
   const [testingAll, setTestingAll] = useState(false)
@@ -605,6 +620,7 @@ export default function AdminPage() {
     setSelectedTenant(id)
     setTestResults({})
     setWebhookResults({})
+    setWebhookVerification({})
     setEditingCredentials({})
     setRevealedFields(new Set())
   }
@@ -651,6 +667,21 @@ export default function AdminPage() {
         label: "Wave",
         complete: !!(tenant.wave_api_token && tenant.wave_business_id),
         enabled: !!config.use_wave,
+      },
+      {
+        label: "Telegram Webhook",
+        complete: !!tenant.telegram_webhook_registered_at,
+        enabled: !!tenant.telegram_bot_token,
+      },
+      {
+        label: "Stripe Webhook",
+        complete: !!tenant.stripe_webhook_registered_at,
+        enabled: !!config.use_stripe && !!tenant.stripe_secret_key,
+      },
+      {
+        label: "OpenPhone Webhook",
+        complete: !!tenant.openphone_webhook_registered_at,
+        enabled: !!tenant.openphone_api_key,
       },
       {
         label: "Cleaners",
@@ -774,6 +805,29 @@ export default function AdminPage() {
       await registerWebhook(service)
     }
     setRegisteringAll(false)
+  }
+
+  async function verifyAllWebhooks() {
+    if (!currentTenantRef) return
+    setVerifyingWebhooks(true)
+    setWebhookVerification({})
+    try {
+      const res = await fetch("/api/admin/verify-webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setWebhookVerification(data.results || {})
+      } else {
+        setError(data.error || "Webhook verification failed")
+      }
+    } catch (err: any) {
+      setError(err.message || "Webhook verification failed")
+    } finally {
+      setVerifyingWebhooks(false)
+    }
   }
 
   const currentTenantRef = tenants.find((t) => t.id === selectedTenant)
@@ -1404,6 +1458,14 @@ export default function AdminPage() {
                         )}
                         {registeringAll ? "Registering..." : "Register All Webhooks"}
                       </Button>
+                      <Button variant="outline" size="sm" onClick={verifyAllWebhooks} disabled={verifyingWebhooks}>
+                        {verifyingWebhooks ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="h-4 w-4 mr-2" />
+                        )}
+                        {verifyingWebhooks ? "Verifying..." : "Verify Webhooks"}
+                      </Button>
                       <Button variant="outline" size="sm" onClick={copyAllCredentials}>
                         {copied ? (
                           <Check className="h-4 w-4 mr-2 text-green-500" />
@@ -1557,6 +1619,31 @@ export default function AdminPage() {
                         )}
                         {webhookResults["openphone"] && (
                           <span className={`text-xs ${webhookResults["openphone"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["openphone"].message}</span>
+                        )}
+                        {!webhookResults["openphone"] && currentTenant.openphone_webhook_error && (
+                          <span className="text-xs text-red-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Failed: {currentTenant.openphone_webhook_error}
+                            <span className="text-muted-foreground">({new Date(currentTenant.openphone_webhook_error_at!).toLocaleDateString()})</span>
+                          </span>
+                        )}
+                        {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && currentTenant.openphone_webhook_registered_at && (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook registered {new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}
+                          </span>
+                        )}
+                        {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && !currentTenant.openphone_webhook_registered_at && currentTenant.openphone_api_key && (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Webhook not registered
+                          </span>
+                        )}
+                        {webhookVerification["openphone"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["openphone"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["openphone"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["openphone"].message}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1714,6 +1801,31 @@ export default function AdminPage() {
                         )}
                         {webhookResults["stripe"] && (
                           <span className={`text-xs ${webhookResults["stripe"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["stripe"].message}</span>
+                        )}
+                        {!webhookResults["stripe"] && currentTenant.stripe_webhook_error && (
+                          <span className="text-xs text-red-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Failed: {currentTenant.stripe_webhook_error}
+                            <span className="text-muted-foreground">({new Date(currentTenant.stripe_webhook_error_at!).toLocaleDateString()})</span>
+                          </span>
+                        )}
+                        {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && currentTenant.stripe_webhook_registered_at && (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook registered {new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}
+                          </span>
+                        )}
+                        {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && !currentTenant.stripe_webhook_registered_at && currentTenant.stripe_secret_key && (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Webhook not registered
+                          </span>
+                        )}
+                        {webhookVerification["stripe"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["stripe"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["stripe"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["stripe"].message}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -1879,6 +1991,31 @@ export default function AdminPage() {
                         )}
                         {webhookResults["telegram"] && (
                           <span className={`text-xs ${webhookResults["telegram"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["telegram"].message}</span>
+                        )}
+                        {!webhookResults["telegram"] && currentTenant.telegram_webhook_error && (
+                          <span className="text-xs text-red-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Failed: {currentTenant.telegram_webhook_error}
+                            <span className="text-muted-foreground">({new Date(currentTenant.telegram_webhook_error_at!).toLocaleDateString()})</span>
+                          </span>
+                        )}
+                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && currentTenant.telegram_webhook_registered_at && (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook registered {new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}
+                          </span>
+                        )}
+                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && !currentTenant.telegram_webhook_registered_at && currentTenant.telegram_bot_token && (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Webhook not registered
+                          </span>
+                        )}
+                        {webhookVerification["telegram"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["telegram"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["telegram"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["telegram"].message}
+                          </span>
                         )}
                       </div>
                     </div>

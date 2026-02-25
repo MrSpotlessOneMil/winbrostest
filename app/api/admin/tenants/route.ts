@@ -51,6 +51,15 @@ export async function GET(request: NextRequest) {
       wave_api_token,
       wave_business_id,
       wave_income_account_id,
+      telegram_webhook_registered_at,
+      telegram_webhook_error,
+      telegram_webhook_error_at,
+      stripe_webhook_registered_at,
+      stripe_webhook_error,
+      stripe_webhook_error_at,
+      openphone_webhook_registered_at,
+      openphone_webhook_error,
+      openphone_webhook_error_at,
       workflow_config,
       active,
       created_at,
@@ -267,6 +276,24 @@ export async function PATCH(request: NextRequest) {
     if (existingSlug) {
       return NextResponse.json({ success: false, error: "A business with this slug already exists" }, { status: 400 })
     }
+  }
+
+  // Invalidate webhook registration and errors when API keys change
+  if (updates.telegram_bot_token !== undefined) {
+    updates.telegram_webhook_registered_at = null
+    updates.telegram_webhook_error = null
+    updates.telegram_webhook_error_at = null
+  }
+  if (updates.stripe_secret_key !== undefined) {
+    updates.stripe_webhook_registered_at = null
+    updates.stripe_webhook_secret = null
+    updates.stripe_webhook_error = null
+    updates.stripe_webhook_error_at = null
+  }
+  if (updates.openphone_api_key !== undefined) {
+    updates.openphone_webhook_registered_at = null
+    updates.openphone_webhook_error = null
+    updates.openphone_webhook_error_at = null
   }
 
   const { data, error } = await client
