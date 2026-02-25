@@ -289,7 +289,7 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>, {}, client)
 
     // Sync lead status to "assigned" so dashboard pipeline updates
     await client
@@ -315,6 +315,7 @@ async function handleAcceptCallback(
 
     const confirmedCount = confirmedAssignments?.length || 0
     const allCleanersFilled = confirmedCount >= cleanersNeeded
+    let customerNotified = false
 
     if (allCleanersFilled) {
       // All slots filled — cancel remaining pending assignments
@@ -348,9 +349,8 @@ async function handleAcceptCallback(
       }
 
       // Notify customer with all confirmed cleaner names
-      let customerNotified = false
       if (job.phone_number) {
-        const customer = await getCustomerByPhone(job.phone_number)
+        const customer = await getCustomerByPhone(job.phone_number, client)
 
         if (customer) {
           // Get all confirmed cleaner names for this job

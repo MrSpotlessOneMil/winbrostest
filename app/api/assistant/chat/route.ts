@@ -1146,6 +1146,19 @@ async function executeTool(
         .single()
       if (!cleaner) return `Cleaner #${cleanerId} not found. Use list_cleaners to see available cleaners.`
 
+      // Check for existing active assignment (prevent duplicates)
+      const { data: existingAssignment } = await client
+        .from("cleaner_assignments")
+        .select("id, status")
+        .eq("job_id", jobId)
+        .eq("cleaner_id", cleanerId)
+        .in("status", ["pending", "confirmed"])
+        .maybeSingle()
+
+      if (existingAssignment) {
+        return `**${cleaner.name}** is already assigned to job #${jobId} (status: ${existingAssignment.status}). No duplicate assignment created.`
+      }
+
       // Create assignment as pending — cleaner confirms via Telegram accept button
       const { data: assignment, error: assignErr } = await client
         .from("cleaner_assignments")
