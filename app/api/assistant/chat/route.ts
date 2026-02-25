@@ -323,7 +323,7 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   {
     name: "assign_cleaner",
     description:
-      "Assign a cleaner to a job. Optionally notifies the cleaner via Telegram and the customer via SMS. Use list_cleaners first to get the cleaner ID.",
+      "Assign a cleaner to a job. IMPORTANT: You MUST look up the customer first (via search_customers or lookup_customer) to get a real job ID — NEVER guess or make up job IDs. Use list_cleaners to get the cleaner ID.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1457,6 +1457,11 @@ Today is ${dayOfWeek}, ${today}.
 - Use the customer's first name when you know it
 - If something fails, be empathetic and suggest next steps
 - Use markdown: **bold** for key info, bullet lists for summaries, \`code\` for links/IDs
+
+## CRITICAL RULES
+- **NEVER fabricate data.** Do not invent job IDs, customer details, prices, or any information. Every piece of data you reference MUST come from a tool result.
+- If you don't have the information you need, call the appropriate tool first (search_customers, lookup_customer, list_cleaners, etc.)
+- If a tool returns no results, say so honestly — never fill in gaps with made-up data
 
 ## SMART LOOKUPS
 - When the user mentions a customer by name (e.g. "Sarah" or "John Smith"), use search_customers FIRST — don't ask for a phone number
