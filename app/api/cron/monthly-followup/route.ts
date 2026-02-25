@@ -47,12 +47,10 @@ async function executeMonthlyFollowup() {
 
       const discount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
-      // Atomically claim eligible jobs using FOR UPDATE SKIP LOCKED
-      // Try with tenant_id parameter first, fall back to unfiltered if RPC doesn't support it
-      let eligibleJobs: any[] | null = null
-      const { data, error: queryError } = await client.rpc(
+      // Atomically claim eligible jobs scoped to this tenant using FOR UPDATE SKIP LOCKED
+      const { data: eligibleJobs, error: queryError } = await client.rpc(
         'claim_jobs_for_monthly_followup',
-        { p_batch_size: 100 }
+        { p_batch_size: 100, p_tenant_id: tenant.id }
       )
 
       if (queryError) {
@@ -60,16 +58,13 @@ async function executeMonthlyFollowup() {
         continue
       }
 
-      // Filter by tenant_id in code since the RPC may not support tenant filtering
-      eligibleJobs = (data || []).filter((job: any) => job.tenant_id === tenant.id)
-
-      console.log(`[Monthly Follow-up Cron] Claimed ${eligibleJobs.length} jobs for ${tenant.slug}`)
+      console.log(`[Monthly Follow-up Cron] Claimed ${(eligibleJobs || []).length} jobs for ${tenant.slug}`)
 
       let sent = 0
       let skipped = 0
       let errors = 0
 
-      for (const job of eligibleJobs) {
+      for (const job of (eligibleJobs || [])) {
         try {
           // Check if customer has booked another job since this one was completed
           const { data: subsequentJobs } = await client

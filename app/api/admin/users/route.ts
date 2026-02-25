@@ -89,32 +89,11 @@ export async function POST(request: NextRequest) {
   })
 
   if (error) {
-    // If the RPC doesn't exist, try direct insert (fallback)
     console.error("RPC create_user_with_password failed:", error.message)
-
-    // Try inserting with raw SQL via Supabase function
-    const { data: rawUser, error: rawError } = await client
-      .from("users")
-      .insert({
-        username,
-        password_hash: password, // This won't be hashed - we'll need to fix this
-        display_name: display_name || null,
-        email: email || null,
-        tenant_id: tenant_id || null,
-        is_active: true,
-      })
-      .select("id, username, display_name, email, is_active, created_at")
-      .single()
-
-    if (rawError) {
-      return NextResponse.json({ success: false, error: rawError.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: rawUser,
-      warning: "Password was not hashed properly - please update via database"
-    })
+    return NextResponse.json(
+      { success: false, error: "Failed to create user: password hashing RPC unavailable" },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({ success: true, data: user })

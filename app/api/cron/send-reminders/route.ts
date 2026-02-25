@@ -33,26 +33,6 @@ export async function GET(request: NextRequest) {
   try {
     const now = new Date()
 
-    // Get current time in Pacific timezone (for backwards-compat 8 AM daily schedule)
-    const pacificTime = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Los_Angeles',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(now)
-
-    const [hourStr, minuteStr] = pacificTime.split(':')
-    const currentHour = parseInt(hourStr)
-    const currentMinute = parseInt(minuteStr)
-
-    // Get today's date in Pacific timezone
-    const todayPST = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Los_Angeles',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now)
-
     let dailySent = 0
     let oneHourSent = 0
     let startTimeSent = 0
@@ -60,11 +40,36 @@ export async function GET(request: NextRequest) {
     let morningScheduleSent = 0
     const errors: string[] = []
 
-    // 1. Send daily 8am PST route/schedule — team leads only
-    if (currentHour === 8 && currentMinute < 15) {
-      const tenants = await getAllActiveTenants()
+    // 1. Send daily 8am route/schedule — team leads only
+    // Runs per-tenant using each tenant's configured timezone
+    const tenants = await getAllActiveTenants()
 
-      for (const t of tenants) {
+    for (const t of tenants) {
+      const tz = t.timezone || 'America/Los_Angeles'
+
+      // Get current hour/minute in this tenant's timezone
+      const tenantTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(now)
+
+      const [hourStr, minuteStr] = tenantTime.split(':')
+      const tenantHour = parseInt(hourStr)
+      const tenantMinute = parseInt(minuteStr)
+
+      // Only send if it's 8:00-8:14 in this tenant's timezone
+      if (tenantHour !== 8 || tenantMinute >= 15) continue
+
+      // Get today's date in this tenant's timezone
+      const todayLocal = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(now)
+
       const cleaners = await getCleaners(undefined, t.id)
 
       for (const cleaner of cleaners) {
@@ -72,7 +77,7 @@ export async function GET(request: NextRequest) {
         // Only team leads get the full day's route schedule
         if (!cleaner.is_team_lead) continue
 
-        const jobsData = await getCleanerJobsForDate(cleaner.id, todayPST)
+        const jobsData = await getCleanerJobsForDate(cleaner.id, todayLocal)
 
         if (jobsData.length === 0) continue // No jobs today, skip
 
@@ -81,7 +86,7 @@ export async function GET(request: NextRequest) {
         const alreadySent = await hasReminderBeenSent(
           String(firstAssignment.id),
           'daily_8am',
-          todayPST
+          todayLocal
         )
 
         if (alreadySent) continue
@@ -96,7 +101,7 @@ export async function GET(request: NextRequest) {
         if (result.success) {
           dailySent += 1
           // Mark as sent for the first assignment (represents the cleaner's daily reminder)
-          await markReminderSent(String(firstAssignment.id), 'daily_8am', todayPST)
+          await markReminderSent(String(firstAssignment.id), 'daily_8am', todayLocal)
 
           await logSystemEvent({
             source: 'cron',
@@ -111,7 +116,6 @@ export async function GET(request: NextRequest) {
         } else {
           errors.push(`Daily reminder failed for cleaner ${cleaner.id}: ${result.error}`)
         }
-      }
       }
     }
 

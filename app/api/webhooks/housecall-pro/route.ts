@@ -470,11 +470,14 @@ export async function POST(request: NextRequest) {
       case "lead.created":
         console.log("[OSIRIS] New lead created in HCP")
         if (phone) {
-          // --- Dedup: check if OSIRIS already has a recent lead or outbound message for this phone ---
-          // This prevents feedback loops: SMS webhook syncs to HCP → HCP fires lead.created back → duplicate greeting
+          // --- Dedup: two-tier check ---
+          // Tier 1 (60s): Prevents instant feedback loops (SMS → HCP → lead.created → duplicate greeting)
+          // Tier 2 (24h): Catches HCP webhook retries (HCP retries after 30min+ on failure)
           const sixtySecondsAgo = new Date(Date.now() - 60_000).toISOString()
+          const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
 
-          const { data: existingLead } = await client
+          // Tier 1: instant feedback loop check (60s window)
+          const { data: recentLead } = await client
             .from("leads")
             .select("id, source")
             .eq("phone_number", phone)
@@ -493,23 +496,41 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .maybeSingle()
 
-          if (existingLead || recentOutbound) {
+          // Tier 2: broader HCP retry dedup (24h window — catches 30-min HCP retries)
+          const { data: existingLead } = await client
+            .from("leads")
+            .select("id, source")
+            .eq("phone_number", phone)
+            .eq("tenant_id", tenant?.id)
+            .eq("source", "housecall_pro")
+            .gte("created_at", twentyFourHoursAgo)
+            .limit(1)
+            .maybeSingle()
+
+          if (recentLead || recentOutbound || existingLead) {
             // OSIRIS already has an active conversation — just store the HCP link, skip the greeting
             // IMPORTANT: Do NOT upsert customer here — OSIRIS is already handling this lead and
             // HCP may have stale data from a previous interaction that would overwrite fresh OSIRIS state
             const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id
+            const matchReason = recentLead
+              ? `recent lead ${recentLead.id} (${recentLead.source})`
+              : recentOutbound
+                ? 'recent outbound message'
+                : existingLead
+                  ? `HCP lead ${existingLead.id} within 24h`
+                  : 'unknown match'
             console.log(
               `[OSIRIS] HCP Webhook: Skipping lead.created greeting for ${phone} — ` +
-              `already have ${existingLead ? `lead ${existingLead.id} (${existingLead.source})` : 'recent outbound message'}. ` +
-              `HCP lead ID: ${hcpSourceId || 'unknown'}`
+              `already have ${matchReason}. HCP lead ID: ${hcpSourceId || 'unknown'}`
             )
 
             // If an existing lead was found, store the HCP source ID on it for reference
-            if (existingLead && hcpSourceId) {
+            const matchedLead = recentLead || existingLead
+            if (matchedLead && hcpSourceId) {
               await client
                 .from("leads")
-                .update({ form_data: { ...((await client.from("leads").select("form_data").eq("id", existingLead.id).single()).data?.form_data || {}), hcp_lead_id: String(hcpSourceId) } })
-                .eq("id", existingLead.id)
+                .update({ form_data: { ...((await client.from("leads").select("form_data").eq("id", matchedLead.id).single()).data?.form_data || {}), hcp_lead_id: String(hcpSourceId) } })
+                .eq("id", matchedLead.id)
             }
 
             await client.from("system_events").insert({
@@ -518,7 +539,7 @@ export async function POST(request: NextRequest) {
               event_type: "HCP_LEAD_DEDUPED",
               message: `HCP lead.created for ${phone} skipped — OSIRIS already engaged`,
               phone_number: phone,
-              metadata: { hcp_lead_id: hcpSourceId, existing_lead_id: existingLead?.id }
+              metadata: { hcp_lead_id: hcpSourceId, existing_lead_id: matchedLead?.id }
             })
             break
           }

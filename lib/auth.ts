@@ -4,7 +4,7 @@ import { getSupabaseServiceClient } from './supabase'
 import { getUserApiKeys, type UserApiKeys } from './user-api-keys'
 import { getTenantById, getTenantBySlug, type Tenant } from './tenant'
 
-const SESSION_COOKIE_NAME = 'winbros_session'
+export const SESSION_COOKIE_NAME = 'winbros_session'
 const SESSION_DURATION_DAYS = 30
 
 export interface AuthUser {

@@ -639,6 +639,8 @@ export async function initiateOutboundCall(
       outboundPhoneId,
     })
 
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
     const response = await fetch('https://api.vapi.ai/call', {
       method: 'POST',
       headers: {
@@ -654,7 +656,9 @@ export async function initiateOutboundCall(
         },
         metadata,
       }),
+      signal: controller.signal,
     })
+    clearTimeout(fetchTimeout)
 
     if (!response.ok) {
       const errorText = await response.text()

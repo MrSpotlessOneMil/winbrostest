@@ -128,11 +128,12 @@ export async function POST(request: NextRequest) {
           msg += `Please assign crew via the dashboard.\n`
         }
 
-        if (tenant) {
-          await sendTelegramMessage(tenant, lead.telegram_id, msg, 'HTML')
-        } else {
-          await sendTelegramMessage(lead.telegram_id, msg, 'HTML')
+        if (!tenant) {
+          console.error(`[crew-briefing] Cannot send briefing to ${lead.name} — tenant not resolved (tenant_id: ${leadTenantId})`)
+          results.briefingErrors++
+          continue
         }
+        await sendTelegramMessage(tenant, lead.telegram_id, msg, 'HTML')
         results.briefingsSent++
         console.log(`[crew-briefing] Sent briefing to ${lead.name} (${lead.telegram_id})`)
       } catch (err) {

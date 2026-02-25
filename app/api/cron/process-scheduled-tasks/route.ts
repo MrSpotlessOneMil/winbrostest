@@ -13,6 +13,7 @@ import {
   claimTask,
   completeTask,
   failTask,
+  scheduleTask,
   type ScheduledTask,
 } from '@/lib/scheduler'
 import { getTenantById, getTenantServiceDescription, tenantUsesFeature } from '@/lib/tenant'
@@ -53,8 +54,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Get tasks that are due
-    const dueTasks = await getDueTasks(50)
+    const startTime = Date.now()
+    const MAX_ELAPSED_MS = 45_000 // Stop processing after 45s to avoid Vercel timeout
+
+    // Get tasks that are due (reduced batch size to prevent timeout cascades)
+    const dueTasks = await getDueTasks(10)
 
     if (dueTasks.length === 0) {
       return NextResponse.json({
@@ -66,8 +70,14 @@ export async function GET(request: NextRequest) {
 
     console.log(`[process-scheduled-tasks] Found ${dueTasks.length} due tasks`)
 
-    // Process each task
+    // Process each task with elapsed time guard
     for (const task of dueTasks) {
+      // Check if we're running out of time
+      if (Date.now() - startTime > MAX_ELAPSED_MS) {
+        console.log(`[process-scheduled-tasks] Elapsed time exceeded ${MAX_ELAPSED_MS}ms, deferring remaining tasks to next tick`)
+        break
+      }
+
       const claimResult = await claimTask(task.id)
 
       if (!claimResult.success) {
@@ -131,7 +141,7 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
   switch (task_type) {
     case 'lead_followup':
-      await processLeadFollowup(payload, tenant)
+      await processLeadFollowup(payload, tenant, tenant_id)
       break
 
     case 'job_broadcast':
@@ -156,7 +166,8 @@ async function processTask(task: ScheduledTask): Promise<void> {
  */
 async function processLeadFollowup(
   payload: Record<string, unknown>,
-  tenant: Awaited<ReturnType<typeof getTenantById>>
+  tenant: Awaited<ReturnType<typeof getTenantById>>,
+  tenantId?: string
 ): Promise<void> {
   const { leadId, leadPhone, leadName, stage, action } = payload as {
     leadId: string
@@ -460,12 +471,22 @@ async function processLeadFollowup(
         leadId,
       })
 
-      // For double call, wait 30 seconds and call again
+      // For double call, schedule a second call 30s from now instead of blocking
       if (action === 'double_call') {
-        await new Promise((resolve) => setTimeout(resolve, 30000))
-        await initiateOutboundCall(leadPhone, leadName, {
-          leadId,
+        await scheduleTask({
+          tenantId: tenantId || undefined,
+          taskType: 'lead_followup',
+          taskKey: `lead-${leadId}-double-call-2`,
+          scheduledFor: new Date(Date.now() + 30_000),
+          payload: {
+            leadId,
+            leadPhone,
+            leadName,
+            stage,
+            action: 'call', // Single call — the second leg of the double
+          },
         })
+        console.log(`[lead-followup] Scheduled second call for lead ${leadId} in 30s`)
       }
     }
   }

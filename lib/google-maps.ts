@@ -89,12 +89,16 @@ async function geocodeWithNominatim(address: string): Promise<GeocodeResult | nu
     const encoded = encodeURIComponent(address)
     const url = `https://nominatim.openstreetmap.org/search?q=${encoded}&format=json&limit=1`
 
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 10_000)
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'WinBros-RouteOptimizer/1.0 (contact@winbros.com)',
         'Accept-Language': 'en',
       },
+      signal: controller.signal,
     })
+    clearTimeout(fetchTimeout)
 
     if (!response.ok) {
       console.error(`[Nominatim] HTTP error for "${address}": ${response.status}`)
@@ -147,7 +151,10 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult | n
       const encoded = encodeURIComponent(address)
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${apiKey}`
 
-      const response = await fetch(url)
+      const geoController = new AbortController()
+      const geoTimeout = setTimeout(() => geoController.abort(), 10_000)
+      const response = await fetch(url, { signal: geoController.signal })
+      clearTimeout(geoTimeout)
       if (response.ok) {
         const data = await response.json()
         if (data.status === 'OK' && data.results?.length) {
@@ -259,7 +266,10 @@ export async function getDistanceMatrix(
     url += `&departure_time=now`
   }
 
-  const response = await fetch(url)
+  const dmController = new AbortController()
+  const dmTimeout = setTimeout(() => dmController.abort(), 10_000)
+  const response = await fetch(url, { signal: dmController.signal })
+  clearTimeout(dmTimeout)
   if (!response.ok) {
     throw new Error(`[GoogleMaps] Distance Matrix HTTP error: ${response.status}`)
   }

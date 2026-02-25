@@ -1,6 +1,6 @@
 # OSIRIS x WinBros — Master Plan
 
-**Last Updated:** 2-26-2026
+**Last Updated:** 2-25-2026
 
 ---
 
@@ -19,9 +19,44 @@
 ## QA
 - [ ] Complete E2E test plan (`Documentation/E2E-TEST-PLAN.md`) — 130 items, all unchecked
 
+## Medium Priority Bugs (from Passes 4-6 audit)
+- [ ] Weak password validation (4 chars min)
+- [ ] No pagination limits on GET /leads, /jobs (`per_page=999999` possible)
+- [ ] Stripe webhook returns 200 even on processing failure (Stripe won't retry)
+- [ ] No SMS retry logic in OpenPhone client
+- [ ] Google Maps geocoding no retry/backoff
+- [ ] Seasonal reminders UTC date comparison (off-by-1 for non-UTC tenants)
+- [ ] check-timeouts fetches all pending assignments with no LIMIT
+- [ ] Error responses may leak DB column names
+
 ---
 
 # DONE
+
+## Bug Fixes — Passes 4-6 Audit (2-25)
+
+### Critical
+- [x] **send-final-payments cron missing** — Was never in `vercel.json`, final payments were not auto-sending. Added `*/15 * * * *` schedule
+- [x] **Admin plaintext password fallback** — If `create_user_with_password` RPC failed, password stored unhashed. Removed fallback; now returns 500
+- [x] **30s blocking sleep in double_call** — `process-scheduled-tasks` held serverless function for 30s. Replaced with `scheduleTask()` (second call 30s later via cron)
+- [x] **send-reminders timezone bug** — 8am daily check was hardcoded Pacific; Chicago tenants got reminders at wrong time. Now per-tenant timezone
+
+### High
+- [x] **Telegram decline TOCTOU** — Same race condition as accept (fixed earlier). Now uses atomic `UPDATE WHERE status='pending'`
+- [x] **No fetch timeouts** — OpenPhone, Telegram, Google Maps, VAPI, HubSpot fetch calls had no timeout. Added 10-15s `AbortController` timeouts to all
+- [x] **OpenPhone content-based dedup** — Dedup by exact content caused 10-20% false duplicates. Now dedup by OpenPhone message ID, fallback to content+60s window
+- [x] **HCP 60s dedup window** — HCP retries after 30min bypassed 60s window. Added two-tier: 60s for feedback loops + 24h for HCP `housecall_pro` source retries
+- [x] **Tip endpoint public** — No auth, anyone could create Stripe sessions. Added job status validation (must be completed/assigned) + 5 sessions/job/hour rate limit
+- [x] **Send-SMS no rate limit** — Authenticated user could spam unlimited SMS. Added 30 msgs/min per tenant rate limit
+- [x] **send-reminders double-scheduled** — `vercel.json` hourly cron + `unified-daily` both called it → double SMS. Removed from `unified-daily`
+- [x] **monthly-followup RPC no tenant filter** — RPC claimed ALL jobs globally; Tenant B's jobs starved when Tenant A's loop iteration claimed them. DB migration adds `p_tenant_id` param
+- [x] **process-scheduled-tasks timeout cascade** — 50-task batch with external API calls per task → Vercel 60s timeout. Reduced to 10 + 45s elapsed time guard
+- [x] **unified-daily silent failures** — Sub-cron failures logged but response always `success: true`. Now returns 207 + `success: false` if any fail
+- [x] **Pricing route wrong cookie** — Used `'session'` but auth defines `'winbros_session'`. Fixed to use `SESSION_COOKIE_NAME` constant
+- [x] **crew-briefing null tenant** — Sent Telegram with global bot token when tenant null (wrong for multi-tenant). Now skips + logs error
+
+### DB Migrations Applied
+- `claim_jobs_for_monthly_followup` — Added `p_tenant_id UUID` param + `tenant_id` in RETURNS TABLE
 
 ## Security & RLS
 

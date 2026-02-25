@@ -39,6 +39,10 @@
     {
       "path": "/api/cron/frequency-nudge",
       "schedule": "30 18 * * *"
+    },
+    {
+      "path": "/api/cron/send-final-payments",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

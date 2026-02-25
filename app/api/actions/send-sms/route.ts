@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
-import { appendToTextingTranscript, getTenantScopedClient } from '@/lib/supabase'
+import { appendToTextingTranscript, getSupabaseServiceClient, getTenantScopedClient } from '@/lib/supabase'
 import { getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 
@@ -18,6 +18,24 @@ export async function POST(request: NextRequest) {
   const { tenant: authTenant } = authResult
 
   try {
+    // Rate limit: max 30 outbound SMS per tenant per minute
+    const serviceClient = getSupabaseServiceClient()
+    const oneMinuteAgo = new Date(Date.now() - 60_000).toISOString()
+    const { count: recentCount } = await serviceClient
+      .from('messages')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', authTenant.id)
+      .eq('source', 'dashboard')
+      .eq('direction', 'outbound')
+      .gte('timestamp', oneMinuteAgo)
+
+    if (recentCount && recentCount >= 30) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Max 30 messages per minute.' },
+        { status: 429 }
+      )
+    }
+
     const body = await request.json()
     const { to, message } = body
 

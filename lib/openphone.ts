@@ -78,6 +78,8 @@ export async function sendSMS(
   }
 
   try {
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
     const response = await fetch(`${OPENPHONE_API_BASE}/messages`, {
       method: 'POST',
       headers: {
@@ -89,7 +91,9 @@ export async function sendSMS(
         to: [toE164Format],
         content: message,
       }),
+      signal: controller.signal,
     })
+    clearTimeout(fetchTimeout)
 
     if (!response.ok) {
       const errorText = await response.text()

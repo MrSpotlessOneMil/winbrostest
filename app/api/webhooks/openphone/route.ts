@@ -218,22 +218,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
-  // Dedup: skip if an identical inbound message was already stored in the last 30 seconds
-  // (OpenPhone can fire multiple webhook events for the same message)
-  const dedupCutoff = new Date(Date.now() - 30000).toISOString()
-  const { data: existingDup } = await client
-    .from("messages")
-    .select("id")
-    .eq("phone_number", phone)
-    .eq("tenant_id", tenant?.id)
-    .eq("role", "client")
-    .eq("content", extracted.content || "")
-    .gte("timestamp", dedupCutoff)
-    .limit(1)
-    .maybeSingle()
+  // Extract OpenPhone message ID for dedup (v3: data.object.id, v2: data.id, fallback: root id)
+  const opMessageId: string | undefined =
+    payload?.data?.object?.id || payload?.data?.id || payload?.id || undefined
+
+  // Dedup: prefer message ID match, fall back to content match with extended window
+  const dedupCutoff = new Date(Date.now() - 60_000).toISOString()
+  let existingDup = null
+
+  if (opMessageId) {
+    // Primary dedup: check for exact OpenPhone message ID in metadata
+    const { data: idMatch } = await client
+      .from("messages")
+      .select("id")
+      .eq("tenant_id", tenant?.id)
+      .contains("metadata", { openphone_message_id: opMessageId })
+      .limit(1)
+      .maybeSingle()
+    existingDup = idMatch
+  }
+
+  if (!existingDup) {
+    // Fallback dedup: content + phone + time window (catches cases without message ID)
+    const { data: contentMatch } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .eq("role", "client")
+      .eq("content", extracted.content || "")
+      .gte("timestamp", dedupCutoff)
+      .limit(1)
+      .maybeSingle()
+    existingDup = contentMatch
+  }
 
   if (existingDup) {
-    console.log(`[OpenPhone] Duplicate inbound message detected for ${phone}, skipping`)
+    console.log(`[OpenPhone] Duplicate inbound message detected for ${phone} (msgId: ${opMessageId || 'none'}), skipping`)
     return NextResponse.json({ success: true, action: "duplicate_webhook_skipped" })
   }
 
@@ -250,7 +271,7 @@ export async function POST(request: NextRequest) {
     ai_generated: false,
     timestamp: receivedAt,
     source: "openphone",
-    metadata: payload,
+    metadata: { ...payload, openphone_message_id: opMessageId || null },
   }).select("id").single()
 
   if (msgErr) {

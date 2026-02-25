@@ -39,10 +39,14 @@ async function hubspotRequest<T>(
     headers.set('Content-Type', 'application/json')
   }
 
+  const controller = new AbortController()
+  const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
   const response = await fetch(`${HUBSPOT_BASE_URL}${path}`, {
     ...options,
     headers,
+    signal: controller.signal,
   })
+  clearTimeout(fetchTimeout)
 
   const text = await response.text()
   if (!response.ok) {

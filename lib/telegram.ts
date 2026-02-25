@@ -197,13 +197,21 @@ export async function sendTelegramMessage(
       payload.reply_markup = markup
     }
 
-    const response = await fetch(`${TELEGRAM_API_BASE}${botToken}/sendMessage`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
+    let response: Response
+    try {
+      response = await fetch(`${TELEGRAM_API_BASE}${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(fetchTimeout)
+    }
 
     const data = await response.json()
 
@@ -265,6 +273,8 @@ export async function answerCallbackQuery(
   }
 
   try {
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
     const response = await fetch(`${TELEGRAM_API_BASE}${botToken}/answerCallbackQuery`, {
       method: 'POST',
       headers: {
@@ -274,7 +284,9 @@ export async function answerCallbackQuery(
         callback_query_id: callbackQueryId,
         text: text || 'Response received!',
       }),
+      signal: controller.signal,
     })
+    clearTimeout(fetchTimeout)
 
     const data = await response.json()
     return data.ok === true
@@ -310,6 +322,8 @@ export async function editMessageReplyMarkup(
   if (!botToken) return false
 
   try {
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
     const response = await fetch(`${TELEGRAM_API_BASE}${botToken}/editMessageReplyMarkup`, {
       method: 'POST',
       headers: {
@@ -320,7 +334,9 @@ export async function editMessageReplyMarkup(
         message_id: messageId,
         reply_markup: { inline_keyboard: [] },
       }),
+      signal: controller.signal,
     })
+    clearTimeout(fetchTimeout)
 
     const data = await response.json()
     return data.ok === true

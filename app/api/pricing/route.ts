@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { SESSION_COOKIE_NAME } from '@/lib/auth'
 import {
   getPricingTiers,
   getPricingAddons,
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authentication (basic session check)
     const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('session')?.value
+    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
     if (!sessionToken) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
@@ -165,7 +166,7 @@ export async function PUT(request: NextRequest) {
   try {
     // Verify authentication
     const cookieStore = await cookies()
-    const sessionToken = cookieStore.get('session')?.value
+    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
     if (!sessionToken) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },

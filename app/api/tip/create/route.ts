@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { logSystemEvent } from '@/lib/system-events'
 import { getApiKey } from '@/lib/user-api-keys'
 import { getClientConfig } from '@/lib/client-config'
 
@@ -56,10 +57,10 @@ export async function POST(request: NextRequest) {
 
     const client = getSupabaseServiceClient()
 
-    // Get job with cleaner info
+    // Get job with cleaner info — validate job exists and is in a tippable state
     const { data: job, error: jobError } = await client
       .from('jobs')
-      .select('id, cleaner_id, phone_number, service_type')
+      .select('id, cleaner_id, phone_number, service_type, status')
       .eq('id', jobId)
       .single()
 
@@ -67,6 +68,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: 'Job not found' },
         { status: 404 }
+      )
+    }
+
+    // Only allow tips for completed or assigned jobs
+    const tippableStatuses = ['completed', 'assigned', 'in_progress']
+    if (!tippableStatuses.includes(job.status)) {
+      return NextResponse.json(
+        { success: false, error: 'Tips can only be created for active or completed jobs' },
+        { status: 400 }
+      )
+    }
+
+    // Rate limit: max 5 tip sessions per job per hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60_000).toISOString()
+    const { count: recentTipCount } = await client
+      .from('system_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('event_type', 'TIP_SESSION_CREATED')
+      .eq('metadata->>job_id', jobId)
+      .gte('created_at', oneHourAgo)
+
+    if (recentTipCount && recentTipCount >= 5) {
+      return NextResponse.json(
+        { success: false, error: 'Too many tip attempts for this job. Please try again later.' },
+        { status: 429 }
       )
     }
 
@@ -115,6 +141,14 @@ export async function POST(request: NextRequest) {
     })
 
     console.log(`[tip/create] Created tip session ${session.id} for $${tipAmount.toFixed(2)}`)
+
+    // Log for rate limiting
+    await logSystemEvent({
+      source: 'tip',
+      event_type: 'TIP_SESSION_CREATED',
+      message: `Tip session created for job ${jobId}: $${tipAmount.toFixed(2)}`,
+      metadata: { job_id: jobId, session_id: session.id, amount: tipAmount },
+    }).catch(() => {}) // fire-and-forget
 
     return NextResponse.json({
       success: true,
