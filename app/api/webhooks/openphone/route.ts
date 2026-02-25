@@ -1211,7 +1211,29 @@ export async function POST(request: NextRequest) {
                 // WinBros estimate flow: no price — salesman will quote on-site
                 servicePrice = null
               } else {
+                // Look up price from database pricing tiers
                 servicePrice = bookingData.price || null
+                if (!servicePrice && bookingData.bedrooms && bookingData.bathrooms && tenant?.id) {
+                  try {
+                    const { getPricingRow } = await import("@/lib/pricing-db")
+                    // Map service type: "standard cleaning" → "standard", "deep cleaning" → "deep", etc.
+                    const svcRaw = (bookingData.serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                    const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                    const pricingRow = await getPricingRow(
+                      pricingTier as 'standard' | 'deep' | 'move',
+                      bookingData.bedrooms,
+                      bookingData.bathrooms,
+                      bookingData.squareFootage || null,
+                      tenant.id
+                    )
+                    if (pricingRow?.price) {
+                      servicePrice = pricingRow.price
+                      console.log(`[OpenPhone] Price from DB pricing tier: $${servicePrice} (${pricingTier} ${bookingData.bedrooms}bed/${bookingData.bathrooms}bath/${bookingData.squareFootage || '?'}sqft)`)
+                    }
+                  } catch (pricingErr) {
+                    console.error('[OpenPhone] Failed to look up pricing tier:', pricingErr)
+                  }
+                }
               }
 
               // Build job notes with OVERRIDE tags for pricing engine

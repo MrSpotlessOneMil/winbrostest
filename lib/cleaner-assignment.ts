@@ -20,7 +20,7 @@ import {
 // @ts-ignore - import needed to resolve correct file
 import { notifyCleanerAssignment } from './telegram'
 import { logSystemEvent } from './system-events'
-import { getTenantById, getDefaultTenant } from './tenant'
+import { getTenantById, getDefaultTenant, tenantUsesFeature } from './tenant'
 
 // Extended Cleaner type with location data (now included in base Cleaner interface)
 export type CleanerWithLocation = Cleaner
@@ -347,12 +347,20 @@ export async function triggerCleanerAssignment(
       }
     }
 
-    // Find and assign the next available cleaner
+    // Look up the correct tenant from job.tenant_id
+    const jobTenantId = (job as any).tenant_id
+    const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+
+    // BROADCAST MODE: Send to ALL available cleaners, first to accept wins
+    if (tenant && tenantUsesFeature(tenant, 'use_broadcast_assignment')) {
+      return await triggerBroadcastAssignment(jobId, job, tenant)
+    }
+
+    // ROUTING MODE (default): Pick one cleaner at a time based on distance
     const assignResult = await assignNextAvailableCleaner(jobId)
 
     if (!assignResult.success) {
       if (assignResult.exhausted) {
-        // Log escalation event - use OWNER_ACTION_REQUIRED for exhausted cleaners
         await logSystemEvent({
           source: 'telegram',
           event_type: 'OWNER_ACTION_REQUIRED',
@@ -385,10 +393,6 @@ export async function triggerCleanerAssignment(
       ? await getCustomerByPhone(job.phone_number)
       : null
 
-    // Look up the correct tenant from job.tenant_id (not default)
-    const jobTenantId = (job as any).tenant_id
-    const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
-
     // Send Telegram notification to the cleaner
     if (cleaner.telegram_id && tenant) {
       const notifyResult = await notifyCleanerAssignment(
@@ -403,7 +407,6 @@ export async function triggerCleanerAssignment(
         console.error(
           `[cleaner-assignment] Failed to notify cleaner ${cleaner.name}: ${notifyResult.error}`
         )
-        // Don't fail the overall operation, just log the error
       } else {
         console.log(
           `[cleaner-assignment] Sent notification to cleaner ${cleaner.name}`
@@ -415,7 +418,6 @@ export async function triggerCleanerAssignment(
       )
     }
 
-    // Log the assignment event - use CLEANER_BROADCAST for initial assignment notification
     await logSystemEvent({
       source: 'telegram',
       event_type: 'CLEANER_BROADCAST',
@@ -429,6 +431,7 @@ export async function triggerCleanerAssignment(
         job_date: job.date,
         job_time: job.scheduled_at,
         notification_sent: !!cleaner.telegram_id,
+        mode: 'routing',
       },
     })
 
@@ -440,6 +443,102 @@ export async function triggerCleanerAssignment(
       error: error instanceof Error ? error.message : 'Unknown error',
     }
   }
+}
+
+/**
+ * Broadcast assignment: send job to ALL available cleaners.
+ * First one to click "Available" wins. Others get auto-cancelled.
+ */
+async function triggerBroadcastAssignment(
+  jobId: string,
+  job: Job,
+  tenant: NonNullable<Awaited<ReturnType<typeof getTenantById>>>
+): Promise<{ success: boolean; error?: string }> {
+  const effectiveTenantId = (job as any).tenant_id || undefined
+
+  // Get all available cleaners for this date/time
+  const availableCleaners = await getCleanerAvailability(
+    job.date || '',
+    job.scheduled_at || undefined,
+    effectiveTenantId
+  )
+
+  if (availableCleaners.length === 0) {
+    await logSystemEvent({
+      source: 'telegram',
+      event_type: 'OWNER_ACTION_REQUIRED',
+      message: `No available cleaners for job ${jobId} (broadcast)`,
+      job_id: jobId,
+      phone_number: job.phone_number,
+      metadata: { job_date: job.date, job_time: job.scheduled_at, reason: 'no_cleaners_available', mode: 'broadcast' },
+    })
+
+    // Alert owner
+    if (tenant.owner_telegram_chat_id) {
+      const { sendTelegramMessage } = await import('./telegram')
+      await sendTelegramMessage(
+        tenant,
+        tenant.owner_telegram_chat_id,
+        `<b>No Cleaners Available</b>\n\nJob #${jobId} on ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nNo cleaners are available for this date. Manual assignment required.`,
+        'HTML'
+      )
+    }
+
+    return { success: false, error: 'No available cleaners for this job' }
+  }
+
+  const customer = job.phone_number ? await getCustomerByPhone(job.phone_number) : null
+  let notifiedCount = 0
+
+  // Create assignments and send notifications to ALL available cleaners
+  for (const cleaner of availableCleaners) {
+    if (!cleaner.id) continue
+
+    const assignment = await createCleanerAssignment(jobId, cleaner.id)
+    if (!assignment) {
+      console.error(`[cleaner-assignment] Failed to create broadcast assignment for ${cleaner.name}`)
+      continue
+    }
+
+    if (cleaner.telegram_id) {
+      const notifyResult = await notifyCleanerAssignment(
+        tenant,
+        cleaner,
+        job,
+        customer || undefined,
+        assignment.id
+      )
+
+      if (notifyResult.success) {
+        notifiedCount++
+        console.log(`[cleaner-assignment] Broadcast: notified ${cleaner.name}`)
+      } else {
+        console.error(`[cleaner-assignment] Broadcast: failed to notify ${cleaner.name}: ${notifyResult.error}`)
+      }
+    }
+  }
+
+  await logSystemEvent({
+    source: 'telegram',
+    event_type: 'CLEANER_BROADCAST',
+    message: `Broadcast job ${jobId} to ${availableCleaners.length} cleaners (${notifiedCount} notified)`,
+    job_id: jobId,
+    phone_number: job.phone_number,
+    metadata: {
+      job_date: job.date,
+      job_time: job.scheduled_at,
+      mode: 'broadcast',
+      total_cleaners: availableCleaners.length,
+      notified_count: notifiedCount,
+      cleaner_names: availableCleaners.map(c => c.name),
+    },
+  })
+
+  if (notifiedCount === 0) {
+    return { success: false, error: 'Created assignments but failed to notify any cleaners' }
+  }
+
+  return { success: true }
 }
 
 /**

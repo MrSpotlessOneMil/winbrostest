@@ -263,6 +263,7 @@ async function handleAcceptCallback(
   tenant: Tenant
 ): Promise<NextResponse> {
   try {
+    const client = getSupabaseServiceClient()
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your acceptance...")
 
     const assignment = await getCleanerAssignmentById(assignmentId)
@@ -288,7 +289,37 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
+
+    // Cancel all other pending assignments for this job (broadcast mode: first to accept wins)
+    const { data: otherAssignments } = await client
+      .from("cleaner_assignments")
+      .select("id, cleaner_id")
+      .eq("job_id", Number(jobId))
+      .eq("status", "pending")
+      .neq("id", Number(assignmentId))
+
+    if (otherAssignments && otherAssignments.length > 0) {
+      const otherIds = otherAssignments.map((a: any) => a.id)
+      await client
+        .from("cleaner_assignments")
+        .update({ status: "cancelled", responded_at: new Date().toISOString() })
+        .in("id", otherIds)
+
+      // Notify other cleaners the job was taken
+      for (const other of otherAssignments) {
+        const { data: otherCleaner } = await client
+          .from("cleaners")
+          .select("telegram_id, name")
+          .eq("id", other.cleaner_id)
+          .single()
+        if (otherCleaner?.telegram_id) {
+          sendTelegramMessage(tenant, otherCleaner.telegram_id, `The job on ${job.date || 'TBD'} has been claimed by another cleaner. Thanks for your interest!`).catch(() => {})
+        }
+      }
+
+      console.log(`[Telegram/${tenant.slug}] Cancelled ${otherIds.length} other pending assignments for job ${jobId}`)
+    }
 
     let customerNotified = false
     if (job.phone_number) {
@@ -388,9 +419,35 @@ async function handleDeclineCallback(
     await updateCleanerAssignment(assignmentId, "declined")
     await sendMsg(chatId, "No problem! We'll find another cleaner for this job.", tenant)
 
-    const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
+    // Check if this tenant uses broadcast mode
+    const isBroadcast = tenantUsesFeature(tenant, 'use_broadcast_assignment')
 
-    if (!assignResult.success && assignResult.exhausted) {
+    // In broadcast mode, check if there are still other pending assignments
+    // Only escalate if ALL cleaners have declined (no pending left)
+    let allDeclined = false
+    let nextAssigned = false
+
+    if (isBroadcast) {
+      const client = getSupabaseServiceClient()
+      const { data: remainingPending } = await client
+        .from("cleaner_assignments")
+        .select("id")
+        .eq("job_id", Number(jobId))
+        .eq("status", "pending")
+
+      if (!remainingPending || remainingPending.length === 0) {
+        // All cleaners have declined or been cancelled — no one left
+        allDeclined = true
+      }
+      // Otherwise, other cleaners still have pending assignments, do nothing
+    } else {
+      // Routing mode: cascade to next cleaner
+      const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
+      nextAssigned = assignResult.success
+      allDeclined = !assignResult.success && (assignResult.exhausted || false)
+    }
+
+    if (allDeclined) {
       if (job.phone_number) {
         const customer = await getCustomerByPhone(job.phone_number)
         const dateStr = job.date
@@ -416,7 +473,7 @@ async function handleDeclineCallback(
         message: `No cleaners available for job ${jobId} - all declined or unavailable`,
         job_id: jobId,
         phone_number: job.phone_number,
-        metadata: { reason: "cleaner_assignment_exhausted", last_declined_cleaner_id: assignment.cleaner_id },
+        metadata: { reason: "cleaner_assignment_exhausted", last_declined_cleaner_id: assignment.cleaner_id, mode: isBroadcast ? 'broadcast' : 'routing' },
       })
     }
 
@@ -430,8 +487,9 @@ async function handleDeclineCallback(
       metadata: {
         assignment_id: assignmentId,
         telegram_user_id: telegramUserId,
-        next_cleaner_assigned: assignResult.success,
-        exhausted: assignResult.exhausted || false,
+        next_cleaner_assigned: nextAssigned,
+        all_declined: allDeclined,
+        mode: isBroadcast ? 'broadcast' : 'routing',
       },
     })
 
