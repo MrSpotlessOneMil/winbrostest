@@ -494,10 +494,12 @@ async function executeTool(
         return `No customer found with phone number ${phone}. Would you like me to create one?`
       }
 
-      const { data: jobs } = await client
+      let jobsQuery = client
         .from("jobs")
         .select("id, service_type, date, status, price, scheduled_at")
         .eq("phone_number", customer.phone_number)
+      if (tenantId) jobsQuery = jobsQuery.eq("tenant_id", tenantId)
+      const { data: jobs } = await jobsQuery
         .order("created_at", { ascending: false })
         .limit(5)
 
@@ -568,11 +570,12 @@ async function executeTool(
 
       // For each match, load lead form_data for property details
       const results = await Promise.all(customers.map(async (c: any) => {
-        const { data: lead } = await client
+        let leadQuery = client
           .from("leads")
           .select("form_data")
           .eq("phone_number", c.phone_number)
-          .eq("tenant_id", tenantId)
+        if (tenantId) leadQuery = leadQuery.eq("tenant_id", tenantId)
+        const { data: lead } = await leadQuery
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle()
@@ -726,10 +729,12 @@ async function executeTool(
       }
 
       // Get latest job
-      const { data: jobs } = await client
+      let stripeJobsQuery = client
         .from("jobs")
         .select("*")
         .eq("phone_number", customer.phone_number)
+      if (tenantId) stripeJobsQuery = stripeJobsQuery.eq("tenant_id", tenantId)
+      const { data: jobs } = await stripeJobsQuery
         .order("created_at", { ascending: false })
         .limit(1)
 
@@ -777,10 +782,12 @@ async function executeTool(
         const { getJobById } = await import("@/lib/supabase")
         job = await getJobById(toolInput.job_id)
       } else {
-        const { data: jobs } = await client
+        let waveJobsQuery = client
           .from("jobs")
           .select("*")
           .eq("phone_number", customer.phone_number)
+        if (tenantId) waveJobsQuery = waveJobsQuery.eq("tenant_id", tenantId)
+        const { data: jobs } = await waveJobsQuery
           .order("created_at", { ascending: false })
           .limit(1)
         job = jobs?.[0]
@@ -1573,7 +1580,7 @@ export async function POST(request: NextRequest) {
       })
 
       let hasToolUse = false
-      const toolResults: Anthropic.MessageParam[] = []
+      const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
 
       for (const block of response.content) {
         if (block.type === "text") {
@@ -1583,19 +1590,10 @@ export async function POST(request: NextRequest) {
           toolsUsed[block.name] = (toolsUsed[block.name] || 0) + 1
           const toolResult = await executeTool(block.name, block.input as Record<string, any>, user.id, tenant)
 
-          toolResults.push({
-            role: "assistant",
-            content: response.content,
-          })
-          toolResults.push({
-            role: "user",
-            content: [
-              {
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: toolResult,
-              },
-            ],
+          toolResultBlocks.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: toolResult,
           })
         }
       }
@@ -1604,7 +1602,12 @@ export async function POST(request: NextRequest) {
         break
       }
 
-      currentMessages = [...currentMessages, ...toolResults]
+      // One assistant message with all tool_use blocks, then one user message with all tool_results
+      currentMessages = [
+        ...currentMessages,
+        { role: "assistant" as const, content: response.content },
+        { role: "user" as const, content: toolResultBlocks },
+      ]
       finalText = "" // Reset — we want the final text response after tool use
     }
 

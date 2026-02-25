@@ -483,34 +483,31 @@ export default function AssistantPage() {
       fetch(`/api/assistant/conversations/${id}`, { method: "DELETE" }).catch(() => {})
     }
 
-    setConversations((prev) => {
-      const updated = prev.filter((c) => c.id !== id)
+    const updated = conversations.filter((c) => c.id !== id)
 
-      // If we deleted the current conversation, switch to first remaining or create new
-      if (id === currentId) {
-        if (updated.length > 0) {
-          setCurrentId(updated[0].id)
-          if (!memoryEnabled) {
-            setMessages(updated[0].messages)
-          } else {
-            setMessages([])
-            // Lazy-load messages for the new current conversation
-            fetch(`/api/assistant/conversations/${updated[0].id}`)
-              .then((res) => res.json())
-              .then((data) => setMessages(data.conversation?.messages || []))
-              .catch(() => {})
-          }
+    if (!memoryEnabled) {
+      saveConversations(updated)
+    }
+    setConversations(updated)
+
+    // If we deleted the current conversation, switch to first remaining or create new
+    if (id === currentId) {
+      if (updated.length > 0) {
+        setCurrentId(updated[0].id)
+        if (!memoryEnabled) {
+          setMessages(updated[0].messages)
         } else {
-          // Create a new conversation
-          handleNewChat()
+          setMessages([])
+          // Lazy-load messages for the new current conversation
+          fetch(`/api/assistant/conversations/${updated[0].id}`)
+            .then((res) => res.json())
+            .then((data) => setMessages(data.conversation?.messages || []))
+            .catch(() => {})
         }
+      } else {
+        handleNewChat()
       }
-
-      if (!memoryEnabled) {
-        saveConversations(updated)
-      }
-      return updated
-    })
+    }
   }
 
   return (
