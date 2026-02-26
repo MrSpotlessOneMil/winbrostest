@@ -284,7 +284,10 @@ const STORAGE_KEY_DATE = "calendar-date"
 
 function getSavedView(): string {
   if (typeof window === "undefined") return "dayGridMonth"
-  return localStorage.getItem(STORAGE_KEY_VIEW) || "dayGridMonth"
+  const saved = localStorage.getItem(STORAGE_KEY_VIEW)
+  if (saved) return saved
+  // Default to list view on mobile for better readability
+  return window.innerWidth < 768 ? "listMonth" : "dayGridMonth"
 }
 
 function getSavedDate(): string | undefined {
@@ -825,11 +828,11 @@ export default function JobsPage() {
               initialView={getSavedView()}
               initialDate={getSavedDate()}
               height="100%"
-              headerToolbar={{
-                left: "prev,next today",
-                center: "title",
-                right: "dayGridMonth,timeGridWeek,listMonth",
-              }}
+              headerToolbar={
+                typeof window !== "undefined" && window.innerWidth < 768
+                  ? { left: "prev,next", center: "title", right: "listMonth,dayGridMonth" }
+                  : { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,listMonth" }
+              }
               events={baseEvents}
               editable
               selectable

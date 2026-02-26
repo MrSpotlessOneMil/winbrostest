@@ -372,7 +372,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Summary Stats - compact row */}
-      <div className="grid gap-3 grid-cols-3 shrink-0">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 shrink-0">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10 shrink-0">
@@ -409,7 +409,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Two-column layout: teams left, chat right */}
-      <div className="flex gap-6 flex-1 min-h-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6 flex-1 min-h-0">
         {/* LEFT: Team list with inline members */}
         <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
           {teams.map((team) => {
@@ -648,7 +648,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}
-        <div className="relative w-[420px] shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20" data-no-splat>
+        <div className="relative w-full md:w-[420px] shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20 min-h-[300px] md:min-h-0" data-no-splat>
           <VelocityFluidBackground className="z-0" />
 
           <div className="relative z-10 flex flex-col h-full">

@@ -553,12 +553,12 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col overflow-hidden">
+    <div className="h-[calc(100dvh-8rem)] flex flex-col overflow-hidden">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Main Layout */}
         <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
-          {/* Customer List Sidebar - Fixed height, doesn't scroll with page */}
-          <div className="w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden">
+          {/* Customer List Sidebar - Hidden on mobile when a customer is selected */}
+          <div className={`w-full md:w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden ${selectedCustomer ? "hidden md:flex" : "flex"}`}>
             <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col h-full overflow-hidden">
               <div className="p-3 border-b border-zinc-800">
                 <div className="relative">
@@ -632,9 +632,18 @@ export default function CustomersPage() {
           </div>
 
           {/* Customer Detail - Scrollable content area */}
-          <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
+          <div className={`flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
             {selectedCustomer ? (
               <>
+                {/* Mobile back button */}
+                <button
+                  onClick={() => setSelectedCustomer(null)}
+                  className="md:hidden flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 py-1"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  Back to customers
+                </button>
+
                 {/* Lead Flow Progress */}
                 <LeadFlowProgress
                   lead={getCustomerLead(selectedCustomer.phone_number)}

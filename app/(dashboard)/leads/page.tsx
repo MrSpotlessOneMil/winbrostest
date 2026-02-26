@@ -270,7 +270,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Charts */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2">
         {/* Funnel Chart */}
         <Card>
           <CardHeader>
@@ -352,7 +352,7 @@ export default function LeadsPage() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Search leads..." className="w-64 pl-10" />
+              <Input placeholder="Search leads..." className="w-full sm:w-64 pl-10" />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32">
@@ -443,7 +443,7 @@ export default function LeadsPage() {
 
       {/* Lead Detail Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg mx-auto">
           <DialogHeader>
             <DialogTitle>Lead Details</DialogTitle>
             <DialogDescription>

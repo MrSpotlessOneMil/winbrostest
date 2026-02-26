@@ -34,9 +34,10 @@ const navigation = [
 
 interface SidebarProps {
   collapsed: boolean
+  onNavClick?: () => void  // Called when a nav item is clicked (closes mobile drawer)
 }
 
-export function Sidebar({ collapsed }: SidebarProps) {
+export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
   const pathname = usePathname()
   const { isAdmin, user, logout, accounts, addAccount, switchAccount } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -160,7 +161,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
               key={item.href}
               href={item.href}
               title={collapsed ? item.name : undefined}
-              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-colors ${
+              onClick={onNavClick}
+              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] ${
                 isActive
                   ? "text-zinc-100 bg-purple-500/10"
                   : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"

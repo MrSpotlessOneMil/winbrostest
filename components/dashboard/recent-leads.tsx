@@ -134,9 +134,9 @@ export function RecentLeads() {
                   />
                 </div>
 
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-foreground">{lead.name}</span>
+                <div className="flex-1 space-y-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-foreground truncate">{lead.name}</span>
                     <Badge
                       variant="outline"
                       className={statusConfig[lead.status as keyof typeof statusConfig].className}
