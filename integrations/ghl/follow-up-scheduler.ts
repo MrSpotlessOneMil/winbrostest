@@ -156,7 +156,11 @@ async function processInitialSMS(
   tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   const message = GHL_SMS_TEMPLATES.initial(lead.first_name)
-  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
+  if (!tenant) {
+    console.error(`[GHL follow-up] No tenant for follow-up ${followUp.id} — skipping SMS`)
+    return { success: false, action: 'skipped', error: 'No tenant' }
+  }
+  const result = await sendSMS(tenant, followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -316,7 +320,11 @@ async function processPostCallSMS(
     ? GHL_SMS_TEMPLATES.postVoicemail(lead.first_name)
     : GHL_SMS_TEMPLATES.postNoAnswer(lead.first_name)
 
-  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
+  if (!tenant) {
+    console.error(`[GHL follow-up] No tenant for follow-up ${followUp.id} — skipping SMS`)
+    return { success: false, action: 'skipped', error: 'No tenant' }
+  }
+  const result = await sendSMS(tenant, followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -394,7 +402,11 @@ async function processFollowUpSMS(
       message = GHL_SMS_TEMPLATES.followUp1(lead.first_name)
   }
 
-  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
+  if (!tenant) {
+    console.error(`[GHL follow-up] No tenant for follow-up ${followUp.id} — skipping SMS`)
+    return { success: false, action: 'skipped', error: 'No tenant' }
+  }
+  const result = await sendSMS(tenant, followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {
@@ -472,7 +484,11 @@ async function processSilenceReminder(
   tenant: Tenant | null
 ): Promise<{ success: boolean; action: string; error?: string }> {
   const message = GHL_SMS_TEMPLATES.silenceWarning(lead.first_name)
-  const result = tenant ? await sendSMS(tenant, followUp.phone_number, message) : await sendSMS(followUp.phone_number, message)
+  if (!tenant) {
+    console.error(`[GHL follow-up] No tenant for follow-up ${followUp.id} — skipping SMS`)
+    return { success: false, action: 'skipped', error: 'No tenant' }
+  }
+  const result = await sendSMS(tenant, followUp.phone_number, message)
 
   if (result.success) {
     await updateGHLFollowUp(followUp.id!, {

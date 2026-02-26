@@ -89,8 +89,8 @@ export async function POST(request: NextRequest) {
     // Update job with price
     const jobWithPrice = { ...job, price }
 
-    // Create deposit payment link
-    const depositResult = await createDepositPaymentLink(customer, jobWithPrice)
+    // Create deposit payment link (using tenant's Stripe key)
+    const depositResult = await createDepositPaymentLink(customer, jobWithPrice, undefined, tenant?.id, tenant?.stripe_secret_key || undefined)
     if (!depositResult.success) {
       await alertOwner('Deposit link failed. Manual follow-up required.', {
         jobId,
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     const depositMessage = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
     const depositSms = tenant
       ? await sendSMS(tenant, customer.phone_number, depositMessage)
-      : await sendSMS(customer.phone_number, depositMessage)
+      : { success: false, error: 'No tenant' }
     if (!depositSms.success) {
       await alertOwner('Failed to send deposit SMS to customer.', {
         jobId,

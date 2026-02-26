@@ -213,7 +213,7 @@ async function executeCheckTimeouts(request: NextRequest) {
           if (jobTenant) {
             await sendSMS(jobTenant, ownerPhone, alertMessage)
           } else {
-            await sendSMS(ownerPhone, alertMessage)
+            console.error(`[check-timeouts] No tenant for job ${jobId} — cannot send owner alert SMS`)
           }
           ownerAlerts++
 
@@ -284,7 +284,7 @@ async function executeCheckTimeouts(request: NextRequest) {
           if (jobTenant) {
             await sendSMS(jobTenant, ownerPhone, alertMessage)
           } else {
-            await sendSMS(ownerPhone, alertMessage)
+            console.error(`[check-timeouts] No tenant for job ${jobId} — cannot send owner timeout alert SMS`)
           }
           ownerAlerts++
 
@@ -324,7 +324,7 @@ async function executeCheckTimeouts(request: NextRequest) {
             if (jobTenant) {
               await sendSMS(jobTenant, customer.phone_number, customerMessage)
             } else {
-              await sendSMS(customer.phone_number, customerMessage)
+              console.error(`[check-timeouts] No tenant for job ${jobId} — cannot send customer delay SMS`)
             }
             const businessNameShort = jobTenant ? getTenantBusinessName(jobTenant, true) : 'Team'
             await appendToTextingTranscript(
@@ -524,7 +524,7 @@ async function handleCancelReassign(
       if (jobTenant) {
         await sendSMS(jobTenant, ownerPhone, alertMessage)
       } else {
-        await sendSMS(ownerPhone, alertMessage)
+        console.error(`[check-timeouts] No tenant for job ${jobId} — cannot send owner cancel alert SMS`)
       }
 
       await logSystemEvent({

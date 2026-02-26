@@ -377,7 +377,11 @@ async function handleAcceptCallback(
           timeStr
         )
 
-        const smsResult = await sendSMS(job.phone_number, smsMessage)
+        // Look up tenant from job for SMS routing
+        const { getTenantById: getTenantByIdForSms } = await import("@/lib/tenant")
+        const jobTenant = job.tenant_id ? await getTenantByIdForSms(job.tenant_id) : null
+        const smsResult = jobTenant ? await sendSMS(jobTenant, job.phone_number, smsMessage) : { success: false, error: 'No tenant' }
+        if (!jobTenant) console.error(`[Telegram] No tenant for job ${jobId} — cannot send cleaner-assigned SMS`)
         customerNotified = smsResult.success
 
         // 7. Update job.customer_notified = true
@@ -385,7 +389,7 @@ async function handleAcceptCallback(
           await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
 
           // Log the outbound message to the database
-          const tenant = await getDefaultTenant()
+          const tenant = jobTenant
           if (tenant) {
             const client = getSupabaseServiceClient()
             client.from("messages").insert({
@@ -521,7 +525,13 @@ async function handleDeclineCallback(
           : "your requested date"
 
         const smsMessage = noCleanersAvailable(customer?.first_name || "there", dateStr)
-        await sendSMS(job.phone_number, smsMessage)
+        const { getTenantById: getTenantByIdForExhausted } = await import("@/lib/tenant")
+        const exhaustedTenant = job.tenant_id ? await getTenantByIdForExhausted(job.tenant_id) : null
+        if (exhaustedTenant) {
+          await sendSMS(exhaustedTenant, job.phone_number, smsMessage)
+        } else {
+          console.error(`[Telegram] No tenant for job ${jobId} — cannot send no-cleaners SMS`)
+        }
       }
 
       // Send escalation to owner - try Telegram first, fall back to SMS
@@ -542,8 +552,14 @@ All available cleaners have declined or are unavailable. Manual assignment requi
 
         await sendTelegramMessage(OWNER_TELEGRAM_CHAT_ID, escalationMessage)
       } else if (OWNER_PHONE) {
-        // Fallback: send SMS to owner phone
-        await sendSMS(OWNER_PHONE, escalationText)
+        // Fallback: send SMS to owner phone — need tenant for this too
+        const { getTenantById: getTenantByIdForOwner } = await import("@/lib/tenant")
+        const ownerTenant = job.tenant_id ? await getTenantByIdForOwner(job.tenant_id) : null
+        if (ownerTenant) {
+          await sendSMS(ownerTenant, OWNER_PHONE, escalationText)
+        } else {
+          console.error(`[Telegram] No tenant for job ${jobId} — cannot send owner escalation SMS`)
+        }
         console.log("[OSIRIS] Escalation sent via SMS to owner (no Telegram chat ID configured)")
       } else {
         console.error("[OSIRIS] No escalation channel configured - set OWNER_TELEGRAM_CHAT_ID or OWNER_PHONE")
@@ -1064,7 +1080,8 @@ async function handleOnboardingStep(
 
     case 'confirm':
       if (text.toLowerCase() === 'yes' || text.toLowerCase() === 'y') {
-        // Get default tenant
+        // Legacy route: use getDefaultTenant() for cleaner onboarding (no slug in URL)
+        // New tenants should use /api/webhooks/telegram/[slug] instead
         const tenant = await getDefaultTenant()
         if (!tenant) {
           await sendTelegramMessage(chatId, `Registration error. Please contact support.`)

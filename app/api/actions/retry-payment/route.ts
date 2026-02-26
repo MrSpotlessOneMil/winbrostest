@@ -22,26 +22,14 @@ import {
   getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { findOrCreateStripeCustomer, resolveStripeChargeCents } from '@/lib/stripe-client'
+import { findOrCreateStripeCustomer, resolveStripeChargeCents, getStripeClientForTenant } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes } from '@/lib/pricing-config'
 import { getClientConfig } from '@/lib/client-config'
 import { requireAuthWithTenant } from '@/lib/auth'
-import { getDefaultTenant, getTenantById } from '@/lib/tenant'
+import { getTenantById } from '@/lib/tenant'
+import { getTenantRedirectDomain } from '@/lib/stripe-client'
 import { paymentRetry as paymentRetryTemplate } from '@/lib/sms-templates'
-
-function getStripeClient(): Stripe {
-  const rawKey = process.env.STRIPE_SECRET_KEY
-  const secretKey = rawKey ? rawKey.replace(/[\r\n]/g, '').trim() : ''
-
-  if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY not configured')
-  }
-
-  return new Stripe(secretKey, {
-    apiVersion: '2025-02-24.acacia',
-  })
-}
 
 /**
  * Core retry logic — callable from both the API route (with auth) and the cron (without auth)
@@ -112,9 +100,13 @@ export async function executeRetryPayment(jobId: string): Promise<{
   )
   const chargeAmount = chargeAmountCents / 100
 
-  const stripe = getStripeClient()
+  // Use tenant's Stripe key if available
+  const jobTenantId = (job as any).tenant_id
+  const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
+  const stripeKey = tenant?.stripe_secret_key || undefined
+  const stripe = getStripeClientForTenant(stripeKey)
   // Ensure customer exists in Stripe so payment is associated correctly
-  await findOrCreateStripeCustomer(customer)
+  await findOrCreateStripeCustomer(customer, stripeKey)
 
   const price = await stripe.prices.create({
     currency: 'usd',
@@ -125,7 +117,7 @@ export async function executeRetryPayment(jobId: string): Promise<{
   })
 
   const config = getClientConfig()
-  const domain = config.domain.endsWith('/') ? config.domain.slice(0, -1) : config.domain
+  const domain = await getTenantRedirectDomain(jobTenantId)
   const paymentMetadata: Record<string, string> = {
     job_id: jobId,
     phone_number: job.phone_number,
@@ -168,9 +160,6 @@ export async function executeRetryPayment(jobId: string): Promise<{
   }, {}, serviceClient)
 
   // Send SMS with new payment link
-  const jobTenantId = (job as any).tenant_id
-  const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
-
   const smsMessage = paymentRetryTemplate(
     config.businessName,
     chargeAmount,
@@ -182,8 +171,7 @@ export async function executeRetryPayment(jobId: string): Promise<{
     const sendResult = await sendSMS(tenant, job.phone_number, smsMessage)
     smsSent = sendResult.success
   } else {
-    const sendResult = await sendSMS(job.phone_number, smsMessage)
-    smsSent = sendResult.success
+    console.error(`[retry-payment] No tenant found for job ${jobId} — cannot send SMS`)
   }
 
   await logSystemEvent({

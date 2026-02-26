@@ -6,7 +6,7 @@ import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-respons
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
+import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
         tenant = await getTenantByOpenPhoneId(extracted.from)
       }
       if (!tenant) {
-        tenant = await getDefaultTenant()
+        console.error(`[OpenPhone] OUTBOUND: Could not find tenant for from=${extracted.from} — message will be logged without tenant context`)
       }
 
       // Find customer
@@ -170,10 +170,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fall back to default tenant if we couldn't route
+  // If we couldn't route, log an error but DON'T fall back to WinBros
+  // This prevents cross-tenant bleed (Bug: Spotless texts getting WinBros responses)
   if (!tenant) {
-    tenant = await getDefaultTenant()
-    console.log(`[OpenPhone] Using default tenant '${tenant?.slug}' (to: ${extracted.to || 'not provided'})`)
+    console.error(`[OpenPhone] CRITICAL: Could not route inbound SMS to any tenant. to=${extracted.to}, from=${extracted.from}. Message will be dropped — no auto-response sent.`)
+    await logSystemEvent({
+      source: "openphone",
+      event_type: "TENANT_ROUTING_FAILED",
+      message: `Could not route inbound SMS to any tenant — no auto-response sent`,
+      phone_number: phone,
+      metadata: {
+        from: extracted.from,
+        to: extracted.to,
+        content_preview: extracted.content?.slice(0, 100),
+      },
+    })
+    return NextResponse.json({ success: false, error: "Could not determine tenant for this phone number" }, { status: 200 })
   }
 
   // Log routing decision as system event for debugging
@@ -661,6 +673,7 @@ export async function POST(request: NextRequest) {
           { ...customer, email: providedEmail } as any,
           jobId || `lead-${bookedLead.id}`,
           tenant?.id,
+          tenant?.stripe_secret_key || undefined,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -2009,7 +2022,8 @@ async function sendDepositPaymentFlow(params: {
       { ...customer, email } as any,
       { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
       { lead_id: leadId },
-      tenant.id
+      tenant.id,
+      tenant.stripe_secret_key || undefined
     )
 
     if (depositResult.success && depositResult.url) {

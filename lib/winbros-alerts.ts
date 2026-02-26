@@ -359,7 +359,13 @@ async function notifyOwner(alert: CreateAlertInput): Promise<void> {
 
   try {
     const { sendSMS } = await import('./openphone')
-    await sendSMS(ownerPhone, `[WinBros Alert]\n${alert.message}`)
+    const { getTenantBySlug } = await import('./tenant')
+    const winbrosTenant = await getTenantBySlug('winbros')
+    if (winbrosTenant) {
+      await sendSMS(winbrosTenant, ownerPhone, `[WinBros Alert]\n${alert.message}`)
+    } else {
+      console.error('[Alerts] WinBros tenant not found — cannot send owner alert SMS')
+    }
   } catch (error) {
     console.error('[Alerts] Failed to send SMS owner notification:', error)
   }

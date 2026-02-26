@@ -6,7 +6,7 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
+import { getDefaultTenant, tenantUsesFeature, getAllActiveTenants } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
@@ -78,7 +78,12 @@ export async function POST(request: NextRequest) {
     })
 
     const client = getSupabaseClient()
-    const tenant = await getDefaultTenant()
+    // Resolve tenant by HCP API key match (only tenants with HCP configured)
+    const allTenants = await getAllActiveTenants()
+    const tenant = allTenants.find(t => t.housecall_pro_api_key) || null
+    if (!tenant) {
+      console.error('[HCP Webhook] No tenant with HCP API key configured — cannot process webhook')
+    }
 
     // Best-effort field extraction (HCP payload shapes vary by event)
     // For leads, phone is often in lead.customer.mobile_number
@@ -594,7 +599,8 @@ export async function POST(request: NextRequest) {
             if (tenant) {
               smsResult = await sendSMS(tenant, phone, initialMessage)
             } else {
-              smsResult = await sendSMS(phone, initialMessage)
+              console.error(`[HCP Webhook] No tenant for lead — cannot send initial SMS to ${phone}`)
+              smsResult = { success: false, error: 'No tenant' }
             }
 
             if (smsResult.success) {

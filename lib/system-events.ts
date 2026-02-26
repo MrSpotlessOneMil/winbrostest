@@ -109,6 +109,10 @@ export type SystemEventType =
   | 'LEAD_STAGE_CHANGED'
   | 'PAYMENT_RETRY_SENT'
   | 'SMS_ROUTING'
+  | 'TENANT_ROUTING_FAILED'
+  | 'SMS_ESTIMATE_BOOKED'
+  | 'LEAD_ESCALATED'
+  | 'SMS_BOOKING_COMPLETED'
   // Telegram Onboarding
   | 'TELEGRAM_ONBOARDING'
 

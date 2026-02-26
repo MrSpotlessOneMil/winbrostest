@@ -102,12 +102,14 @@ export function resolveStripeChargeCents(
 
 /**
  * Create a Stripe customer
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function createStripeCustomer(
-  customer: Partial<Customer>
+  customer: Partial<Customer>,
+  stripeSecretKey?: string
 ): Promise<Stripe.Customer> {
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
 
     const normalizedPhone = toE164(customer.phone_number)
     const stripeCustomer = await stripe.customers.create({
@@ -137,16 +139,18 @@ export async function createStripeCustomer(
 
 /**
  * Find or create a Stripe customer by email
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function findOrCreateStripeCustomer(
-  customer: Partial<Customer>
+  customer: Partial<Customer>,
+  stripeSecretKey?: string
 ): Promise<Stripe.Customer> {
   if (!customer.email) {
     throw new Error('Cannot create Stripe customer without email')
   }
 
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
 
     // Search for existing customer by email
     const existingCustomers = await stripe.customers.list({
@@ -160,7 +164,7 @@ export async function findOrCreateStripeCustomer(
     }
 
     // Create new customer
-    return await createStripeCustomer(customer)
+    return await createStripeCustomer(customer, stripeSecretKey)
   } catch (error) {
     console.error('Error finding/creating Stripe customer:', error)
     const message = error instanceof Error ? error.message : 'Unknown error'
@@ -186,11 +190,11 @@ export async function createAndSendInvoice(
   }
 
   try {
-    const stripe = stripeSecretKey ? getStripeClientForTenant(stripeSecretKey) : getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
     const domain = getClientDomain()
 
-    // Find or create Stripe customer
-    const stripeCustomer = await findOrCreateStripeCustomer(customer)
+    // Find or create Stripe customer (on the same Stripe account)
+    const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
     // Create invoice
     const invoice = await stripe.invoices.create({
@@ -309,10 +313,11 @@ export function validateStripeWebhook(
 
 /**
  * Get invoice details from Stripe
+ * Pass stripeSecretKey for multi-tenant support.
  */
-export async function getInvoice(invoiceId: string): Promise<Stripe.Invoice | null> {
+export async function getInvoice(invoiceId: string, stripeSecretKey?: string): Promise<Stripe.Invoice | null> {
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
     return await stripe.invoices.retrieve(invoiceId)
   } catch (error) {
     console.error('Error fetching invoice:', error)
@@ -323,21 +328,23 @@ export async function getInvoice(invoiceId: string): Promise<Stripe.Invoice | nu
 /**
  * Create a setup intent checkout session for card on file
  * Sent after deposit payment succeeds
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function createCardOnFileLink(
   customer: Customer,
   jobId: string,
-  tenantId?: string
+  tenantId?: string,
+  stripeSecretKey?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
   }
 
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
 
-    // Find or create Stripe customer
-    const stripeCustomer = await findOrCreateStripeCustomer(customer)
+    // Find or create Stripe customer (on the same Stripe account)
+    const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
     // Create checkout session in setup mode (card on file)
     // Redirect to tenant's website after card is saved
@@ -379,12 +386,14 @@ export async function createCardOnFileLink(
 /**
  * Create a deposit payment link (50% + 3% fee)
  * Per PRD: Deposit amount = (price * 1.03) / 2
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function createDepositPaymentLink(
   customer: Customer,
   job: Job,
   extraMetadata?: Record<string, string>,
-  tenantId?: string
+  tenantId?: string,
+  stripeSecretKey?: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -395,11 +404,11 @@ export async function createDepositPaymentLink(
   }
 
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
     const domain = await getTenantRedirectDomain(tenantId || (job as any).tenant_id)
 
-    // Find or create Stripe customer
-    const stripeCustomer = await findOrCreateStripeCustomer(customer)
+    // Find or create Stripe customer (on the same Stripe account)
+    const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
     // Calculate deposit: 50% + 3% fee
     const defaultDepositAmount = Math.round((job.price / 2) * 1.03 * 100) // In cents
@@ -459,12 +468,14 @@ export async function createDepositPaymentLink(
 
 /**
  * Create an add-on payment link for after-the-fact upgrades
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function createAddOnPaymentLink(
   customer: Customer,
   job: Job,
   addOnAmount: number,
-  addOns: AddOnKey[]
+  addOns: AddOnKey[],
+  stripeSecretKey?: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -475,9 +486,9 @@ export async function createAddOnPaymentLink(
   }
 
   try {
-    const stripe = getStripeClient()
+    const stripe = getStripeClientForTenant(stripeSecretKey)
     const domain = await getTenantRedirectDomain((job as any).tenant_id)
-    const stripeCustomer = await findOrCreateStripeCustomer(customer)
+    const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
     const defaultAmountWithFee = Math.round(addOnAmount * 1.03 * 100)
     const { amountCents: addOnAmountCents, testChargeCents } = resolveStripeChargeCents(

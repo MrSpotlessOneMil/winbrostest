@@ -5,7 +5,7 @@ import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
+import { getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { distributeTip } from '@/lib/tips'
@@ -230,6 +230,7 @@ async function handleDepositPayment(
           { email: custEmail, phone_number: updatedJob.phone_number } as any,
           jobId,
           jobTenantId,
+          tenant?.stripe_secret_key || undefined,
         )
 
         if (cardResult.success && cardResult.url) {

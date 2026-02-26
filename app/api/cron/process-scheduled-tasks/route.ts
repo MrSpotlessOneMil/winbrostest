@@ -434,7 +434,8 @@ async function processLeadFollowup(
     if (tenant) {
       smsResult = await sendSMS(tenant, leadPhone, message)
     } else {
-      smsResult = await sendSMS(leadPhone, message)
+      console.error(`[lead-followup] No tenant for lead ${leadId} — skipping SMS`)
+      smsResult = { success: false, error: 'No tenant' }
     }
 
     // Save the outbound message to the database so it shows in the UI
@@ -531,12 +532,10 @@ async function processJobBroadcast(
   } else if (phase === 'escalate') {
     // Escalate to owner
     const ownerPhone = tenant?.owner_phone || process.env.OWNER_PHONE
-    if (ownerPhone) {
-      if (tenant) {
-        await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
-      } else {
-        await sendSMS(ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
-      }
+    if (ownerPhone && tenant) {
+      await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
+    } else if (!tenant) {
+      console.error(`[cleaner-retry] No tenant for job ${jobId} — cannot send escalation SMS`)
     }
   }
 }
@@ -566,7 +565,8 @@ async function processDayBeforeReminder(
   if (tenant) {
     smsResult = await sendSMS(tenant, customerPhone, message)
   } else {
-    smsResult = await sendSMS(customerPhone, message)
+    console.error(`[day-before-reminder] No tenant for job ${jobId} — skipping reminder SMS`)
+    smsResult = { success: false, error: 'No tenant' }
   }
 
   // Save the outbound message to the database
