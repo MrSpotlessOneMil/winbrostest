@@ -23,8 +23,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  console.log(`[VAPI Webhook] FULL PAYLOAD:`, JSON.stringify(payload, null, 2))
-
   // Default route uses the default tenant (winbros)
   return handleVapiWebhook(payload, null)
 }

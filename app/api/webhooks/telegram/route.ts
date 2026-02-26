@@ -273,7 +273,7 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promis
   const telegramUserId = from.id.toString()
   const chatId = message?.chat.id.toString() || telegramUserId
 
-  console.log(`[OSIRIS] Callback query from ${from.username || from.first_name}: ${callbackData}`)
+  console.log(`[OSIRIS] Callback query from id=${telegramUserId}: ${callbackData}`)
 
   if (!callbackData) {
     await answerCallbackQuery(callbackQueryId, "Invalid callback data")
@@ -629,7 +629,7 @@ export async function POST(request: NextRequest) {
     const telegramUserId = from.id.toString()
     const chatId = chat.id.toString()
 
-    console.log(`[OSIRIS] Telegram message from ${from.username || from.first_name} (telegram_id=${telegramUserId}, chat_id=${chatId}): "${text}"`)
+    console.log(`[OSIRIS] Telegram message from telegram_id=${telegramUserId}, chat_id=${chatId}, length=${text?.length || 0}`)
 
     // Log inbound message to DB (fire-and-forget)
     logTelegramMessage({
@@ -912,10 +912,10 @@ Send "join" or "I'm a new cleaner" to register.
     }
 
     // Unknown message format - use AI to provide helpful response
-    console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, cleanerName=${cleaner?.name || 'UNKNOWN'}, text="${text}"`)
+    console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, length=${text?.length || 0}`)
 
     const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
-    console.log(`[OSIRIS] AI response generated: "${aiResponse.substring(0, 200)}"`)
+    console.log(`[OSIRIS] AI response generated, length=${aiResponse.length}`)
     await sendTelegramMessage(chatId, aiResponse)
 
     return NextResponse.json({ success: true, action: "ai_response" })

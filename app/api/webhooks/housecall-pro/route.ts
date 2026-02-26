@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
 import type { HousecallProWebhookPayload, ApiResponse } from "@/lib/types"
 import { getSupabaseClient } from "@/lib/supabase"
-import { normalizePhoneNumber } from "@/lib/phone-utils"
+import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
           if (!firstName) firstName = hcpCust.first_name || null
           if (!lastName) lastName = hcpCust.last_name || null
           if (!email) email = hcpCust.email || null
-          console.log(`[OSIRIS] HCP Webhook: Fetched customer from HCP - phone="${phoneRaw}", name="${firstName} ${lastName}"`)
+          console.log(`[OSIRIS] HCP Webhook: Fetched customer from HCP - phone=${maskPhone(phoneRaw)}`)
         } else {
           console.warn(`[OSIRIS] HCP Webhook: Failed to fetch customer ${hcpCustomerId} from HCP:`, hcpResult.error)
         }
@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
 
     const phone = normalizePhoneNumber(String(phoneRaw)) || String(phoneRaw)
 
-    console.log(`[OSIRIS] HCP Webhook phone extraction: raw="${phoneRaw}", normalized="${phone}"`)
+    console.log(`[OSIRIS] HCP Webhook phone extracted, normalized=${phone ? 'yes' : 'no'}`)
 
     const address =
       lead?.address ||
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
                 .single()
               customer = created
             }
-            console.log(`[OSIRIS] HCP job.created: OSIRIS active for ${phone}, skipping customer data overwrite`)
+            console.log(`[OSIRIS] HCP job.created: OSIRIS active for ${maskPhone(phone)}, skipping customer data overwrite`)
           } else {
             const { data: upserted } = await client
               .from("customers")
@@ -297,7 +297,7 @@ export async function POST(request: NextRequest) {
             job_type: jobType,
           }).select("id").single()
 
-          console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${phone}, type: ${jobType})`)
+          console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${maskPhone(phone)}, type: ${jobType})`)
 
           // WinBros: If this is a real cleaning job (NOT an estimate), auto-assign a technician
           if (tenant?.slug === 'winbros' && !isEstimateJob && scheduledDate && newHcpJob?.id) {
@@ -433,7 +433,7 @@ export async function POST(request: NextRequest) {
         if (phone) {
           // Don't overwrite fresh OSIRIS data with stale HCP data
           if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.created: OSIRIS active for ${phone}, skipping data overwrite`)
+            console.log(`[OSIRIS] HCP customer.created: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
           } else {
             await client.from("customers").upsert(
               { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
@@ -448,7 +448,7 @@ export async function POST(request: NextRequest) {
         if (phone) {
           // Don't overwrite fresh OSIRIS data with stale HCP data
           if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.updated: OSIRIS active for ${phone}, skipping data overwrite`)
+            console.log(`[OSIRIS] HCP customer.updated: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
           } else {
             await client.from("customers").upsert(
               { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
@@ -525,7 +525,7 @@ export async function POST(request: NextRequest) {
                   ? `HCP lead ${existingLead.id} within 24h`
                   : 'unknown match'
             console.log(
-              `[OSIRIS] HCP Webhook: Skipping lead.created greeting for ${phone} — ` +
+              `[OSIRIS] HCP Webhook: Skipping lead.created greeting for ${maskPhone(phone)} — ` +
               `already have ${matchReason}. HCP lead ID: ${hcpSourceId || 'unknown'}`
             )
 
@@ -542,7 +542,7 @@ export async function POST(request: NextRequest) {
               tenant_id: tenant?.id,
               source: "housecall_pro",
               event_type: "HCP_LEAD_DEDUPED",
-              message: `HCP lead.created for ${phone} skipped — OSIRIS already engaged`,
+              message: `HCP lead.created for ${maskPhone(phone)} skipped — OSIRIS already engaged`,
               phone_number: phone,
               metadata: { hcp_lead_id: hcpSourceId, existing_lead_id: matchedLead?.id }
             })
@@ -604,9 +604,9 @@ export async function POST(request: NextRequest) {
             }
 
             if (smsResult.success) {
-              console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${phone}`)
+              console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${maskPhone(phone)}`)
 
-              console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${phone}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant?.id}`)
+              console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${maskPhone(phone)}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant?.id}`)
               const { error: msgError } = await client.from("messages").insert({
                 tenant_id: tenant?.id,
                 customer_id: customerRecord?.id,
@@ -622,7 +622,7 @@ export async function POST(request: NextRequest) {
               if (msgError) {
                 console.error(`[OSIRIS] HCP Webhook: Failed to save message to DB:`, msgError)
               } else {
-                console.log(`[OSIRIS] HCP Webhook: Message saved successfully to DB for ${phone}`)
+                console.log(`[OSIRIS] HCP Webhook: Message saved successfully to DB for ${maskPhone(phone)}`)
               }
 
               // Update lead to stage 1 + mark as contacted so dedup checks work
@@ -635,7 +635,7 @@ export async function POST(request: NextRequest) {
               await logSystemEvent({
                 source: "housecall_pro",
                 event_type: "LEAD_FOLLOWUP_STAGE_1",
-                message: `First follow-up text sent immediately to ${phone}`,
+                message: `First follow-up text sent immediately to ${maskPhone(phone)}`,
                 phone_number: phone,
                 metadata: { leadId: leadRecord?.id, stage: 1, action: 'text' },
               })

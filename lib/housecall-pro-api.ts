@@ -6,6 +6,7 @@
  */
 
 import { getDefaultTenant, type Tenant } from './tenant'
+import { maskPhone } from './phone-utils'
 
 const HCP_API_BASE = 'https://api.housecallpro.com'
 const DEFAULT_TIMEZONE_OFFSET = '-06:00' // Central Time (WinBros is in Illinois)
@@ -568,7 +569,7 @@ export async function createHCPLead(
     source?: string
   }
 ): Promise<{ success: boolean; leadId?: string; customerId?: string; error?: string }> {
-  console.log(`[HCP API] Creating lead for ${leadData.phone}`)
+  console.log(`[HCP API] Creating lead for ${maskPhone(leadData.phone)}`)
 
   // Step 1: Find or create customer in HCP (required for lead creation)
   const customerResult = await findOrCreateHCPCustomer(tenant, {
@@ -656,7 +657,7 @@ export async function findOrCreateHCPCustomer(
     const found = await selectExistingCustomer(phoneMatches)
     if (found) return found
   } else {
-    console.warn(`[HCP API] Customer mobile search failed for ${customerData.phone}: ${phoneSearchResult.error}`)
+    console.warn(`[HCP API] Customer mobile search failed for ${maskPhone(customerData.phone)}: ${phoneSearchResult.error}`)
   }
 
   // Then broad q search (covers name/email/phone/address).
@@ -669,11 +670,11 @@ export async function findOrCreateHCPCustomer(
     const found = await selectExistingCustomer(broadMatches)
     if (found) return found
   } else {
-    console.warn(`[HCP API] Customer broad search failed for ${customerData.phone}: ${broadSearchResult.error}`)
+    console.warn(`[HCP API] Customer broad search failed for ${maskPhone(customerData.phone)}: ${broadSearchResult.error}`)
   }
 
   // Create new customer if search did not find one.
-  console.log(`[HCP API] Creating customer for ${customerData.phone}`)
+  console.log(`[HCP API] Creating customer for ${maskPhone(customerData.phone)}`)
   const body: Record<string, unknown> = {
     first_name: customerData.firstName || '',
     last_name: customerData.lastName || '',

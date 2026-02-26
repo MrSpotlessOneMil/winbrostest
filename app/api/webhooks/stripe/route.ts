@@ -8,6 +8,7 @@ import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
 import { getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
+import { maskPhone } from '@/lib/phone-utils'
 import { distributeTip } from '@/lib/tips'
 import { geocodeAddress } from '@/lib/google-maps'
 import { calculateDistance } from '@/lib/cleaner-assignment'
@@ -219,7 +220,7 @@ async function handleDepositPayment(
         timestamp: new Date().toISOString(),
         source: 'stripe_deposit_paid',
       })
-      console.log(`[Stripe Webhook] Deposit confirmation SMS sent to ${updatedJob.phone_number}`)
+      console.log(`[Stripe Webhook] Deposit confirmation SMS sent to ${maskPhone(updatedJob.phone_number)}`)
     }
 
     // Send card-on-file link so customer can save card for final payment
@@ -583,7 +584,7 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
           timestamp: new Date().toISOString(),
           source: 'stripe_payment_failed',
         })
-        console.log(`[Stripe Webhook] Payment failure SMS sent to ${phoneNumber}`)
+        console.log(`[Stripe Webhook] Payment failure SMS sent to ${maskPhone(phoneNumber)}`)
       }
     }
 
@@ -644,7 +645,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   const metadata = session.metadata || {}
   const { job_id, phone_number } = metadata
 
-  console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${phone_number}, session: ${session.id}`)
+  console.log(`[Stripe Webhook] Card on file saved - job_id: ${job_id}, phone: ${maskPhone(phone_number)}, session: ${session.id}`)
 
   const client = getSupabaseServiceClient()
 
@@ -693,9 +694,9 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         source: 'stripe_card_on_file',
       })
 
-      console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${phone_number}`)
+      console.log(`[Stripe Webhook] Card-on-file confirmation SMS sent to ${maskPhone(phone_number)}`)
     } else {
-      console.error(`[Stripe Webhook] Failed to send card-on-file SMS to ${phone_number}: ${smsResult.error}`)
+      console.error(`[Stripe Webhook] Failed to send card-on-file SMS to ${maskPhone(phone_number)}: ${smsResult.error}`)
     }
   }
 
@@ -1034,7 +1035,7 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const metadata = setupIntent.metadata || {}
   const { job_id, phone_number, purpose } = metadata
 
-  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${phone_number}, purpose: ${purpose} — skipping (checkout.session.completed handles processing)`)
+  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${maskPhone(phone_number)}, purpose: ${purpose} — skipping (checkout.session.completed handles processing)`)
 }
 
 /**

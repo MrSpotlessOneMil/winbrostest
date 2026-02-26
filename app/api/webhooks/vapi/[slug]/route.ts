@@ -30,7 +30,5 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 })
   }
 
-  console.log(`[VAPI/${slug}] FULL PAYLOAD:`, JSON.stringify(payload, null, 2))
-
   return handleVapiWebhook(payload, slug)
 }
