@@ -100,10 +100,39 @@ export async function GET(request: NextRequest) {
     pricingCountMap[row.tenant_id] = (pricingCountMap[row.tenant_id] || 0) + 1
   }
 
+  // Batch-fetch latest webhook events per tenant per source (for HCP/GHL/VAPI health)
+  const webhookSources = ["housecall_pro", "ghl", "vapi"]
+  const { data: webhookEventRows } = tenantIds.length > 0
+    ? await client
+        .from("system_events")
+        .select("tenant_id, source, event_type, created_at")
+        .in("tenant_id", tenantIds)
+        .in("source", webhookSources)
+        .order("created_at", { ascending: false })
+        .limit(300)
+    : { data: [] }
+
+  // Deduplicate: keep only the latest event per (tenant_id, source)
+  const webhookHealthMap: Record<string, Record<string, { last_event_at: string; last_event_type: string }>> = {}
+  for (const row of webhookEventRows || []) {
+    if (!webhookHealthMap[row.tenant_id]) webhookHealthMap[row.tenant_id] = {}
+    if (!webhookHealthMap[row.tenant_id][row.source]) {
+      webhookHealthMap[row.tenant_id][row.source] = {
+        last_event_at: row.created_at,
+        last_event_type: row.event_type,
+      }
+    }
+  }
+
   const enrichedTenants = (tenants || []).map((t: any) => ({
     ...t,
     cleaner_count: cleanerCountMap[t.id] || 0,
     pricing_tier_count: pricingCountMap[t.id] || 0,
+    webhook_health: {
+      housecall_pro: webhookHealthMap[t.id]?.housecall_pro || null,
+      ghl: webhookHealthMap[t.id]?.ghl || null,
+      vapi: webhookHealthMap[t.id]?.vapi || null,
+    },
   }))
 
   return NextResponse.json({ success: true, data: enrichedTenants })

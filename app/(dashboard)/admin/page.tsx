@@ -142,6 +142,11 @@ interface Tenant {
   // Injected by GET route (not in DB)
   cleaner_count: number
   pricing_tier_count: number
+  webhook_health: {
+    housecall_pro: { last_event_at: string; last_event_type: string } | null
+    ghl: { last_event_at: string; last_event_type: string } | null
+    vapi: { last_event_at: string; last_event_type: string } | null
+  }
 }
 
 // Helper to mask API keys for display
@@ -682,6 +687,21 @@ export default function AdminPage() {
         label: "OpenPhone Webhook",
         complete: !!tenant.openphone_webhook_registered_at,
         enabled: !!tenant.openphone_api_key,
+      },
+      {
+        label: "HCP Webhook",
+        complete: !!tenant.webhook_health?.housecall_pro?.last_event_at,
+        enabled: !!config.use_housecall_pro && !!tenant.housecall_pro_api_key,
+      },
+      {
+        label: "GHL Webhook",
+        complete: !!tenant.webhook_health?.ghl?.last_event_at,
+        enabled: !!config.use_ghl && !!tenant.ghl_location_id,
+      },
+      {
+        label: "VAPI Webhook",
+        complete: !!tenant.webhook_health?.vapi?.last_event_at,
+        enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound) && !!(tenant.vapi_api_key && tenant.vapi_assistant_id),
       },
       {
         label: "Cleaners",
@@ -1732,6 +1752,24 @@ export default function AdminPage() {
                         {testResults["vapi"] && (
                           <span className={`text-xs ${testResults["vapi"].success ? "text-green-400" : "text-red-400"}`}>{testResults["vapi"].message}</span>
                         )}
+                        {currentTenant.webhook_health?.vapi?.last_event_at ? (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook active — last event: {currentTenant.webhook_health.vapi.last_event_type}
+                            {" "}({new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})
+                          </span>
+                        ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id) ? (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            No webhook activity — configure Server URL in VAPI dashboard
+                          </span>
+                        ) : null}
+                        {webhookVerification["vapi"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["vapi"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["vapi"].message}
+                          </span>
+                        )}
                       </div>
                     </div>
                     )}
@@ -1890,6 +1928,44 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      {/* Webhook health + URL */}
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        <div className="space-y-1">
+                          <Label className="text-sm">Webhook URL <span className="text-muted-foreground">(paste in HousecallPro dashboard)</span></Label>
+                          <div className="flex gap-2">
+                            <Input
+                              readOnly
+                              value={getWebhookUrl(currentTenant.slug, "housecall-pro")}
+                              className="bg-muted/50 font-mono text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, "housecall-pro"), "hcp_webhook_url")}
+                            >
+                              {copiedUrl === "hcp_webhook_url" ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        {currentTenant.webhook_health?.housecall_pro?.last_event_at ? (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook active — last event: {currentTenant.webhook_health.housecall_pro.last_event_type}
+                            {" "}({new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})
+                          </span>
+                        ) : currentTenant.housecall_pro_api_key ? (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            No webhook activity — configure in HousecallPro dashboard
+                          </span>
+                        ) : null}
+                        {webhookVerification["housecall_pro"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["housecall_pro"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["housecall_pro"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["housecall_pro"].message}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     )}
 
@@ -1933,6 +2009,44 @@ export default function AdminPage() {
                             </Button>
                           </div>
                         </div>
+                      </div>
+                      {/* Webhook health + URL */}
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        <div className="space-y-1">
+                          <Label className="text-sm">Webhook URL <span className="text-muted-foreground">(paste in GHL dashboard)</span></Label>
+                          <div className="flex gap-2">
+                            <Input
+                              readOnly
+                              value={getWebhookUrl(currentTenant.slug, "ghl")}
+                              className="bg-muted/50 font-mono text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, "ghl"), "ghl_webhook_url")}
+                            >
+                              {copiedUrl === "ghl_webhook_url" ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        {currentTenant.webhook_health?.ghl?.last_event_at ? (
+                          <span className="text-xs text-green-400 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Webhook active — last event: {currentTenant.webhook_health.ghl.last_event_type}
+                            {" "}({new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})
+                          </span>
+                        ) : currentTenant.ghl_location_id ? (
+                          <span className="text-xs text-orange-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            No webhook activity — configure in GHL dashboard
+                          </span>
+                        ) : null}
+                        {webhookVerification["ghl"] && (
+                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["ghl"].active ? "text-green-400" : "text-red-400"}`}>
+                            {webhookVerification["ghl"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                            {webhookVerification["ghl"].message}
+                          </span>
+                        )}
                       </div>
                     </div>
                     )}
@@ -2068,6 +2182,15 @@ export default function AdminPage() {
                             placeholder="Enter Income Account ID"
                           />
                         </div>
+                      </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("wave")} disabled={testingService === "wave" || !currentTenant.wave_api_token}>
+                          {testingService === "wave" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["wave"] && (
+                          <span className={`text-xs ${testResults["wave"].success ? "text-green-400" : "text-red-400"}`}>{testResults["wave"].message}</span>
+                        )}
                       </div>
                     </div>
                     )}

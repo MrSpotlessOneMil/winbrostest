@@ -54,10 +54,13 @@ export async function POST(request: NextRequest) {
 
   const services = service
     ? [service]
-    : ["telegram", "stripe", "openphone"].filter((s) => {
+    : ["telegram", "stripe", "openphone", "housecall_pro", "ghl", "vapi"].filter((s) => {
         if (s === "telegram") return !!tenant.telegram_bot_token
         if (s === "stripe") return !!tenant.stripe_secret_key && tenant.workflow_config?.use_stripe
         if (s === "openphone") return !!tenant.openphone_api_key
+        if (s === "housecall_pro") return !!tenant.housecall_pro_api_key && tenant.workflow_config?.use_housecall_pro
+        if (s === "ghl") return !!tenant.ghl_location_id && tenant.workflow_config?.use_ghl
+        if (s === "vapi") return !!(tenant.vapi_api_key && (tenant.workflow_config?.use_vapi_inbound || tenant.workflow_config?.use_vapi_outbound))
         return false
       })
 
@@ -140,6 +143,75 @@ export async function POST(request: NextRequest) {
             } else {
               results.openphone = { active: false, url: null, message: "No webhook found for this URL" }
             }
+          }
+          break
+        }
+
+        case "housecall_pro": {
+          const { data: hcpEvent } = await client
+            .from("system_events")
+            .select("created_at, event_type")
+            .eq("tenant_id", tenantId)
+            .eq("source", "housecall_pro")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single()
+
+          if (hcpEvent) {
+            const hoursAgo = (Date.now() - new Date(hcpEvent.created_at).getTime()) / 3600000
+            results.housecall_pro = {
+              active: hoursAgo < 168,
+              url: null,
+              message: `Last event: ${hcpEvent.event_type} (${Math.round(hoursAgo)}h ago)`,
+            }
+          } else {
+            results.housecall_pro = { active: false, url: null, message: "No webhook activity detected" }
+          }
+          break
+        }
+
+        case "ghl": {
+          const { data: ghlEvent } = await client
+            .from("system_events")
+            .select("created_at, event_type")
+            .eq("tenant_id", tenantId)
+            .eq("source", "ghl")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single()
+
+          if (ghlEvent) {
+            const hoursAgo = (Date.now() - new Date(ghlEvent.created_at).getTime()) / 3600000
+            results.ghl = {
+              active: hoursAgo < 168,
+              url: null,
+              message: `Last event: ${ghlEvent.event_type} (${Math.round(hoursAgo)}h ago)`,
+            }
+          } else {
+            results.ghl = { active: false, url: null, message: "No webhook activity detected" }
+          }
+          break
+        }
+
+        case "vapi": {
+          const { data: vapiEvent } = await client
+            .from("system_events")
+            .select("created_at, event_type")
+            .eq("tenant_id", tenantId)
+            .eq("source", "vapi")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single()
+
+          if (vapiEvent) {
+            const hoursAgo = (Date.now() - new Date(vapiEvent.created_at).getTime()) / 3600000
+            results.vapi = {
+              active: hoursAgo < 168,
+              url: null,
+              message: `Last event: ${vapiEvent.event_type} (${Math.round(hoursAgo)}h ago)`,
+            }
+          } else {
+            results.vapi = { active: false, url: null, message: "No webhook activity detected" }
           }
           break
         }

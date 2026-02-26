@@ -104,6 +104,36 @@ export async function POST(request: NextRequest) {
         })
       }
 
+      case "wave": {
+        if (!tenant.wave_api_token || !tenant.wave_business_id) {
+          return NextResponse.json({ success: false, error: "Wave API token or business ID not configured" }, { status: 400 })
+        }
+        const token = tenant.wave_api_token.replace(/[\r\n]/g, "").trim().replace(/^Bearer\s+/i, "")
+        const controller = new AbortController()
+        const timeout = setTimeout(() => controller.abort(), 10_000)
+        const res = await fetch("https://gql.waveapps.com/graphql/public", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            query: `query { business(id: "${tenant.wave_business_id}") { id name } }`,
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeout)
+        const payload = await res.json()
+        if (!res.ok || payload.errors?.length) {
+          throw new Error(payload.errors?.[0]?.message || `Wave API returned ${res.status}`)
+        }
+        const bizName = payload.data?.business?.name
+        return NextResponse.json({
+          success: true,
+          message: `Connected. Business: ${bizName || "OK"}`,
+        })
+      }
+
       default:
         return NextResponse.json({ success: false, error: `Unknown service: ${service}` }, { status: 400 })
     }
