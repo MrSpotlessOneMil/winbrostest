@@ -1,19 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
-import Stripe from "stripe"
+import {
+  getBaseUrl,
+  registerTelegramWebhook,
+  registerStripeWebhook,
+  registerOpenPhoneWebhook,
+} from "@/lib/admin-onboard"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 function getAdminClient() {
   return createClient(supabaseUrl, supabaseServiceKey)
-}
-
-function getBaseUrl(): string | null {
-  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  return null
 }
 
 export async function POST(request: NextRequest) {
@@ -53,18 +52,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Telegram bot token not configured" }, { status: 400 })
         }
         const webhookUrl = `${baseUrl}/api/webhooks/telegram/${tenant.slug}`
-        const res = await fetch(
-          `https://api.telegram.org/bot${tenant.telegram_bot_token}/setWebhook`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: webhookUrl }),
-          }
-        )
-        const data = await res.json()
-        if (!data.ok) {
-          throw new Error(data.description || "Failed to set Telegram webhook")
-        }
+        const result = await registerTelegramWebhook(tenant.telegram_bot_token, webhookUrl)
         await client
           .from("tenants")
           .update({
@@ -74,56 +62,26 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", tenantId)
-        return NextResponse.json({
-          success: true,
-          message: `Webhook registered: ${webhookUrl}`,
-        })
+        return NextResponse.json({ success: true, message: result.message })
       }
 
       case "stripe": {
         if (!tenant.stripe_secret_key) {
           return NextResponse.json({ success: false, error: "Stripe secret key not configured" }, { status: 400 })
         }
-        const stripe = new Stripe(tenant.stripe_secret_key, { apiVersion: "2025-02-24.acacia" as any })
         const webhookUrl = `${baseUrl}/api/webhooks/stripe`
-
-        // Delete existing webhooks with the same URL to avoid duplicates
-        const existing = await stripe.webhookEndpoints.list({ limit: 100 })
-        for (const wh of existing.data) {
-          if (wh.url === webhookUrl) {
-            await stripe.webhookEndpoints.del(wh.id)
-          }
-        }
-
-        const webhook = await stripe.webhookEndpoints.create({
-          url: webhookUrl,
-          enabled_events: [
-            "checkout.session.completed",
-            "setup_intent.succeeded",
-            "payment_intent.succeeded",
-            "payment_intent.payment_failed",
-          ],
-        })
-
-        // Save the webhook signing secret and registration timestamp
+        const result = await registerStripeWebhook(tenant.stripe_secret_key, webhookUrl)
         const stripeUpdate: Record<string, any> = {
           stripe_webhook_registered_at: new Date().toISOString(),
           stripe_webhook_error: null,
           stripe_webhook_error_at: null,
           updated_at: new Date().toISOString(),
         }
-        if (webhook.secret) {
-          stripeUpdate.stripe_webhook_secret = webhook.secret
+        if (result.secret) {
+          stripeUpdate.stripe_webhook_secret = result.secret
         }
-        await client
-          .from("tenants")
-          .update(stripeUpdate)
-          .eq("id", tenantId)
-
-        return NextResponse.json({
-          success: true,
-          message: "Stripe webhook registered and signing secret saved.",
-        })
+        await client.from("tenants").update(stripeUpdate).eq("id", tenantId)
+        return NextResponse.json({ success: true, message: result.message })
       }
 
       case "openphone": {
@@ -131,45 +89,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "OpenPhone API key not configured" }, { status: 400 })
         }
         const webhookUrl = `${baseUrl}/api/webhooks/openphone`
-
-        // Delete existing webhooks with the same URL
-        const listRes = await fetch("https://api.openphone.com/v1/webhooks", {
-          headers: { Authorization: tenant.openphone_api_key },
-        })
-        if (listRes.ok) {
-          const listData = await listRes.json()
-          for (const wh of (listData.data || [])) {
-            if (wh.url === webhookUrl) {
-              await fetch(`https://api.openphone.com/v1/webhooks/${wh.id}`, {
-                method: "DELETE",
-                headers: { Authorization: tenant.openphone_api_key },
-              })
-            }
-          }
-        }
-
-        const res = await fetch("https://api.openphone.com/v1/webhooks", {
-          method: "POST",
-          headers: {
-            Authorization: tenant.openphone_api_key,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            url: webhookUrl,
-            events: [
-              "message.received",
-              "message.delivered",
-              "call.completed",
-              "call.ringing",
-            ],
-          }),
-        })
-
-        if (!res.ok) {
-          const errText = await res.text()
-          throw new Error(`OpenPhone API returned ${res.status}: ${errText}`)
-        }
-
+        const result = await registerOpenPhoneWebhook(tenant.openphone_api_key, webhookUrl)
         await client
           .from("tenants")
           .update({
@@ -179,10 +99,7 @@ export async function POST(request: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", tenantId)
-        return NextResponse.json({
-          success: true,
-          message: `OpenPhone webhook registered: ${webhookUrl}`,
-        })
+        return NextResponse.json({ success: true, message: result.message })
       }
 
       default:

@@ -163,10 +163,43 @@ export default function AdminPage() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [selectedTenant, setSelectedTenant] = useState<string | null>(null)
 
-  // Add New Business modal state
+  // Onboarding wizard state
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newBusiness, setNewBusiness] = useState({ name: "", slug: "", email: "", password: "" })
-  const [creating, setCreating] = useState(false)
+  const [onboardStep, setOnboardStep] = useState(0) // 0=info, 1=creds, 2=review/execute
+  const [onboardForm, setOnboardForm] = useState({
+    // Step 1 — Business Info
+    name: "",
+    slug: "",
+    password: "",
+    flow_type: "spotless" as "winbros" | "spotless" | "cedar",
+    business_name: "",
+    business_name_short: "",
+    service_area: "",
+    timezone: "America/Chicago",
+    sdr_persona: "Mary",
+    owner_phone: "",
+    owner_email: "",
+    google_review_link: "",
+    // Step 2 — API Credentials
+    openphone_api_key: "",
+    openphone_phone_id: "",
+    openphone_phone_number: "",
+    telegram_bot_token: "",
+    owner_telegram_chat_id: "",
+    stripe_secret_key: "",
+    vapi_api_key: "",
+    vapi_assistant_id: "",
+    vapi_outbound_assistant_id: "",
+    vapi_phone_id: "",
+    housecall_pro_api_key: "",
+    housecall_pro_company_id: "",
+    wave_api_token: "",
+    wave_business_id: "",
+    wave_income_account_id: "",
+    ghl_location_id: "",
+  })
+  const [onboarding, setOnboarding] = useState(false)
+  const [onboardResults, setOnboardResults] = useState<any>(null)
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -282,34 +315,49 @@ export default function AdminPage() {
     await updateTenant(tenant.id, { active: !tenant.active })
   }
 
-  async function createBusiness() {
-    if (!newBusiness.name || !newBusiness.slug) {
-      setError("Name and slug are required")
-      return
-    }
-    setCreating(true)
+  function resetOnboardWizard() {
+    setOnboardStep(0)
+    setOnboardForm({
+      name: "", slug: "", password: "", flow_type: "spotless",
+      business_name: "", business_name_short: "", service_area: "",
+      timezone: "America/Chicago", sdr_persona: "Mary",
+      owner_phone: "", owner_email: "", google_review_link: "",
+      openphone_api_key: "", openphone_phone_id: "", openphone_phone_number: "",
+      telegram_bot_token: "", owner_telegram_chat_id: "",
+      stripe_secret_key: "",
+      vapi_api_key: "", vapi_assistant_id: "", vapi_outbound_assistant_id: "", vapi_phone_id: "",
+      housecall_pro_api_key: "", housecall_pro_company_id: "",
+      wave_api_token: "", wave_business_id: "", wave_income_account_id: "",
+      ghl_location_id: "",
+    })
+    setOnboarding(false)
+    setOnboardResults(null)
+  }
+
+  async function runOnboarding() {
+    setOnboarding(true)
+    setOnboardResults(null)
     setError(null)
     try {
-      const res = await fetch("/api/admin/tenants", {
+      // Build payload — only include non-empty fields
+      const payload: Record<string, any> = {}
+      for (const [k, v] of Object.entries(onboardForm)) {
+        if (v !== "") payload[k] = v
+      }
+      const res = await fetch("/api/admin/onboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newBusiness),
+        body: JSON.stringify(payload),
       })
       const json = await res.json()
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to create business")
-      }
-      setShowAddModal(false)
-      setNewBusiness({ name: "", slug: "", email: "", password: "" })
-      await fetchTenants()
-      // Select the newly created tenant
-      if (json.data?.id) {
-        selectTenant(json.data.id)
+      setOnboardResults(json.result)
+      if (json.success && json.result?.tenantId) {
+        await fetchTenants()
       }
     } catch (e: any) {
-      setError(e.message || "Failed to create business")
+      setError(e.message || "Onboarding failed")
     } finally {
-      setCreating(false)
+      setOnboarding(false)
     }
   }
 
@@ -2617,55 +2665,352 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Add New Business Modal */}
+      {/* Onboarding Wizard */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+          <Card className="w-full max-w-2xl mx-4">
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>Add New Business</CardTitle>
-                <Button variant="ghost" size="icon" onClick={() => setShowAddModal(false)}>
+                <CardTitle>
+                  {onboardStep === 0 && "Step 1: Business Info"}
+                  {onboardStep === 1 && "Step 2: API Credentials"}
+                  {onboardStep === 2 && "Step 3: Review & Execute"}
+                </CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <CardDescription>Create a new business/tenant</CardDescription>
+              {/* Step indicators */}
+              <div className="flex gap-2 mt-2">
+                {[0, 1, 2].map((s) => (
+                  <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= onboardStep ? "bg-primary" : "bg-muted"}`} />
+                ))}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Business Name *</Label>
-                <Input
-                  value={newBusiness.name}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
-                  placeholder="WinBros Cleaning"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Slug *</Label>
-                <Input
-                  value={newBusiness.slug}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                  placeholder="winbros"
-                />
-                <p className="text-xs text-muted-foreground">URL-safe identifier (lowercase, no spaces)</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Password *</Label>
-                <Input
-                  type="password"
-                  value={newBusiness.password}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, password: e.target.value })}
-                  placeholder="••••••••"
-                />
-                <p className="text-xs text-muted-foreground">A login account will be created with username = slug</p>
-              </div>
-              <div className="flex gap-2 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setShowAddModal(false)}>
-                  Cancel
-                </Button>
-                <Button className="flex-1" onClick={createBusiness} disabled={creating || !newBusiness.name || !newBusiness.slug || !newBusiness.password}>
-                  {creating ? "Creating..." : "Create Business"}
-                </Button>
-              </div>
+              {/* STEP 0 — Business Info */}
+              {onboardStep === 0 && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Business Name *</Label>
+                      <Input
+                        value={onboardForm.name}
+                        onChange={(e) => {
+                          const name = e.target.value
+                          const autoSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+                          setOnboardForm({ ...onboardForm, name, slug: onboardForm.slug || autoSlug, business_name: onboardForm.business_name || name })
+                        }}
+                        placeholder="WinBros Cleaning"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Slug *</Label>
+                      <Input
+                        value={onboardForm.slug}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                        placeholder="winbros"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Password</Label>
+                      <Input
+                        type="password"
+                        value={onboardForm.password}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, password: e.target.value })}
+                        placeholder="Defaults to slug"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Flow Type *</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.flow_type}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, flow_type: e.target.value as any })}
+                      >
+                        <option value="winbros">WinBros (Window Cleaning — Full HCP)</option>
+                        <option value="spotless">Spotless (House Cleaning)</option>
+                        <option value="cedar">Cedar (Simple Booking)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Short Name</Label>
+                      <Input
+                        value={onboardForm.business_name_short}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, business_name_short: e.target.value })}
+                        placeholder="WinBros"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Service Area</Label>
+                      <Input
+                        value={onboardForm.service_area}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, service_area: e.target.value })}
+                        placeholder="Dallas, TX"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Timezone</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.timezone}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, timezone: e.target.value })}
+                      >
+                        <option value="America/New_York">Eastern</option>
+                        <option value="America/Chicago">Central</option>
+                        <option value="America/Denver">Mountain</option>
+                        <option value="America/Los_Angeles">Pacific</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>SDR Persona</Label>
+                      <Input
+                        value={onboardForm.sdr_persona}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, sdr_persona: e.target.value })}
+                        placeholder="Mary"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Owner Phone</Label>
+                      <Input
+                        value={onboardForm.owner_phone}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, owner_phone: e.target.value })}
+                        placeholder="+1234567890"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Owner Email</Label>
+                      <Input
+                        value={onboardForm.owner_email}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, owner_email: e.target.value })}
+                        placeholder="owner@example.com"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Google Review Link</Label>
+                    <Input
+                      value={onboardForm.google_review_link}
+                      onChange={(e) => setOnboardForm({ ...onboardForm, google_review_link: e.target.value })}
+                      placeholder="https://g.page/..."
+                    />
+                  </div>
+                  <div className="flex justify-end pt-4">
+                    <Button onClick={() => setOnboardStep(1)} disabled={!onboardForm.name || !onboardForm.slug}>
+                      Next: API Credentials
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {/* STEP 1 — API Credentials */}
+              {onboardStep === 1 && (() => {
+                const ft = onboardForm.flow_type
+                const showStripe = ft === "winbros" || ft === "spotless"
+                const showHCP = ft === "winbros"
+                const showWave = ft === "winbros"
+                return (
+                  <>
+                    {/* OpenPhone — always shown */}
+                    <div className="space-y-2 border rounded-lg p-3">
+                      <Label className="font-semibold">OpenPhone</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Input placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
+                        <Input placeholder="Phone ID" value={onboardForm.openphone_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_id: e.target.value })} />
+                        <Input placeholder="Phone Number" value={onboardForm.openphone_phone_number} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_number: e.target.value })} />
+                      </div>
+                    </div>
+
+                    {/* Telegram — always shown */}
+                    <div className="space-y-2 border rounded-lg p-3">
+                      <Label className="font-semibold">Telegram</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
+                        <Input placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
+                      </div>
+                    </div>
+
+                    {/* Stripe — winbros + spotless */}
+                    {showStripe && (
+                      <div className="space-y-2 border rounded-lg p-3">
+                        <Label className="font-semibold">Stripe</Label>
+                        <Input placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
+                      </div>
+                    )}
+
+                    {/* VAPI — always shown */}
+                    <div className="space-y-2 border rounded-lg p-3">
+                      <Label className="font-semibold">VAPI</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
+                        <Input placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
+                        <Input placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
+                        <Input placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
+                      </div>
+                    </div>
+
+                    {/* HousecallPro — winbros only */}
+                    {showHCP && (
+                      <div className="space-y-2 border rounded-lg p-3">
+                        <Label className="font-semibold">HousecallPro</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input placeholder="API Key" value={onboardForm.housecall_pro_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_api_key: e.target.value })} />
+                          <Input placeholder="Company ID" value={onboardForm.housecall_pro_company_id} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_company_id: e.target.value })} />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Wave — winbros only */}
+                    {showWave && (
+                      <div className="space-y-2 border rounded-lg p-3">
+                        <Label className="font-semibold">Wave Accounting</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <Input placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
+                          <Input placeholder="Business ID" value={onboardForm.wave_business_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_business_id: e.target.value })} />
+                          <Input placeholder="Income Account ID" value={onboardForm.wave_income_account_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_income_account_id: e.target.value })} />
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between pt-4">
+                      <Button variant="outline" onClick={() => setOnboardStep(0)}>Back</Button>
+                      <Button onClick={() => setOnboardStep(2)}>Next: Review</Button>
+                    </div>
+                  </>
+                )
+              })()}
+
+              {/* STEP 2 — Review & Execute */}
+              {onboardStep === 2 && (
+                <>
+                  {!onboardResults ? (
+                    <>
+                      {/* Summary */}
+                      <div className="space-y-3 text-sm">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                          <span className="text-muted-foreground">Name:</span><span className="font-medium">{onboardForm.name}</span>
+                          <span className="text-muted-foreground">Slug:</span><span className="font-medium">{onboardForm.slug}</span>
+                          <span className="text-muted-foreground">Flow Type:</span><span className="font-medium capitalize">{onboardForm.flow_type}</span>
+                          <span className="text-muted-foreground">Timezone:</span><span className="font-medium">{onboardForm.timezone}</span>
+                          {onboardForm.service_area && <><span className="text-muted-foreground">Service Area:</span><span className="font-medium">{onboardForm.service_area}</span></>}
+                          {onboardForm.owner_phone && <><span className="text-muted-foreground">Owner Phone:</span><span className="font-medium">{onboardForm.owner_phone}</span></>}
+                        </div>
+                        <div className="border-t pt-2">
+                          <p className="text-muted-foreground mb-1">Credentials provided:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {onboardForm.openphone_api_key && <Badge variant="secondary">OpenPhone</Badge>}
+                            {onboardForm.telegram_bot_token && <Badge variant="secondary">Telegram</Badge>}
+                            {onboardForm.stripe_secret_key && <Badge variant="secondary">Stripe</Badge>}
+                            {onboardForm.vapi_api_key && <Badge variant="secondary">VAPI</Badge>}
+                            {onboardForm.housecall_pro_api_key && <Badge variant="secondary">HousecallPro</Badge>}
+                            {onboardForm.wave_api_token && <Badge variant="secondary">Wave</Badge>}
+                            {onboardForm.ghl_location_id && <Badge variant="secondary">GHL</Badge>}
+                            {!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && (
+                              <span className="text-muted-foreground italic">None — you can add credentials later</span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="border-t pt-2 text-muted-foreground text-xs">
+                          Pipeline will: Create tenant → Create user → Seed pricing (14 tiers + 7 addons) → Save credentials → Test connections → Register webhooks
+                        </div>
+                      </div>
+                      <div className="flex justify-between pt-4">
+                        <Button variant="outline" onClick={() => setOnboardStep(1)}>Back</Button>
+                        <Button onClick={runOnboarding} disabled={onboarding}>
+                          {onboarding ? (
+                            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Onboarding...</>
+                          ) : (
+                            "Begin Onboarding"
+                          )}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Results */}
+                      <div className="space-y-2 text-sm">
+                        {/* Core steps */}
+                        {(["create_tenant", "create_user", "seed_pricing", "save_credentials"] as const).map((key) => {
+                          const step = onboardResults.steps[key]
+                          if (!step) return null
+                          const label = key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              {step.status === "success" ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                              ) : step.status === "skipped" ? (
+                                <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+                              ) : (
+                                <X className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="font-medium">{label}</span>
+                              <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                            </div>
+                          )
+                        })}
+                        {/* Connection tests */}
+                        {Object.keys(onboardResults.steps.test_connections || {}).length > 0 && (
+                          <>
+                            <div className="border-t pt-2 mt-2 font-medium">Connection Tests</div>
+                            {Object.entries(onboardResults.steps.test_connections).map(([svc, step]: [string, any]) => (
+                              <div key={svc} className="flex items-center gap-2 pl-4">
+                                {step.status === "success" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                ) : (
+                                  <X className="h-4 w-4 text-red-500 shrink-0" />
+                                )}
+                                <span className="capitalize">{svc}</span>
+                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {/* Webhook registrations */}
+                        {Object.keys(onboardResults.steps.register_webhooks || {}).length > 0 && (
+                          <>
+                            <div className="border-t pt-2 mt-2 font-medium">Webhook Registration</div>
+                            {Object.entries(onboardResults.steps.register_webhooks).map(([svc, step]: [string, any]) => (
+                              <div key={svc} className="flex items-center gap-2 pl-4">
+                                {step.status === "success" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                ) : step.status === "skipped" ? (
+                                  <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+                                ) : (
+                                  <X className="h-4 w-4 text-red-500 shrink-0" />
+                                )}
+                                <span className="capitalize">{svc}</span>
+                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                      <div className="flex justify-between pt-4">
+                        <Button variant="outline" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
+                          Close
+                        </Button>
+                        {onboardResults.tenantId && (
+                          <Button onClick={() => {
+                            selectTenant(onboardResults.tenantId)
+                            setShowAddModal(false)
+                            resetOnboardWizard()
+                          }}>
+                            Go to Tenant
+                          </Button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
