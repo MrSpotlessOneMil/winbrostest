@@ -61,6 +61,7 @@ export interface WorkflowConfig {
 
   // Kill switches
   sms_auto_response_enabled: boolean
+  sms_blocklist?: string[]  // Phone numbers that never get auto-responses
 
   // Lifecycle messaging
   seasonal_reminders_enabled?: boolean

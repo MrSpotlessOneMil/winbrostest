@@ -34,6 +34,197 @@ export interface KnownCustomerInfo {
 
 export interface AutoResponseOptions {
   isReturningCustomer?: boolean
+  customerContext?: CustomerContext | null
+}
+
+// =====================================================================
+// CUSTOMER CONTEXT — loaded before AI calls for situation awareness
+// =====================================================================
+
+export interface CustomerContext {
+  // Active jobs (scheduled or in_progress)
+  activeJobs: Array<{
+    id: number
+    service_type: string | null
+    date: string | null
+    scheduled_at: string | null
+    price: number | null
+    status: string
+    address: string | null
+    cleaner_name: string | null
+  }>
+  // Recent completed jobs (last 3)
+  recentJobs: Array<{
+    id: number
+    service_type: string | null
+    date: string | null
+    price: number | null
+    completed_at: string | null
+  }>
+  // Customer profile
+  customer: {
+    id: number
+    first_name: string | null
+    last_name: string | null
+    email: string | null
+    address: string | null
+    notes: string | null
+  } | null
+  // Lead record (if exists)
+  lead: {
+    id: number
+    status: string
+    source: string | null
+    form_data: any
+  } | null
+  // Lifetime stats
+  totalJobs: number
+  totalSpend: number
+}
+
+/**
+ * Load full customer context for a phone number.
+ * Used to give the AI awareness of who's texting and their current status.
+ */
+export async function loadCustomerContext(
+  client: any,
+  tenantId: string,
+  phone: string,
+  customerId?: number
+): Promise<CustomerContext> {
+  // Run all queries in parallel
+  const [activeJobsRes, recentJobsRes, customerRes, leadRes, statsRes] = await Promise.all([
+    // Active jobs (scheduled or in_progress)
+    client
+      .from("jobs")
+      .select("id, service_type, date, scheduled_at, price, status, address, cleaner_id, cleaners(name)")
+      .eq("tenant_id", tenantId)
+      .or(`phone_number.eq.${phone},customer_phone.eq.${phone}${customerId ? `,customer_id.eq.${customerId}` : ''}`)
+      .in("status", ["scheduled", "in_progress"])
+      .order("scheduled_at", { ascending: true })
+      .limit(5),
+
+    // Recent completed jobs
+    client
+      .from("jobs")
+      .select("id, service_type, date, price, completed_at")
+      .eq("tenant_id", tenantId)
+      .or(`phone_number.eq.${phone},customer_phone.eq.${phone}${customerId ? `,customer_id.eq.${customerId}` : ''}`)
+      .eq("status", "completed")
+      .order("completed_at", { ascending: false })
+      .limit(3),
+
+    // Customer profile
+    customerId
+      ? client.from("customers").select("id, first_name, last_name, email, address, notes").eq("id", customerId).maybeSingle()
+      : client.from("customers").select("id, first_name, last_name, email, address, notes").eq("tenant_id", tenantId).eq("phone_number", phone).maybeSingle(),
+
+    // Lead record
+    client
+      .from("leads")
+      .select("id, status, source, form_data")
+      .eq("tenant_id", tenantId)
+      .eq("phone_number", phone)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+
+    // Lifetime stats
+    client
+      .from("jobs")
+      .select("id, price")
+      .eq("tenant_id", tenantId)
+      .or(`phone_number.eq.${phone},customer_phone.eq.${phone}${customerId ? `,customer_id.eq.${customerId}` : ''}`)
+      .eq("status", "completed"),
+  ])
+
+  const activeJobs = (activeJobsRes.data || []).map((j: any) => ({
+    id: j.id,
+    service_type: j.service_type,
+    date: j.date,
+    scheduled_at: j.scheduled_at,
+    price: j.price,
+    status: j.status,
+    address: j.address,
+    cleaner_name: j.cleaners?.name || null,
+  }))
+
+  const recentJobs = (recentJobsRes.data || []).map((j: any) => ({
+    id: j.id,
+    service_type: j.service_type,
+    date: j.date,
+    price: j.price,
+    completed_at: j.completed_at,
+  }))
+
+  const completedJobs = statsRes.data || []
+  const totalJobs = completedJobs.length
+  const totalSpend = completedJobs.reduce((sum: number, j: any) => sum + (j.price || 0), 0)
+
+  return {
+    activeJobs,
+    recentJobs,
+    customer: customerRes.data || null,
+    lead: leadRes.data || null,
+    totalJobs,
+    totalSpend,
+  }
+}
+
+/**
+ * Serialize customer context into a text block for AI system prompts.
+ */
+export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Tenant): string {
+  const parts: string[] = []
+
+  // Active jobs
+  if (ctx.activeJobs.length > 0) {
+    parts.push('ACTIVE BOOKINGS FOR THIS CUSTOMER:')
+    for (const job of ctx.activeJobs) {
+      const datePart = job.date || job.scheduled_at || 'TBD'
+      const cleanerPart = job.cleaner_name ? ` | Cleaner: ${job.cleaner_name}` : ''
+      const pricePart = job.price ? ` | Price: $${job.price}` : ''
+      parts.push(`  - ${job.service_type || 'Cleaning'} on ${datePart} (${job.status})${pricePart}${cleanerPart}`)
+    }
+    parts.push('')
+    parts.push('IMPORTANT: This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
+    parts.push('Instead, help them with questions about their upcoming service (date, time, what to expect, prep instructions).')
+    parts.push('If they want to reschedule, cancel, or have a complaint, use [ESCALATE:reason].')
+    parts.push('')
+  }
+
+  // Service history
+  if (ctx.totalJobs > 0) {
+    parts.push(`CUSTOMER HISTORY: ${ctx.totalJobs} completed job${ctx.totalJobs > 1 ? 's' : ''}, $${ctx.totalSpend} total spend`)
+    if (ctx.recentJobs.length > 0) {
+      parts.push('Recent jobs:')
+      for (const job of ctx.recentJobs) {
+        parts.push(`  - ${job.service_type || 'Cleaning'} on ${job.date || job.completed_at || 'unknown'} ($${job.price || 0})`)
+      }
+    }
+    if (ctx.activeJobs.length === 0) {
+      parts.push('')
+      parts.push('This is a RETURNING customer. Welcome them back warmly. They already know the service.')
+      parts.push('If they want to rebook, use their previous preferences as defaults (confirm, don\'t re-ask everything).')
+    }
+    parts.push('')
+  }
+
+  // Customer profile
+  if (ctx.customer) {
+    const name = [ctx.customer.first_name, ctx.customer.last_name].filter(Boolean).join(' ')
+    if (name) parts.push(`Customer name: ${name}`)
+    if (ctx.customer.email) parts.push(`Email on file: ${ctx.customer.email}`)
+    if (ctx.customer.address) parts.push(`Address on file: ${ctx.customer.address}`)
+    if (ctx.customer.notes) parts.push(`Notes: ${ctx.customer.notes}`)
+    parts.push('')
+  }
+
+  if (parts.length === 0) {
+    return '' // New customer, no context to add
+  }
+
+  return '\n\n== CUSTOMER CONTEXT ==\n' + parts.join('\n')
 }
 
 export async function generateAutoResponse(
@@ -77,7 +268,7 @@ export async function generateAutoResponse(
   // If adding a new service type, create a new response generator + feature flag.
   if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
-      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
+      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext)
     } catch (error) {
       console.error('[Auto-Response] Window cleaning response failed, falling back to generic:', error)
     }
@@ -86,7 +277,7 @@ export async function generateAutoResponse(
   // House cleaning SMS booking flow (all non-window-cleaning tenants)
   if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
-      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer)
+      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext)
     } catch (error) {
       console.error('[Auto-Response] House cleaning response failed, falling back to generic:', error)
     }
@@ -412,7 +603,8 @@ async function generateWinBrosResponse(
   tenant: Tenant,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   knownCustomerInfo?: KnownCustomerInfo,
-  isReturningCustomer?: boolean
+  isReturningCustomer?: boolean,
+  customerContext?: CustomerContext | null
 ): Promise<AutoResponseResult> {
   const { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } = await import('./winbros-sms-prompt')
 
@@ -448,7 +640,10 @@ async function generateWinBrosResponse(
     returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
   }
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
+  // Inject customer context (active jobs, history, profile) for situation awareness
+  const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -661,7 +856,8 @@ async function generateHouseCleaningResponse(
   tenant: Tenant,
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   knownCustomerInfo?: KnownCustomerInfo,
-  isReturningCustomer?: boolean
+  isReturningCustomer?: boolean,
+  customerContext?: CustomerContext | null
 ): Promise<AutoResponseResult> {
   const { buildHouseCleaningSmsSystemPrompt } = await import('./house-cleaning-sms-prompt')
   // Reuse escalation/booking detection from WinBros (same tag format)
@@ -700,7 +896,10 @@ async function generateHouseCleaningResponse(
     returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
   }
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  // Inject customer context (active jobs, history, profile) for situation awareness
+  const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
+
+  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {

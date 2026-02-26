@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
+import { normalizePhone } from "@/lib/phone-utils"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
-import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
+import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
@@ -217,6 +218,74 @@ export async function POST(request: NextRequest) {
   const smsEnabled = tenant ? isSmsAutoResponseEnabled(tenant) : false
   if (!smsEnabled) {
     console.log(`[OpenPhone] SMS auto-response disabled for tenant '${tenant?.slug}' - storing message but not responding`)
+  }
+
+  // ============================================
+  // INTERNAL NUMBER FILTER
+  // Block auto-responses to owner, cleaners, and blocklisted numbers.
+  // Messages are still stored for dashboard visibility.
+  // ============================================
+  const senderDigits = normalizePhone(phone)
+
+  // Check 1: Owner phone
+  if (tenant?.owner_phone && normalizePhone(tenant.owner_phone) === senderDigits) {
+    // Store message for dashboard, skip all AI logic
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "owner_phone" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is owner of '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "owner_phone" })
+  }
+
+  // Check 2: SMS blocklist (from workflow_config)
+  const smsBlocklist: string[] = (tenant?.workflow_config as any)?.sms_blocklist || []
+  if (smsBlocklist.some((b: string) => normalizePhone(b) === senderDigits)) {
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "blocklisted" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is blocklisted for '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "blocklisted" })
+  }
+
+  // Check 3: Cleaner phone
+  const { data: tenantCleaners } = await client
+    .from("cleaners")
+    .select("id, phone")
+    .eq("tenant_id", tenant?.id)
+    .eq("active", true)
+  if ((tenantCleaners || []).some((c: any) => c.phone && normalizePhone(c.phone) === senderDigits)) {
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is a cleaner for '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "cleaner_phone" })
   }
 
   // Upsert customer by phone_number (composite unique: tenant_id, phone_number)
@@ -1060,6 +1129,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ============================================
+  // LOAD CUSTOMER CONTEXT for AI situation awareness
+  // Active jobs, service history, profile — so the AI knows who's texting
+  // ============================================
+  let customerCtx = null
+  if (smsEnabled && tenant?.id) {
+    try {
+      customerCtx = await loadCustomerContext(client, tenant.id, phone, customer?.id)
+    } catch (err) {
+      console.error('[OpenPhone] Failed to load customer context, proceeding without:', err)
+    }
+  }
+
   // Get the MOST RECENT active (non-booked) lead for this phone number
   const { data: allLeadsForPhone } = await client
     .from("leads")
@@ -1155,7 +1237,7 @@ export async function POST(request: NextRequest) {
           tenant,
           conversationHistory,
           knownInfo,
-          { isReturningCustomer: isSeasonalReply }
+          { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
         )
 
         if (autoResponse.shouldSend && autoResponse.response) {
@@ -1677,7 +1759,7 @@ export async function POST(request: NextRequest) {
         tenant,
         conversationHistory,
         knownInfoNew,
-        { isReturningCustomer: isSeasonalReply }
+        { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {
