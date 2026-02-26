@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { extractVapiCallData, parseTranscript } from "@/lib/vapi"
-import { normalizePhoneNumber } from "@/lib/phone-utils"
+import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
@@ -59,14 +59,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   }
 
   const data = extractVapiCallData(payload)
-  console.log(`${tag} Extracted data:`, JSON.stringify({
-    hasData: !!data,
-    phone: data?.phone,
-    callId: data?.callId,
-    hasTranscript: !!data?.transcript,
-    duration: data?.duration,
-    outcome: data?.outcome,
-  }))
+  console.log(`${tag} Extracted data: callId=${data?.callId}, outcome=${data?.outcome}, hasTranscript=${!!data?.transcript}`)
 
   // Extract VAPI structured data (booking details filled by the AI assistant)
   const vapiMessage = (payload.message as Record<string, unknown>) || payload
@@ -79,7 +72,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   }
 
   const phone = normalizePhoneNumber(data.phone || "") || data.phone || ""
-  console.log(`${tag} Normalized phone: ${phone} (from raw: ${data.phone})`)
+  console.log(`${tag} Phone resolved: ${maskPhone(phone)}`)
   const client = getSupabaseServiceClient()
 
   // Resolve tenant
@@ -152,7 +145,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
     return NextResponse.json({ success: false, error: `Failed to insert call: ${callErr.message}` }, { status: 500 })
   }
 
-  console.log(`${tag} Call inserted successfully for ${phone} (callId: ${providerCallId})`)
+  console.log(`${tag} Call inserted successfully for ${maskPhone(phone)} (callId: ${providerCallId})`)
 
   // Log the call event
   await logSystemEvent({
@@ -323,7 +316,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 .maybeSingle()
 
               if (recentJob) {
-                console.log(`${tag} DEDUP: Job ${recentJob.id} already created for ${phone} in last 2 min, skipping duplicate`)
+                console.log(`${tag} DEDUP: Job ${recentJob.id} already created for ${maskPhone(phone)} in last 2 min, skipping duplicate`)
                 return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJob.id })
               }
 
@@ -466,7 +459,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               const smsResult = await sendSMS(tenant, phone, confirmationMsg)
 
               if (smsResult.success) {
-                console.log(`${tag} Booking confirmation text sent to ${phone}`)
+                console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
                 await client.from("messages").insert({
                   tenant_id: tenant.id,
                   customer_id: customerId,
@@ -489,7 +482,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             }
           }
         } else {
-          console.log(`${tag} Lead already exists for ${phone} (id: ${existingLead.id})`)
+          console.log(`${tag} Lead already exists for ${maskPhone(phone)} (id: ${existingLead.id})`)
 
           // Also treat as booked if structuredData has appointment info
           const existingLeadIsBooked =
@@ -512,7 +505,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               .maybeSingle()
 
             if (recentJobExisting) {
-              console.log(`${tag} DEDUP: Job ${recentJobExisting.id} already created for ${phone} in last 2 min, skipping duplicate (existing lead path)`)
+              console.log(`${tag} DEDUP: Job ${recentJobExisting.id} already created for ${maskPhone(phone)} in last 2 min, skipping duplicate (existing lead path)`)
               return NextResponse.json({ success: true, deduplicated: true, existingJobId: recentJobExisting.id })
             }
 
@@ -654,7 +647,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             const smsResult = await sendSMS(tenant, phone, confirmationMsg)
 
             if (smsResult.success) {
-              console.log(`${tag} Booking confirmation text sent to ${phone}`)
+              console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
               await client.from("messages").insert({
                 tenant_id: tenant.id,
                 customer_id: customerId,

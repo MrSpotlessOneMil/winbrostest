@@ -165,3 +165,25 @@ export function extractEmail(text: string): string | null {
 export function phonesMatch(phone1: string | null | undefined, phone2: string | null | undefined): boolean {
   return normalizePhone(phone1) === normalizePhone(phone2)
 }
+
+/**
+ * Mask a phone number for safe logging. Shows only last 4 digits.
+ * Example: "+14245551234" → "********1234"
+ */
+export function maskPhone(phone: string | null | undefined): string {
+  if (!phone) return '[no-phone]'
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length <= 4) return '****'
+  return '*'.repeat(digits.length - 4) + digits.slice(-4)
+}
+
+/**
+ * Mask an email for safe logging.
+ * Example: "john.doe@gmail.com" → "j***@gmail.com"
+ */
+export function maskEmail(email: string | null | undefined): string {
+  if (!email) return '[no-email]'
+  const [local, domain] = email.split('@')
+  if (!domain) return '***'
+  return `${local[0]}***@${domain}`
+}

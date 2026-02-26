@@ -355,9 +355,6 @@ export async function POST(
         }
 
         console.log(`[toggle_followup] Lead ${leadId}: Setting followup_paused=${paused}`)
-        console.log(`[toggle_followup] Previous form_data:`, lead.form_data)
-        console.log(`[toggle_followup] Parsed form_data:`, currentFormData)
-        console.log(`[toggle_followup] New form_data:`, newFormData)
 
         const { data: updatedLead, error: updateError } = await client
           .from("leads")
@@ -371,8 +368,6 @@ export async function POST(
           console.error(`[toggle_followup] Update error:`, updateError)
           throw updateError
         }
-
-        console.log(`[toggle_followup] Updated lead form_data:`, updatedLead?.form_data)
 
         // If pausing, cancel all pending tasks
         if (paused) {

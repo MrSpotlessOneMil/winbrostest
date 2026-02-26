@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
+import { normalizePhone, maskPhone, maskEmail } from "@/lib/phone-utils"
 import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (existingOutbound) {
-        console.log(`[OpenPhone] Outbound message already stored for ${toPhone}, skipping duplicate`)
+        console.log(`[OpenPhone] Outbound message already stored for ${maskPhone(toPhone)}, skipping duplicate`)
       } else {
         // Save the outbound message (only for messages sent directly from OpenPhone app)
         const { error: msgErr } = await client.from("messages").insert({
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
         if (msgErr) {
           console.error("[OpenPhone] Failed to save outbound message:", msgErr)
         } else {
-          console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${toPhone}`)
+          console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${maskPhone(toPhone)}`)
         }
       }
     }
@@ -140,13 +141,7 @@ export async function POST(request: NextRequest) {
   const client = getSupabaseClient()
 
   // Log extracted data for debugging
-  console.log(`[OpenPhone] Extracted message data:`, JSON.stringify({
-    from: extracted.from,
-    to: extracted.to,
-    direction: extracted.direction,
-    eventType: extracted.eventType,
-    contentPreview: extracted.content?.slice(0, 50),
-  }))
+  console.log(`[OpenPhone] Extracted message data: direction=${extracted.direction}, eventType=${extracted.eventType}`)
 
   // Route to the correct tenant based on which phone number received the message
   // This ensures Spotless Scrubbers texts go to Spotless, WinBros to WinBros, etc.
@@ -159,13 +154,13 @@ export async function POST(request: NextRequest) {
     tenant = await getTenantByPhoneNumber(extracted.to)
     if (tenant) {
       routingMethod = "phone_number"
-      console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by phone number: ${extracted.to}`)
+      console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by phone number: ${maskPhone(extracted.to)}`)
     } else {
       // If that failed, try as an OpenPhone phone ID
       tenant = await getTenantByOpenPhoneId(extracted.to)
       if (tenant) {
         routingMethod = "openphone_id"
-        console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by OpenPhone ID: ${extracted.to}`)
+        console.log(`[OpenPhone] Routed to tenant '${tenant.slug}' by OpenPhone ID`)
       }
     }
   }
@@ -197,7 +192,7 @@ export async function POST(request: NextRequest) {
   // When we send an SMS, OpenPhone may send a webhook for our outbound message
   const ourPhoneNumber = normalizePhoneNumber(tenant?.openphone_phone_number || "")
   if (ourPhoneNumber && phone === ourPhoneNumber) {
-    console.log(`[OpenPhone] Ignoring message from our own phone number: ${phone}`)
+    console.log(`[OpenPhone] Ignoring message from our own phone number: ${maskPhone(phone)}`)
     return NextResponse.json({ success: true, ignored: true, reason: "Message from our own phone number" })
   }
 
@@ -254,7 +249,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (existingDup) {
-    console.log(`[OpenPhone] Duplicate inbound message detected for ${phone} (msgId: ${opMessageId || 'none'}), skipping`)
+    console.log(`[OpenPhone] Duplicate inbound message detected for ${maskPhone(phone)} (msgId: ${opMessageId || 'none'}), skipping`)
     return NextResponse.json({ success: true, action: "duplicate_webhook_skipped" })
   }
 
@@ -287,7 +282,7 @@ export async function POST(request: NextRequest) {
 
   // Quick check - skip obvious non-booking messages (don't waste the debounce delay)
   if (isObviouslyNotBooking(messageContent)) {
-    console.log(`[OpenPhone] Message is obviously not booking intent: "${messageContent}"`)
+    console.log(`[OpenPhone] Message is obviously not booking intent (length=${messageContent.length})`)
     return NextResponse.json({ success: true, intentAnalysis: "skipped" })
   }
 
@@ -298,7 +293,7 @@ export async function POST(request: NextRequest) {
   // ============================================
   const RESPONSE_DELAY_MS = Number(process.env.SMS_RESPONSE_DELAY_MS || '8000')
   if (RESPONSE_DELAY_MS > 0) {
-    console.log(`[OpenPhone] Waiting ${RESPONSE_DELAY_MS}ms for additional messages from ${phone}...`)
+    console.log(`[OpenPhone] Waiting ${RESPONSE_DELAY_MS}ms for additional messages from ${maskPhone(phone)}...`)
     await new Promise(resolve => setTimeout(resolve, RESPONSE_DELAY_MS))
   }
 
@@ -395,7 +390,7 @@ export async function POST(request: NextRequest) {
 
   const isSeasonalReply = !!recentSeasonal
   if (isSeasonalReply) {
-    console.log(`[OpenPhone] Customer ${phone} is replying to a seasonal reminder campaign`)
+    console.log(`[OpenPhone] Customer ${maskPhone(phone)} is replying to a seasonal reminder campaign`)
   }
 
   // ============================================
@@ -432,7 +427,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (vapiConfirmation) {
-      console.log(`[OpenPhone] Found VAPI booking confirmation for ${phone}, looking for phone-source lead`)
+      console.log(`[OpenPhone] Found VAPI booking confirmation for ${maskPhone(phone)}, looking for phone-source lead`)
       // Find the most recent lead for this phone (any status)
       const { data: phoneLead } = await client
         .from("leads")
@@ -472,7 +467,7 @@ export async function POST(request: NextRequest) {
     const providedEmail = emailMatch ? emailMatch[0].toLowerCase() : null
 
     if (providedEmail) {
-      console.log(`[OpenPhone] Email captured from booked customer: ${providedEmail}`)
+      console.log(`[OpenPhone] Email captured from booked customer: ${maskEmail(providedEmail)}`)
 
       // Save email to customer record
       await client
@@ -660,7 +655,7 @@ export async function POST(request: NextRequest) {
                 pressureWashingSurfaces: (formData.pressureWashingSurfaces as string[]) || null,
                 propertyType: (formData.propertyType as string) || null,
               }
-              console.log(`[OpenPhone] Pricebook lookup inputs (phone call):`, JSON.stringify(lookupInput))
+              console.log(`[OpenPhone] Pricebook lookup inputs (phone call): service=${lookupInput.serviceType}, sqft=${lookupInput.squareFootage || 'none'}`)
               const priceLookup = lookupPrice(lookupInput)
               if (priceLookup) {
                 servicePrice = priceLookup.price
@@ -692,7 +687,7 @@ export async function POST(request: NextRequest) {
               source: "card_on_file",
               metadata: { lead_id: bookedLead.id, job_id: jobId, card_on_file_url: cardResult.url },
             })
-            console.log(`[OpenPhone] Card-on-file link sent to ${phone}: ${cardResult.url}`)
+            console.log(`[OpenPhone] Card-on-file link sent to ${maskPhone(phone)}`)
           }
 
           await logSystemEvent({
@@ -713,7 +708,7 @@ export async function POST(request: NextRequest) {
                 job,
                 stripeDepositUrl: cardResult.url,
               })
-              console.log(`[OpenPhone] Confirmation email sent to ${providedEmail}`)
+              console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(providedEmail)}`)
             } catch (emailErr) {
               console.error("[OpenPhone] Failed to send confirmation email:", emailErr)
             }
@@ -923,7 +918,7 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (existingPaymentFallback) {
-      console.log(`[OpenPhone] Fallback post-booking: payment links already sent for ${phone}, using post-booking AI`)
+      console.log(`[OpenPhone] Fallback post-booking: payment links already sent for ${maskPhone(phone)}, using post-booking AI`)
       const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
       const sdrName = tenant?.sdr_persona || 'Mary'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
@@ -1043,7 +1038,7 @@ export async function POST(request: NextRequest) {
   if (existingLead) {
     const formData = parseFormData(existingLead.form_data)
     if (formData.followup_paused === true) {
-      console.log(`[OpenPhone] Auto-response paused for phone ${phone} (most recent lead ${existingLead.id}), skipping auto-response`)
+      console.log(`[OpenPhone] Auto-response paused for phone ${maskPhone(phone)} (most recent lead ${existingLead.id}), skipping auto-response`)
       return NextResponse.json({ success: true, autoResponsePaused: true, leadId: existingLead.id })
     }
   }
@@ -1096,7 +1091,7 @@ export async function POST(request: NextRequest) {
       console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
     }
 
-    console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${phone}`)
+    console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${maskPhone(phone)}`)
 
     // Only send auto-response if SMS is enabled for this tenant
     if (smsEnabled) {
@@ -1193,9 +1188,9 @@ export async function POST(request: NextRequest) {
                   metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
                 })
 
-                console.log(`[OpenPhone] Escalation notification sent to owner for ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+                console.log(`[OpenPhone] Escalation notification sent to owner for ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
               } else {
-                console.log(`[OpenPhone] Escalation already sent recently for ${phone}, skipping duplicate`)
+                console.log(`[OpenPhone] Escalation already sent recently for ${maskPhone(phone)}, skipping duplicate`)
               }
 
               // Pause auto-response for this lead — owner is taking over
@@ -1237,7 +1232,7 @@ export async function POST(request: NextRequest) {
                 const historyMatch = msg.content.match(emailRegex)
                 if (historyMatch) {
                   fallbackEmail = historyMatch[0].toLowerCase()
-                  console.log(`[OpenPhone] Found email in conversation history: ${fallbackEmail} (from ${msg.role} message)`)
+                  console.log(`[OpenPhone] Found email in conversation history: ${maskEmail(fallbackEmail)} (from ${msg.role} message)`)
                   break
                 }
               }
@@ -1258,7 +1253,7 @@ export async function POST(request: NextRequest) {
               .maybeSingle()
 
             if (alreadySentPayment) {
-              console.log(`[OpenPhone] Payment link already sent for ${phone}, skipping duplicate booking completion (lead ${existingLead.id})`)
+              console.log(`[OpenPhone] Payment link already sent for ${maskPhone(phone)}, skipping duplicate booking completion (lead ${existingLead.id})`)
               return NextResponse.json({
                 success: true,
                 flow: "sms_booking_already_complete",
@@ -1266,7 +1261,7 @@ export async function POST(request: NextRequest) {
               })
             }
 
-            console.log(`[OpenPhone] SMS booking completion: email=${bookingEmail} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
+            console.log(`[OpenPhone] SMS booking completion: email=${maskEmail(bookingEmail)} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
 
             try {
               // Save email to customer
@@ -1289,7 +1284,7 @@ export async function POST(request: NextRequest) {
                 const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
                 bookingData = await extractHouseCleaningBookingData(conversationHistory)
               }
-              console.log(`[OpenPhone] Extracted booking data (${isWindowCleaningTenant ? 'winbros' : 'house_cleaning'}):`, JSON.stringify(bookingData))
+              console.log(`[OpenPhone] Extracted booking data (${isWindowCleaningTenant ? 'winbros' : 'house_cleaning'}): service=${bookingData.serviceType}, beds=${bookingData.bedrooms}, baths=${bookingData.bathrooms}, date=${bookingData.preferredDate}`)
 
               // Use extracted email if AI found one, otherwise use the one from booking
               const finalEmail = bookingData.email || bookingEmail
@@ -1412,7 +1407,7 @@ export async function POST(request: NextRequest) {
               }).select("id").single()
 
               if (jobError || !newJob?.id) {
-                console.error(`[OpenPhone] Job creation failed for ${phone}:`, jobError || 'no job returned')
+                console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
                 console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
                 // Don't proceed with Stripe link — we need a valid job first
                 return NextResponse.json({
@@ -1423,7 +1418,7 @@ export async function POST(request: NextRequest) {
                   details: jobError?.message || "Job insert returned no data",
                 })
               }
-              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}, address: ${bookingData.address || 'none'}`)
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}`)
 
               // Sync to HouseCall Pro
               if (tenant) {
@@ -1564,7 +1559,7 @@ export async function POST(request: NextRequest) {
                   .eq("ai_generated", true)
                   .order("timestamp", { ascending: false })
                   .limit(1)
-                console.log(`[OpenPhone] Marked AI response as estimate_booked for ${phone}`)
+                console.log(`[OpenPhone] Marked AI response as estimate_booked for ${maskPhone(phone)}`)
 
                 await logSystemEvent({
                   tenant_id: tenant?.id,
@@ -1607,10 +1602,10 @@ export async function POST(request: NextRequest) {
   // NEW INQUIRY FLOW: No existing lead found
   // Run AI intent analysis and create lead if booking intent detected
   // ============================================
-  console.log(`[OpenPhone] No existing lead for ${phone}, analyzing as new inquiry`)
+  console.log(`[OpenPhone] No existing lead for ${maskPhone(phone)}, analyzing as new inquiry`)
   const intentResult = await analyzeBookingIntent(combinedMessage, conversationHistory)
 
-  console.log(`[OpenPhone] Intent analysis result:`, intentResult)
+  console.log(`[OpenPhone] Intent analysis: hasBookingIntent=${intentResult.hasBookingIntent}, confidence=${intentResult.confidence}, serviceType=${intentResult.extractedInfo?.serviceType || 'none'}`)
 
   await logSystemEvent({
     tenant_id: tenant?.id,
@@ -1726,9 +1721,9 @@ export async function POST(request: NextRequest) {
                   metadata: { reasons: autoResponse.escalation.reasons },
                 })
 
-                console.log(`[OpenPhone] Escalation notification sent to owner for new inquiry ${phone}: ${autoResponse.escalation.reasons.join(", ")}`)
+                console.log(`[OpenPhone] Escalation notification sent to owner for new inquiry ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
               } else {
-                console.log(`[OpenPhone] Escalation already sent recently for new inquiry ${phone}, skipping duplicate`)
+                console.log(`[OpenPhone] Escalation already sent recently for new inquiry ${maskPhone(phone)}, skipping duplicate`)
               }
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
@@ -1791,7 +1786,7 @@ export async function POST(request: NextRequest) {
       if (extractedEmail && !customer.email) custUpdates.email = extractedEmail
       if (Object.keys(custUpdates).length > 0) {
         await client.from("customers").update(custUpdates).eq("id", customer.id)
-        console.log(`[OpenPhone] Updated customer ${customer.id} with extracted info:`, custUpdates)
+        console.log(`[OpenPhone] Updated customer ${customer.id} with fields: ${Object.keys(custUpdates).join(', ')}`)
       }
 
       // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
@@ -1936,7 +1931,7 @@ async function sendDepositPaymentFlow(params: {
   let depositUrl: string | undefined
 
   if (!servicePrice || servicePrice <= 0) {
-    console.warn(`[OpenPhone] No valid price for deposit flow (phone: ${phone}), skipping invoice/deposit`)
+    console.warn(`[OpenPhone] No valid price for deposit flow (phone: ${maskPhone(phone)}), skipping invoice/deposit`)
     return { success: false }
   }
 
@@ -1969,7 +1964,7 @@ async function sendDepositPaymentFlow(params: {
           metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
         })
       }
-      console.log(`[OpenPhone] Wave invoice sent to ${phone}: ${invoiceUrl}`)
+      console.log(`[OpenPhone] invoice sent to ${maskPhone(phone)}`)
     } else {
       console.warn(`[OpenPhone] Wave invoice creation failed: ${invoiceResult.error}`)
     }
@@ -2010,7 +2005,7 @@ async function sendDepositPaymentFlow(params: {
           metadata: { lead_id: leadId, job_id: jobId, deposit_url: depositResult.url, deposit_amount: depositResult.amount },
         })
       }
-      console.log(`[OpenPhone] Deposit link sent to ${phone}: ${depositResult.url}`)
+      console.log(`[OpenPhone] Deposit link sent to ${maskPhone(phone)}`)
     } else {
       console.error(`[OpenPhone] Deposit link creation failed: ${depositResult.error}`)
     }
@@ -2037,7 +2032,7 @@ async function sendDepositPaymentFlow(params: {
       waveInvoiceUrl: invoiceUrl,
       stripeDepositUrl: depositUrl || '',
     })
-    console.log(`[OpenPhone] Confirmation email sent to ${email}`)
+    console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(email)}`)
   } catch (emailErr) {
     console.error("[OpenPhone] Confirmation email failed:", emailErr)
   }

@@ -588,7 +588,7 @@ export async function POST(
     const telegramUserId = from.id.toString()
     const chatId = chat.id.toString()
 
-    console.log(`[Telegram/${slug}] Message from ${from.username || from.first_name} (id=${telegramUserId}): "${text}"`)
+    console.log(`[Telegram/${slug}] Message from id=${telegramUserId}, length=${text?.length || 0}`)
 
     // Log inbound message
     logTelegramMessage({
