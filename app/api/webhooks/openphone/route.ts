@@ -517,6 +517,20 @@ export async function POST(request: NextRequest) {
 
       // WinBros estimate jobs: NO payment link — send confirmation + assign salesman
       if (job?.job_type === 'estimate' && tenant) {
+        // Dedup guard: skip if salesman already assigned to this job
+        const { data: existingAssignment } = await client
+          .from("cleaner_assignments")
+          .select("id")
+          .eq("job_id", job.id)
+          .not("status", "in", '("cancelled","declined")')
+          .limit(1)
+          .maybeSingle()
+
+        if (existingAssignment) {
+          console.log(`[OpenPhone] Estimate job ${jobId} already has assignment ${existingAssignment.id} — skipping duplicate`)
+          return NextResponse.json({ success: true, flow: "phone_call_estimate_already_confirmed", leadId: bookedLead.id })
+        }
+
         console.log(`[OpenPhone] Estimate job ${jobId} — sending confirmation and assigning salesman (no payment link)`)
 
         // Save email to lead form_data
@@ -592,6 +606,12 @@ export async function POST(request: NextRequest) {
         } catch (estimateErr) {
           console.error("[OpenPhone] Failed to assign salesman for estimate:", estimateErr)
         }
+
+        // Move lead out of "booked" so subsequent messages don't re-trigger this flow
+        await client
+          .from("leads")
+          .update({ status: "confirmed" })
+          .eq("id", bookedLead.id)
 
         await logSystemEvent({
           tenant_id: tenant.id,
