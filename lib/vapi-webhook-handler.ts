@@ -456,7 +456,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Send booking confirmation text
               const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
               const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-                fullName || "there",
+                firstName || "there",
                 serviceType,
                 dateTimeStr,
                 bookAddress || "your address",
@@ -644,7 +644,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             // Send booking confirmation text
             const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
             const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-              fullName || "there",
+              firstName || "there",
               serviceType,
               dateTimeStr,
               bookAddress || "your address",
