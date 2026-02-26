@@ -95,7 +95,8 @@ export async function POST(request: NextRequest) {
 
     const invoiceResult = await createInvoice(
       { ...job, price: jobPrice },
-      { ...customer, email: customerEmail }
+      { ...customer, email: customerEmail },
+      tenant
     )
 
     if (!invoiceResult.success) {

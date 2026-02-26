@@ -628,13 +628,13 @@ export async function POST(request: NextRequest) {
       // ──────────────────────────────────────────────────────────────────────
       // TENANT ISOLATION — PAYMENT FLOW AFTER EMAIL CAPTURE:
       // WinBros (use_team_routing=true): Skip deposit, card-on-file only
-      // Cedar Rapids (use_team_routing=false): Wave invoice + Stripe deposit link
+      // Cedar Rapids (use_team_routing=false): Invoice (Stripe or Wave) + Stripe deposit link
       //   → Customer pays deposit → Stripe webhook → cleaner broadcast assignment
       // Do NOT change the deposit flow without testing Cedar Rapids end-to-end.
       // ──────────────────────────────────────────────────────────────────────
       const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
-      // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+      // Non-WinBros: Invoice (Stripe or Wave) + Stripe deposit link flow (house cleaning)
       if (!isWinBros && tenant) {
         let phoneCallServicePrice = job?.price || job?.estimated_value || null
         const depositFlowResult = await sendDepositPaymentFlow({
@@ -1478,7 +1478,7 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", existingLead.id)
 
-              // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+              // Non-WinBros: Invoice (Stripe or Wave) + Stripe deposit link flow (house cleaning)
               if (!isWindowCleaningTenant && tenant) {
                 const depositFlowResult = await sendDepositPaymentFlow({
                   tenant,
@@ -1921,10 +1921,11 @@ function extractNameFromConversation(
 }
 
 /**
- * Send Wave invoice + Stripe deposit link for remote cleaning businesses
+ * Send invoice + Stripe deposit link for house cleaning businesses.
  * (Cedar Rapids, Spotless Scrubbers, etc. — NOT WinBros window cleaning)
  *
- * Flow: Wave invoice SMS → short delay → Stripe deposit link SMS → confirmation email
+ * Invoice provider is tenant-aware: routes to Stripe or Wave based on workflow_config.
+ * Flow: Invoice SMS → short delay → Stripe deposit link SMS → confirmation email
  */
 async function sendDepositPaymentFlow(params: {
   tenant: { id: string; slug: string; workflow_config?: any; [key: string]: any },
@@ -1960,12 +1961,13 @@ async function sendDepositPaymentFlow(params: {
     return { success: false }
   }
 
-  // 1. Create Wave invoice (if Wave is configured for this tenant)
+  // 1. Create invoice (routes to Stripe or Wave based on tenant config)
   try {
     const { createInvoice } = await import("@/lib/invoices")
     const invoiceResult = await createInvoice(
       { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { ...customer, email } as any
+      { ...customer, email } as any,
+      tenant
     )
 
     if (invoiceResult.success && invoiceResult.invoiceUrl) {
@@ -1989,12 +1991,12 @@ async function sendDepositPaymentFlow(params: {
           metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
         })
       }
-      console.log(`[OpenPhone] Wave invoice sent to ${phone}: ${invoiceUrl}`)
+      console.log(`[OpenPhone] ${invoiceResult.provider} invoice sent to ${phone}: ${invoiceUrl}`)
     } else {
-      console.warn(`[OpenPhone] Wave invoice creation failed: ${invoiceResult.error}`)
+      console.warn(`[OpenPhone] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
     }
   } catch (invoiceErr) {
-    console.error("[OpenPhone] Wave invoice error:", invoiceErr)
+    console.error("[OpenPhone] Invoice error:", invoiceErr)
   }
 
   // Small delay between invoice and deposit messages

@@ -760,17 +760,20 @@ async function executeTool(
     }
   }
 
-  // ----- CREATE WAVE INVOICE -----
+  // ----- CREATE INVOICE (Stripe or Wave based on tenant config) -----
   if (toolName === "create_wave_invoice") {
     try {
-      if (!tenant || !tenantHasIntegration(tenant, "wave")) {
-        return "Wave invoicing isn't configured for your business yet. You can set it up in Settings > Integrations by adding your Wave API token and business ID."
+      // Check if tenant has any invoicing provider configured
+      const hasWave = tenant ? tenantHasIntegration(tenant, "wave") : false
+      const hasStripe = tenant ? tenantHasIntegration(tenant, "stripe") : false
+      if (!tenant || (!hasWave && !hasStripe)) {
+        return "Invoicing isn't configured for your business yet. You can set it up in Settings > Integrations by adding your Stripe or Wave credentials."
       }
 
       const phone = toolInput.phone_number as string
       const customer: any = await findCustomerByPhone(client, phone, tenantId)
       if (!customer) return `No customer found with phone number ${phone}. Would you like me to create one?`
-      if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. An email is required to send a Wave invoice — could you share it?`
+      if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. An email is required to send an invoice — could you share it?`
 
       // Get job
       let job: any
@@ -793,10 +796,11 @@ async function executeTool(
       if (!job.price || job.price <= 0) return "The job doesn't have a price set yet. Let me know the service details and I'll calculate the pricing."
 
       const { createInvoice } = await import("@/lib/invoices")
-      const result = await createInvoice(job, customer)
+      const result = await createInvoice(job, customer, tenant)
 
       if (result.success) {
-        return `Wave invoice created and sent to ${customer.email}!\n- Invoice ID: ${result.invoiceId}\n- Amount: $${job.price}\n- Service: ${job.service_type || "Cleaning"}\n${result.invoiceUrl ? `- View invoice: ${result.invoiceUrl}` : ""}`
+        const providerLabel = result.provider === 'stripe' ? 'Stripe' : 'Wave'
+        return `${providerLabel} invoice created and sent to ${customer.email}!\n- Invoice ID: ${result.invoiceId}\n- Amount: $${job.price}\n- Service: ${job.service_type || "Cleaning"}\n${result.invoiceUrl ? `- View invoice: ${result.invoiceUrl}` : ""}`
       }
       return `Failed to create invoice: ${result.error}`
     } catch (err: any) {

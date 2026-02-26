@@ -23,12 +23,52 @@ type WaveConfig = {
 
 const WAVE_API_URL = 'https://gql.waveapps.com/graphql/public'
 
-export async function createInvoice(job: Job, customer: Customer): Promise<InvoiceResult> {
-  const waveConfig = getWaveConfig()
+/**
+ * Create an invoice for a job using the appropriate provider.
+ *
+ * Multi-tenant routing:
+ *   - tenant.use_stripe && !tenant.use_wave → Stripe invoice (via tenant's stripe_secret_key)
+ *   - tenant.use_wave → Wave invoice (via tenant's wave credentials or env vars)
+ *   - No tenant provided → legacy fallback to Wave env vars
+ */
+export async function createInvoice(
+  job: Job,
+  customer: Customer,
+  tenant?: { workflow_config?: any; stripe_secret_key?: string; wave_api_token?: string; wave_business_id?: string; wave_income_account_id?: string } | null
+): Promise<InvoiceResult> {
+  const wc = tenant?.workflow_config
+
+  // Route to Stripe invoicing when tenant explicitly uses Stripe (not Wave)
+  if (wc?.use_stripe && !wc?.use_wave && tenant?.stripe_secret_key) {
+    try {
+      const { createAndSendInvoice } = await import('./stripe-client')
+      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key)
+      return {
+        success: result.success,
+        provider: 'stripe',
+        invoiceId: result.invoiceId,
+        invoiceUrl: result.invoiceUrl,
+        error: result.error,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown Stripe error'
+      console.error('[Invoice] Stripe invoice failed:', message)
+      return { success: false, provider: 'stripe', error: message }
+    }
+  }
+
+  // Wave invoicing — prefer tenant-specific credentials, fall back to env vars
+  const waveConfig = tenant?.wave_api_token
+    ? {
+        token: tenant.wave_api_token.replace(/[\r\n]/g, '').trim().replace(/^Bearer\s+/i, ''),
+        businessId: tenant.wave_business_id!,
+        incomeAccountId: tenant.wave_income_account_id!,
+      }
+    : getWaveConfig()
 
   if (!waveConfig) {
-    const error = 'Wave invoice is not configured. Set WAVE_API_TOKEN, WAVE_BUSINESS_ID, and WAVE_INCOME_ACCOUNT_ID.'
-    console.error(error)
+    const error = 'No invoicing provider configured. Enable Stripe or Wave in workflow settings.'
+    console.error('[Invoice]', error)
     return { success: false, error }
   }
 
@@ -40,7 +80,7 @@ export async function createInvoice(job: Job, customer: Customer): Promise<Invoi
     return { ...waveResult, provider: 'wave', success: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Wave error'
-    console.error('Wave invoice failed:', message)
+    console.error('[Invoice] Wave invoice failed:', message)
     return { success: false, error: message }
   }
 }

@@ -34,6 +34,8 @@ import {
   Megaphone,
   Edit,
   Clock,
+  ClipboardList,
+  ExternalLink,
 } from "lucide-react"
 
 interface WorkflowConfig {
@@ -146,7 +148,11 @@ export default function AdminPage() {
 
   // Add New Business modal state
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newBusiness, setNewBusiness] = useState({ name: "", slug: "", email: "", password: "" })
+  const [newBusiness, setNewBusiness] = useState({
+    name: "", slug: "", email: "", password: "",
+    business_name: "", business_name_short: "", service_area: "",
+    owner_phone: "", owner_email: "", sdr_persona: "Mary",
+  })
   const [creating, setCreating] = useState(false)
 
   // Credentials editing state
@@ -265,7 +271,11 @@ export default function AdminPage() {
         throw new Error(json.error || "Failed to create business")
       }
       setShowAddModal(false)
-      setNewBusiness({ name: "", slug: "", email: "", password: "" })
+      setNewBusiness({
+        name: "", slug: "", email: "", password: "",
+        business_name: "", business_name_short: "", service_area: "",
+        owner_phone: "", owner_email: "", sdr_persona: "Mary",
+      })
       await fetchTenants()
       // Select the newly created tenant
       if (json.data?.id) {
@@ -763,6 +773,10 @@ export default function AdminPage() {
                     <TabsTrigger value="credentials" className="gap-2">
                       <Key className="h-4 w-4" />
                       Credentials
+                    </TabsTrigger>
+                    <TabsTrigger value="setup" className="gap-2">
+                      <ClipboardList className="h-4 w-4" />
+                      Setup
                     </TabsTrigger>
                     <TabsTrigger value="campaigns" className="gap-2">
                       <Megaphone className="h-4 w-4" />
@@ -1576,6 +1590,129 @@ export default function AdminPage() {
                     </div>
                   </TabsContent>
 
+                  {/* Setup Checklist Tab */}
+                  <TabsContent value="setup" className="space-y-6">
+                    {/* Setup Checklist */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <ClipboardList className="h-5 w-5" />
+                          Setup Checklist
+                        </CardTitle>
+                        <CardDescription>Required integrations and configuration status</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {(() => {
+                          const checks = [
+                            {
+                              label: "Business details",
+                              description: "Name, service area, phone, email",
+                              ok: !!(currentTenant.business_name && currentTenant.service_area && currentTenant.owner_phone && currentTenant.owner_email),
+                            },
+                            {
+                              label: "OpenPhone",
+                              description: "API key, phone ID, phone number",
+                              ok: !!(currentTenant.openphone_api_key && currentTenant.openphone_phone_id && currentTenant.openphone_phone_number),
+                            },
+                            {
+                              label: "VAPI (Voice AI)",
+                              description: "API key, assistant ID",
+                              ok: !!(currentTenant.vapi_api_key && currentTenant.vapi_assistant_id),
+                            },
+                            {
+                              label: "Stripe",
+                              description: "Secret key, webhook secret",
+                              ok: !!(currentTenant.stripe_secret_key && currentTenant.stripe_webhook_secret),
+                            },
+                            {
+                              label: "Telegram",
+                              description: "Bot token, owner chat ID",
+                              ok: !!(currentTenant.telegram_bot_token && currentTenant.owner_telegram_chat_id),
+                            },
+                            {
+                              label: "Google Review Link",
+                              description: "For post-cleaning review requests",
+                              ok: !!currentTenant.google_review_link,
+                              optional: true,
+                            },
+                          ]
+                          const doneCount = checks.filter((c) => c.ok).length
+                          const requiredCount = checks.filter((c) => !c.optional).length
+                          const requiredDone = checks.filter((c) => !c.optional && c.ok).length
+
+                          return (
+                            <>
+                              <div className="flex items-center gap-2 pb-2 mb-2 border-b">
+                                <span className={`text-sm font-medium ${requiredDone === requiredCount ? "text-green-500" : "text-orange-500"}`}>
+                                  {doneCount}/{checks.length} configured
+                                </span>
+                                {requiredDone === requiredCount && (
+                                  <Badge variant="outline" className="text-green-500 border-green-500/30">All required done</Badge>
+                                )}
+                              </div>
+                              {checks.map((check) => (
+                                <div key={check.label} className="flex items-center gap-3 py-1">
+                                  {check.ok ? (
+                                    <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                                  ) : (
+                                    <AlertTriangle className={`h-5 w-5 shrink-0 ${check.optional ? "text-zinc-400" : "text-orange-500"}`} />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium flex items-center gap-2">
+                                      {check.label}
+                                      {check.optional && <span className="text-xs text-muted-foreground">(optional)</span>}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">{check.description}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          )
+                        })()}
+                      </CardContent>
+                    </Card>
+
+                    {/* Webhook URLs */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <ExternalLink className="h-5 w-5" />
+                          Webhook URLs
+                        </CardTitle>
+                        <CardDescription>Configure these URLs in the respective external services</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {[
+                          { label: "VAPI", service: "vapi", hint: "VAPI → Assistant → Server URL" },
+                          { label: "OpenPhone", service: "openphone", hint: "OpenPhone → Settings → Webhooks" },
+                          { label: "Stripe", service: "stripe", hint: "Stripe → Developers → Webhooks" },
+                          { label: "Telegram", service: "telegram", hint: "Set via bot API setWebhook" },
+                        ].map(({ label, service, hint }) => (
+                          <div key={service} className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-medium">{label}</Label>
+                              <span className="text-xs text-muted-foreground">{hint}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <Input
+                                readOnly
+                                value={getWebhookUrl(currentTenant.slug, service)}
+                                className="bg-muted/50 font-mono text-xs"
+                              />
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, service), `webhook_${service}`)}
+                              >
+                                {copiedUrl === `webhook_${service}` ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </TabsContent>
+
                   {/* Campaigns Tab */}
                   <TabsContent value="campaigns" className="space-y-4">
                     {/* Master Toggle */}
@@ -1999,8 +2136,8 @@ export default function AdminPage() {
 
       {/* Add New Business Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
+          <Card className="w-full max-w-lg mx-4">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>Add New Business</CardTitle>
@@ -2008,25 +2145,27 @@ export default function AdminPage() {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <CardDescription>Create a new business/tenant</CardDescription>
+              <CardDescription>Create a new business/tenant. Pricing tiers and a login user will be auto-created.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Business Name *</Label>
-                <Input
-                  value={newBusiness.name}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
-                  placeholder="WinBros Cleaning"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Slug *</Label>
-                <Input
-                  value={newBusiness.slug}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                  placeholder="winbros"
-                />
-                <p className="text-xs text-muted-foreground">URL-safe identifier (lowercase, no spaces)</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Internal Name *</Label>
+                  <Input
+                    value={newBusiness.name}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
+                    placeholder="Cedar Rapids Cleaning"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Slug *</Label>
+                  <Input
+                    value={newBusiness.slug}
+                    onChange={(e) => setNewBusiness({ ...newBusiness, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                    placeholder="cedar-rapids"
+                  />
+                  <p className="text-xs text-muted-foreground">URL-safe identifier</p>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Password *</Label>
@@ -2036,8 +2175,63 @@ export default function AdminPage() {
                   onChange={(e) => setNewBusiness({ ...newBusiness, password: e.target.value })}
                   placeholder="••••••••"
                 />
-                <p className="text-xs text-muted-foreground">A login account will be created with username = slug</p>
+                <p className="text-xs text-muted-foreground">Login: username = slug, password = this value</p>
               </div>
+
+              <div className="border-t pt-4 space-y-4">
+                <p className="text-sm font-medium text-muted-foreground">Business Details</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Business Name <span className="text-muted-foreground text-xs">(customer-facing)</span></Label>
+                    <Input
+                      value={newBusiness.business_name}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, business_name: e.target.value })}
+                      placeholder="Cedar Rapids Cleaning Services"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Short Name <span className="text-muted-foreground text-xs">(for SMS)</span></Label>
+                    <Input
+                      value={newBusiness.business_name_short}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, business_name_short: e.target.value })}
+                      placeholder="CRC"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Service Area</Label>
+                    <Input
+                      value={newBusiness.service_area}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, service_area: e.target.value })}
+                      placeholder="Cedar Rapids, IA"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>SDR Persona</Label>
+                    <Input
+                      value={newBusiness.sdr_persona}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, sdr_persona: e.target.value })}
+                      placeholder="Mary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Owner Phone</Label>
+                    <Input
+                      value={newBusiness.owner_phone}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, owner_phone: e.target.value })}
+                      placeholder="+1..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Owner Email</Label>
+                    <Input
+                      value={newBusiness.owner_email}
+                      onChange={(e) => setNewBusiness({ ...newBusiness, owner_email: e.target.value })}
+                      placeholder="owner@example.com"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-2 pt-4">
                 <Button variant="outline" className="flex-1" onClick={() => setShowAddModal(false)}>
                   Cancel

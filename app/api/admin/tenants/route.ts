@@ -179,6 +179,45 @@ export async function POST(request: NextRequest) {
     if (userError) {
       console.error("[Admin] Failed to auto-create user for tenant:", userError.message)
     }
+
+    // Auto-seed default pricing tiers (7 standard + 7 deep clean)
+    const defaultTiers = [
+      { service_type: "standard", bedrooms: 1, bathrooms: 1, max_sq_ft: 800, price: 200, price_min: 200, price_max: 200, labor_hours: 4, cleaners: 1, hours_per_cleaner: 4 },
+      { service_type: "standard", bedrooms: 2, bathrooms: 1, max_sq_ft: 999, price: 237.5, price_min: 225, price_max: 250, labor_hours: 4.5, cleaners: 1, hours_per_cleaner: 4.5 },
+      { service_type: "standard", bedrooms: 2, bathrooms: 2, max_sq_ft: 1250, price: 262.5, price_min: 250, price_max: 275, labor_hours: 5.5, cleaners: 1, hours_per_cleaner: 5.5 },
+      { service_type: "standard", bedrooms: 3, bathrooms: 2, max_sq_ft: 1500, price: 362.5, price_min: 350, price_max: 375, labor_hours: 7, cleaners: 2, hours_per_cleaner: 3.5 },
+      { service_type: "standard", bedrooms: 3, bathrooms: 3, max_sq_ft: 1999, price: 400, price_min: 375, price_max: 425, labor_hours: 8, cleaners: 2, hours_per_cleaner: 4 },
+      { service_type: "standard", bedrooms: 4, bathrooms: 2, max_sq_ft: 2124, price: 475, price_min: 450, price_max: 500, labor_hours: 9.5, cleaners: 2, hours_per_cleaner: 4.75 },
+      { service_type: "standard", bedrooms: 4, bathrooms: 3, max_sq_ft: 2374, price: 525, price_min: 500, price_max: 550, labor_hours: 10.5, cleaners: 2, hours_per_cleaner: 5.25 },
+      { service_type: "deep", bedrooms: 1, bathrooms: 1, max_sq_ft: 800, price: 225, price_min: 200, price_max: 250, labor_hours: 4.5, cleaners: 1, hours_per_cleaner: 4.5 },
+      { service_type: "deep", bedrooms: 2, bathrooms: 1, max_sq_ft: 999, price: 287.5, price_min: 275, price_max: 300, labor_hours: 5.5, cleaners: 1, hours_per_cleaner: 5.5 },
+      { service_type: "deep", bedrooms: 2, bathrooms: 2, max_sq_ft: 1250, price: 325, price_min: 300, price_max: 350, labor_hours: 6.5, cleaners: 1, hours_per_cleaner: 6.5 },
+      { service_type: "deep", bedrooms: 3, bathrooms: 2, max_sq_ft: 1500, price: 425, price_min: 400, price_max: 450, labor_hours: 9, cleaners: 2, hours_per_cleaner: 4.5 },
+      { service_type: "deep", bedrooms: 3, bathrooms: 3, max_sq_ft: 1999, price: 475, price_min: 450, price_max: 500, labor_hours: 10, cleaners: 2, hours_per_cleaner: 5 },
+      { service_type: "deep", bedrooms: 4, bathrooms: 2, max_sq_ft: 2001, price: 625, price_min: 600, price_max: 650, labor_hours: 13, cleaners: 2, hours_per_cleaner: 6.5 },
+      { service_type: "deep", bedrooms: 4, bathrooms: 3, max_sq_ft: 2499, price: 725, price_min: 700, price_max: 750, labor_hours: 15, cleaners: 2, hours_per_cleaner: 7.5 },
+    ].map((t) => ({ ...t, tenant_id: tenant.id }))
+
+    const { error: tierError } = await client.from("pricing_tiers").insert(defaultTiers)
+    if (tierError) {
+      console.error("[Admin] Failed to seed pricing tiers:", tierError.message)
+    }
+
+    // Auto-seed default pricing addons (7 addons)
+    const defaultAddons = [
+      { addon_key: "inside_fridge", label: "Inside fridge", minutes: 30, flat_price: null, price_multiplier: 1, included_in: ["move"], keywords: ["inside fridge", "fridge interior"] },
+      { addon_key: "inside_oven", label: "Inside oven", minutes: 30, flat_price: null, price_multiplier: 1, included_in: ["move"], keywords: ["inside oven", "oven interior"] },
+      { addon_key: "inside_cabinets", label: "Inside cabinets", minutes: 60, flat_price: null, price_multiplier: 1, included_in: ["move"], keywords: ["inside cabinets", "cabinet interior"] },
+      { addon_key: "windows_interior", label: "Interior windows", minutes: 30, flat_price: 50, price_multiplier: 1, included_in: null, keywords: ["interior windows", "inside windows"] },
+      { addon_key: "windows_exterior", label: "Exterior windows", minutes: 60, flat_price: 100, price_multiplier: 1, included_in: null, keywords: ["exterior windows", "outside windows"] },
+      { addon_key: "windows_both", label: "Interior + exterior windows", minutes: 90, flat_price: 150, price_multiplier: 1, included_in: null, keywords: ["both windows", "all windows"] },
+      { addon_key: "pet_fee", label: "Pet fee", minutes: 0, flat_price: 25, price_multiplier: 1, included_in: null, keywords: ["pet", "pets", "dog", "cat"] },
+    ].map((a) => ({ ...a, tenant_id: tenant.id, active: true }))
+
+    const { error: addonError } = await client.from("pricing_addons").insert(defaultAddons)
+    if (addonError) {
+      console.error("[Admin] Failed to seed pricing addons:", addonError.message)
+    }
   }
 
   return NextResponse.json({ success: true, data: tenant })
@@ -303,6 +342,8 @@ export async function DELETE(request: NextRequest) {
     "customers",
     "cleaners",
     "teams",
+    "pricing_tiers",
+    "pricing_addons",
     "sessions",
     "users",
   ]

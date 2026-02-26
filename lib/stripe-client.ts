@@ -39,6 +39,17 @@ function getStripeClient(): Stripe {
   })
 }
 
+/**
+ * Create a Stripe client using a specific secret key (for multi-tenant).
+ * Falls back to the default getStripeClient() if no key provided.
+ */
+export function getStripeClientForTenant(stripeSecretKey?: string): Stripe {
+  if (!stripeSecretKey) return getStripeClient()
+  const secretKey = stripeSecretKey.replace(/[\r\n]/g, '').trim()
+  if (!secretKey) throw new Error('Invalid Stripe secret key')
+  return new Stripe(secretKey, { apiVersion: '2025-02-24.acacia' })
+}
+
 function getClientDomain(): string {
   const domain = getClientConfig().domain
   return domain.endsWith('/') ? domain.slice(0, -1) : domain
@@ -158,12 +169,14 @@ export async function findOrCreateStripeCustomer(
 }
 
 /**
- * Create and send an invoice for a job
+ * Create and send an invoice for a job.
+ * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
  */
 export async function createAndSendInvoice(
   job: Job,
-  customer: Customer
-): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
+  customer: Customer,
+  stripeSecretKey?: string
+): Promise<{ success: boolean; invoiceId?: string; invoiceUrl?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required for invoice' }
   }
@@ -173,7 +186,7 @@ export async function createAndSendInvoice(
   }
 
   try {
-    const stripe = getStripeClient()
+    const stripe = stripeSecretKey ? getStripeClientForTenant(stripeSecretKey) : getStripeClient()
     const domain = getClientDomain()
 
     // Find or create Stripe customer
@@ -205,11 +218,12 @@ export async function createAndSendInvoice(
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
     await stripe.invoices.sendInvoice(finalizedInvoice.id)
 
-    console.log(`Invoice ${finalizedInvoice.id} sent to ${customer.email}`)
+    console.log(`[Stripe] Invoice ${finalizedInvoice.id} sent to ${customer.email}`)
 
     return {
       success: true,
       invoiceId: finalizedInvoice.id,
+      invoiceUrl: finalizedInvoice.hosted_invoice_url || undefined,
     }
   } catch (error) {
     console.error('Error creating invoice:', error)
