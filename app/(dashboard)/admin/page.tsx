@@ -197,6 +197,7 @@ export default function AdminPage() {
     wave_business_id: "",
     wave_income_account_id: "",
     ghl_location_id: "",
+    seed_pricing: "default" as "default" | "skip",
   })
   const [onboarding, setOnboarding] = useState(false)
   const [onboardResults, setOnboardResults] = useState<any>(null)
@@ -204,6 +205,8 @@ export default function AdminPage() {
   const [wizardTestResults, setWizardTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
   const [showExtraServices, setShowExtraServices] = useState(false)
   const [customServices, setCustomServices] = useState<Array<{ name: string; fields: Array<{ key: string; value: string }> }>>([])
+  const [wizardRegistering, setWizardRegistering] = useState<string | null>(null)
+  const [wizardRegisterResults, setWizardRegisterResults] = useState<Record<string, { success: boolean; message: string; secret?: string }>>({})
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -333,6 +336,7 @@ export default function AdminPage() {
       housecall_pro_api_key: "", housecall_pro_company_id: "",
       wave_api_token: "", wave_business_id: "", wave_income_account_id: "",
       ghl_location_id: "",
+      seed_pricing: "default",
     })
     setOnboarding(false)
     setOnboardResults(null)
@@ -340,6 +344,8 @@ export default function AdminPage() {
     setWizardTestResults({})
     setShowExtraServices(false)
     setCustomServices([])
+    setWizardRegistering(null)
+    setWizardRegisterResults({})
   }
 
   async function testAllConnectionsDirect() {
@@ -399,6 +405,29 @@ export default function AdminPage() {
       }))
     } finally {
       setWizardTesting(null)
+    }
+  }
+
+  async function registerWebhookDirect(service: string, credentials: Record<string, string>) {
+    setWizardRegistering(service)
+    try {
+      const res = await fetch("/api/admin/register-webhook-direct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service, credentials }),
+      })
+      const json = await res.json()
+      setWizardRegisterResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown", secret: json.secret },
+      }))
+    } catch (e: any) {
+      setWizardRegisterResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: e.message || "Registration failed" },
+      }))
+    } finally {
+      setWizardRegistering(null)
     }
   }
 
@@ -2820,6 +2849,17 @@ export default function AdminPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
+                      <Label>Pricing</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.seed_pricing}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, seed_pricing: e.target.value as any })}
+                      >
+                        <option value="default">Default (14 tiers + 7 addons)</option>
+                        <option value="skip">Skip — configure later</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
                       <Label>Short Name</Label>
                       <Input
                         value={onboardForm.business_name_short}
@@ -2900,7 +2940,7 @@ export default function AdminPage() {
                   <div className="border rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">OpenPhone</Label>
-                      <a href="https://app.openphone.com/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <a href="https://my.openphone.com/settings/api" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
                       <div className="flex-1" />
                       {wizardTestResults.openphone && (
                         <span className={`text-xs ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
@@ -2912,6 +2952,17 @@ export default function AdminPage() {
                         onClick={() => testConnectionDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id })}
                       >
                         {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardRegisterResults.openphone && (
+                        <span className={`text-xs ${wizardRegisterResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardRegisterResults.openphone.success ? "Registered" : wizardRegisterResults.openphone.message}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.openphone_api_key || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key })}
+                      >
+                        {wizardRegistering === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register Webhook"}
                       </Button>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
@@ -2938,6 +2989,17 @@ export default function AdminPage() {
                       >
                         {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
+                      {wizardRegisterResults.telegram && (
+                        <span className={`text-xs ${wizardRegisterResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardRegisterResults.telegram.success ? "Registered" : wizardRegisterResults.telegram.message}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.telegram_bot_token || !onboardForm.slug || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token, slug: onboardForm.slug })}
+                      >
+                        {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register Webhook"}
+                      </Button>
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
@@ -2961,6 +3023,17 @@ export default function AdminPage() {
                         onClick={() => testConnectionDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
                       >
                         {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardRegisterResults.stripe && (
+                        <span className={`text-xs ${wizardRegisterResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardRegisterResults.stripe.success ? `Registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.stripe_secret_key || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
+                      >
+                        {wizardRegistering === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register Webhook"}
                       </Button>
                     </div>
                     <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
@@ -3011,7 +3084,7 @@ export default function AdminPage() {
                       <div className="border rounded-lg p-2">
                         <div className="flex items-center gap-2 mb-1.5">
                           <Label className="font-semibold text-sm">HousecallPro</Label>
-                          <a href="https://pro.housecallpro.com/pro/settings/integrations" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
+                          <a href="https://app.housecallpro.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
                           <span className="text-xs text-orange-500">Manual webhook setup required</span>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5">
@@ -3176,7 +3249,7 @@ export default function AdminPage() {
                         <div className="border-t pt-2 text-muted-foreground text-xs space-y-0.5">
                           <p className="font-medium text-foreground">This will automatically:</p>
                           <p>1. Create tenant + login user</p>
-                          <p>2. Seed default pricing (14 tiers + 7 addons)</p>
+                          <p>2. {onboardForm.seed_pricing === "skip" ? "Skip pricing (none seeded)" : "Seed default pricing (14 tiers + 7 addons)"}</p>
                           <p>3. Save all credentials</p>
                           <p>4. Test all connections</p>
                           <p>5. Register webhooks (Telegram, Stripe, OpenPhone)</p>

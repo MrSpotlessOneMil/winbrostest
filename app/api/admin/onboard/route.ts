@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
     wave_income_account_id,
     ghl_location_id,
     custom_credentials,
+    seed_pricing,
   } = body
 
   if (!name || !slug) {
@@ -222,19 +223,23 @@ export async function POST(request: NextRequest) {
   // Step 3: Seed pricing
   // -------------------------------------------------------------------------
 
-  try {
-    const tiers = getDefaultPricingTiers(tenant.id)
-    const addons = getDefaultPricingAddons(tenant.id)
+  if (seed_pricing === "skip") {
+    result.steps.seed_pricing = { status: "skipped", message: "Skipped by user" }
+  } else {
+    try {
+      const tiers = getDefaultPricingTiers(tenant.id)
+      const addons = getDefaultPricingAddons(tenant.id)
 
-    const { error: tierError } = await client.from("pricing_tiers").insert(tiers)
-    if (tierError) throw new Error(`Tiers: ${tierError.message}`)
+      const { error: tierError } = await client.from("pricing_tiers").insert(tiers)
+      if (tierError) throw new Error(`Tiers: ${tierError.message}`)
 
-    const { error: addonError } = await client.from("pricing_addons").insert(addons)
-    if (addonError) throw new Error(`Addons: ${addonError.message}`)
+      const { error: addonError } = await client.from("pricing_addons").insert(addons)
+      if (addonError) throw new Error(`Addons: ${addonError.message}`)
 
-    result.steps.seed_pricing = { status: "success", message: `${tiers.length} tiers + ${addons.length} addons seeded` }
-  } catch (err: any) {
-    result.steps.seed_pricing = { status: "failed", message: err.message || "Failed to seed pricing" }
+      result.steps.seed_pricing = { status: "success", message: `${tiers.length} tiers + ${addons.length} addons seeded` }
+    } catch (err: any) {
+      result.steps.seed_pricing = { status: "failed", message: err.message || "Failed to seed pricing" }
+    }
   }
 
   // -------------------------------------------------------------------------
