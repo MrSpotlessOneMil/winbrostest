@@ -4,7 +4,7 @@
  * to mirror it into HCP. Skips gracefully if HCP is not configured for the tenant.
  */
 
-import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
+import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob, updateHCPLead } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
 import { getTenantById, type Tenant } from './tenant'
 
@@ -422,7 +422,7 @@ export async function syncCustomerToHCP(params: {
         .eq('id', params.customerId)
     }
 
-    // Push current OSIRIS data to HCP
+    // Push current OSIRIS data to HCP customer
     await updateHCPCustomer(tenant, hcpCustomerId, {
       firstName: params.firstName || undefined,
       lastName: params.lastName || undefined,
@@ -430,6 +430,31 @@ export async function syncCustomerToHCP(params: {
       address: params.address || undefined,
     })
     console.log(`[HCP Sync] Customer ${params.customerId} synced to HCP customer ${hcpCustomerId}`)
+
+    // Also update the HCP lead name — HCP caches first_name/last_name on the lead
+    // record at creation time, so customer updates alone don't change the lead display.
+    if (params.firstName || params.lastName) {
+      const { data: leadRow } = await client
+        .from('leads')
+        .select('housecall_pro_lead_id')
+        .eq('phone_number', params.phone)
+        .eq('tenant_id', params.tenantId)
+        .not('housecall_pro_lead_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const hcpLeadId = leadRow?.housecall_pro_lead_id as string | null
+      if (hcpLeadId) {
+        await updateHCPLead(tenant, hcpLeadId, {
+          firstName: params.firstName || undefined,
+          lastName: params.lastName || undefined,
+          email: params.email || undefined,
+          address: params.address || undefined,
+        })
+        console.log(`[HCP Sync] Lead ${hcpLeadId} name synced for customer ${params.customerId}`)
+      }
+    }
   } catch (err) {
     console.error(`[HCP Sync] Failed to sync customer ${params.customerId} to HCP:`, err)
   }

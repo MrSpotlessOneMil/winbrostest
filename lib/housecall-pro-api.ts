@@ -601,18 +601,27 @@ export async function createHCPLead(
     })
   }
 
-  // Step 2: Create lead with customer_id
+  // Step 2: Create lead with customer_id AND name fields
+  // HCP caches first_name/last_name on the lead at creation time,
+  // so we must send them explicitly (not just rely on customer_id link).
+  const leadBody: Record<string, unknown> = {
+    customer_id: customerResult.customerId,
+    notes: leadData.notes || `Source: ${leadData.source || 'API'}`,
+    source: leadData.source || 'api',
+  }
+  if (leadData.firstName) leadBody.first_name = leadData.firstName
+  if (leadData.lastName) leadBody.last_name = leadData.lastName
+  if (leadData.email) leadBody.email = leadData.email
+  if (leadData.phone) leadBody.mobile_number = leadData.phone
+  if (leadData.address) leadBody.address = leadData.address
+
   const result = await hcpRequest<HCPLead>(tenant, '/leads', {
     method: 'POST',
-    body: {
-      customer_id: customerResult.customerId,
-      notes: leadData.notes || `Source: ${leadData.source || 'API'}`,
-      source: leadData.source || 'api',
-    },
+    body: leadBody,
   })
 
   if (result.success && result.data?.id) {
-    console.log(`[HCP API] Lead created: ${result.data.id}`)
+    console.log(`[HCP API] Lead created: ${result.data.id} (name: ${leadData.firstName} ${leadData.lastName})`)
     return { success: true, leadId: result.data.id, customerId: customerResult.customerId }
   }
 
@@ -1176,6 +1185,52 @@ export async function updateHCPLeadStatus(
 }
 
 /**
+ * Update a lead in HousecallPro (name, email, notes).
+ * HCP caches first_name/last_name on the lead record at creation time,
+ * so updating the linked customer does NOT update the lead's display name.
+ * Call this after any customer name change to keep the lead in sync.
+ */
+export async function updateHCPLead(
+  tenant: Tenant,
+  leadId: string,
+  updates: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    address?: string
+    notes?: string
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const body: Record<string, unknown> = {}
+  if (updates.firstName !== undefined) body.first_name = updates.firstName
+  if (updates.lastName !== undefined) body.last_name = updates.lastName
+  if (updates.email !== undefined) body.email = updates.email
+  if (updates.phone !== undefined) body.mobile_number = updates.phone
+  if (updates.address !== undefined) body.address = updates.address
+  if (updates.notes !== undefined) body.notes = updates.notes
+
+  if (Object.keys(body).length === 0) {
+    return { success: true }
+  }
+
+  console.log(`[HCP API] Updating lead ${leadId} with: ${JSON.stringify(body)}`)
+
+  const result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
+    method: 'PATCH',
+    body,
+  })
+
+  if (result.success) {
+    console.log(`[HCP API] Lead ${leadId} updated: first_name=${result.data?.first_name}, last_name=${result.data?.last_name}`)
+    return { success: true }
+  }
+
+  console.error(`[HCP API] Failed to update lead ${leadId}: ${result.error}`)
+  return { success: false, error: result.error }
+}
+
+/**
  * Update an existing customer in HousecallPro (name, email, address, etc.)
  * Used when customer corrects their info via SMS or other channels.
  */
@@ -1203,16 +1258,17 @@ export async function updateHCPCustomer(
 
   console.log(`[HCP API] Updating customer ${hcpCustomerId} with: ${JSON.stringify(body)}`)
 
-  // Use PUT first; if it doesn't update the name, fall back to PATCH
+  // Use PATCH first (partial update) — PUT replaces the entire resource and silently
+  // drops fields not included, so sending only { first_name } via PUT wipes last_name etc.
   let result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
-    method: 'PUT',
+    method: 'PATCH',
     body,
   })
 
   if (!result.success) {
-    console.warn(`[HCP API] PUT failed for customer ${hcpCustomerId}, trying PATCH: ${result.error}`)
+    console.warn(`[HCP API] PATCH failed for customer ${hcpCustomerId}, trying PUT: ${result.error}`)
     result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
-      method: 'PATCH',
+      method: 'PUT',
       body,
     })
   }
