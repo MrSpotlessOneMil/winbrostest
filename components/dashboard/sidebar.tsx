@@ -112,7 +112,7 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
     u.tenantSlug || u.username
 
   const otherAccounts = accounts
-    .filter((a) => a.user.id !== user?.id)
+    .filter((a) => a.user.username !== user?.username)
     .sort((a, b) => {
       // Admin always first
       if (a.user.username === "admin") return -1
