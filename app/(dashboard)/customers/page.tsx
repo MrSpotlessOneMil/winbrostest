@@ -121,7 +121,17 @@ export default function CustomersPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [activeTab, setActiveTab] = useState<TabType>("messages")
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("customers_active_tab")
+      if (saved === "messages" || saved === "jobs" || saved === "invoices") return saved
+    }
+    return "messages"
+  })
+  const switchTab = (tab: TabType) => {
+    setActiveTab(tab)
+    localStorage.setItem("customers_active_tab", tab)
+  }
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [smsMessage, setSmsMessage] = useState("")
@@ -740,7 +750,7 @@ export default function CustomersPage() {
                         onClick={() => {
                           setSelectedCustomer(customer)
                           if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
-                          setActiveTab("messages")
+                          switchTab("messages")
                         }}
                         className={`w-full text-left px-4 py-3 border-b border-zinc-800/50 ${
                           isSelected ? "bg-zinc-800/80" : "hover:bg-zinc-800/40"
@@ -865,7 +875,7 @@ export default function CustomersPage() {
                       {tabs.map((tab) => (
                         <button
                           key={tab.id}
-                          onClick={() => setActiveTab(tab.id)}
+                          onClick={() => switchTab(tab.id)}
                           className={`px-3 py-2 text-sm font-medium border-b-2 ${
                             activeTab === tab.id
                               ? "border-purple-400 text-zinc-100"
