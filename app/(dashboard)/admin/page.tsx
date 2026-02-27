@@ -1935,11 +1935,6 @@ export default function AdminPage() {
                             <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
-                        {webhookVerification["vapi"] && (
-                          <span className="inline-flex cursor-pointer" title={webhookVerification["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["vapi"].message)}>
-                            {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
                       </div>
                     </div>
                     )}
@@ -2125,11 +2120,6 @@ export default function AdminPage() {
                             <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
-                        {webhookVerification["housecall_pro"] && (
-                          <span className="inline-flex cursor-pointer" title={webhookVerification["housecall_pro"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["housecall_pro"].message)}>
-                            {webhookVerification["housecall_pro"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
                       </div>
                     </div>
                     )}
@@ -2203,11 +2193,6 @@ export default function AdminPage() {
                             <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
-                        {webhookVerification["ghl"] && (
-                          <span className="inline-flex cursor-pointer" title={webhookVerification["ghl"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["ghl"].message)}>
-                            {webhookVerification["ghl"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
                       </div>
                     </div>
                     )}
