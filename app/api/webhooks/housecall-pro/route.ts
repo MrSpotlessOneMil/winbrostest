@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
       case "job.updated":
         console.log("[OSIRIS] Job updated in HCP, syncing to Supabase")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
             const { data: localJob } = await client
               .from("jobs")
@@ -392,7 +392,7 @@ export async function POST(request: NextRequest) {
       case "job.completed":
         console.log("[OSIRIS] Job completed, triggering post-job automations")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
             const { data: localJob } = await client
               .from("jobs")
@@ -427,7 +427,7 @@ export async function POST(request: NextRequest) {
       case "job.cancelled":
         console.log("[OSIRIS] Job cancelled in HCP")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
             const { data: localJob } = await client
               .from("jobs")
@@ -479,7 +479,7 @@ export async function POST(request: NextRequest) {
       case "invoice.paid":
         console.log("[OSIRIS] Payment received for job")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
             const { data: localJob } = await client
               .from("jobs")
