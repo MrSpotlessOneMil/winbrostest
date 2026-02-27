@@ -1854,12 +1854,36 @@ export async function POST(request: NextRequest) {
           }
         } else {
           console.error(`[OpenPhone] Failed to send auto-response:`, sendResult.error)
+          await logSystemEvent({
+            tenant_id: tenant?.id,
+            source: "openphone",
+            event_type: "AUTO_RESPONSE_SEND_FAILED",
+            message: `Auto-response SMS send failed for ${phone}: ${sendResult.error || 'unknown'}`,
+            phone_number: phone,
+            metadata: { error: sendResult.error, response_preview: autoResponse.response?.slice(0, 100) },
+          })
         }
       } else {
-        console.log(`[OpenPhone] Auto-response skipped: ${autoResponse.reason}`)
+        console.log(`[OpenPhone] Auto-response skipped: shouldSend=${autoResponse.shouldSend}, hasResponse=${!!autoResponse.response}, reason=${autoResponse.reason}`)
+        await logSystemEvent({
+          tenant_id: tenant?.id,
+          source: "openphone",
+          event_type: "AUTO_RESPONSE_SKIPPED",
+          message: `Auto-response skipped for ${phone}: shouldSend=${autoResponse.shouldSend}, hasResponse=${!!autoResponse.response}, reason=${autoResponse.reason}`,
+          phone_number: phone,
+          metadata: { shouldSend: autoResponse.shouldSend, hasResponse: !!autoResponse.response, reason: autoResponse.reason },
+        })
       }
     } catch (autoResponseErr) {
       console.error("[OpenPhone] Auto-response error:", autoResponseErr)
+      await logSystemEvent({
+        tenant_id: tenant?.id,
+        source: "openphone",
+        event_type: "AUTO_RESPONSE_ERROR",
+        message: `Auto-response error for ${phone}: ${autoResponseErr instanceof Error ? autoResponseErr.message : 'unknown'}`,
+        phone_number: phone,
+        metadata: { error: autoResponseErr instanceof Error ? autoResponseErr.message : String(autoResponseErr) },
+      }).catch(() => {})
     }
   }
 
