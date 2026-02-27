@@ -222,7 +222,7 @@ export async function registerStripeWebhook(key: string, webhookUrl: string): Pr
   }
 }
 
-export async function registerOpenPhoneWebhook(key: string, webhookUrl: string): Promise<StepResult> {
+export async function registerOpenPhoneWebhook(key: string, webhookUrl: string): Promise<StepResult & { secret?: string }> {
   // Delete existing webhooks with the same URL
   const listController = new AbortController()
   const listTimeout = setTimeout(() => listController.abort(), 10_000)
@@ -249,6 +249,7 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
     { path: "calls", events: ["call.completed", "call.ringing"] },
   ]
 
+  let capturedSecret: string | undefined
   for (const config of webhookConfigs) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 10_000)
@@ -270,9 +271,23 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
       const errText = await res.text()
       throw new Error(`OpenPhone ${config.path} webhook failed (${res.status}): ${errText}`)
     }
+
+    // Capture webhook secret from response (use first one — messages)
+    if (!capturedSecret) {
+      try {
+        const body = await res.json()
+        capturedSecret = body.webhookSecret || body.webhook_secret || body.secret
+      } catch {
+        // Response may not be JSON — continue without secret
+      }
+    }
   }
 
-  return { ok: true, message: `OpenPhone webhooks registered: ${webhookUrl}` }
+  return {
+    ok: true,
+    message: `OpenPhone webhooks registered: ${webhookUrl}`,
+    secret: capturedSecret,
+  }
 }
 
 // ---------------------------------------------------------------------------

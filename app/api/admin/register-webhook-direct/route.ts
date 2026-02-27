@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         }
         const webhookUrl = `${baseUrl}/api/webhooks/openphone`
         const result = await registerOpenPhoneWebhook(credentials.openphone_api_key, webhookUrl)
-        return NextResponse.json({ success: result.ok, message: result.message })
+        return NextResponse.json({ success: result.ok, message: result.message, secret: result.secret })
       }
 
       default:

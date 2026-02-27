@@ -90,15 +90,16 @@ export async function POST(request: NextRequest) {
         }
         const webhookUrl = `${baseUrl}/api/webhooks/openphone`
         const result = await registerOpenPhoneWebhook(tenant.openphone_api_key, webhookUrl)
-        await client
-          .from("tenants")
-          .update({
-            openphone_webhook_registered_at: new Date().toISOString(),
-            openphone_webhook_error: null,
-            openphone_webhook_error_at: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", tenantId)
+        const opUpdate: Record<string, any> = {
+          openphone_webhook_registered_at: new Date().toISOString(),
+          openphone_webhook_error: null,
+          openphone_webhook_error_at: null,
+          updated_at: new Date().toISOString(),
+        }
+        if (result.secret) {
+          opUpdate.openphone_webhook_secret = result.secret
+        }
+        await client.from("tenants").update(opUpdate).eq("id", tenantId)
         return NextResponse.json({ success: true, message: result.message })
       }
 

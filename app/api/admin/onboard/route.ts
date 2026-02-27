@@ -380,9 +380,12 @@ export async function POST(request: NextRequest) {
           webhookUpdate[`${key}_webhook_error`] = null
           webhookUpdate[`${key}_webhook_error_at`] = null
 
-          // Save Stripe webhook signing secret
+          // Save webhook signing secrets
           if (key === "stripe" && (settled.value as any).secret) {
             webhookUpdate.stripe_webhook_secret = (settled.value as any).secret
+          }
+          if (key === "openphone" && (settled.value as any).secret) {
+            webhookUpdate.openphone_webhook_secret = (settled.value as any).secret
           }
         } else {
           const errMsg = settled.status === "rejected"
