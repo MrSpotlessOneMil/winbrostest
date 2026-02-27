@@ -288,6 +288,14 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Auto-trigger onboarding when entering Step 3
+  useEffect(() => {
+    if (onboardStep === 2 && !onboardResults && !onboarding) {
+      runOnboarding()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardStep])
+
   async function updateTenant(tenantId: string, updates: Partial<Tenant> | { workflow_config: Partial<WorkflowConfig> }) {
     setUpdating(tenantId)
     try {
@@ -2785,7 +2793,7 @@ export default function AdminPage() {
                 <CardTitle>
                   {onboardStep === 0 && "Step 1: Business Info"}
                   {onboardStep === 1 && "Step 2: API Credentials"}
-                  {onboardStep === 2 && "Step 3: Review & Execute"}
+                  {onboardStep === 2 && "Step 3: Review & Setup"}
                 </CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
                   <X className="h-4 w-4" />
@@ -2948,27 +2956,23 @@ export default function AdminPage() {
                       >
                         {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
+                      {wizardTestResults.openphone && (
+                        wizardTestResults.openphone.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={wizardTestResults.openphone.message} />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardTestResults.openphone.message} />
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
                         disabled={!onboardForm.openphone_api_key || !!wizardRegistering}
                         onClick={() => registerWebhookDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key })}
                       >
                         {wizardRegistering === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
+                      {wizardRegisterResults.openphone && (
+                        wizardRegisterResults.openphone.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title="Webhook registered" />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardRegisterResults.openphone.message} />
+                      )}
                     </div>
-                    {(wizardTestResults.openphone || wizardRegisterResults.openphone) && (
-                      <div className="flex gap-3 mb-1.5 text-xs">
-                        {wizardTestResults.openphone && (
-                          <span className={`truncate ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
-                            Test: {wizardTestResults.openphone.message}
-                          </span>
-                        )}
-                        {wizardRegisterResults.openphone && (
-                          <span className={`truncate ${wizardRegisterResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
-                            Webhook: {wizardRegisterResults.openphone.success ? "Registered" : wizardRegisterResults.openphone.message}
-                          </span>
-                        )}
-                      </div>
-                    )}
                     <div className="grid grid-cols-3 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
                       <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.openphone_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_id: e.target.value })} />
@@ -2988,27 +2992,23 @@ export default function AdminPage() {
                       >
                         {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
+                      {wizardTestResults.telegram && (
+                        wizardTestResults.telegram.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={wizardTestResults.telegram.message} />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardTestResults.telegram.message} />
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
                         disabled={!onboardForm.telegram_bot_token || !onboardForm.slug || !!wizardRegistering}
                         onClick={() => registerWebhookDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token, slug: onboardForm.slug })}
                       >
                         {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
+                      {wizardRegisterResults.telegram && (
+                        wizardRegisterResults.telegram.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title="Webhook registered" />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardRegisterResults.telegram.message} />
+                      )}
                     </div>
-                    {(wizardTestResults.telegram || wizardRegisterResults.telegram) && (
-                      <div className="flex gap-3 mb-1.5 text-xs">
-                        {wizardTestResults.telegram && (
-                          <span className={`truncate ${wizardTestResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
-                            Test: {wizardTestResults.telegram.message}
-                          </span>
-                        )}
-                        {wizardRegisterResults.telegram && (
-                          <span className={`truncate ${wizardRegisterResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
-                            Webhook: {wizardRegisterResults.telegram.success ? "Registered" : wizardRegisterResults.telegram.message}
-                          </span>
-                        )}
-                      </div>
-                    )}
                     <div className="grid grid-cols-2 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
                       <Input className="h-8 text-sm" placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
@@ -3027,27 +3027,23 @@ export default function AdminPage() {
                       >
                         {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
+                      {wizardTestResults.stripe && (
+                        wizardTestResults.stripe.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={wizardTestResults.stripe.message} />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardTestResults.stripe.message} />
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
                         disabled={!onboardForm.stripe_secret_key || !!wizardRegistering}
                         onClick={() => registerWebhookDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
                       >
                         {wizardRegistering === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
+                      {wizardRegisterResults.stripe && (
+                        wizardRegisterResults.stripe.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={`Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}`} />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardRegisterResults.stripe.message} />
+                      )}
                     </div>
-                    {(wizardTestResults.stripe || wizardRegisterResults.stripe) && (
-                      <div className="flex gap-3 mb-1.5 text-xs">
-                        {wizardTestResults.stripe && (
-                          <span className={`truncate ${wizardTestResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
-                            Test: {wizardTestResults.stripe.message}
-                          </span>
-                        )}
-                        {wizardRegisterResults.stripe && (
-                          <span className={`truncate ${wizardRegisterResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
-                            Webhook: {wizardRegisterResults.stripe.success ? `Registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message}
-                          </span>
-                        )}
-                      </div>
-                    )}
                     <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
                   </div>
 
@@ -3063,14 +3059,12 @@ export default function AdminPage() {
                       >
                         {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
+                      {wizardTestResults.vapi && (
+                        wizardTestResults.vapi.success
+                          ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={wizardTestResults.vapi.message} />
+                          : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardTestResults.vapi.message} />
+                      )}
                     </div>
-                    {wizardTestResults.vapi && (
-                      <div className="mb-1.5 text-xs">
-                        <span className={`truncate ${wizardTestResults.vapi.success ? "text-green-600" : "text-red-600"}`}>
-                          Test: {wizardTestResults.vapi.message}
-                        </span>
-                      </div>
-                    )}
                     <div className="grid grid-cols-2 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
                       <Input className="h-8 text-sm" placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
@@ -3124,14 +3118,12 @@ export default function AdminPage() {
                           >
                             {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                           </Button>
+                          {wizardTestResults.wave && (
+                            wizardTestResults.wave.success
+                              ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" title={wizardTestResults.wave.message} />
+                              : <X className="h-3.5 w-3.5 text-red-500 shrink-0" title={wizardTestResults.wave.message} />
+                          )}
                         </div>
-                        {wizardTestResults.wave && (
-                          <div className="mb-1.5 text-xs">
-                            <span className={`truncate ${wizardTestResults.wave.success ? "text-green-600" : "text-red-600"}`}>
-                              Test: {wizardTestResults.wave.message}
-                            </span>
-                          </div>
-                        )}
                         <div className="grid grid-cols-3 gap-1.5">
                           <Input className="h-8 text-sm" placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
                           <Input className="h-8 text-sm" placeholder="Business ID" value={onboardForm.wave_business_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_business_id: e.target.value })} />
@@ -3232,68 +3224,89 @@ export default function AdminPage() {
                 </div>
               )}
 
-              {/* STEP 2 — Review & Execute */}
+              {/* STEP 2 — Review & Setup (merged summary + results) */}
               {onboardStep === 2 && (
                 <>
-                  {!onboardResults ? (
-                    <>
-                      {/* Summary */}
-                      <div className="space-y-3 text-sm">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                          <span className="text-muted-foreground">Name:</span><span className="font-medium">{onboardForm.name}</span>
-                          <span className="text-muted-foreground">Slug:</span><span className="font-medium">{onboardForm.slug}</span>
-                          <span className="text-muted-foreground">Flow Type:</span><span className="font-medium capitalize">{onboardForm.flow_type}</span>
-                          <span className="text-muted-foreground">Timezone:</span><span className="font-medium">{onboardForm.timezone}</span>
-                          {onboardForm.service_area && <><span className="text-muted-foreground">Service Area:</span><span className="font-medium">{onboardForm.service_area}</span></>}
-                          {onboardForm.owner_phone && <><span className="text-muted-foreground">Owner Phone:</span><span className="font-medium">{onboardForm.owner_phone}</span></>}
-                        </div>
-                        <div className="border-t pt-2">
-                          <p className="text-muted-foreground mb-1">Credentials provided:</p>
-                          <div className="flex flex-wrap gap-1">
-                            {onboardForm.openphone_api_key && <Badge variant="secondary">OpenPhone</Badge>}
-                            {onboardForm.telegram_bot_token && <Badge variant="secondary">Telegram</Badge>}
-                            {onboardForm.stripe_secret_key && <Badge variant="secondary">Stripe</Badge>}
-                            {onboardForm.vapi_api_key && <Badge variant="secondary">VAPI</Badge>}
-                            {onboardForm.housecall_pro_api_key && <Badge variant="secondary">HousecallPro</Badge>}
-                            {onboardForm.wave_api_token && <Badge variant="secondary">Wave</Badge>}
-                            {onboardForm.ghl_location_id && <Badge variant="secondary">GHL</Badge>}
-                            {!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && (
-                              <span className="text-muted-foreground italic">None — you can add credentials later</span>
+                  {/* Summary — always visible */}
+                  <div className="space-y-3 text-sm">
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                      <span className="text-muted-foreground">Name:</span><span className="font-medium">{onboardForm.name}</span>
+                      <span className="text-muted-foreground">Slug:</span><span className="font-medium">{onboardForm.slug}</span>
+                      <span className="text-muted-foreground">Flow Type:</span><span className="font-medium capitalize">{onboardForm.flow_type}</span>
+                      <span className="text-muted-foreground">Timezone:</span><span className="font-medium">{onboardForm.timezone}</span>
+                      {onboardForm.service_area && <><span className="text-muted-foreground">Service Area:</span><span className="font-medium">{onboardForm.service_area}</span></>}
+                      {onboardForm.owner_phone && <><span className="text-muted-foreground">Owner Phone:</span><span className="font-medium">{onboardForm.owner_phone}</span></>}
+                    </div>
+                    <div className="border-t pt-2">
+                      <p className="text-muted-foreground mb-1">Credentials:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {onboardForm.openphone_api_key && <Badge variant="secondary">OpenPhone</Badge>}
+                        {onboardForm.telegram_bot_token && <Badge variant="secondary">Telegram</Badge>}
+                        {onboardForm.stripe_secret_key && <Badge variant="secondary">Stripe</Badge>}
+                        {onboardForm.vapi_api_key && <Badge variant="secondary">VAPI</Badge>}
+                        {onboardForm.housecall_pro_api_key && <Badge variant="secondary">HousecallPro</Badge>}
+                        {onboardForm.wave_api_token && <Badge variant="secondary">Wave</Badge>}
+                        {onboardForm.ghl_location_id && <Badge variant="secondary">GHL</Badge>}
+                        {!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && (
+                          <span className="text-muted-foreground italic">None — you can add credentials later</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pipeline running indicator */}
+                  {onboarding && !onboardResults && (
+                    <div className="flex items-center gap-2 pt-3 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Running onboarding pipeline...
+                    </div>
+                  )}
+
+                  {/* Results — shown after completion */}
+                  {onboardResults && (
+                    <div className="border-t pt-3 mt-3 space-y-2 text-sm">
+                      {/* Core steps */}
+                      {(["create_tenant", "create_user", "seed_pricing", "save_credentials"] as const).map((key) => {
+                        const step = onboardResults.steps[key]
+                        if (!step) return null
+                        const label = key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                        return (
+                          <div key={key} className="flex items-center gap-2">
+                            {step.status === "success" ? (
+                              <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            ) : step.status === "skipped" ? (
+                              <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+                            ) : (
+                              <X className="h-4 w-4 text-red-500 shrink-0" />
                             )}
+                            <span className="font-medium">{label}</span>
+                            <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
                           </div>
-                        </div>
-                        <div className="border-t pt-2 text-muted-foreground text-xs space-y-0.5">
-                          <p className="font-medium text-foreground">This will automatically:</p>
-                          <p>1. Create tenant + login user</p>
-                          <p>2. {onboardForm.seed_pricing === "skip" ? "Skip pricing (none seeded)" : "Seed default pricing (14 tiers + 7 addons)"}</p>
-                          <p>3. Save all credentials</p>
-                          <p>4. Test all connections</p>
-                          <p>5. Register webhooks (Telegram, Stripe, OpenPhone)</p>
-                          <p>6. Verify webhooks are live</p>
-                        </div>
-                      </div>
-                      <div className="flex justify-between pt-4">
-                        <Button variant="outline" onClick={() => setOnboardStep(1)}>Back</Button>
-                        <Button onClick={runOnboarding} disabled={onboarding}>
-                          {onboarding ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Onboarding...</>
-                          ) : (
-                            "Begin Onboarding"
-                          )}
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Results */}
-                      <div className="space-y-2 text-sm">
-                        {/* Core steps */}
-                        {(["create_tenant", "create_user", "seed_pricing", "save_credentials"] as const).map((key) => {
-                          const step = onboardResults.steps[key]
-                          if (!step) return null
-                          const label = key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
-                          return (
-                            <div key={key} className="flex items-center gap-2">
+                        )
+                      })}
+                      {/* Connection tests */}
+                      {Object.keys(onboardResults.steps.test_connections || {}).length > 0 && (
+                        <>
+                          <div className="border-t pt-2 mt-2 font-medium">Connection Tests</div>
+                          {Object.entries(onboardResults.steps.test_connections).map(([svc, step]: [string, any]) => (
+                            <div key={svc} className="flex items-center gap-2 pl-4">
+                              {step.status === "success" ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                              ) : (
+                                <X className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="capitalize">{svc}</span>
+                              <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                      {/* Webhook registrations */}
+                      {Object.keys(onboardResults.steps.register_webhooks || {}).length > 0 && (
+                        <>
+                          <div className="border-t pt-2 mt-2 font-medium">Webhook Registration</div>
+                          {Object.entries(onboardResults.steps.register_webhooks).map(([svc, step]: [string, any]) => (
+                            <div key={svc} className="flex items-center gap-2 pl-4">
                               {step.status === "success" ? (
                                 <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                               ) : step.status === "skipped" ? (
@@ -3301,85 +3314,47 @@ export default function AdminPage() {
                               ) : (
                                 <X className="h-4 w-4 text-red-500 shrink-0" />
                               )}
-                              <span className="font-medium">{label}</span>
+                              <span className="capitalize">{svc}</span>
                               <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
                             </div>
-                          )
-                        })}
-                        {/* Connection tests */}
-                        {Object.keys(onboardResults.steps.test_connections || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Connection Tests</div>
-                            {Object.entries(onboardResults.steps.test_connections).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                        {/* Webhook registrations */}
-                        {Object.keys(onboardResults.steps.register_webhooks || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Webhook Registration</div>
-                            {Object.entries(onboardResults.steps.register_webhooks).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : step.status === "skipped" ? (
-                                  <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                        {Object.keys(onboardResults.steps.verify_webhooks || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Webhook Verification</div>
-                            {Object.entries(onboardResults.steps.verify_webhooks).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </div>
-                      <div className="flex justify-between pt-4">
-                        <div className="flex gap-2">
-                          <Button variant="outline" onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
-                            Back
-                          </Button>
-                          <Button variant="outline" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
-                            Close
-                          </Button>
-                        </div>
-                        {onboardResults.tenantId && (
-                          <Button onClick={() => {
-                            selectTenant(onboardResults.tenantId)
-                            setShowAddModal(false)
-                            resetOnboardWizard()
-                          }}>
-                            Go to Tenant
-                          </Button>
-                        )}
-                      </div>
-                    </>
+                          ))}
+                        </>
+                      )}
+                      {Object.keys(onboardResults.steps.verify_webhooks || {}).length > 0 && (
+                        <>
+                          <div className="border-t pt-2 mt-2 font-medium">Webhook Verification</div>
+                          {Object.entries(onboardResults.steps.verify_webhooks).map(([svc, step]: [string, any]) => (
+                            <div key={svc} className="flex items-center gap-2 pl-4">
+                              {step.status === "success" ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                              ) : (
+                                <X className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="capitalize">{svc}</span>
+                              <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                            </div>
+                          ))}
+                        </>
+                      )}
+                    </div>
                   )}
+
+                  {/* Navigation */}
+                  <div className="flex justify-between pt-4">
+                    <Button variant="outline" disabled={onboarding}
+                      onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
+                      Back
+                    </Button>
+                    {onboardResults?.tenantId && (
+                      <Button onClick={() => {
+                        selectTenant(onboardResults.tenantId)
+                        setShowAddModal(false)
+                        resetOnboardWizard()
+                      }}>
+                        Go to Tenant
+                      </Button>
+                    )}
+                  </div>
                 </>
               )}
             </CardContent>
