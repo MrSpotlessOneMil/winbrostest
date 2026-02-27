@@ -290,10 +290,8 @@ export async function POST(request: NextRequest) {
             status: "scheduled",
             booked: true,
             housecall_pro_job_id: hcpJobId || null,
-            housecall_pro_customer_id: hcpCustomerId || null,
             price: (job as any)?.total_amount || null,
             notes: jobNotes || null,
-            brand: 'winbros',
             job_type: jobType,
           }).select("id").single()
 
@@ -407,6 +405,7 @@ export async function POST(request: NextRequest) {
               .single()
 
             await logSystemEvent({
+              tenant_id: tenant?.id,
               source: "housecall_pro",
               event_type: "JOB_COMPLETED",
               message: `Job ${internalJobId} marked completed via HCP`,
@@ -666,9 +665,25 @@ export async function POST(request: NextRequest) {
               })
             } else {
               console.error("[OSIRIS] HCP Webhook: Failed to send first text:", smsResult.error)
+              await logSystemEvent({
+                tenant_id: tenant?.id,
+                source: "housecall_pro",
+                event_type: "LEAD_FOLLOWUP_ERROR",
+                message: `Failed to send initial SMS to ${maskPhone(phone)}: ${smsResult.error || 'unknown'}`,
+                phone_number: phone,
+                metadata: { leadId: leadRecord?.id, stage: 1, error: smsResult.error },
+              })
             }
           } catch (smsError) {
             console.error("[OSIRIS] HCP Webhook: Error sending first text:", smsError)
+            await logSystemEvent({
+              tenant_id: tenant?.id,
+              source: "housecall_pro",
+              event_type: "LEAD_FOLLOWUP_ERROR",
+              message: `Error sending initial SMS to ${maskPhone(phone)}`,
+              phone_number: phone,
+              metadata: { leadId: leadRecord?.id, stage: 1, error: String(smsError) },
+            })
           }
 
           // Schedule stages 2-5 for the follow-up sequence
