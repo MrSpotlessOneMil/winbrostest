@@ -4,7 +4,10 @@
       "Bash(find:*)",
       "Bash(wc -l:*)",
       "Bash(python3:*)",
-      "mcp__supabase__execute_sql"
+      "WebFetch(domain:www.crhousecleaners.com)",
+      "WebFetch(domain:www.spotlessscrubbers.com)",
+      "WebFetch(domain:spotlessscrubbers.com)",
+      "Bash(git:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -78,6 +78,10 @@ type CreateForm = {
   duration_minutes: string
   price: string
   notes: string
+  bedrooms: string
+  bathrooms: string
+  sqft: string
+  frequency: string
 }
 
 type RainDayPreview = {
@@ -311,9 +315,39 @@ export default function JobsPage() {
     duration_minutes: "120",
     price: "",
     notes: "",
+    bedrooms: "",
+    bathrooms: "",
+    sqft: "",
+    frequency: "one-time",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+
+  // Auto-populate price when property details change
+  useEffect(() => {
+    const { bedrooms, bathrooms, sqft, service_type } = createForm
+    if (!bedrooms || !bathrooms) return
+
+    const params = new URLSearchParams({
+      bedrooms,
+      bathrooms,
+      service_type,
+      ...(sqft ? { sqft } : {}),
+    })
+
+    let cancelled = false
+    fetch(`/api/pricing/estimate?${params}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled) return
+        if (res.success && res.data?.price != null) {
+          setCreateForm((prev) => ({ ...prev, price: String(res.data.price) }))
+        }
+      })
+      .catch(() => {})
+
+    return () => { cancelled = true }
+  }, [createForm.bedrooms, createForm.bathrooms, createForm.sqft, createForm.service_type])
 
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
@@ -750,6 +784,18 @@ export default function JobsPage() {
       setCreateError("Date is required")
       return
     }
+    if (!createForm.bedrooms) {
+      setCreateError("Number of bedrooms is required")
+      return
+    }
+    if (!createForm.bathrooms) {
+      setCreateError("Number of bathrooms is required")
+      return
+    }
+    if (!createForm.sqft) {
+      setCreateError("Square footage is required")
+      return
+    }
 
     setCreateSaving(true)
     setCreateError("")
@@ -769,6 +815,10 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: createForm.price ? Number(createForm.price) : undefined,
           notes: createForm.notes.trim() || undefined,
+          bedrooms: Number(createForm.bedrooms),
+          bathrooms: Number(createForm.bathrooms),
+          sqft: Number(createForm.sqft),
+          frequency: createForm.frequency,
         }),
       })
 
@@ -1332,6 +1382,77 @@ export default function JobsPage() {
                   setCreateForm((prev) => ({ ...prev, address: e.target.value }))
                 }
               />
+            </div>
+
+            {/* Property Details */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Bedrooms *</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.bedrooms}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
+                  }
+                >
+                  <option value="">Select</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                  <option value="6">6+</option>
+                </select>
+              </div>
+              <div>
+                <label className="cal-form-label">Bathrooms *</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.bathrooms}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
+                  }
+                >
+                  <option value="">Select</option>
+                  <option value="1">1</option>
+                  <option value="1.5">1.5</option>
+                  <option value="2">2</option>
+                  <option value="2.5">2.5</option>
+                  <option value="3">3</option>
+                  <option value="3.5">3.5</option>
+                  <option value="4">4+</option>
+                </select>
+              </div>
+              <div>
+                <label className="cal-form-label">Sqft *</label>
+                <input
+                  type="number"
+                  className="cal-form-control"
+                  placeholder="1500"
+                  min="0"
+                  value={createForm.sqft}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Frequency */}
+            <div style={{ marginBottom: "0.5rem" }}>
+              <label className="cal-form-label">Frequency *</label>
+              <select
+                className="cal-form-control"
+                value={createForm.frequency}
+                onChange={(e) =>
+                  setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
+                }
+              >
+                <option value="one-time">One-time</option>
+                <option value="weekly">Weekly</option>
+                <option value="bi-weekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
             </div>
 
             {/* Date, Time, Duration */}

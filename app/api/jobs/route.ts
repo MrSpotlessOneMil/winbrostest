@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
-import { getTenantById } from "@/lib/tenant"
+import { getTenantById, tenantUsesFeature } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
+import { sendTelegramMessage } from "@/lib/telegram"
+import { cleanerAssigned } from "@/lib/sms-templates"
+import { triggerCleanerAssignment } from "@/lib/cleaner-assignment"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -187,6 +190,80 @@ export async function PATCH(request: NextRequest) {
             assigned_at: new Date().toISOString(),
             responded_at: new Date().toISOString(),
           })
+
+          // Notify cleaner via Telegram + send customer confirmation SMS (fire-and-forget)
+          const assignTenant = tenant || (tenantId ? await getTenantById(tenantId) : null)
+          if (assignTenant) {
+            const svc = getSupabaseServiceClient()
+            const { data: cleaner } = await svc
+              .from("cleaners")
+              .select("id, name, telegram_id")
+              .eq("id", Number(cleaner_id))
+              .single()
+
+            if (cleaner) {
+              // Telegram info message to cleaner (no accept/decline — owner made the decision)
+              if (cleaner.telegram_id) {
+                const jobDate = date || oldJob?.date || "TBD"
+                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
+                const jobAddress = body.address || oldJob?.address || "TBD"
+                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+                let timeDisplay = ""
+                if (timeParts) {
+                  const h = parseInt(timeParts[1])
+                  const m = timeParts[2]
+                  const ampm = h >= 12 ? "PM" : "AM"
+                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                  timeDisplay = ` at ${h12}:${m} ${ampm}`
+                }
+                const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
+                sendTelegramMessage(assignTenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
+                  console.error("[Jobs PATCH] Failed to send Telegram to cleaner:", err)
+                )
+              }
+
+              // Customer confirmation SMS
+              const customer = Array.isArray(oldJob?.customers) ? oldJob.customers[0] : oldJob?.customers
+              const customerPhone = customer?.phone_number || oldJob?.phone_number
+              const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
+              if (customerPhone) {
+                const jobDate = date || oldJob?.date
+                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
+                const dateFormatted = jobDate
+                  ? new Date(jobDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+                  : "your scheduled date"
+                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+                let timeFormatted = "your scheduled time"
+                if (timeParts) {
+                  const h = parseInt(timeParts[1])
+                  const m = timeParts[2]
+                  const ampm = h >= 12 ? "PM" : "AM"
+                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                  timeFormatted = `${h12}:${m} ${ampm}`
+                }
+                const smsMsg = cleanerAssigned(customerName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
+                sendSMS(assignTenant as any, customerPhone, smsMsg).catch((err) =>
+                  console.error("[Jobs PATCH] Failed to send assignment SMS:", err)
+                )
+                // Log outbound SMS
+                svc.from("messages").insert({
+                  tenant_id: assignTenant.id,
+                  customer_id: customer?.id || oldJob?.customer_id || null,
+                  phone_number: customerPhone,
+                  role: "assistant",
+                  content: smsMsg,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  source: "calendar_assign",
+                  job_id: Number(id),
+                  timestamp: new Date().toISOString(),
+                }).then(({ error: logErr }) => {
+                  if (logErr) console.error("[Jobs PATCH] Failed to log assignment message:", logErr)
+                })
+              }
+            }
+          }
         }
       }
     }
@@ -348,6 +425,14 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
       if (!existing.error && existing.data?.id != null) {
         customerId = Number(existing.data.id)
+        // Update customer property details if provided
+        const custUpdates: Record<string, any> = {}
+        if (body.bedrooms != null) custUpdates.bedrooms = Number(body.bedrooms)
+        if (body.bathrooms != null) custUpdates.bathrooms = Number(body.bathrooms)
+        if (body.sqft != null) custUpdates.sqft = Number(body.sqft)
+        if (Object.keys(custUpdates).length > 0) {
+          await client.from("customers").update(custUpdates).eq("id", customerId)
+        }
       } else {
         const created = await client
           .from("customers")
@@ -358,6 +443,9 @@ export async function POST(request: NextRequest) {
             last_name,
             email: body.email || undefined,
             address: body.address || undefined,
+            bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+            bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+            sqft: body.sqft != null ? Number(body.sqft) : undefined,
           })
           .select("*")
           .single()
@@ -383,6 +471,10 @@ export async function POST(request: NextRequest) {
         notes: body.notes || undefined,
         status: "scheduled",
         booked: true,
+        bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+        bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+        sqft: body.sqft != null ? Number(body.sqft) : undefined,
+        frequency: body.frequency || "one-time",
       })
       .select("*, customers (*)")
       .single()
@@ -426,6 +518,13 @@ export async function POST(request: NextRequest) {
       notes: `Created from dashboard`,
       source: 'dashboard',
     })
+
+    // Auto-broadcast to available cleaners if no cleaner was assigned and tenant uses dispatch
+    if (tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+      triggerCleanerAssignment(String(row.id)).catch((err) =>
+        console.error("[Jobs POST] Auto-broadcast failed:", err)
+      )
+    }
 
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })
