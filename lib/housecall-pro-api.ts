@@ -1084,24 +1084,9 @@ export async function updateHCPJob(
   ].filter(Boolean)
   const notes = notesParts.join('\n')
 
-  if (notes || jobData.address || jobData.tags || jobData.description) {
-    const patchBody: Record<string, unknown> = {
-      notes: notes || undefined,
-      address: jobData.address || undefined,
-    }
-    if (jobData.tags?.length) patchBody.tags = jobData.tags
-    if (jobData.description) patchBody.description = jobData.description
-
-    const metadataResult = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PUT',
-      body: patchBody,
-    })
-
-    if (!metadataResult.success) {
-      // Non-critical: notes/address/tags/description are already in the initial POST body
-      console.log(`[HCP API] Metadata PUT non-critical skip for job ${jobId} (data was in initial POST)`)
-    }
-  }
+  // NOTE: HCP does not support PUT or PATCH on /jobs/{id} (returns 404).
+  // notes, address, tags, description are already included in the initial
+  // POST /jobs body by createHCPJob, so no separate metadata update is needed.
 
   if (criticalErrors.length > 0) {
     return { success: false, error: criticalErrors.join(' | ') }
