@@ -643,7 +643,12 @@ async function generateWinBrosResponse(
   // Inject customer context (active jobs, history, profile) for situation awareness
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    timeZone: tenant.timezone || 'America/Chicago',
+  })
+
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -899,7 +904,12 @@ async function generateHouseCleaningResponse(
   // Inject customer context (active jobs, history, profile) for situation awareness
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
-  const userMessage = `Conversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    timeZone: tenant.timezone || 'America/Chicago',
+  })
+
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
