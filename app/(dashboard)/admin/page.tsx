@@ -202,6 +202,7 @@ export default function AdminPage() {
   const [onboardResults, setOnboardResults] = useState<any>(null)
   const [wizardTesting, setWizardTesting] = useState<string | null>(null)
   const [wizardTestResults, setWizardTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+  const [showExtraServices, setShowExtraServices] = useState(false)
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -336,6 +337,44 @@ export default function AdminPage() {
     setOnboardResults(null)
     setWizardTesting(null)
     setWizardTestResults({})
+    setShowExtraServices(false)
+  }
+
+  async function testAllConnectionsDirect() {
+    const tests: Array<{ service: string; credentials: Record<string, string> }> = []
+    if (onboardForm.openphone_api_key && onboardForm.openphone_phone_id)
+      tests.push({ service: "openphone", credentials: { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id } })
+    if (onboardForm.telegram_bot_token)
+      tests.push({ service: "telegram", credentials: { telegram_bot_token: onboardForm.telegram_bot_token } })
+    if (onboardForm.stripe_secret_key)
+      tests.push({ service: "stripe", credentials: { stripe_secret_key: onboardForm.stripe_secret_key } })
+    if (onboardForm.vapi_api_key && onboardForm.vapi_assistant_id)
+      tests.push({ service: "vapi", credentials: { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id } })
+    if (onboardForm.wave_api_token && onboardForm.wave_business_id)
+      tests.push({ service: "wave", credentials: { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id } })
+    if (tests.length === 0) return
+    setWizardTesting("all")
+    const results = await Promise.allSettled(
+      tests.map(async (t) => {
+        const res = await fetch("/api/admin/test-connection-direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(t),
+        })
+        const json = await res.json()
+        return { service: t.service, success: json.success, message: json.message || json.error || "Unknown" }
+      })
+    )
+    const newResults: Record<string, { success: boolean; message: string }> = {}
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        newResults[r.value.service] = { success: r.value.success, message: r.value.message }
+      } else {
+        // Find which service this was for — shouldn't happen but handle gracefully
+      }
+    }
+    setWizardTestResults((prev) => ({ ...prev, ...newResults }))
+    setWizardTesting(null)
   }
 
   async function testConnectionDirect(service: string, credentials: Record<string, string>) {
@@ -2840,153 +2879,160 @@ export default function AdminPage() {
 
               {/* STEP 1 — API Credentials */}
               {onboardStep === 1 && (
-                <>
+                <div className="space-y-2">
                   {/* OpenPhone */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="font-semibold">OpenPhone</Label>
-                      <div className="flex items-center gap-2">
-                        {wizardTestResults.openphone && (
-                          <span className={`text-xs ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
-                            {wizardTestResults.openphone.message}
-                          </span>
-                        )}
-                        <Button
-                          size="sm" variant="outline"
-                          disabled={!onboardForm.openphone_api_key || !onboardForm.openphone_phone_id || wizardTesting === "openphone"}
-                          onClick={() => testConnectionDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id })}
-                        >
-                          {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </Button>
-                      </div>
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">OpenPhone</Label>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.openphone_api_key || !onboardForm.openphone_phone_id || !!wizardTesting}
+                        onClick={() => testConnectionDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id })}
+                      >
+                        {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.openphone && (
+                        <span className={`text-xs ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.openphone.message}
+                        </span>
+                      )}
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <Input placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
-                      <Input placeholder="Phone ID" value={onboardForm.openphone_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_id: e.target.value })} />
-                      <Input placeholder="Phone Number" value={onboardForm.openphone_phone_number} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_number: e.target.value })} />
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.openphone_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone Number" value={onboardForm.openphone_phone_number} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_number: e.target.value })} />
                     </div>
                   </div>
 
                   {/* Telegram */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="font-semibold">Telegram</Label>
-                      <div className="flex items-center gap-2">
-                        {wizardTestResults.telegram && (
-                          <span className={`text-xs ${wizardTestResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
-                            {wizardTestResults.telegram.message}
-                          </span>
-                        )}
-                        <Button
-                          size="sm" variant="outline"
-                          disabled={!onboardForm.telegram_bot_token || wizardTesting === "telegram"}
-                          onClick={() => testConnectionDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token })}
-                        >
-                          {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </Button>
-                      </div>
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">Telegram</Label>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.telegram_bot_token || !!wizardTesting}
+                        onClick={() => testConnectionDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token })}
+                      >
+                        {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.telegram && (
+                        <span className={`text-xs ${wizardTestResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.telegram.message}
+                        </span>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
-                      <Input placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
                     </div>
                   </div>
 
                   {/* Stripe */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="font-semibold">Stripe</Label>
-                      <div className="flex items-center gap-2">
-                        {wizardTestResults.stripe && (
-                          <span className={`text-xs ${wizardTestResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
-                            {wizardTestResults.stripe.message}
-                          </span>
-                        )}
-                        <Button
-                          size="sm" variant="outline"
-                          disabled={!onboardForm.stripe_secret_key || wizardTesting === "stripe"}
-                          onClick={() => testConnectionDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
-                        >
-                          {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </Button>
-                      </div>
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">Stripe</Label>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.stripe_secret_key || !!wizardTesting}
+                        onClick={() => testConnectionDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
+                      >
+                        {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.stripe && (
+                        <span className={`text-xs ${wizardTestResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.stripe.message}
+                        </span>
+                      )}
                     </div>
-                    <Input placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
+                    <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
                   </div>
 
                   {/* VAPI */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="font-semibold">VAPI</Label>
-                      <div className="flex items-center gap-2">
-                        {wizardTestResults.vapi && (
-                          <span className={`text-xs ${wizardTestResults.vapi.success ? "text-green-600" : "text-red-600"}`}>
-                            {wizardTestResults.vapi.message}
-                          </span>
-                        )}
-                        <Button
-                          size="sm" variant="outline"
-                          disabled={!onboardForm.vapi_api_key || !onboardForm.vapi_assistant_id || wizardTesting === "vapi"}
-                          onClick={() => testConnectionDirect("vapi", { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id })}
-                        >
-                          {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </Button>
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">VAPI</Label>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                        disabled={!onboardForm.vapi_api_key || !onboardForm.vapi_assistant_id || !!wizardTesting}
+                        onClick={() => testConnectionDirect("vapi", { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id })}
+                      >
+                        {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.vapi && (
+                        <span className={`text-xs ${wizardTestResults.vapi.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.vapi.message}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
+                    </div>
+                  </div>
+
+                  {/* Additional Services — expandable */}
+                  <button
+                    type="button"
+                    className="w-full text-left text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 py-1"
+                    onClick={() => setShowExtraServices(!showExtraServices)}
+                  >
+                    <span className={`transition-transform ${showExtraServices ? "rotate-90" : ""}`}>&#9654;</span>
+                    Additional Services (HousecallPro, Wave, GHL)
+                    {(onboardForm.housecall_pro_api_key || onboardForm.wave_api_token || onboardForm.ghl_location_id) && (
+                      <Badge variant="secondary" className="ml-1 text-xs h-4">configured</Badge>
+                    )}
+                  </button>
+                  {showExtraServices && (
+                    <div className="space-y-2 pl-2 border-l-2 border-muted">
+                      {/* HousecallPro */}
+                      <div className="border rounded-lg p-2">
+                        <Label className="font-semibold text-sm mb-1.5 block">HousecallPro</Label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.housecall_pro_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_api_key: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Company ID" value={onboardForm.housecall_pro_company_id} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_company_id: e.target.value })} />
+                        </div>
+                      </div>
+                      {/* Wave */}
+                      <div className="border rounded-lg p-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">Wave Accounting</Label>
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
+                            disabled={!onboardForm.wave_api_token || !onboardForm.wave_business_id || !!wizardTesting}
+                            onClick={() => testConnectionDirect("wave", { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id })}
+                          >
+                            {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                          </Button>
+                          {wizardTestResults.wave && (
+                            <span className={`text-xs ${wizardTestResults.wave.success ? "text-green-600" : "text-red-600"}`}>
+                              {wizardTestResults.wave.message}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <Input className="h-8 text-sm" placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Business ID" value={onboardForm.wave_business_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_business_id: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Income Account ID" value={onboardForm.wave_income_account_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_income_account_id: e.target.value })} />
+                        </div>
+                      </div>
+                      {/* GHL */}
+                      <div className="border rounded-lg p-2">
+                        <Label className="font-semibold text-sm mb-1.5 block">GHL (GoHighLevel)</Label>
+                        <Input className="h-8 text-sm" placeholder="Location ID" value={onboardForm.ghl_location_id} onChange={(e) => setOnboardForm({ ...onboardForm, ghl_location_id: e.target.value })} />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
-                      <Input placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
-                      <Input placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
-                      <Input placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
-                    </div>
-                  </div>
+                  )}
 
-                  {/* HousecallPro */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <Label className="font-semibold">HousecallPro</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Input placeholder="API Key" value={onboardForm.housecall_pro_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_api_key: e.target.value })} />
-                      <Input placeholder="Company ID" value={onboardForm.housecall_pro_company_id} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_company_id: e.target.value })} />
-                    </div>
-                  </div>
-
-                  {/* Wave Accounting */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <div className="flex items-center justify-between">
-                      <Label className="font-semibold">Wave Accounting</Label>
-                      <div className="flex items-center gap-2">
-                        {wizardTestResults.wave && (
-                          <span className={`text-xs ${wizardTestResults.wave.success ? "text-green-600" : "text-red-600"}`}>
-                            {wizardTestResults.wave.message}
-                          </span>
-                        )}
-                        <Button
-                          size="sm" variant="outline"
-                          disabled={!onboardForm.wave_api_token || !onboardForm.wave_business_id || wizardTesting === "wave"}
-                          onClick={() => testConnectionDirect("wave", { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id })}
-                        >
-                          {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <Input placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
-                      <Input placeholder="Business ID" value={onboardForm.wave_business_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_business_id: e.target.value })} />
-                      <Input placeholder="Income Account ID" value={onboardForm.wave_income_account_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_income_account_id: e.target.value })} />
-                    </div>
-                  </div>
-
-                  {/* GHL */}
-                  <div className="space-y-2 border rounded-lg p-3">
-                    <Label className="font-semibold">GHL (GoHighLevel)</Label>
-                    <Input placeholder="Location ID" value={onboardForm.ghl_location_id} onChange={(e) => setOnboardForm({ ...onboardForm, ghl_location_id: e.target.value })} />
-                  </div>
-
-                  <div className="flex justify-between pt-4">
+                  {/* Test All + Navigation */}
+                  <div className="flex items-center gap-2 pt-3">
                     <Button variant="outline" onClick={() => setOnboardStep(0)}>Back</Button>
+                    <Button variant="outline" size="sm"
+                      disabled={!!wizardTesting || (!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && !onboardForm.wave_api_token)}
+                      onClick={testAllConnectionsDirect}
+                    >
+                      {wizardTesting === "all" ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Testing...</> : "Test All"}
+                    </Button>
+                    <div className="flex-1" />
                     <Button onClick={() => setOnboardStep(2)}>Next: Review</Button>
                   </div>
-                </>
+                </div>
               )}
 
               {/* STEP 2 — Review & Execute */}
@@ -3019,8 +3065,13 @@ export default function AdminPage() {
                             )}
                           </div>
                         </div>
-                        <div className="border-t pt-2 text-muted-foreground text-xs">
-                          Pipeline will: Create tenant → Create user → Seed pricing (14 tiers + 7 addons) → Save credentials → Test connections → Register webhooks
+                        <div className="border-t pt-2 text-muted-foreground text-xs space-y-0.5">
+                          <p className="font-medium text-foreground">This will automatically:</p>
+                          <p>1. Create tenant + login user</p>
+                          <p>2. Seed default pricing (14 tiers + 7 addons)</p>
+                          <p>3. Save all credentials</p>
+                          <p>4. Test all connections</p>
+                          <p>5. Register webhooks (Telegram, Stripe, OpenPhone)</p>
                         </div>
                       </div>
                       <div className="flex justify-between pt-4">
