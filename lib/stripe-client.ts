@@ -209,8 +209,27 @@ export async function createAndSendInvoice(
       },
     })
 
-    // Add line item for the cleaning service
-    const description = buildInvoiceDescription(job)
+    // Add line item with rich service description (same format as Wave invoices)
+    let description: string
+    try {
+      const { buildStaticCleaningDescription, buildPropertyLine } = await import('./invoices')
+      const summaryParts: string[] = []
+      summaryParts.push(`Service: ${job.service_type || 'Cleaning Service'}`)
+      if (job.date) {
+        const dateObj = new Date(job.date + 'T12:00:00')
+        summaryParts.push(`Date: ${dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}`)
+      }
+      if (job.scheduled_at) summaryParts.push(`Time: ${job.scheduled_at}`)
+      if (job.address) summaryParts.push(`Address: ${job.address}`)
+      const propLine = buildPropertyLine(job as any, customer as any)
+      if (propLine) summaryParts.push(propLine)
+
+      const staticDesc = buildStaticCleaningDescription(job as any, customer as any)
+      description = summaryParts.join('\n') + '\n\n' + staticDesc + '\n\nGuarantee: If anything is missed, we will return within 24 hours to make it right.'
+    } catch {
+      description = buildInvoiceDescription(job)
+    }
+
     await stripe.invoiceItems.create({
       customer: stripeCustomer.id,
       invoice: invoice.id,
