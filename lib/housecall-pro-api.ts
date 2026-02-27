@@ -664,21 +664,25 @@ export async function findOrCreateHCPCustomer(
   ): Promise<{ success: boolean; customerId?: string; addressId?: string } | null> => {
     if (!customers.length) return null
 
+    // Only use a customer if the phone number actually matches.
+    // HCP's search API returns ALL customers when there's no match,
+    // so we must verify the phone ourselves to avoid hijacking a random customer.
     const exactPhoneMatch = customers.find((customer) => {
       const phones = [customer.mobile_number, customer.home_number, customer.work_number]
       return phones.some((phone) => normalizePhoneForMatch(phone) === phoneDigits)
     })
 
-    const existing = exactPhoneMatch || customers[0]
+    if (!exactPhoneMatch) return null
+
     const addressId = await ensureCustomerAddressId(
       tenant,
-      existing.id,
-      existing.addresses,
+      exactPhoneMatch.id,
+      exactPhoneMatch.addresses,
       customerData.address
     )
 
-    console.log(`[HCP API] Found existing customer: ${existing.id}`)
-    return { success: true, customerId: existing.id, addressId }
+    console.log(`[HCP API] Found existing customer: ${exactPhoneMatch.id}`)
+    return { success: true, customerId: exactPhoneMatch.id, addressId }
   }
 
   // First try explicit mobile_number filter.

@@ -4,7 +4,7 @@
  * to mirror it into HCP. Skips gracefully if HCP is not configured for the tenant.
  */
 
-import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob, updateHCPLead } from './housecall-pro-api'
+import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
 import { getTenantById, type Tenant } from './tenant'
 
@@ -463,37 +463,9 @@ export async function syncCustomerToHCP(params: {
     })
     console.log(`[HCP Sync] Customer ${params.customerId} synced to HCP customer ${hcpCustomerId}`)
 
-    // Also update the HCP lead name — HCP caches first_name/last_name on the lead
-    // record at creation time, so customer updates alone don't change the lead display.
-    if (params.firstName || params.lastName) {
-      const { data: leadRow } = await client
-        .from('leads')
-        .select('housecall_pro_lead_id')
-        .eq('phone_number', params.phone)
-        .eq('tenant_id', params.tenantId)
-        .not('housecall_pro_lead_id', 'is', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      const hcpLeadId = leadRow?.housecall_pro_lead_id as string | null
-      if (hcpLeadId) {
-        const leadResult = await updateHCPLead(tenant, hcpLeadId, {
-          firstName: params.firstName || undefined,
-          lastName: params.lastName || undefined,
-          email: params.email || undefined,
-          address: params.address || undefined,
-        })
-        if (leadResult.success) {
-          console.log(`[HCP Sync] Lead ${hcpLeadId} name synced for customer ${params.customerId}`)
-        } else {
-          // HCP does not support PATCH/PUT for name fields on leads (returns 404).
-          // The lead still exists — do NOT clear housecall_pro_lead_id or try to recreate.
-          // Lead names are cached at creation time; only the linked customer name can be updated.
-          console.log(`[HCP Sync] Lead ${hcpLeadId} name update not supported by HCP (customer name WAS updated): ${leadResult.error?.substring(0, 80)}`)
-        }
-      }
-    }
+    // Note: HCP does NOT support updating lead names via API (PATCH/PUT both return 404).
+    // Lead names are cached at creation time. Only the linked customer name can be updated,
+    // which we already did above. Skipping lead update to avoid noisy 404 errors in logs.
   } catch (err) {
     console.error(`[HCP Sync] Failed to sync customer ${params.customerId} to HCP:`, err)
   }
