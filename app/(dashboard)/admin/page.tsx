@@ -1808,10 +1808,14 @@ export default function AdminPage() {
                           Register Webhook
                         </Button>
                         {testResults["openphone"] && (
-                          <span className={`text-xs ${testResults["openphone"].success ? "text-green-400" : "text-red-400"}`}>{testResults["openphone"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={testResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["openphone"].message)}>
+                            {testResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {webhookResults["openphone"] && (
-                          <span className={`text-xs ${webhookResults["openphone"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["openphone"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={webhookResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["openphone"].message)}>
+                            {webhookResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {!webhookResults["openphone"] && currentTenant.openphone_webhook_error && (
                           <span className="text-xs text-red-400 flex items-center gap-1">
@@ -1923,7 +1927,9 @@ export default function AdminPage() {
                           Test Connection
                         </Button>
                         {testResults["vapi"] && (
-                          <span className={`text-xs ${testResults["vapi"].success ? "text-green-400" : "text-red-400"}`}>{testResults["vapi"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={testResults["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["vapi"].message)}>
+                            {testResults["vapi"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {currentTenant.webhook_health?.vapi?.last_event_at ? (
                           <span className="text-xs text-green-400 flex items-center gap-1">
@@ -2008,10 +2014,14 @@ export default function AdminPage() {
                           Register Webhook
                         </Button>
                         {testResults["stripe"] && (
-                          <span className={`text-xs ${testResults["stripe"].success ? "text-green-400" : "text-red-400"}`}>{testResults["stripe"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={testResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["stripe"].message)}>
+                            {testResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {webhookResults["stripe"] && (
-                          <span className={`text-xs ${webhookResults["stripe"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["stripe"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={webhookResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["stripe"].message)}>
+                            {webhookResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {!webhookResults["stripe"] && currentTenant.stripe_webhook_error && (
                           <span className="text-xs text-red-400 flex items-center gap-1">
@@ -2274,10 +2284,14 @@ export default function AdminPage() {
                           Register Webhook
                         </Button>
                         {testResults["telegram"] && (
-                          <span className={`text-xs ${testResults["telegram"].success ? "text-green-400" : "text-red-400"}`}>{testResults["telegram"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={testResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["telegram"].message)}>
+                            {testResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {webhookResults["telegram"] && (
-                          <span className={`text-xs ${webhookResults["telegram"].success ? "text-green-400" : "text-red-400"}`}>{webhookResults["telegram"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={webhookResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["telegram"].message)}>
+                            {webhookResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                         {!webhookResults["telegram"] && currentTenant.telegram_webhook_error && (
                           <span className="text-xs text-red-400 flex items-center gap-1">
@@ -2362,7 +2376,9 @@ export default function AdminPage() {
                           Test Connection
                         </Button>
                         {testResults["wave"] && (
-                          <span className={`text-xs ${testResults["wave"].success ? "text-green-400" : "text-red-400"}`}>{testResults["wave"].message}</span>
+                          <span className="inline-flex cursor-pointer" title={testResults["wave"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["wave"].message)}>
+                            {testResults["wave"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
                         )}
                       </div>
                     </div>
