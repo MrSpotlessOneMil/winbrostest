@@ -310,6 +310,7 @@ export async function PATCH(request: NextRequest) {
   // Invalidate webhook registration and errors when API keys change
   if (updates.telegram_bot_token !== undefined) {
     updates.telegram_webhook_registered_at = null
+    updates.telegram_webhook_secret = null
     updates.telegram_webhook_error = null
     updates.telegram_webhook_error_at = null
   }
@@ -321,6 +322,7 @@ export async function PATCH(request: NextRequest) {
   }
   if (updates.openphone_api_key !== undefined) {
     updates.openphone_webhook_registered_at = null
+    updates.openphone_webhook_secret = null
     updates.openphone_webhook_error = null
     updates.openphone_webhook_error_at = null
   }

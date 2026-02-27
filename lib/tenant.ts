@@ -112,6 +112,7 @@ export interface Tenant {
   openphone_api_key: string | null
   openphone_phone_id: string | null
   openphone_phone_number: string | null
+  openphone_webhook_secret: string | null
 
   vapi_api_key: string | null
   vapi_assistant_id: string | null
@@ -129,6 +130,7 @@ export interface Tenant {
   ghl_webhook_secret: string | null
 
   telegram_bot_token: string | null
+  telegram_webhook_secret: string | null
   owner_telegram_chat_id: string | null
 
   wave_api_token: string | null

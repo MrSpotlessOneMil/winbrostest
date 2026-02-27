@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { timingSafeEqual } from "crypto"
 import { getTenantBySlug, tenantUsesFeature } from "@/lib/tenant"
 import {
   getSupabaseServiceClient,
@@ -564,6 +565,21 @@ export async function POST(
   if (!tenant) {
     console.error(`[Telegram/${slug}] Tenant not found`)
     return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
+  }
+
+  // Validate Telegram secret_token header (if configured)
+  if (tenant.telegram_webhook_secret) {
+    const secretHeader = request.headers.get("x-telegram-bot-api-secret-token")
+    if (!secretHeader) {
+      console.error(`[Telegram/${slug}] Missing secret token header`)
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+    const headerBuf = Buffer.from(secretHeader)
+    const storedBuf = Buffer.from(tenant.telegram_webhook_secret)
+    if (headerBuf.length !== storedBuf.length || !timingSafeEqual(headerBuf, storedBuf)) {
+      console.error(`[Telegram/${slug}] Invalid secret token`)
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
   }
 
   let update: TelegramUpdate

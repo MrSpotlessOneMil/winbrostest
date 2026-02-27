@@ -387,6 +387,9 @@ export async function POST(request: NextRequest) {
           if (key === "openphone" && (settled.value as any).secret) {
             webhookUpdate.openphone_webhook_secret = (settled.value as any).secret
           }
+          if (key === "telegram" && (settled.value as any).secret) {
+            webhookUpdate.telegram_webhook_secret = (settled.value as any).secret
+          }
         } else {
           const errMsg = settled.status === "rejected"
             ? settled.reason?.message || "Registration failed"

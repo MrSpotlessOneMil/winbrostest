@@ -1,4 +1,5 @@
 import Stripe from "stripe"
+import { randomBytes } from "crypto"
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -174,7 +175,10 @@ export async function testWaveConnection(apiToken: string, businessId: string): 
 // Webhook registration
 // ---------------------------------------------------------------------------
 
-export async function registerTelegramWebhook(token: string, webhookUrl: string): Promise<StepResult> {
+export async function registerTelegramWebhook(token: string, webhookUrl: string): Promise<StepResult & { secret?: string }> {
+  // Generate a random secret_token for Telegram to send back in headers
+  const secretToken = randomBytes(32).toString("hex")
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10_000)
   const res = await fetch(
@@ -182,7 +186,7 @@ export async function registerTelegramWebhook(token: string, webhookUrl: string)
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: webhookUrl }),
+      body: JSON.stringify({ url: webhookUrl, secret_token: secretToken }),
       signal: controller.signal,
     }
   )
@@ -191,7 +195,27 @@ export async function registerTelegramWebhook(token: string, webhookUrl: string)
   if (!data.ok) {
     throw new Error(data.description || "Failed to set Telegram webhook")
   }
-  return { ok: true, message: `Webhook registered: ${webhookUrl}` }
+
+  // Post-registration verification: confirm webhook URL is set correctly
+  const verifyController = new AbortController()
+  const verifyTimeout = setTimeout(() => verifyController.abort(), 10_000)
+  try {
+    const infoRes = await fetch(
+      `https://api.telegram.org/bot${token}/getWebhookInfo`,
+      { signal: verifyController.signal }
+    )
+    clearTimeout(verifyTimeout)
+    const info = await infoRes.json()
+    if (!info.ok || info.result?.url !== webhookUrl) {
+      console.warn(`[Telegram] Post-reg verification: URL mismatch. Expected ${webhookUrl}, got ${info.result?.url}`)
+    }
+  } catch {
+    clearTimeout(verifyTimeout)
+    // Verification is best-effort — don't fail registration
+    console.warn("[Telegram] Post-reg verification failed (non-fatal)")
+  }
+
+  return { ok: true, message: `Webhook registered: ${webhookUrl}`, secret: secretToken }
 }
 
 export async function registerStripeWebhook(key: string, webhookUrl: string): Promise<StepResult & { secret?: string }> {
@@ -250,6 +274,8 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
   ]
 
   let capturedSecret: string | undefined
+  const capturedSecrets: Record<string, string> = {}
+
   for (const config of webhookConfigs) {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 10_000)
@@ -272,16 +298,43 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
       throw new Error(`OpenPhone ${config.path} webhook failed (${res.status}): ${errText}`)
     }
 
-    // Capture webhook signing key from response (use first one — messages)
+    // Capture webhook signing key from response for each resource type
     // OpenPhone returns { data: { key: "..." } }
-    if (!capturedSecret) {
-      try {
-        const body = await res.json()
-        capturedSecret = body.data?.key || body.key || body.webhookSecret || body.secret
-      } catch {
-        // Response may not be JSON — continue without secret
+    try {
+      const body = await res.json()
+      const secret = body.data?.key || body.key || body.webhookSecret || body.secret
+      if (secret) {
+        capturedSecrets[config.path] = secret
+        if (!capturedSecret) capturedSecret = secret
+      }
+    } catch {
+      // Response may not be JSON — continue without secret
+    }
+  }
+
+  // Warn if messages and calls have different signing keys
+  if (capturedSecrets.messages && capturedSecrets.calls && capturedSecrets.messages !== capturedSecrets.calls) {
+    console.warn(`[OpenPhone] Messages and calls webhook keys differ! Using messages key.`)
+  }
+
+  // Post-registration verification: confirm webhooks appear in active list
+  try {
+    const verifyController = new AbortController()
+    const verifyTimeout = setTimeout(() => verifyController.abort(), 10_000)
+    const verifyRes = await fetch("https://api.openphone.com/v1/webhooks", {
+      headers: { Authorization: key },
+      signal: verifyController.signal,
+    })
+    clearTimeout(verifyTimeout)
+    if (verifyRes.ok) {
+      const verifyData = await verifyRes.json()
+      const activeUrls = (verifyData.data || []).map((wh: any) => wh.url)
+      if (!activeUrls.includes(webhookUrl)) {
+        console.warn(`[OpenPhone] Post-reg verification: webhook URL not found in active webhooks list`)
       }
     }
+  } catch {
+    console.warn("[OpenPhone] Post-reg verification failed (non-fatal)")
   }
 
   return {

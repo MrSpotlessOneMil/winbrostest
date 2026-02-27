@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
         }
         const webhookUrl = `${baseUrl}/api/webhooks/telegram/${credentials.slug}`
         const result = await registerTelegramWebhook(credentials.telegram_bot_token, webhookUrl)
-        return NextResponse.json({ success: result.ok, message: result.message })
+        return NextResponse.json({ success: result.ok, message: result.message, secret: result.secret })
       }
 
       case "stripe": {

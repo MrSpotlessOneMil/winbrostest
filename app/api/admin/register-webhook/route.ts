@@ -53,15 +53,16 @@ export async function POST(request: NextRequest) {
         }
         const webhookUrl = `${baseUrl}/api/webhooks/telegram/${tenant.slug}`
         const result = await registerTelegramWebhook(tenant.telegram_bot_token, webhookUrl)
-        await client
-          .from("tenants")
-          .update({
-            telegram_webhook_registered_at: new Date().toISOString(),
-            telegram_webhook_error: null,
-            telegram_webhook_error_at: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", tenantId)
+        const tgUpdate: Record<string, any> = {
+          telegram_webhook_registered_at: new Date().toISOString(),
+          telegram_webhook_error: null,
+          telegram_webhook_error_at: null,
+          updated_at: new Date().toISOString(),
+        }
+        if (result.secret) {
+          tgUpdate.telegram_webhook_secret = result.secret
+        }
+        await client.from("tenants").update(tgUpdate).eq("id", tenantId)
         return NextResponse.json({ success: true, message: result.message })
       }
 
