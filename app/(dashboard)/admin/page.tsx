@@ -2963,7 +2963,7 @@ export default function AdminPage() {
                         {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.openphone && (
-                        <span className="inline-flex cursor-help" title={wizardTestResults.openphone.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardTestResults.openphone.message)}>
                           {wizardTestResults.openphone.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -2976,7 +2976,7 @@ export default function AdminPage() {
                         {wizardRegistering === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.openphone && (
-                        <span className="inline-flex cursor-help" title={wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message)}>
                           {wizardRegisterResults.openphone.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3003,7 +3003,7 @@ export default function AdminPage() {
                         {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.telegram && (
-                        <span className="inline-flex cursor-help" title={wizardTestResults.telegram.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardTestResults.telegram.message)}>
                           {wizardTestResults.telegram.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3016,7 +3016,7 @@ export default function AdminPage() {
                         {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.telegram && (
-                        <span className="inline-flex cursor-help" title={wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message)}>
                           {wizardRegisterResults.telegram.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3042,7 +3042,7 @@ export default function AdminPage() {
                         {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.stripe && (
-                        <span className="inline-flex cursor-help" title={wizardTestResults.stripe.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardTestResults.stripe.message)}>
                           {wizardTestResults.stripe.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3055,7 +3055,7 @@ export default function AdminPage() {
                         {wizardRegistering === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.stripe && (
-                        <span className="inline-flex cursor-help" title={wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message)}>
                           {wizardRegisterResults.stripe.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3078,7 +3078,7 @@ export default function AdminPage() {
                         {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.vapi && (
-                        <span className="inline-flex cursor-help" title={wizardTestResults.vapi.message}>
+                        <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardTestResults.vapi.message)}>
                           {wizardTestResults.vapi.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3102,9 +3102,6 @@ export default function AdminPage() {
                   >
                     <span className={`transition-transform ${showExtraServices ? "rotate-90" : ""}`}>&#9654;</span>
                     Additional Services
-                    {(onboardForm.housecall_pro_api_key || onboardForm.wave_api_token || onboardForm.ghl_location_id || customServices.length > 0) && (
-                      <Badge variant="secondary" className="ml-1 text-xs h-4">configured</Badge>
-                    )}
                   </button>
                   {showExtraServices && (
                     <div className="space-y-2 pl-2 border-l-2 border-muted">
@@ -3139,7 +3136,7 @@ export default function AdminPage() {
                             {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                           </Button>
                           {wizardTestResults.wave && (
-                            <span className="inline-flex cursor-help" title={wizardTestResults.wave.message}>
+                            <span className="inline-flex cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(wizardTestResults.wave.message)}>
                               {wizardTestResults.wave.success
                                 ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                                 : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3255,7 +3252,6 @@ export default function AdminPage() {
                 if (onboardForm.stripe_secret_key && !wizardTestResults.stripe) untestedServices.push("Stripe")
                 if (onboardForm.vapi_api_key && !wizardTestResults.vapi) untestedServices.push("VAPI")
                 if (onboardForm.wave_api_token && !wizardTestResults.wave) untestedServices.push("Wave")
-                const hasAnyTestResult = Object.keys(wizardTestResults).length > 0
 
                 return (
                   <>
@@ -3291,13 +3287,13 @@ export default function AdminPage() {
                     {/* API Credentials Review — only configured services */}
                     {(() => {
                       const configuredServices = [
-                        { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone" },
-                        { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram" },
-                        { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe" },
-                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi", registerKey: null },
-                        { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null },
-                        { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null },
-                        { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null },
+                        { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone", needsManual: false },
+                        { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram", needsManual: false },
+                        { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe", needsManual: false },
+                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi", registerKey: null, needsManual: true },
+                        { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
+                        { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null, needsManual: false },
+                        { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
                       ].filter(s => s.configured)
                       if (configuredServices.length === 0) return (
                         <div className="border-t pt-3 mt-3 text-sm">
@@ -3311,13 +3307,20 @@ export default function AdminPage() {
                           {configuredServices.map((svc) => {
                             const testResult = svc.testKey ? wizardTestResults[svc.testKey] : null
                             const regResult = svc.registerKey ? wizardRegisterResults[svc.registerKey] : null
+                            const anyFailed = (testResult && !testResult.success) || (regResult && !regResult.success)
+                            const allAutoPassed = (!testResult || testResult.success) && (!regResult || regResult.success)
+                            const needsManualAttention = svc.needsManual && allAutoPassed
                             return (
                               <div key={svc.name} className="flex items-center gap-2 pl-2">
-                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                {anyFailed
+                                  ? <X className="h-4 w-4 text-red-500 shrink-0" />
+                                  : needsManualAttention
+                                    ? <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+                                    : <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />}
                                 <span className="w-36 font-medium shrink-0">{svc.name}</span>
                                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                   {testResult && (
-                                    <span className="inline-flex items-center gap-1 cursor-help" title={testResult.message}>
+                                    <span className="inline-flex items-center gap-1 cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(testResult.message)}>
                                       {testResult.success
                                         ? <CheckCircle2 className="h-3 w-3 text-green-500" />
                                         : <X className="h-3 w-3 text-red-500" />}
@@ -3325,13 +3328,14 @@ export default function AdminPage() {
                                     </span>
                                   )}
                                   {regResult && (
-                                    <span className="inline-flex items-center gap-1 cursor-help" title={regResult.success ? "Webhook registered" : regResult.message}>
+                                    <span className="inline-flex items-center gap-1 cursor-pointer" title="Click to copy" onClick={() => navigator.clipboard.writeText(regResult.success ? "Webhook registered" : regResult.message)}>
                                       {regResult.success
                                         ? <CheckCircle2 className="h-3 w-3 text-green-500" />
                                         : <X className="h-3 w-3 text-red-500" />}
                                       registered
                                     </span>
                                   )}
+                                  {svc.needsManual && <span className="text-orange-500">manual setup needed</span>}
                                 </div>
                               </div>
                             )
@@ -3345,22 +3349,6 @@ export default function AdminPage() {
                       <div className="flex items-center gap-2 pt-3 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Checking connections...
-                      </div>
-                    )}
-
-                    {/* Connection check results */}
-                    {hasAnyTestResult && !onboardResults && (
-                      <div className="border-t pt-3 mt-3 space-y-1.5 text-sm">
-                        <p className="font-medium">Connection Checks</p>
-                        {Object.entries(wizardTestResults).map(([svc, result]) => (
-                          <div key={svc} className="flex items-center gap-2 pl-4">
-                            {result.success
-                              ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                              : <X className="h-4 w-4 text-red-500 shrink-0" />}
-                            <span className="capitalize">{svc}</span>
-                            <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={result.message}>{result.message}</span>
-                          </div>
-                        ))}
                       </div>
                     )}
 
@@ -3401,58 +3389,6 @@ export default function AdminPage() {
                             </div>
                           )
                         })}
-                        {/* Connection tests */}
-                        {Object.keys(onboardResults.steps.test_connections || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Connection Tests</div>
-                            {Object.entries(onboardResults.steps.test_connections).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                        {/* Webhook registrations */}
-                        {Object.keys(onboardResults.steps.register_webhooks || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Webhook Registration</div>
-                            {Object.entries(onboardResults.steps.register_webhooks).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : step.status === "skipped" ? (
-                                  <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                        {Object.keys(onboardResults.steps.verify_webhooks || {}).length > 0 && (
-                          <>
-                            <div className="border-t pt-2 mt-2 font-medium">Webhook Verification</div>
-                            {Object.entries(onboardResults.steps.verify_webhooks).map(([svc, step]: [string, any]) => (
-                              <div key={svc} className="flex items-center gap-2 pl-4">
-                                {step.status === "success" ? (
-                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                                ) : (
-                                  <X className="h-4 w-4 text-red-500 shrink-0" />
-                                )}
-                                <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
                       </div>
                     )}
 
