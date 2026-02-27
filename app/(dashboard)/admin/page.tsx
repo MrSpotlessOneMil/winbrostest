@@ -3259,32 +3259,86 @@ export default function AdminPage() {
 
                 return (
                   <>
-                    {/* Summary — always visible */}
-                    <div className="space-y-3 text-sm">
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-                        <span className="text-muted-foreground">Name:</span><span className="font-medium">{onboardForm.name}</span>
-                        <span className="text-muted-foreground">Slug:</span><span className="font-medium">{onboardForm.slug}</span>
-                        <span className="text-muted-foreground">Flow Type:</span><span className="font-medium capitalize">{onboardForm.flow_type}</span>
-                        <span className="text-muted-foreground">Timezone:</span><span className="font-medium">{onboardForm.timezone}</span>
-                        {onboardForm.service_area && <><span className="text-muted-foreground">Service Area:</span><span className="font-medium">{onboardForm.service_area}</span></>}
-                        {onboardForm.owner_phone && <><span className="text-muted-foreground">Owner Phone:</span><span className="font-medium">{onboardForm.owner_phone}</span></>}
-                      </div>
-                      <div className="border-t pt-2">
-                        <p className="text-muted-foreground mb-1">Credentials:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {onboardForm.openphone_api_key && <Badge variant="secondary">OpenPhone</Badge>}
-                          {onboardForm.telegram_bot_token && <Badge variant="secondary">Telegram</Badge>}
-                          {onboardForm.stripe_secret_key && <Badge variant="secondary">Stripe</Badge>}
-                          {onboardForm.vapi_api_key && <Badge variant="secondary">VAPI</Badge>}
-                          {onboardForm.housecall_pro_api_key && <Badge variant="secondary">HousecallPro</Badge>}
-                          {onboardForm.wave_api_token && <Badge variant="secondary">Wave</Badge>}
-                          {onboardForm.ghl_location_id && <Badge variant="secondary">GHL</Badge>}
-                          {!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && (
-                            <span className="text-muted-foreground italic">None — you can add credentials later</span>
-                          )}
+                    {/* Business Info Review */}
+                    <div className="space-y-1.5 text-sm">
+                      <p className="font-medium text-base">Business Info</p>
+                      {([
+                        { label: "Business Name", value: onboardForm.name, required: true },
+                        { label: "Slug", value: onboardForm.slug, required: true },
+                        { label: "Flow Type", value: onboardForm.flow_type.charAt(0).toUpperCase() + onboardForm.flow_type.slice(1), required: true },
+                        { label: "Password", value: onboardForm.password ? "Set" : "Default (slug)", required: false, always: true },
+                        { label: "Pricing", value: onboardForm.seed_pricing === "default" ? "Default (14 tiers + 7 addons)" : "Skip", required: false, always: true },
+                        { label: "Short Name", value: onboardForm.business_name_short },
+                        { label: "Service Area", value: onboardForm.service_area },
+                        { label: "Timezone", value: ({ "America/New_York": "Eastern", "America/Chicago": "Central", "America/Denver": "Mountain", "America/Los_Angeles": "Pacific" } as Record<string, string>)[onboardForm.timezone] || onboardForm.timezone, required: false, always: true },
+                        { label: "SDR Persona", value: onboardForm.sdr_persona, required: false, always: true },
+                        { label: "Owner Phone", value: onboardForm.owner_phone },
+                        { label: "Owner Email", value: onboardForm.owner_email },
+                        { label: "Google Review Link", value: onboardForm.google_review_link },
+                      ] as Array<{ label: string; value: string; required?: boolean; always?: boolean }>).map((field) => (
+                        <div key={field.label} className="flex items-center gap-2 pl-2">
+                          {field.value
+                            ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            : field.required
+                              ? <X className="h-4 w-4 text-red-500 shrink-0" />
+                              : <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />}
+                          <span className="w-36 text-muted-foreground shrink-0">{field.label}</span>
+                          <span className={field.value ? "font-medium" : "text-muted-foreground italic"}>{field.value || "Not set"}</span>
                         </div>
-                      </div>
+                      ))}
                     </div>
+
+                    {/* API Credentials Review — only configured services */}
+                    {(() => {
+                      const configuredServices = [
+                        { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone" },
+                        { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram" },
+                        { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe" },
+                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi", registerKey: null },
+                        { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null },
+                        { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null },
+                        { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null },
+                      ].filter(s => s.configured)
+                      if (configuredServices.length === 0) return (
+                        <div className="border-t pt-3 mt-3 text-sm">
+                          <p className="font-medium text-base">API Credentials</p>
+                          <p className="text-muted-foreground italic pl-2 mt-1">None — you can add credentials later</p>
+                        </div>
+                      )
+                      return (
+                        <div className="border-t pt-3 mt-3 space-y-1.5 text-sm">
+                          <p className="font-medium text-base">API Credentials</p>
+                          {configuredServices.map((svc) => {
+                            const testResult = svc.testKey ? wizardTestResults[svc.testKey] : null
+                            const regResult = svc.registerKey ? wizardRegisterResults[svc.registerKey] : null
+                            return (
+                              <div key={svc.name} className="flex items-center gap-2 pl-2">
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                <span className="w-36 font-medium shrink-0">{svc.name}</span>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  {testResult && (
+                                    <span className="inline-flex items-center gap-1 cursor-help" title={testResult.message}>
+                                      {testResult.success
+                                        ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                        : <X className="h-3 w-3 text-red-500" />}
+                                      tested
+                                    </span>
+                                  )}
+                                  {regResult && (
+                                    <span className="inline-flex items-center gap-1 cursor-help" title={regResult.success ? "Webhook registered" : regResult.message}>
+                                      {regResult.success
+                                        ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                        : <X className="h-3 w-3 text-red-500" />}
+                                      registered
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
 
                     {/* Connection checks — running */}
                     {wizardTesting === "all" && (
