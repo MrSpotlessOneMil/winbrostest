@@ -120,9 +120,9 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     ${signatureLine}</p>
   `.trim()
 
-  const businessName = params.tenant?.business_name_short || params.tenant?.name || undefined
-  const from = businessName
-    ? `"${businessName}" <${creds.user}>`
+  const fromName = params.tenant?.business_name_short || params.tenant?.name || undefined
+  const from = fromName
+    ? `"${fromName}" <${creds.user}>`
     : creds.user
 
   try {
