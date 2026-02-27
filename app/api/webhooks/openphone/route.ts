@@ -1273,9 +1273,30 @@ export async function POST(request: NextRequest) {
         }
 
         // Update customer record
-        if (Object.keys(customerUpdates).length > 0) {
+        const hasCustomerChanges = Object.keys(customerUpdates).length > 0
+        if (hasCustomerChanges) {
           await client.from("customers").update(customerUpdates).eq("id", customer.id)
           console.log(`[OpenPhone] Updated customer ${customer.id} with corrections:`, Object.keys(customerUpdates))
+        }
+
+        // Always sync customer corrections to HCP (regardless of job existence)
+        if (hasCustomerChanges) {
+          try {
+            const syncFirstName = correctedData.firstName || customer.first_name
+            const syncLastName = correctedData.lastName || customer.last_name
+            console.log(`[OpenPhone] Pushing customer correction to HCP: firstName=${syncFirstName}, lastName=${syncLastName}`)
+            await syncCustomerToHCP({
+              tenantId: tenant.id,
+              customerId: customer.id,
+              phone,
+              firstName: syncFirstName,
+              lastName: syncLastName,
+              email: correctedData.email || customer.email,
+              address: correctedData.address || customer.address,
+            })
+          } catch (syncErr) {
+            console.error(`[OpenPhone] HCP customer sync failed for corrections:`, syncErr)
+          }
         }
 
         // Update job record (address, date, time)
@@ -1294,44 +1315,26 @@ export async function POST(request: NextRequest) {
           if (Object.keys(jobUpdates).length > 0) {
             await client.from("jobs").update(jobUpdates).eq("id", assignedJob.id)
             console.log(`[OpenPhone] Updated job ${assignedJob.id} with corrections:`, Object.keys(jobUpdates))
-          }
 
-          // Sync corrections to HCP (customer + job)
-          const hasCustomerChanges = Object.keys(customerUpdates).length > 0
-          const hasJobChanges = Object.keys(jobUpdates).length > 0
-          if (hasCustomerChanges || hasJobChanges) {
             try {
-              if (hasCustomerChanges) {
-                await syncCustomerToHCP({
-                  tenantId: tenant.id,
-                  customerId: customer.id,
-                  phone,
-                  firstName: correctedData.firstName || customer.first_name,
-                  lastName: correctedData.lastName || customer.last_name,
-                  email: correctedData.email || customer.email,
-                  address: correctedData.address || customer.address,
-                })
-              }
-              if (hasJobChanges) {
-                await syncNewJobToHCP({
-                  tenant,
-                  jobId: assignedJob.id,
-                  phone,
-                  firstName: correctedData.firstName || customer.first_name,
-                  lastName: correctedData.lastName || customer.last_name,
-                  email: correctedData.email || customer.email,
-                  address: correctedData.address || assignedJob.address,
-                  serviceType: assignedJob.service_type,
-                  scheduledDate: correctedData.preferredDate || assignedJob.date,
-                  scheduledTime: correctedData.preferredTime || assignedJob.scheduled_at,
-                  price: assignedJob.price,
-                  notes: assignedJob.notes,
-                  source: 'sms_correction',
-                })
-              }
-              console.log(`[OpenPhone] Synced corrections to HCP for job ${assignedJob.id}`)
+              await syncNewJobToHCP({
+                tenant,
+                jobId: assignedJob.id,
+                phone,
+                firstName: correctedData.firstName || customer.first_name,
+                lastName: correctedData.lastName || customer.last_name,
+                email: correctedData.email || customer.email,
+                address: correctedData.address || assignedJob.address,
+                serviceType: assignedJob.service_type,
+                scheduledDate: correctedData.preferredDate || assignedJob.date,
+                scheduledTime: correctedData.preferredTime || assignedJob.scheduled_at,
+                price: assignedJob.price,
+                notes: assignedJob.notes,
+                source: 'sms_correction',
+              })
+              console.log(`[OpenPhone] Synced job corrections to HCP for job ${assignedJob.id}`)
             } catch (syncErr) {
-              console.error(`[OpenPhone] HCP sync failed for corrections:`, syncErr)
+              console.error(`[OpenPhone] HCP job sync failed for corrections:`, syncErr)
             }
           }
         }

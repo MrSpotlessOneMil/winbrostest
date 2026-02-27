@@ -1190,8 +1190,6 @@ export async function updateHCPCustomer(
     address?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`[HCP API] Updating customer ${hcpCustomerId}`)
-
   const body: Record<string, unknown> = {}
   if (updates.firstName !== undefined) body.first_name = updates.firstName
   if (updates.lastName !== undefined) body.last_name = updates.lastName
@@ -1199,17 +1197,40 @@ export async function updateHCPCustomer(
   if (updates.phone !== undefined) body.mobile_number = updates.phone
 
   if (Object.keys(body).length === 0 && !updates.address) {
-    return { success: true } // Nothing to update
+    console.log(`[HCP API] No fields to update for customer ${hcpCustomerId}`)
+    return { success: true }
   }
 
-  const result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
+  console.log(`[HCP API] Updating customer ${hcpCustomerId} with: ${JSON.stringify(body)}`)
+
+  // Use PUT first; if it doesn't update the name, fall back to PATCH
+  let result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
     method: 'PUT',
     body,
   })
 
   if (!result.success) {
+    console.warn(`[HCP API] PUT failed for customer ${hcpCustomerId}, trying PATCH: ${result.error}`)
+    result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
+      method: 'PATCH',
+      body,
+    })
+  }
+
+  if (!result.success) {
     console.error(`[HCP API] Failed to update customer ${hcpCustomerId}: ${result.error}`)
     return { success: false, error: result.error }
+  }
+
+  // Log what HCP returned to verify the update took effect
+  if (result.data) {
+    console.log(`[HCP API] Customer ${hcpCustomerId} after update: first_name=${result.data.first_name}, last_name=${result.data.last_name}`)
+  } else {
+    console.log(`[HCP API] Customer ${hcpCustomerId} update returned empty body — re-fetching to verify`)
+    const verify = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`)
+    if (verify.success && verify.data) {
+      console.log(`[HCP API] Customer ${hcpCustomerId} verified: first_name=${verify.data.first_name}, last_name=${verify.data.last_name}`)
+    }
   }
 
   // If address provided, ensure it exists on the customer
