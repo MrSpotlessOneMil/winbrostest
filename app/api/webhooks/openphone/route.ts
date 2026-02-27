@@ -2238,17 +2238,24 @@ export async function POST(request: NextRequest) {
 
       if (hcpResult.success) {
         console.log(`[OpenPhone] Lead synced to HCP: ${hcpResult.leadId}`)
-        // Update lead with HCP ID and HCP customer ID
-        const updateData: Record<string, string> = {
-          source_id: hcpResult.leadId || `sms-${Date.now()}`,
+        // Update lead with HCP lead ID (housecall_pro_lead_id column)
+        const updateData: Record<string, string> = {}
+        if (hcpResult.leadId) {
+          updateData.housecall_pro_lead_id = hcpResult.leadId
         }
-        if (hcpResult.customerId) {
-          updateData.hcp_customer_id = hcpResult.customerId
+        if (Object.keys(updateData).length > 0) {
+          await client
+            .from("leads")
+            .update(updateData)
+            .eq("id", lead.id)
         }
-        await client
-          .from("leads")
-          .update(updateData)
-          .eq("id", lead.id)
+        // Store HCP customer ID on the customer record (not leads table)
+        if (hcpResult.customerId && customer?.id) {
+          await client
+            .from("customers")
+            .update({ housecall_pro_customer_id: hcpResult.customerId })
+            .eq("id", customer.id)
+        }
       } else {
         console.warn("[OpenPhone] Failed to sync lead to HCP:", hcpResult.error)
       }
