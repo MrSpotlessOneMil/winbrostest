@@ -1,16 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
 import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
 export async function PATCH(request: NextRequest) {
-  const authResult = await requireAuth(request)
+  const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
-
-  const tenant = await getAuthTenant(request)
-  if (!tenant) {
-    return NextResponse.json({ success: false, error: "No tenant found" }, { status: 400 })
-  }
+  const { tenant } = authResult
 
   const client = await getTenantScopedClient(tenant.id)
   const body = await request.json()
