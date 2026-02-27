@@ -607,6 +607,7 @@ export async function POST(
       content: text,
       source: 'telegram_webhook',
       messageId: update.message.message_id,
+      tenantId: tenant.id,
     }).catch(() => {})
 
     // /start command

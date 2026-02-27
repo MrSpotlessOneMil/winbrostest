@@ -656,6 +656,7 @@ export async function POST(request: NextRequest) {
       content: text,
       source: 'telegram_webhook',
       messageId: update.message.message_id,
+      tenantId: tenant?.id,
     }).catch(() => {})
 
     // Handle /start command - different response based on context
