@@ -622,7 +622,9 @@ export async function createHCPLead(
   if (leadData.lastName) leadBody.last_name = leadData.lastName
   if (leadData.email) leadBody.email = leadData.email
   if (leadData.phone) leadBody.mobile_number = leadData.phone
-  if (leadData.address) leadBody.address = leadData.address
+  // NOTE: Do NOT send address on leads — HCP expects address as a hash object
+  // (not a flat string) and returns 422 "address must be a hash" if we send a string.
+  // The address is already on the linked customer record.
 
   const result = await hcpRequest<HCPLead>(tenant, '/leads', {
     method: 'POST',

@@ -213,7 +213,7 @@ export async function syncNewJobToHCP(params: {
         lastName,
         phone,
         email,
-        address,
+        // address omitted — HCP expects a hash object, not a string (causes 422)
         notes: `OSIRIS Job ID: ${jobId}`,
         source: 'api',
       })
@@ -486,29 +486,11 @@ export async function syncCustomerToHCP(params: {
         })
         if (leadResult.success) {
           console.log(`[HCP Sync] Lead ${hcpLeadId} name synced for customer ${params.customerId}`)
-        } else if (leadResult.error?.includes('404')) {
-          // Lead was deleted from HCP — clear stale ID and recreate
-          console.warn(`[HCP Sync] Lead ${hcpLeadId} no longer exists in HCP, clearing stale ID and recreating`)
-          const leadId = (leadRow as any)?.id
-          if (leadId) {
-            await client.from('leads').update({ housecall_pro_lead_id: null }).eq('housecall_pro_lead_id', hcpLeadId).eq('tenant_id', params.tenantId)
-          }
-          // Recreate the lead
-          const newLead = await createHCPLead(tenant, {
-            firstName: params.firstName || undefined,
-            lastName: params.lastName || undefined,
-            phone: params.phone,
-            email: params.email || undefined,
-            address: params.address || undefined,
-            notes: `Recreated after HCP deletion — OSIRIS Customer ${params.customerId}`,
-            source: 'api',
-          })
-          if (newLead.success && newLead.leadId) {
-            await client.from('leads').update({ housecall_pro_lead_id: newLead.leadId }).eq('phone_number', params.phone).eq('tenant_id', params.tenantId).order('created_at', { ascending: false }).limit(1)
-            console.log(`[HCP Sync] Recreated HCP lead ${newLead.leadId} for customer ${params.customerId}`)
-          }
         } else {
-          console.warn(`[HCP Sync] Lead ${hcpLeadId} name update failed (customer was updated): ${leadResult.error?.substring(0, 80)}`)
+          // HCP does not support PATCH/PUT for name fields on leads (returns 404).
+          // The lead still exists — do NOT clear housecall_pro_lead_id or try to recreate.
+          // Lead names are cached at creation time; only the linked customer name can be updated.
+          console.log(`[HCP Sync] Lead ${hcpLeadId} name update not supported by HCP (customer name WAS updated): ${leadResult.error?.substring(0, 80)}`)
         }
       }
     }
