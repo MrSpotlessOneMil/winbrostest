@@ -1623,7 +1623,7 @@ export default function AdminPage() {
                   {/* Credentials Tab */}
                   <TabsContent value="credentials" className="space-y-6">
                     {/* Action buttons */}
-                    <div className="flex justify-end gap-2 flex-wrap">
+                    <div className="flex gap-2 flex-wrap">
                       <Button
                         variant="outline"
                         size="sm"
