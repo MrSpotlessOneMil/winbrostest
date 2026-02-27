@@ -1235,7 +1235,7 @@ export async function POST(request: NextRequest) {
           { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
         )
 
-        if (autoResponse.shouldSend && autoResponse.response) {
+        if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
           // Skip sending the AI message if it's just the [BOOKING_COMPLETE] tag —
           // the system sends its own confirmation message with invoice/deposit links
           const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
