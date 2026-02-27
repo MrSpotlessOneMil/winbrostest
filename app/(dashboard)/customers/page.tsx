@@ -164,11 +164,8 @@ export default function CustomersPage() {
           const prevCount = messages.length
           const newMessages = json.data.messages || []
 
-          // Update customers list - shows new contacts without reload
-          const newCustomers = json.data.customers || []
-          if (newCustomers.length !== customers.length) {
-            setCustomers(newCustomers)
-          }
+          // Update customers list - always sync to catch new/updated records
+          setCustomers(json.data.customers || [])
           // Update jobs
           setJobs(json.data.jobs || [])
           // Update messages - this shows new incoming/outgoing texts immediately
@@ -193,7 +190,7 @@ export default function CustomersPage() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [messages.length, customers.length])
+  }, [messages.length])
 
   const getCustomerName = (customer: Customer) => {
     if (customer.first_name || customer.last_name) {

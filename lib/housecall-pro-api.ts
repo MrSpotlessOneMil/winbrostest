@@ -988,17 +988,17 @@ export async function updateHCPJob(
 
   const criticalErrors: string[] = []
 
-  const fallbackPatch = async (
+  const fallbackPut = async (
     payload: Record<string, unknown>,
     context: string
   ): Promise<boolean> => {
     const fallback = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PATCH',
+      method: 'PUT',
       body: payload,
     })
 
     if (fallback.success) {
-      console.warn(`[HCP API] ${context} updated via PATCH fallback for job ${jobId}`)
+      console.warn(`[HCP API] ${context} updated via PUT fallback for job ${jobId}`)
       return true
     }
 
@@ -1025,7 +1025,7 @@ export async function updateHCPJob(
     })
 
     if (!scheduleResult.success) {
-      const patched = await fallbackPatch(
+      const patched = await fallbackPut(
         {
           scheduled_start: scheduledStart,
           scheduled_end: scheduledEnd || scheduledStart,
@@ -1047,7 +1047,7 @@ export async function updateHCPJob(
     })
 
     if (!dispatchResult.success) {
-      const patched = await fallbackPatch(
+      const patched = await fallbackPut(
         { assigned_employee_ids: normalizedAssignmentIds },
         'dispatch'
       )
@@ -1071,7 +1071,7 @@ export async function updateHCPJob(
     )
 
     if (!lineItemsResult.success) {
-      const patched = await fallbackPatch({ line_items: lineItemsCents }, 'line items')
+      const patched = await fallbackPut({ line_items: lineItemsCents }, 'line items')
       if (!patched) {
         criticalErrors.push(`line_items: ${lineItemsResult.error}`)
       }
@@ -1092,13 +1092,14 @@ export async function updateHCPJob(
     if (jobData.tags?.length) patchBody.tags = jobData.tags
     if (jobData.description) patchBody.description = jobData.description
 
-    const metadataPatch = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PATCH',
+    const metadataResult = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
+      method: 'PUT',
       body: patchBody,
     })
 
-    if (!metadataPatch.success) {
-      console.warn(`[HCP API] Metadata PUT failed for job ${jobId}: ${metadataPatch.error}`)
+    if (!metadataResult.success) {
+      // Non-critical: notes/address/tags/description are already in the initial POST body
+      console.log(`[HCP API] Metadata PUT non-critical skip for job ${jobId} (data was in initial POST)`)
     }
   }
 

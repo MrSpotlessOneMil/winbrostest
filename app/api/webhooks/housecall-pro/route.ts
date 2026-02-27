@@ -708,6 +708,38 @@ export async function POST(request: NextRequest) {
         }
         break
 
+      case "job.scheduled":
+        // HCP fires this when a job is scheduled (often after we create one via API).
+        // Sync the schedule data to our local job record if it exists.
+        console.log("[OSIRIS] Job scheduled in HCP, syncing schedule to Supabase")
+        {
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.id
+          const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
+          if (hcpJobId) {
+            // Use service client to bypass RLS (webhook has no user session)
+            const svcClient = getSupabaseServiceClient()
+            const { data: existingJob } = await svcClient
+              .from("jobs")
+              .select("id")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant?.id)
+              .maybeSingle()
+
+            if (existingJob) {
+              const updates: Record<string, unknown> = { status: "scheduled" }
+              if (scheduledStart) {
+                updates.date = new Date(scheduledStart).toISOString().split('T')[0]
+                updates.scheduled_at = new Date(scheduledStart).toISOString()
+              }
+              await svcClient.from("jobs").update(updates).eq("id", existingJob.id)
+              console.log(`[OSIRIS] HCP job.scheduled: Updated local job ${existingJob.id} from HCP job ${hcpJobId}`)
+            } else {
+              console.log(`[OSIRIS] HCP job.scheduled: No local job found for HCP job ${hcpJobId} — ignoring (may be externally created)`)
+            }
+          }
+        }
+        break
+
       case "lead.updated":
         console.log("[OSIRIS] Lead updated in HCP")
         {
