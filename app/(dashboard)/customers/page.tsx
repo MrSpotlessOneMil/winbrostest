@@ -499,17 +499,12 @@ export default function CustomersPage() {
       setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: newPaused } : prev)
     }
 
-    // Also toggle lead followup_paused to stay in sync
-    const lead = getCustomerLead(customer.phone_number)
-    if (lead) {
-      handleToggleFollowup(newPaused)
-    }
-
     try {
-      const res = await fetch(`/api/customers?id=${customer.id}`, {
+      // Update customer flag
+      const res = await fetch("/api/customers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auto_response_paused: newPaused }),
+        body: JSON.stringify({ id: customer.id, auto_response_paused: newPaused }),
       })
       const json = await res.json()
       if (!json.success) {
@@ -520,6 +515,24 @@ export default function CustomersPage() {
         if (selectedCustomer?.id === customer.id) {
           setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
         }
+        return
+      }
+
+      // Also sync lead followup_paused (fire-and-forget, don't refresh full data)
+      const lead = getCustomerLead(customer.phone_number)
+      if (lead) {
+        fetch(`/api/leads/${lead.id}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "toggle_followup", paused: newPaused }),
+        }).catch(() => {})
+        // Optimistic lead update
+        const parsedFormData = parseFormData(lead.form_data)
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newPaused } } : l
+          )
+        )
       }
     } catch {
       // Rollback
