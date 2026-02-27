@@ -243,6 +243,22 @@ export async function POST(request: NextRequest) {
             customer = upserted
           }
 
+          // DEBUG: Log the raw job object keys and schedule/price fields to determine HCP payload shape
+          console.log(`[OSIRIS] HCP DEBUG job.created payload:`, JSON.stringify({
+            jobKeys: job ? Object.keys(job) : 'no job',
+            dataKeys: data ? Object.keys(data) : 'no data',
+            job_schedule: job?.schedule,
+            job_scheduled_start: (job as any)?.scheduled_start,
+            job_scheduled_start_at: (job as any)?.scheduled_start_at,
+            job_work_timestamps: (job as any)?.work_timestamps,
+            job_total_amount: (job as any)?.total_amount,
+            job_total: (job as any)?.total,
+            job_invoice: (job as any)?.invoice,
+            job_amount: (job as any)?.amount,
+            job_line_items: (job as any)?.line_items,
+            job_price: (job as any)?.price,
+          }))
+
           // Extract schedule from top-level job object (HCP sends scheduled_start)
           // then fallback to nested data paths
           const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
