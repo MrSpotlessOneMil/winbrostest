@@ -357,18 +357,34 @@ export async function POST(request: NextRequest) {
 
       case "job.updated":
         console.log("[OSIRIS] Job updated in HCP, syncing to Supabase")
-        // Best effort update by job id if present
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
               .from("jobs")
-              .update({
-                status: (data as any)?.job?.status || (data as any)?.status || null,
-                paid: Boolean((data as any)?.job?.paid || (data as any)?.paid),
-                address,
-              })
-              .eq("id", Number(jobId))
+              .select("id, status")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .maybeSingle()
+
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
+              const hcpStatus = (data as any)?.job?.status || (data as any)?.status
+              // Only map known HCP statuses to our status values
+              const validStatuses: Record<string, string> = {
+                scheduled: 'scheduled', dispatched: 'in_progress', in_progress: 'in_progress',
+                complete: 'completed', completed: 'completed', canceled: 'cancelled', cancelled: 'cancelled',
+              }
+              const mappedStatus = hcpStatus ? validStatuses[hcpStatus.toLowerCase()] : undefined
+
+              const updates: Record<string, unknown> = {}
+              if (mappedStatus) updates.status = mappedStatus
+              if ((data as any)?.job?.paid || (data as any)?.paid) updates.paid = true
+              if (address) updates.address = address
+
+              if (Object.keys(updates).length > 0) {
+                await client.from("jobs").update(updates).eq("id", localJob.id)
+                console.log(`[OSIRIS] HCP job.updated: Updated local job ${localJob.id} from HCP job ${hcpJobId}`)
+              }
+            }
           }
         }
         break
@@ -376,53 +392,55 @@ export async function POST(request: NextRequest) {
       case "job.completed":
         console.log("[OSIRIS] Job completed, triggering post-job automations")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.id
-
-          // Try to find job by HCP job ID or our internal ID
-          let internalJobId = jobId
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
-            const { data: existingJob } = await client
+            const { data: localJob } = await client
               .from("jobs")
-              .select("id")
-              .eq("hcp_job_id", String(hcpJobId))
+              .select("id, status, phone_number")
+              .eq("housecall_pro_job_id", String(hcpJobId))
               .maybeSingle()
 
-            if (existingJob) {
-              internalJobId = existingJob.id
-            }
-          }
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
+              await client
+                .from("jobs")
+                .update({ status: "completed", completed_at: new Date().toISOString() })
+                .eq("id", localJob.id)
 
-          if (internalJobId != null) {
-            const { data: updatedJob } = await client
-              .from("jobs")
-              .update({
-                status: "completed",
-                completed_at: new Date().toISOString()
+              console.log(`[OSIRIS] HCP job.completed: Updated local job ${localJob.id} from HCP job ${hcpJobId}`)
+
+              await logSystemEvent({
+                tenant_id: tenant?.id,
+                source: "housecall_pro",
+                event_type: "JOB_COMPLETED",
+                message: `Job ${localJob.id} marked completed via HCP`,
+                job_id: String(localJob.id),
+                phone_number: localJob.phone_number || phone,
+                metadata: { hcp_job_id: hcpJobId },
               })
-              .eq("id", Number(internalJobId))
-              .select("phone_number")
-              .single()
-
-            await logSystemEvent({
-              tenant_id: tenant?.id,
-              source: "housecall_pro",
-              event_type: "JOB_COMPLETED",
-              message: `Job ${internalJobId} marked completed via HCP`,
-              job_id: String(internalJobId),
-              phone_number: updatedJob?.phone_number || phone,
-              metadata: { hcp_job_id: hcpJobId },
-            })
+            } else if (!localJob) {
+              console.log(`[OSIRIS] HCP job.completed: No local job found for HCP job ${hcpJobId}`)
+            }
           }
         }
         break
 
       case "job.cancelled":
-        console.log("[OSIRIS] Job cancelled, sending notifications")
+        console.log("[OSIRIS] Job cancelled in HCP")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client.from("jobs").update({ status: "cancelled" }).eq("id", Number(jobId))
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
+              .from("jobs")
+              .select("id, status, paid")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .maybeSingle()
+
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status) && !localJob.paid) {
+              await client.from("jobs").update({ status: "cancelled" }).eq("id", localJob.id)
+              console.log(`[OSIRIS] HCP job.cancelled: Cancelled local job ${localJob.id} from HCP job ${hcpJobId}`)
+            } else if (localJob?.paid) {
+              console.warn(`[OSIRIS] HCP job.cancelled: Ignoring cancel for paid job ${localJob.id}`)
+            }
           }
         }
         break
@@ -461,12 +479,21 @@ export async function POST(request: NextRequest) {
       case "invoice.paid":
         console.log("[OSIRIS] Payment received for job")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client.from("jobs").update({
-              paid: true,
-              payment_status: 'fully_paid'
-            }).eq("id", Number(jobId))
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
+              .from("jobs")
+              .select("id")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .maybeSingle()
+
+            if (localJob) {
+              await client.from("jobs").update({
+                paid: true,
+                payment_status: 'fully_paid'
+              }).eq("id", localJob.id)
+              console.log(`[OSIRIS] HCP payment: Marked local job ${localJob.id} as paid from HCP job ${hcpJobId}`)
+            }
           }
         }
         break
