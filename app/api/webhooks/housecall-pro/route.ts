@@ -610,6 +610,50 @@ export async function POST(request: NextRequest) {
           const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
           const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
 
+          // WinBros service area check — if address is clearly outside, notify owner and skip normal flow
+          if (address && tenant && tenantUsesFeature(tenant, 'use_hcp_mirror') && !isInWinBrosServiceArea(address)) {
+            const addressStr = typeof address === 'object' ? formatHCPAddress(address) || JSON.stringify(address) : String(address)
+            console.log(`[OSIRIS] HCP Webhook: Address "${addressStr}" is outside WinBros service area for ${maskPhone(phone)}`)
+
+            // Notify owner
+            if (tenant.owner_phone) {
+              const ownerMsg = `OUT OF AREA LEAD\nPhone: ${phone}\nName: ${leadName}\nAddress: ${addressStr}\n\nThis lead is outside the WinBros service area. Came in from HousecallPro.`
+              await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+            }
+
+            // Mark lead as out_of_area and skip follow-up
+            await client
+              .from("leads")
+              .update({ status: "lost", form_data: { ...(data || {}), out_of_area: true, address: addressStr } })
+              .eq("id", leadRecord?.id)
+
+            await logSystemEvent({
+              tenant_id: tenant?.id,
+              source: "housecall_pro",
+              event_type: "LEAD_OUT_OF_AREA",
+              message: `HCP lead outside service area: ${addressStr}`,
+              phone_number: phone,
+              metadata: { lead_id: leadRecord?.id, address: addressStr },
+            })
+
+            // Send polite decline to customer
+            const outOfAreaMsg = `Hi ${leadName}! Thanks for reaching out to ${businessName}. Unfortunately we don't currently service your area — we're based in Central Illinois around the Peoria/Bloomington area. Sorry about that!`
+            await sendSMS(tenant, phone, outOfAreaMsg)
+            await client.from("messages").insert({
+              tenant_id: tenant?.id,
+              customer_id: customerRecord?.id,
+              phone_number: phone,
+              role: "assistant",
+              content: outOfAreaMsg,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              timestamp: new Date().toISOString(),
+              source: "hcp_webhook",
+            })
+            break // Skip follow-up scheduling
+          }
+
           try {
             // Window cleaning tenants (WinBros) use the estimate flow — just collect info for a free estimate visit
             const initialMessage = tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')
@@ -756,4 +800,50 @@ function formatHCPAddress(addr: { street?: string; street_line_2?: string; city?
     parts.push(`${addr.city || ''}, ${addr.state || ''} ${addr.zip || ''}`.trim())
   }
   return parts.join(', ')
+}
+
+/** WinBros service area towns (Central Illinois) */
+const WINBROS_SERVICE_AREA_TOWNS = [
+  'morton', 'washington', 'pekin', 'metamora', 'east peoria',
+  'peoria', 'bloomington', 'dunlap', 'oak run', 'dahinda', 'tremont',
+]
+
+/** Check if an address (string or HCP object) is within the WinBros service area */
+function isInWinBrosServiceArea(address: unknown): boolean {
+  if (!address) return true // No address = can't check, let the AI handle it later
+
+  let addressStr: string
+  if (typeof address === 'object' && address !== null) {
+    // HCP address object — check city field directly first
+    const addrObj = address as Record<string, string>
+    if (addrObj.city) {
+      const city = addrObj.city.toLowerCase().trim()
+      if (WINBROS_SERVICE_AREA_TOWNS.some(town => city.includes(town) || town.includes(city))) {
+        return true
+      }
+    }
+    // Check state — if not Illinois, definitely out of area
+    if (addrObj.state && !['il', 'illinois'].includes(addrObj.state.toLowerCase().trim())) {
+      return false
+    }
+    addressStr = formatHCPAddress(addrObj as any) || JSON.stringify(address)
+  } else {
+    addressStr = String(address)
+  }
+
+  const lower = addressStr.toLowerCase()
+
+  // Check if any service area town appears in the address
+  if (WINBROS_SERVICE_AREA_TOWNS.some(town => lower.includes(town))) {
+    return true
+  }
+
+  // If "illinois" or "il" is in the address but no town match,
+  // it might still be nearby — let the AI decide during conversation
+  if (/\bil\b/.test(lower) || lower.includes('illinois')) {
+    return true // Could be nearby — don't reject at webhook level
+  }
+
+  // No town match and no IL indicator — likely out of area
+  return false
 }
