@@ -446,13 +446,17 @@ export async function syncCustomerToHCP(params: {
 
       const hcpLeadId = leadRow?.housecall_pro_lead_id as string | null
       if (hcpLeadId) {
-        await updateHCPLead(tenant, hcpLeadId, {
+        const leadResult = await updateHCPLead(tenant, hcpLeadId, {
           firstName: params.firstName || undefined,
           lastName: params.lastName || undefined,
           email: params.email || undefined,
           address: params.address || undefined,
         })
-        console.log(`[HCP Sync] Lead ${hcpLeadId} name synced for customer ${params.customerId}`)
+        if (leadResult.success) {
+          console.log(`[HCP Sync] Lead ${hcpLeadId} name synced for customer ${params.customerId}`)
+        } else {
+          console.warn(`[HCP Sync] Lead ${hcpLeadId} name update failed (customer was updated): ${leadResult.error?.substring(0, 80)}`)
+        }
       }
     }
   } catch (err) {

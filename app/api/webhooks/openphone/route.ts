@@ -1315,8 +1315,14 @@ export async function POST(request: NextRequest) {
           if (Object.keys(jobUpdates).length > 0) {
             await client.from("jobs").update(jobUpdates).eq("id", assignedJob.id)
             console.log(`[OpenPhone] Updated job ${assignedJob.id} with corrections:`, Object.keys(jobUpdates))
+          }
 
+          // Always sync job to HCP — catches both corrections AND missing initial sync.
+          // If the job already exists in HCP, syncNewJobToHCP updates it; otherwise creates it.
+          const needsHcpSync = Object.keys(jobUpdates).length > 0 || !assignedJob.housecall_pro_job_id || hasCustomerChanges
+          if (needsHcpSync) {
             try {
+              console.log(`[OpenPhone] Syncing job ${assignedJob.id} to HCP (hcp_job_id=${assignedJob.housecall_pro_job_id || 'NONE'}, jobUpdates=${Object.keys(jobUpdates).length}, customerChanges=${hasCustomerChanges})`)
               await syncNewJobToHCP({
                 tenant,
                 jobId: assignedJob.id,
@@ -1331,10 +1337,11 @@ export async function POST(request: NextRequest) {
                 price: assignedJob.price,
                 notes: assignedJob.notes,
                 source: 'sms_correction',
+                isEstimate: assignedJob.job_type === 'estimate',
               })
-              console.log(`[OpenPhone] Synced job corrections to HCP for job ${assignedJob.id}`)
+              console.log(`[OpenPhone] Synced job ${assignedJob.id} to HCP`)
             } catch (syncErr) {
-              console.error(`[OpenPhone] HCP job sync failed for corrections:`, syncErr)
+              console.error(`[OpenPhone] HCP job sync failed for job ${assignedJob.id}:`, syncErr)
             }
           }
         }

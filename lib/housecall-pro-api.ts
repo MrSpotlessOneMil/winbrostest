@@ -1216,17 +1216,26 @@ export async function updateHCPLead(
 
   console.log(`[HCP API] Updating lead ${leadId} with: ${JSON.stringify(body)}`)
 
-  const result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
+  let result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
     method: 'PATCH',
     body,
   })
+
+  // HCP may not support PATCH on leads for name fields (returns 404) — try PUT fallback
+  if (!result.success) {
+    console.warn(`[HCP API] PATCH lead ${leadId} failed (${result.error?.substring(0, 80)}), trying PUT`)
+    result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
+      method: 'PUT',
+      body,
+    })
+  }
 
   if (result.success) {
     console.log(`[HCP API] Lead ${leadId} updated: first_name=${result.data?.first_name}, last_name=${result.data?.last_name}`)
     return { success: true }
   }
 
-  console.error(`[HCP API] Failed to update lead ${leadId}: ${result.error}`)
+  console.warn(`[HCP API] Could not update lead ${leadId} (PATCH+PUT both failed): ${result.error?.substring(0, 120)}`)
   return { success: false, error: result.error }
 }
 
