@@ -591,6 +591,16 @@ export async function createHCPLead(
 
   console.log(`[HCP API] Using customer ${customerResult.customerId} for lead`)
 
+  // Push current name/email/address to HCP so stale data gets overwritten
+  if (leadData.firstName || leadData.lastName || leadData.email || leadData.address) {
+    await updateHCPCustomer(tenant, customerResult.customerId, {
+      firstName: leadData.firstName,
+      lastName: leadData.lastName,
+      email: leadData.email,
+      address: leadData.address,
+    })
+  }
+
   // Step 2: Create lead with customer_id
   const result = await hcpRequest<HCPLead>(tenant, '/leads', {
     method: 'POST',
