@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useAuth } from "@/lib/auth-context"
 import FullCalendar from "@fullcalendar/react"
 import dayGridPlugin from "@fullcalendar/daygrid"
 import timeGridPlugin from "@fullcalendar/timegrid"
@@ -301,6 +302,8 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
+  const { user } = useAuth()
+  const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -325,8 +328,9 @@ export default function JobsPage() {
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
 
-  // Auto-populate price when property details change
+  // Auto-populate price when property details change (house cleaning only)
   useEffect(() => {
+    if (!isHouseCleaning) return
     const { bedrooms, bathrooms, sqft, service_type } = createForm
     if (!bedrooms || !bathrooms) return
 
@@ -810,17 +814,19 @@ export default function JobsPage() {
       setCreateError("Date is required")
       return
     }
-    if (!createForm.bedrooms) {
-      setCreateError("Number of bedrooms is required")
-      return
-    }
-    if (!createForm.bathrooms) {
-      setCreateError("Number of bathrooms is required")
-      return
-    }
-    if (!createForm.sqft) {
-      setCreateError("Square footage is required")
-      return
+    if (isHouseCleaning) {
+      if (!createForm.bedrooms) {
+        setCreateError("Number of bedrooms is required")
+        return
+      }
+      if (!createForm.bathrooms) {
+        setCreateError("Number of bathrooms is required")
+        return
+      }
+      if (!createForm.sqft) {
+        setCreateError("Square footage is required")
+        return
+      }
     }
 
     setCreateSaving(true)
@@ -841,10 +847,10 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: createForm.price ? Number(createForm.price) : undefined,
           notes: createForm.notes.trim() || undefined,
-          bedrooms: Number(createForm.bedrooms),
-          bathrooms: Number(createForm.bathrooms),
-          sqft: Number(createForm.sqft),
-          frequency: createForm.frequency,
+          bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
+          bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
+          sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
+          frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
           cleaner_id: createForm.cleaner_id || undefined,
         }),
       })
@@ -1411,77 +1417,81 @@ export default function JobsPage() {
               />
             </div>
 
-            {/* Property Details */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <div>
-                <label className="cal-form-label">Bedrooms *</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.bedrooms}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
-                  }
-                >
-                  <option value="">Select</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                  <option value="5">5</option>
-                  <option value="6">6+</option>
-                </select>
+            {/* Property Details — house cleaning tenants only */}
+            {isHouseCleaning && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <div>
+                  <label className="cal-form-label">Bedrooms *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.bedrooms}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
+                    }
+                  >
+                    <option value="">Select</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6+</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="cal-form-label">Bathrooms *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.bathrooms}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
+                    }
+                  >
+                    <option value="">Select</option>
+                    <option value="1">1</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2">2</option>
+                    <option value="2.5">2.5</option>
+                    <option value="3">3</option>
+                    <option value="3.5">3.5</option>
+                    <option value="4">4+</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="cal-form-label">Sqft *</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="1500"
+                    min="0"
+                    value={createForm.sqft}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <label className="cal-form-label">Bathrooms *</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.bathrooms}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
-                  }
-                >
-                  <option value="">Select</option>
-                  <option value="1">1</option>
-                  <option value="1.5">1.5</option>
-                  <option value="2">2</option>
-                  <option value="2.5">2.5</option>
-                  <option value="3">3</option>
-                  <option value="3.5">3.5</option>
-                  <option value="4">4+</option>
-                </select>
-              </div>
-              <div>
-                <label className="cal-form-label">Sqft *</label>
-                <input
-                  type="number"
-                  className="cal-form-control"
-                  placeholder="1500"
-                  min="0"
-                  value={createForm.sqft}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
-                  }
-                />
-              </div>
-            </div>
+            )}
 
-            {/* Frequency & Cleaner */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <div>
-                <label className="cal-form-label">Frequency *</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.frequency}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
-                  }
-                >
-                  <option value="one-time">One-time</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="bi-weekly">Bi-weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </div>
+            {/* Frequency (house cleaning) & Cleaner (all tenants) */}
+            <div style={{ display: "grid", gridTemplateColumns: isHouseCleaning ? "1fr 1fr" : "1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              {isHouseCleaning && (
+                <div>
+                  <label className="cal-form-label">Frequency *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.frequency}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
+                    }
+                  >
+                    <option value="one-time">One-time</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="bi-weekly">Bi-weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="cal-form-label">Assign Cleaner</label>
                 <select
