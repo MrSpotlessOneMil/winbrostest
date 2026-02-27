@@ -1236,30 +1236,38 @@ export async function POST(request: NextRequest) {
         )
 
         if (autoResponse.shouldSend && autoResponse.response) {
-          console.log(`[OpenPhone] Sending auto-response to existing lead: "${autoResponse.response.slice(0, 50)}..."`)
+          // Skip sending the AI message if it's just the [BOOKING_COMPLETE] tag —
+          // the system sends its own confirmation message with invoice/deposit links
+          const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
 
-          const sendResult = await sendSMS(tenant!, phone, autoResponse.response)
+          if (cleanedResponse) {
+            console.log(`[OpenPhone] Sending auto-response to existing lead: "${cleanedResponse.slice(0, 50)}..."`)
 
-          if (sendResult.success) {
-            await client.from("messages").insert({
-              tenant_id: tenant?.id,
-              customer_id: customer.id,
-              phone_number: phone,
-              role: "assistant",
-              content: autoResponse.response,
-              direction: "outbound",
-              message_type: "sms",
-              ai_generated: true,
-              timestamp: new Date().toISOString(),
-              source: "openphone",
-              metadata: {
-                auto_response: true,
-                existing_lead_id: existingLead.id,
-                reason: autoResponse.reason,
-                combined_message: combinedMessage,
-                openphone_message_id: sendResult.messageId,
-              },
-            })
+            const sendResult = await sendSMS(tenant!, phone, cleanedResponse)
+
+            if (sendResult.success) {
+              await client.from("messages").insert({
+                tenant_id: tenant?.id,
+                customer_id: customer.id,
+                phone_number: phone,
+                role: "assistant",
+                content: cleanedResponse,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: true,
+                timestamp: new Date().toISOString(),
+                source: "openphone",
+                metadata: {
+                  auto_response: true,
+                  existing_lead_id: existingLead.id,
+                  reason: autoResponse.reason,
+                  combined_message: combinedMessage,
+                  openphone_message_id: sendResult.messageId,
+                },
+              })
+            }
+          } else {
+            console.log(`[OpenPhone] Skipping AI response (booking complete tag only) — system will send confirmation`)
           }
 
           // Handle escalation — notify the owner if the AI flagged this customer
