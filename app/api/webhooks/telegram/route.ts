@@ -14,7 +14,8 @@ import { assignNextAvailableCleaner } from "@/lib/cleaner-assignment"
 import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
+import type { Tenant } from "@/lib/tenant"
 import { geocodeAddress } from "@/lib/google-maps"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
@@ -245,13 +246,13 @@ const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
 const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 
-// Patterns for new cleaner onboarding (handles smart quotes, curly apostrophes, etc.)
+// Patterns for new team member onboarding (handles smart quotes, curly apostrophes, etc.)
 const JOIN_PATTERNS = [
   /^(join|register|sign\s*up)/i,
-  /^new\s+cleaner/i,
-  /i[''`"']m\s+a\s+(new\s+)?cleaner/i,
-  /i\s+am\s+a\s+(new\s+)?cleaner/i,
-  /^i\s+want\s+to\s+(join|work|clean)/i,
+  /^new\s+(cleaner|salesman|sales\s*man)/i,
+  /i[''`"']m\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /i\s+am\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /^i\s+want\s+to\s+(join|work|clean|sell)/i,
   /^(onboard|enroll)/i,
   /new\s+(here|employee|hire|team\s*member)/i,
   /how\s+(do\s+i|can\s+i|to)\s+(join|register|sign\s*up)/i,
@@ -259,6 +260,16 @@ const JOIN_PATTERNS = [
 
 // Phone number validation
 const PHONE_PATTERN = /^[\d\s\-\(\)\+]{10,}$/
+
+/** Check if this tenant uses estimate/salesman flow (vs cleaning/technician) */
+function isEstimateFlow(tenant: Tenant): boolean {
+  return tenant.slug === 'winbros' || tenantUsesFeature(tenant, 'use_route_optimization')
+}
+
+/** Get the role label for this tenant's field staff */
+function getRoleLabel(tenant: Tenant): string {
+  return isEstimateFlow(tenant) ? 'salesman' : 'cleaner'
+}
 
 // Owner/ops Telegram chat ID for escalations
 const OWNER_TELEGRAM_CHAT_ID = process.env.OWNER_TELEGRAM_CHAT_ID
@@ -506,7 +517,9 @@ async function handleDeclineCallback(
     }
 
     // 4. Send acknowledgment to cleaner
-    await sendTelegramMessage(chatId, "No problem! We'll find another cleaner for this job.")
+    const declineTenant = job.tenant_id ? await (async () => { const { getTenantById } = await import("@/lib/tenant"); return getTenantById(job.tenant_id!); })() : await getDefaultTenant()
+    const declineRoleLabel = declineTenant ? getRoleLabel(declineTenant) : 'cleaner'
+    await sendTelegramMessage(chatId, `No problem! We'll find another ${declineRoleLabel} for this job.`)
 
     // 6. Try to assign next available cleaner (excluding the declined cleaner)
     const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
@@ -631,6 +644,11 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] Telegram message from telegram_id=${telegramUserId}, chat_id=${chatId}, length=${text?.length || 0}`)
 
+    // Fetch tenant early for role-aware messaging
+    const tenant = await getDefaultTenant()
+    const roleLabel = tenant ? getRoleLabel(tenant) : 'cleaner'
+    const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
+
     // Log inbound message to DB (fire-and-forget)
     logTelegramMessage({
       telegramChatId: chatId,
@@ -642,14 +660,15 @@ export async function POST(request: NextRequest) {
 
     // Handle /start command - different response based on context
     if (text.toLowerCase() === "/start") {
+      const businessName = tenant?.business_name_short || tenant?.name || 'Team'
       await sendTelegramMessage(
         chatId,
-        `<b>Welcome to the Cleaning Team Bot!</b>
+        `<b>Welcome to the ${businessName} Team Bot!</b>
 
-<b>For New Cleaners:</b>
-Send "join" or "I'm a new cleaner" to register.
+<b>For New ${roleCap}s:</b>
+Send "join" or "I'm a new ${roleLabel}" to register.
 
-<b>For Existing Cleaners:</b>
+<b>For Existing ${roleCap}s:</b>
 • Report tips: "tip job 123 - $20"
 • Report upsells: "upsell job 123 - deep clean"
 • Accept/decline jobs via buttons
@@ -678,7 +697,7 @@ Send "join" or "I'm a new cleaner" to register.
     // Check if user is in onboarding flow (stored in DB, not memory)
     const onboardingState = await getOnboardingState(chatId)
     if (onboardingState) {
-      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState)
+      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState, roleLabel)
     }
 
     // Check if this is a new cleaner trying to join
@@ -906,7 +925,7 @@ Send "join" or "I'm a new cleaner" to register.
 
     // Schedule query — directly fetch and format the cleaner's jobs without AI
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, roleLabel)
       await sendTelegramMessage(chatId, scheduleMsg)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
@@ -914,7 +933,7 @@ Send "join" or "I'm a new cleaner" to register.
     // Unknown message format - use AI to provide helpful response
     console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, length=${text?.length || 0}`)
 
-    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null)
+    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null, roleLabel)
     console.log(`[OSIRIS] AI response generated, length=${aiResponse.length}`)
     await sendTelegramMessage(chatId, aiResponse)
 
@@ -937,7 +956,8 @@ async function handleOnboardingStep(
   telegramUserId: string,
   from: { first_name: string; username?: string },
   text: string,
-  state: OnboardingState
+  state: OnboardingState,
+  roleLabel: string = 'cleaner'
 ): Promise<NextResponse> {
   const client = getSupabaseServiceClient()
 
@@ -1130,7 +1150,8 @@ async function handleOnboardingStep(
             home_lng: homeLng,
             availability: availabilityData,
             active: true,
-            is_team_lead: false
+            is_team_lead: false,
+            employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician',
           })
           .select("id, name")
           .single()
@@ -1205,12 +1226,13 @@ async function handleOnboardingStep(
         await logSystemEvent({
           source: "telegram",
           event_type: "CLEANER_BROADCAST",
-          message: `New cleaner registered via Telegram: ${state.data.name}`,
+          message: `New ${roleLabel} registered via Telegram: ${state.data.name}`,
           cleaner_id: newCleaner.id,
           phone_number: state.data.phone,
           metadata: {
             telegram_id: telegramUserId,
-            registration_method: "telegram_onboarding"
+            registration_method: "telegram_onboarding",
+            employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician',
           }
         })
 
@@ -1431,10 +1453,11 @@ async function handleBriefingCommand(
 async function buildScheduleResponse(
   userMessage: string,
   cleanerId: string | null,
-  cleanerName: string
+  cleanerName: string,
+  roleLabel: string = 'cleaner'
 ): Promise<string> {
   if (!cleanerId) {
-    return `Hi! You're not registered as a cleaner yet. Send "join" to get set up and start receiving job assignments.`
+    return `Hi! You're not registered as a ${roleLabel} yet. Send "join" to get set up and start receiving job assignments.`
   }
 
   const supabase = getSupabaseServiceClient()
@@ -1529,7 +1552,8 @@ async function generateAIResponse(
   userMessage: string,
   userName: string,
   isTeamLead: boolean,
-  cleanerId: string | null
+  cleanerId: string | null,
+  roleLabel: string = 'cleaner'
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
@@ -1538,7 +1562,7 @@ async function generateAIResponse(
   // Fallback if no API key
   if (!anthropicKey) {
     console.log(`[OSIRIS] No ANTHROPIC_API_KEY set — returning fallback response`)
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   }
 
   try {
@@ -1588,7 +1612,7 @@ async function generateAIResponse(
         jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
       }
     } else {
-      jobContext = `\n\nIMPORTANT: This user is NOT registered as a cleaner in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a cleaner so they can receive job assignments and view their schedule.`
+      jobContext = `\n\nIMPORTANT: This user is NOT registered as a ${roleLabel} in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a ${roleLabel} so they can receive job assignments and view their schedule.`
     }
 
     const client = new Anthropic({ apiKey: anthropicKey })
@@ -1600,7 +1624,10 @@ async function generateAIResponse(
 - /briefing - Get your daily briefing`
       : ""
 
-    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. You can answer questions about upcoming jobs and direct users to the right commands.
+    const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
+    const systemPrompt = `You are a helpful assistant for a service company's Telegram bot. The user is a ${roleLabel}. You can answer questions about upcoming jobs and direct users to the right commands.
+
+IMPORTANT: Always refer to this person and their colleagues as "${roleLabel}s", never as "cleaners" or "technicians".
 
 Available commands:
 - "tip job [number] - $[amount]" - Report a tip
@@ -1631,24 +1658,24 @@ Respond in a friendly, concise way (2-4 sentences max). If they're asking about 
       return textContent.text.trim()
     }
 
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   } catch (error) {
     console.error("[OSIRIS] AI response error:", error)
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   }
 }
 
 /**
  * Default fallback when AI is unavailable
  */
-function getDefaultFallbackResponse(isTeamLead: boolean): string {
+function getDefaultFallbackResponse(isTeamLead: boolean, roleLabel: string = 'cleaner'): string {
   const teamLeadPart = isTeamLead
     ? "\n\nTeam lead commands: /team, /leaderboard, /briefing"
     : ""
 
   return `I didn't quite understand that. Here's what I can help with:
 
-• New cleaner? Send "join" to register
+• New ${roleLabel}? Send "join" to register
 • Report a tip: "tip job 123 - $20"
 • Report an upsell: "upsell job 123 - deep clean"
 • Need help? Send /start${teamLeadPart}`
