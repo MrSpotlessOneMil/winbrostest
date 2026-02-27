@@ -564,7 +564,6 @@ export function buildStaticCleaningDescription(job: Job, customer: Customer): st
     '',
     'Clean and sanitize all countertops and backsplash',
     'Clean exterior of all appliances (refrigerator, oven, microwave, dishwasher)',
-    'Clean interior of microwave (remove food splatter)',
     'Clean and degrease stovetop, burners, and drip pans',
     'Deep clean sink basin, faucet, and handles — polish to shine',
     'Wipe down all cabinet fronts and handles',
