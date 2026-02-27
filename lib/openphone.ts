@@ -60,57 +60,46 @@ export async function sendSMS(
     return { success: false, error: `Invalid phone number: ${to}` }
   }
 
-  const maxRetries = 2
-  let lastError = ''
+  try {
+    const controller = new AbortController()
+    const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
+    const response = await fetch(`${OPENPHONE_API_BASE}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: phoneNumberId,
+        to: [toE164Format],
+        content: message,
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(fetchTimeout)
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      if (attempt > 0) {
-        const delayMs = attempt === 1 ? 3000 : 8000
-        console.log(`[${tenant.slug}] Retrying SMS send (attempt ${attempt + 1}/${maxRetries + 1}) after ${delayMs}ms...`)
-        await new Promise((r) => setTimeout(r, delayMs))
-      }
-
-      const controller = new AbortController()
-      const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
-      const response = await fetch(`${OPENPHONE_API_BASE}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: phoneNumberId,
-          to: [toE164Format],
-          content: message,
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(fetchTimeout)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error(`[${tenant.slug}] OpenPhone API error:`, response.status, errorText)
-        lastError = `OpenPhone API error: ${response.status} - ${errorText}`
-        // Retry on 5xx server errors only
-        if (response.status >= 500 && attempt < maxRetries) continue
-        return { success: false, error: lastError }
-      }
-
-      const data = await response.json()
-      console.log(`[${tenant.slug}] SMS sent to ${toE164Format}: ${message.slice(0, 50)}...`)
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[${tenant.slug}] OpenPhone API error:`, response.status, errorText)
       return {
-        success: true,
-        messageId: data.data?.id || data.id
+        success: false,
+        error: `OpenPhone API error: ${response.status} - ${errorText}`
       }
-    } catch (error) {
-      console.error(`[${tenant.slug}] Error sending SMS:`, error)
-      lastError = error instanceof Error ? error.message : 'Unknown error'
-      if (attempt < maxRetries) continue
+    }
+
+    const data = await response.json()
+    console.log(`[${tenant.slug}] SMS sent to ${toE164Format}: ${message.slice(0, 50)}...`)
+    return {
+      success: true,
+      messageId: data.data?.id || data.id
+    }
+  } catch (error) {
+    console.error(`[${tenant.slug}] Error sending SMS:`, error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     }
   }
-
-  return { success: false, error: lastError }
 }
 
 /**
