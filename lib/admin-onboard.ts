@@ -95,7 +95,7 @@ export async function testStripeConnection(key: string): Promise<StepResult> {
 export async function testOpenPhoneConnection(key: string, phoneId: string): Promise<StepResult> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 10_000)
-  const res = await fetch(`https://api.openphone.com/v1/phone-numbers/${phoneId}`, {
+  const res = await fetch("https://api.openphone.com/v1/phone-numbers", {
     headers: { Authorization: key },
     signal: controller.signal,
   })
@@ -105,7 +105,11 @@ export async function testOpenPhoneConnection(key: string, phoneId: string): Pro
     throw new Error(`OpenPhone API returned ${res.status}: ${errText}`)
   }
   const data = await res.json()
-  return { ok: true, message: `Connected. Phone: ${data.data?.formattedNumber || data.data?.phoneNumber || "OK"}` }
+  const match = (data.data || []).find((p: any) => p.id === phoneId || p.phoneNumberId === phoneId)
+  if (!match) {
+    throw new Error(`API key is valid but phone ID "${phoneId}" was not found. Available IDs: ${(data.data || []).map((p: any) => p.id).join(", ")}`)
+  }
+  return { ok: true, message: `Connected. Phone: ${match.formattedNumber || match.phoneNumber || "OK"}` }
 }
 
 export async function testVapiConnection(key: string, assistantId: string): Promise<StepResult> {
