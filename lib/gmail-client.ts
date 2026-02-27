@@ -1,6 +1,16 @@
 import nodemailer from 'nodemailer'
 import type { Job, Customer } from './supabase'
 
+/** Format E.164 phone like (319) 261-9670 */
+function formatPhoneForDisplay(phone: string): string {
+  const digits = phone.replace(/\D/g, '')
+  const national = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  if (national.length === 10) {
+    return `(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`
+  }
+  return phone
+}
+
 /**
  * Resolve Gmail credentials: tenant-specific first, then env var fallback.
  * Tenant object needs gmail_user + gmail_app_password columns.
@@ -30,7 +40,7 @@ interface ConfirmationEmailParams {
   waveInvoiceUrl?: string
   stripeDepositUrl: string
   cleanerName?: string
-  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null }
+  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null; openphone_phone_number?: string | null; owner_phone?: string | null }
 }
 
 export async function sendConfirmationEmail(params: ConfirmationEmailParams): Promise<{
@@ -84,7 +94,11 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     : `<p>To secure your booking, please pay the 50% deposit to lock in your date:</p>
        <p><strong>Pay Deposit:</strong> <a href="${stripeDepositUrl}">${stripeDepositUrl}</a></p>`
 
-  const businessName = params.tenant?.business_name_short || params.tenant?.name || 'Our Team'
+  const businessName = params.tenant?.name || params.tenant?.business_name_short || 'Our Team'
+  // Use the customer-facing phone number (OpenPhone) for email signature, fall back to owner phone
+  const contactPhone = params.tenant?.openphone_phone_number || params.tenant?.owner_phone || null
+  const formattedPhone = contactPhone ? formatPhoneForDisplay(contactPhone) : null
+  const signatureLine = formattedPhone ? `${businessName}: ${formattedPhone}` : businessName
 
   // Build email HTML
   const htmlBody = `
@@ -103,7 +117,7 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     <p>Let me know if you have any questions — I'll be in touch every step of the way.</p>
 
     <p>Warm regards,<br>
-    ${businessName}</p>
+    ${signatureLine}</p>
   `.trim()
 
   const businessName = params.tenant?.business_name_short || params.tenant?.name || undefined
