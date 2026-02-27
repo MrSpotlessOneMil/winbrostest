@@ -82,6 +82,7 @@ type CreateForm = {
   bathrooms: string
   sqft: string
   frequency: string
+  cleaner_id: string
 }
 
 type RainDayPreview = {
@@ -319,6 +320,7 @@ export default function JobsPage() {
     bathrooms: "",
     sqft: "",
     frequency: "one-time",
+    cleaner_id: "",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -465,9 +467,33 @@ export default function JobsPage() {
       duration_minutes: duration,
       price: "",
       notes: "",
+      bedrooms: "",
+      bathrooms: "",
+      sqft: "",
+      frequency: "one-time",
+      cleaner_id: "",
     })
     setCreateError("")
     setCreateOpen(true)
+
+    // Fetch cleaners list if not already loaded
+    if (cleanersList.length === 0) {
+      fetch("/api/teams")
+        .then((r) => r.json())
+        .then((data) => {
+          const all: { id: string; name: string }[] = []
+          for (const team of data.data || []) {
+            for (const member of team.members || []) {
+              all.push({ id: String(member.id), name: member.name })
+            }
+          }
+          for (const c of data.unassigned_cleaners || []) {
+            all.push({ id: String(c.id), name: c.name })
+          }
+          setCleanersList(all)
+        })
+        .catch(() => {})
+    }
     info.view.calendar.unselect()
   }
 
@@ -819,6 +845,7 @@ export default function JobsPage() {
           bathrooms: Number(createForm.bathrooms),
           sqft: Number(createForm.sqft),
           frequency: createForm.frequency,
+          cleaner_id: createForm.cleaner_id || undefined,
         }),
       })
 
@@ -1438,21 +1465,38 @@ export default function JobsPage() {
               </div>
             </div>
 
-            {/* Frequency */}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Frequency *</label>
-              <select
-                className="cal-form-control"
-                value={createForm.frequency}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
-                }
-              >
-                <option value="one-time">One-time</option>
-                <option value="weekly">Weekly</option>
-                <option value="bi-weekly">Bi-weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
+            {/* Frequency & Cleaner */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Frequency *</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.frequency}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
+                  }
+                >
+                  <option value="one-time">One-time</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="bi-weekly">Bi-weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+              <div>
+                <label className="cal-form-label">Assign Cleaner</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.cleaner_id}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, cleaner_id: e.target.value }))
+                  }
+                >
+                  <option value="">— Auto-broadcast —</option>
+                  {cleanersList.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Date, Time, Duration */}

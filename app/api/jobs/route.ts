@@ -519,8 +519,84 @@ export async function POST(request: NextRequest) {
       source: 'dashboard',
     })
 
-    // Auto-broadcast to available cleaners if no cleaner was assigned and tenant uses dispatch
-    if (tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+    // Handle cleaner assignment at creation time
+    if (body.cleaner_id) {
+      // Manual assignment — create confirmed assignment + notify
+      const svc = getSupabaseServiceClient()
+      await svc.from("cleaner_assignments").insert({
+        job_id: Number(row.id),
+        cleaner_id: Number(body.cleaner_id),
+        status: "confirmed",
+        tenant_id: tenant.id,
+        assigned_at: new Date().toISOString(),
+        responded_at: new Date().toISOString(),
+      })
+
+      // Notify cleaner via Telegram + customer SMS (fire-and-forget)
+      const { data: cleaner } = await svc
+        .from("cleaners")
+        .select("id, name, telegram_id")
+        .eq("id", Number(body.cleaner_id))
+        .single()
+
+      if (cleaner) {
+        if (cleaner.telegram_id) {
+          const jobAddress = body.address || "TBD"
+          const jobDate = scheduledDate || "TBD"
+          const jobTime = scheduledAt || ""
+          const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+          let timeDisplay = ""
+          if (timeParts) {
+            const h = parseInt(timeParts[1])
+            const m = timeParts[2]
+            const ampm = h >= 12 ? "PM" : "AM"
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+            timeDisplay = ` at ${h12}:${m} ${ampm}`
+          }
+          const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
+          sendTelegramMessage(tenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
+            console.error("[Jobs POST] Failed to send Telegram to cleaner:", err)
+          )
+        }
+
+        // Customer confirmation SMS
+        if (phone) {
+          const custName = [first_name, last_name].filter(Boolean).join(" ").trim() || "there"
+          const dateFormatted = scheduledDate
+            ? new Date(scheduledDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+            : "your scheduled date"
+          const timeParts = String(scheduledAt || "").match(/^(\d{1,2}):(\d{2})/)
+          let timeFormatted = "your scheduled time"
+          if (timeParts) {
+            const h = parseInt(timeParts[1])
+            const m = timeParts[2]
+            const ampm = h >= 12 ? "PM" : "AM"
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+            timeFormatted = `${h12}:${m} ${ampm}`
+          }
+          const smsMsg = cleanerAssigned(custName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
+          sendSMS(tenant as any, phone, smsMsg).catch((err) =>
+            console.error("[Jobs POST] Failed to send assignment SMS:", err)
+          )
+          svc.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customerId,
+            phone_number: phone,
+            role: "assistant",
+            content: smsMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            source: "calendar_assign",
+            job_id: Number(row.id),
+            timestamp: new Date().toISOString(),
+          }).then(({ error: logErr }) => {
+            if (logErr) console.error("[Jobs POST] Failed to log assignment message:", logErr)
+          })
+        }
+      }
+    } else if (tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+      // No cleaner picked — auto-broadcast to available cleaners
       triggerCleanerAssignment(String(row.id)).catch((err) =>
         console.error("[Jobs POST] Auto-broadcast failed:", err)
       )
