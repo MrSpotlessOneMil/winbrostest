@@ -1376,29 +1376,33 @@ export async function POST(request: NextRequest) {
               autoResponse.escalation.reasons,
               fullTranscript
             )
-            await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+            const escSendResult = await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
-            await logSystemEvent({
-              tenant_id: tenant.id,
-              source: "openphone",
-              event_type: "LEAD_ESCALATED",
-              message: `Assigned lead ${assignedLead.id} escalated: ${autoResponse.escalation.reasons.join(", ")}`,
-              phone_number: phone,
-              metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id, reasons: autoResponse.escalation.reasons },
-            })
-
-            await client
-              .from("leads")
-              .update({
-                status: "escalated",
-                form_data: {
-                  ...assignedFormData,
-                  followup_paused: true,
-                  escalation_reasons: autoResponse.escalation.reasons,
-                  previous_status: "assigned",
-                },
+            if (escSendResult.success) {
+              await logSystemEvent({
+                tenant_id: tenant.id,
+                source: "openphone",
+                event_type: "LEAD_ESCALATED",
+                message: `Assigned lead ${assignedLead.id} escalated: ${autoResponse.escalation.reasons.join(", ")}`,
+                phone_number: phone,
+                metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id, reasons: autoResponse.escalation.reasons },
               })
-              .eq("id", assignedLead.id)
+
+              await client
+                .from("leads")
+                .update({
+                  status: "escalated",
+                  form_data: {
+                    ...assignedFormData,
+                    followup_paused: true,
+                    escalation_reasons: autoResponse.escalation.reasons,
+                    previous_status: "assigned",
+                  },
+                })
+                .eq("id", assignedLead.id)
+            } else {
+              console.error(`[OpenPhone] Escalation SMS failed for lead ${assignedLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
+            }
           }
         } catch (escErr) {
           console.error("[OpenPhone] Failed to send escalation for assigned lead:", escErr)
@@ -1612,34 +1616,38 @@ export async function POST(request: NextRequest) {
                   autoResponse.escalation.reasons,
                   fullTranscript
                 )
-                await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+                const escSendResult = await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
-                await logSystemEvent({
-                  tenant_id: tenant?.id,
-                  source: "openphone",
-                  event_type: "LEAD_ESCALATED",
-                  message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
-                  phone_number: phone,
-                  metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
-                })
+                if (escSendResult.success) {
+                  await logSystemEvent({
+                    tenant_id: tenant?.id,
+                    source: "openphone",
+                    event_type: "LEAD_ESCALATED",
+                    message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
+                    phone_number: phone,
+                    metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
+                  })
 
-                console.log(`[OpenPhone] Escalation notification sent to owner for ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
+                  console.log(`[OpenPhone] Escalation notification sent to owner for ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
+
+                  // Only pause auto-response if escalation SMS was actually delivered
+                  await client
+                    .from("leads")
+                    .update({
+                      status: "escalated",
+                      form_data: {
+                        ...parseFormData(existingLead.form_data),
+                        followup_paused: true,
+                        escalation_reasons: autoResponse.escalation.reasons,
+                      },
+                    })
+                    .eq("id", existingLead.id)
+                } else {
+                  console.error(`[OpenPhone] Escalation SMS failed for lead ${existingLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
+                }
               } else {
                 console.log(`[OpenPhone] Escalation already sent recently for ${maskPhone(phone)}, skipping duplicate`)
               }
-
-              // Pause auto-response for this lead — owner is taking over
-              await client
-                .from("leads")
-                .update({
-                  status: "escalated",
-                  form_data: {
-                    ...parseFormData(existingLead.form_data),
-                    followup_paused: true,
-                    escalation_reasons: autoResponse.escalation.reasons,
-                  },
-                })
-                .eq("id", existingLead.id)
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
             }
