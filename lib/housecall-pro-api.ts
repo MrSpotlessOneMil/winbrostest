@@ -453,6 +453,15 @@ function buildHcpRequestAttempts(
 }
 
 /**
+ * Quick check if an HCP resource still exists (GET returns 200).
+ * Used to detect stale IDs from resources deleted in the HCP dashboard.
+ */
+export async function verifyHCPResource(tenant: Tenant, endpoint: string): Promise<boolean> {
+  const result = await hcpRequest<unknown>(tenant, endpoint)
+  return result.success
+}
+
+/**
  * Make authenticated request to HousecallPro API
  */
 async function hcpRequest<T>(
