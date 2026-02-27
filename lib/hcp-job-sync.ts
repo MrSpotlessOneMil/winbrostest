@@ -80,8 +80,9 @@ export async function syncNewJobToHCP(params: {
     const phone = params.phone ?? (jobRow as any)?.phone_number ?? customer?.phone_number ?? ''
     const address = params.address ?? (jobRow as any)?.address ?? customer?.address ?? undefined
     const serviceType = params.serviceType ?? (jobRow as any)?.service_type ?? 'Cleaning Service'
-    const scheduledDate = params.scheduledDate ?? (jobRow as any)?.date ?? undefined
-    const scheduledTime = params.scheduledTime ?? (jobRow as any)?.scheduled_at ?? undefined
+    // Use || (not ??) so null falls through to DB values (null ?? x returns null in JS)
+    const scheduledDate = params.scheduledDate || (jobRow as any)?.date || undefined
+    const scheduledTime = params.scheduledTime || (jobRow as any)?.scheduled_at || undefined
     const price = params.price ?? (jobRow as any)?.price ?? undefined
     const durationHours = params.durationHours ?? (jobRow as any)?.hours ?? undefined
     const baseNotes = params.notes ?? (jobRow as any)?.notes ?? null

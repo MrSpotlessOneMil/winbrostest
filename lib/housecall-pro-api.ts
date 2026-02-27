@@ -315,8 +315,12 @@ function pickCustomerAddressId(
         return addr.id
       }
     }
+    // Requested address doesn't match any existing address — return undefined
+    // so ensureCustomerAddressId creates the new address in HCP
+    return undefined
   }
 
+  // No specific address requested — return any existing address
   const serviceAddress = addresses.find((a) => a.id && String(a.type || '').toLowerCase() === 'service')
   if (serviceAddress?.id) return serviceAddress.id
 
