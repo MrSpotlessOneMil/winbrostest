@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
 import type { HousecallProWebhookPayload, ApiResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
@@ -550,6 +550,27 @@ export async function POST(request: NextRequest) {
           }
 
           // No existing conversation — this is a genuinely new HCP-sourced lead
+
+          // Check if this phone was recently reset — if so, HCP's customer record is stale
+          // (OSIRIS reset only clears our DB, not HCP's cached customer with old names)
+          const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000).toISOString()
+          const serviceClient = getSupabaseServiceClient()
+          const { data: recentReset } = await serviceClient
+            .from("system_events")
+            .select("id")
+            .eq("phone_number", phone)
+            .eq("event_type", "SYSTEM_RESET")
+            .gte("created_at", fiveMinutesAgo)
+            .limit(1)
+            .maybeSingle()
+
+          if (recentReset) {
+            console.log(`[OSIRIS] HCP Webhook: Recent SYSTEM_RESET detected for ${maskPhone(phone)} — discarding stale HCP name`)
+            firstName = null
+            lastName = null
+            email = null
+          }
+
           // Upsert customer now (only for non-deduped leads so stale HCP data doesn't overwrite OSIRIS state)
           const { data: customerRecord } = await client
             .from("customers")
