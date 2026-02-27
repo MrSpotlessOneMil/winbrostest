@@ -1,6 +1,6 @@
 # OSIRIS x WinBros — Master Plan
 
-**Last Updated:** 2-25-2026
+**Last Updated:** 2-26-2026
 
 ---
 
@@ -13,11 +13,8 @@
 ## Polish
 - [ ] Replace 3-second polling with Supabase Realtime subscriptions
 
-## TypeScript Debt
-- [ ] Add `tenant_id` to `GHLLead` and `Cleaner` interfaces (DB columns exist, accessed via casts)
-
-## QA
-- [ ] Complete E2E test plan (`Documentation/E2E-TEST-PLAN.md`) — 130 items, all unchecked
+## Live Tenants
+- [ ] Collect live tenant data
 
 ## Medium Priority Bugs (from Passes 4-6 audit)
 - [ ] Weak password validation (4 chars min)
@@ -32,6 +29,30 @@
 ---
 
 # DONE
+
+## Cross-Tenant Isolation Hardening (2-26)
+
+- [x] **sendSMS tenant REQUIRED** — Removed 2-arg backward-compat pattern that silently fell back to WinBros. Tenant now required across 20+ call sites
+- [x] **Stripe tenant-aware** — All Stripe functions accept `stripeSecretKey` param; deposits/card-on-file use correct tenant's Stripe account (was using env default)
+- [x] **OpenPhone webhook tenant fallback removed** — No longer falls back to WinBros on unknown numbers; returns early with `TENANT_ROUTING_FAILED` event
+- [x] **Stripe redirect URLs** — Use tenant's `website_url` instead of Osiris dashboard URL
+- [x] **`getDefaultTenant()` deprecated** — Loud console warnings on any usage; all callers migrated to explicit tenant resolution
+
+## Context-Aware SMS Bot (2-26)
+
+- [x] **Internal number filtering** — Owner, cleaner, and blocklisted phone numbers filtered from auto-responses (messages still stored for dashboard visibility)
+- [x] **`loadCustomerContext()`** — Loads active jobs, service history, customer profile, lead record, and lifetime stats before AI responds
+- [x] **Adaptive AI behavior** — Existing customers get help with active bookings (not re-qualified), returning customers get welcome-back flow, new leads get standard booking flow
+- [x] **Owner escalation** — AI escalates complaints, refunds, and rescheduling requests to tenant owner via SMS
+
+## Dashboard Mobile Responsiveness (2-26)
+
+- [x] **Sidebar → mobile drawer** — Slide-out drawer with hamburger menu on mobile viewports
+- [x] **All dashboard pages responsive** — Overview, customers, jobs, teams, leads, earnings, calls pages with `md:` breakpoints
+- [x] **Customers page** — Stacks list/detail vertically on mobile with back button
+- [x] **Jobs page** — Defaults to list view on mobile with simplified toolbar
+- [x] **Viewport fixes** — `100dvh` for proper mobile height, momentum scrolling, no horizontal overflow
+- [x] **Touch-friendly** — Text truncation, flex-wrap, responsive search inputs
 
 ## Bug Fixes — Passes 4-6 Audit (2-25)
 
@@ -130,6 +151,7 @@
 - [x] Stripe redirects, cron isolation, tip links contamination (2-22)
 - [x] Cross-tenant routing — Stripe, Telegram, template bugs (2-22)
 - [x] Double assignment, cross-tenant cleaners, pending check (2-22)
+- [x] `GHLLead` and `Cleaner` interfaces — Added `tenant_id` field (DB columns existed, accessed via casts) (2-25)
 - [x] Cedar Rapids tenant setup via 6 assistant tools (2-20)
 - [x] Tenant DB business name in all customer-facing messages (2-21)
 - [x] `isWinBrosTenant` → `isWindowCleaningTenant` abstraction (2-22)
