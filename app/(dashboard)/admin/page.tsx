@@ -1818,28 +1818,23 @@ export default function AdminPage() {
                           </span>
                         )}
                         {!webhookResults["openphone"] && currentTenant.openphone_webhook_error && (
-                          <span className="text-xs text-red-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Failed: {currentTenant.openphone_webhook_error}
-                            <span className="text-muted-foreground">({new Date(currentTenant.openphone_webhook_error_at!).toLocaleDateString()})</span>
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.openphone_webhook_error} (${new Date(currentTenant.openphone_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.openphone_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && currentTenant.openphone_webhook_registered_at && (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook registered {new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && !currentTenant.openphone_webhook_registered_at && currentTenant.openphone_api_key && (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Webhook not registered
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["openphone"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["openphone"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["openphone"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["openphone"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["openphone"].message)}>
+                            {webhookVerification["openphone"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
@@ -1932,21 +1927,17 @@ export default function AdminPage() {
                           </span>
                         )}
                         {currentTenant.webhook_health?.vapi?.last_event_at ? (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook active — last event: {currentTenant.webhook_health.vapi.last_event_type}
-                            {" "}({new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id) ? (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            No webhook activity — configure Server URL in VAPI dashboard
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure Server URL in VAPI dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure Server URL in VAPI dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
                         {webhookVerification["vapi"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["vapi"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["vapi"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["vapi"].message)}>
+                            {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
@@ -2024,28 +2015,23 @@ export default function AdminPage() {
                           </span>
                         )}
                         {!webhookResults["stripe"] && currentTenant.stripe_webhook_error && (
-                          <span className="text-xs text-red-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Failed: {currentTenant.stripe_webhook_error}
-                            <span className="text-muted-foreground">({new Date(currentTenant.stripe_webhook_error_at!).toLocaleDateString()})</span>
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.stripe_webhook_error} (${new Date(currentTenant.stripe_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.stripe_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && currentTenant.stripe_webhook_registered_at && (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook registered {new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && !currentTenant.stripe_webhook_registered_at && currentTenant.stripe_secret_key && (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Webhook not registered
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["stripe"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["stripe"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["stripe"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["stripe"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["stripe"].message)}>
+                            {webhookVerification["stripe"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
@@ -2131,21 +2117,17 @@ export default function AdminPage() {
                           </div>
                         </div>
                         {currentTenant.webhook_health?.housecall_pro?.last_event_at ? (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook active — last event: {currentTenant.webhook_health.housecall_pro.last_event_type}
-                            {" "}({new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.housecall_pro.last_event_type} (${new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.housecall_pro.last_event_type} (${new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         ) : currentTenant.housecall_pro_api_key ? (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            No webhook activity — configure in HousecallPro dashboard
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in HousecallPro dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in HousecallPro dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
                         {webhookVerification["housecall_pro"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["housecall_pro"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["housecall_pro"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["housecall_pro"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["housecall_pro"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["housecall_pro"].message)}>
+                            {webhookVerification["housecall_pro"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
@@ -2213,21 +2195,17 @@ export default function AdminPage() {
                           </div>
                         </div>
                         {currentTenant.webhook_health?.ghl?.last_event_at ? (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook active — last event: {currentTenant.webhook_health.ghl.last_event_type}
-                            {" "}({new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.ghl.last_event_type} (${new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.ghl.last_event_type} (${new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         ) : currentTenant.ghl_location_id ? (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            No webhook activity — configure in GHL dashboard
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in GHL dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in GHL dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
                         {webhookVerification["ghl"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["ghl"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["ghl"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["ghl"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["ghl"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["ghl"].message)}>
+                            {webhookVerification["ghl"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
@@ -2294,28 +2272,23 @@ export default function AdminPage() {
                           </span>
                         )}
                         {!webhookResults["telegram"] && currentTenant.telegram_webhook_error && (
-                          <span className="text-xs text-red-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Failed: {currentTenant.telegram_webhook_error}
-                            <span className="text-muted-foreground">({new Date(currentTenant.telegram_webhook_error_at!).toLocaleDateString()})</span>
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.telegram_webhook_error} (${new Date(currentTenant.telegram_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.telegram_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && currentTenant.telegram_webhook_registered_at && (
-                          <span className="text-xs text-green-400 flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            Webhook registered {new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         )}
                         {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && !currentTenant.telegram_webhook_registered_at && currentTenant.telegram_bot_token && (
-                          <span className="text-xs text-orange-400 flex items-center gap-1">
-                            <AlertTriangle className="h-3 w-3" />
-                            Webhook not registered
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["telegram"] && (
-                          <span className={`text-xs flex items-center gap-1 ${webhookVerification["telegram"].active ? "text-green-400" : "text-red-400"}`}>
-                            {webhookVerification["telegram"].active ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                            {webhookVerification["telegram"].message}
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["telegram"].message)}>
+                            {webhookVerification["telegram"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
                       </div>
