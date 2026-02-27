@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
             const { data: upserted } = await client
               .from("customers")
               .upsert(
-                { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+                { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: hcpCustomerId ? String(hcpCustomerId) : undefined },
                 { onConflict: "tenant_id,phone_number" }
               )
               .select("id")
@@ -446,31 +446,55 @@ export async function POST(request: NextRequest) {
         break
 
       case "customer.created":
-        console.log("[OSIRIS] New customer created in HCP")
-        if (phone) {
-          // Don't overwrite fresh OSIRIS data with stale HCP data
-          if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.created: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
-          } else {
-            await client.from("customers").upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
-          }
-        }
-        break
-
       case "customer.updated":
-        console.log("[OSIRIS] Customer updated in HCP")
-        if (phone) {
-          // Don't overwrite fresh OSIRIS data with stale HCP data
-          if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.updated: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
-          } else {
-            await client.from("customers").upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
+        console.log(`[OSIRIS] Customer ${event === 'customer.created' ? 'created' : 'updated'} in HCP`)
+        {
+          const hcpCustId = customer?.id || (data as any)?.customer?.id || (data as any)?.id
+          const updateFields: Record<string, unknown> = {}
+          if (phone) updateFields.phone_number = phone
+          if (firstName) updateFields.first_name = firstName
+          if (lastName) updateFields.last_name = lastName
+          if (email) updateFields.email = email
+          if (address) updateFields.address = address
+
+          // Strategy: look up by HCP customer ID first (handles phone/email changes correctly)
+          // Fall back to phone-based upsert only for genuinely new customers
+          let matched = false
+
+          if (hcpCustId && tenant?.id) {
+            const { data: existing } = await client
+              .from("customers")
+              .select("id, phone_number")
+              .eq("housecall_pro_customer_id", String(hcpCustId))
+              .eq("tenant_id", tenant.id)
+              .maybeSingle()
+
+            if (existing) {
+              // Don't overwrite fresh OSIRIS data with stale HCP data
+              const checkPhone = phone || existing.phone_number
+              if (checkPhone && await isOsirisActivelyEngaged(checkPhone)) {
+                console.log(`[OSIRIS] HCP ${event}: OSIRIS active for ${maskPhone(checkPhone)}, skipping data overwrite`)
+              } else if (Object.keys(updateFields).length > 0) {
+                await client.from("customers").update(updateFields).eq("id", existing.id)
+                console.log(`[OSIRIS] HCP ${event}: Updated customer ${existing.id} by HCP ID ${hcpCustId}`)
+              }
+              matched = true
+            }
+          }
+
+          // Fallback: no HCP ID match — upsert by phone (new customer or missing HCP ID)
+          if (!matched && phone) {
+            if (await isOsirisActivelyEngaged(phone)) {
+              console.log(`[OSIRIS] HCP ${event}: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
+            } else {
+              await client.from("customers").upsert(
+                { ...updateFields, phone_number: phone, tenant_id: tenant?.id, housecall_pro_customer_id: hcpCustId ? String(hcpCustId) : undefined },
+                { onConflict: "tenant_id,phone_number" }
+              )
+              console.log(`[OSIRIS] HCP ${event}: Upserted customer by phone ${maskPhone(phone)}${hcpCustId ? ` (HCP ID: ${hcpCustId})` : ''}`)
+            }
+          } else if (!matched && !phone) {
+            console.warn(`[OSIRIS] HCP ${event}: No phone and no HCP ID match — cannot process customer`)
           }
         }
         break
@@ -598,10 +622,11 @@ export async function POST(request: NextRequest) {
           }
 
           // Upsert customer now (only for non-deduped leads so stale HCP data doesn't overwrite OSIRIS state)
+          const leadHcpCustId = lead?.customer?.id || customer?.id || (data as any)?.customer?.id
           const { data: customerRecord } = await client
             .from("customers")
             .upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: leadHcpCustId ? String(leadHcpCustId) : undefined },
               { onConflict: "tenant_id,phone_number" }
             )
             .select("id")
