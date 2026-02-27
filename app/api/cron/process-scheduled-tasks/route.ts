@@ -240,6 +240,30 @@ async function processLeadFollowup(
     return
   }
 
+  // Skip if lead has already been converted to a job (even if status wasn't updated)
+  if (lead.converted_to_job_id) {
+    console.log(`[lead-followup] Lead ${leadId} already converted to job ${lead.converted_to_job_id}, skipping follow-up`)
+    return
+  }
+
+  // Skip if this phone number already has an active job for the tenant
+  // (catches cases where a different lead for the same customer was booked)
+  if (leadPhone && tenant?.id) {
+    const { data: customerWithActiveJob } = await client
+      .from('customers')
+      .select('id, jobs!inner(id, status)')
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', leadPhone)
+      .in('jobs.status', ['pending', 'scheduled', 'in_progress'])
+      .limit(1)
+      .maybeSingle()
+
+    if (customerWithActiveJob) {
+      console.log(`[lead-followup] Phone ${leadPhone} already has an active job for tenant ${tenant.slug}, skipping follow-up for lead ${leadId}`)
+      return
+    }
+  }
+
   // Skip if auto-followup is paused for this lead
   // Use parseFormData to handle both string and object form_data
   const formData = parseFormData(lead.form_data)

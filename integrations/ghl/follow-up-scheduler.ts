@@ -105,6 +105,16 @@ export async function processFollowUp(
       return { success: true, action: 'skipped_inactive_lead' }
     }
 
+    // Skip if lead has already been converted to a job
+    if (lead.converted_to_job_id) {
+      await updateGHLFollowUp(followUp.id!, {
+        status: 'cancelled',
+        error_message: `Lead already converted to job ${lead.converted_to_job_id}`,
+        executed_at: new Date().toISOString(),
+      })
+      return { success: true, action: 'skipped_converted_lead' }
+    }
+
     // Resolve tenant from lead's brand slug
     const tenant = lead.brand ? await getTenantBySlug(lead.brand) : null
 
@@ -590,6 +600,26 @@ export async function triggerVAPIOutboundCall(
     // Normalize phone number to E.164 format (+1XXXXXXXXXX)
     const digits = lead.phone_number.replace(/\D/g, '')
     const e164 = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : digits.startsWith('+') ? lead.phone_number : `+${digits}`
+
+    // Safety net: skip outbound calls to numbers that already have an active job
+    try {
+      const { getSupabaseServiceClient } = await import('@/lib/supabase')
+      const svc = getSupabaseServiceClient()
+      const { data: customerWithActiveJob } = await svc
+        .from('customers')
+        .select('id, jobs!inner(id, status)')
+        .eq('phone_number', e164)
+        .in('jobs.status', ['pending', 'scheduled', 'in_progress'])
+        .limit(1)
+        .maybeSingle()
+
+      if (customerWithActiveJob) {
+        console.log(`[${tenantSlug}] Blocking GHL outbound call — active job exists for ${e164} (customer ${customerWithActiveJob.id})`)
+        return { success: false, error: 'Customer already has an active job — outbound call blocked' }
+      }
+    } catch (err) {
+      console.warn(`[${tenantSlug}] Active-job safety check failed, proceeding with call:`, err)
+    }
 
     const response = await fetch('https://api.vapi.ai/call', {
       method: 'POST',

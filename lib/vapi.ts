@@ -619,6 +619,29 @@ export async function initiateOutboundCall(
       return { success: false, error: 'Invalid phone number format' }
     }
 
+    // Safety net: skip outbound calls to numbers that already have an active job
+    // This prevents calling customers who are already booked/assigned regardless of lead status
+    try {
+      const { getSupabaseServiceClient } = await import('./supabase')
+      const svc = getSupabaseServiceClient()
+      const { data: customerWithActiveJob } = await svc
+        .from('customers')
+        .select('id, jobs!inner(id, status)')
+        .eq('tenant_id', tenant.id)
+        .eq('phone_number', normalizedPhone)
+        .in('jobs.status', ['pending', 'scheduled', 'in_progress'])
+        .limit(1)
+        .maybeSingle()
+
+      if (customerWithActiveJob) {
+        console.log(`[${tenant.slug}] Blocking outbound call — active job exists for ${normalizedPhone} (customer ${customerWithActiveJob.id})`)
+        return { success: false, error: 'Customer already has an active job — outbound call blocked' }
+      }
+    } catch (err) {
+      // Don't block the call if the safety check itself fails — log and continue
+      console.warn(`[${tenant.slug}] Active-job safety check failed, proceeding with call:`, err)
+    }
+
     // Build metadata from context
     const metadata: Record<string, string> = {
       tenantId: tenant.id,

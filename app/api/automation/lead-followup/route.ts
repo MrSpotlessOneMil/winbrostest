@@ -75,6 +75,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, skipped: true, reason: `Lead ${lead.status}` })
   }
 
+  // Skip if lead has already been converted to a job (even if status wasn't updated to 'booked')
+  if (lead.converted_to_job_id) {
+    console.log(`[lead-followup] Lead ${leadId} already converted to job ${lead.converted_to_job_id}, skipping`)
+    return NextResponse.json({ success: true, skipped: true, reason: "Lead already converted to job" })
+  }
+
   // Resolve tenant from DB-sourced tenant_id (preferred) with brand slug fallback
   const leadTenantId = (lead as unknown as { tenant_id?: string }).tenant_id
   const tenant = leadTenantId
