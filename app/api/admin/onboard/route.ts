@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
+import Stripe from "stripe"
 import {
   getWorkflowConfigForFlowType,
   getBaseUrl,
@@ -39,6 +40,7 @@ interface OnboardResult {
     save_credentials: StepStatus
     test_connections: Record<string, StepStatus>
     register_webhooks: Record<string, StepStatus>
+    verify_webhooks: Record<string, StepStatus>
   }
 }
 
@@ -81,6 +83,7 @@ export async function POST(request: NextRequest) {
     wave_business_id,
     wave_income_account_id,
     ghl_location_id,
+    custom_credentials,
   } = body
 
   if (!name || !slug) {
@@ -101,6 +104,7 @@ export async function POST(request: NextRequest) {
       save_credentials: { status: "skipped", message: "" },
       test_connections: {},
       register_webhooks: {},
+      verify_webhooks: {},
     },
   }
 
@@ -254,6 +258,9 @@ export async function POST(request: NextRequest) {
   if (wave_business_id) credentials.wave_business_id = wave_business_id
   if (wave_income_account_id) credentials.wave_income_account_id = wave_income_account_id
   if (ghl_location_id) credentials.ghl_location_id = ghl_location_id
+  if (custom_credentials && typeof custom_credentials === "object" && Object.keys(custom_credentials).length > 0) {
+    credentials.custom_credentials = custom_credentials
+  }
 
   if (Object.keys(credentials).length > 0) {
     try {
@@ -391,6 +398,85 @@ export async function POST(request: NextRequest) {
       if (telegram_bot_token) result.steps.register_webhooks.telegram = { status: "skipped", message: msg }
       if (stripe_secret_key) result.steps.register_webhooks.stripe = { status: "skipped", message: msg }
       if (openphone_api_key) result.steps.register_webhooks.openphone = { status: "skipped", message: msg }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Step 8: Verify webhooks are actually live (parallel)
+  // -------------------------------------------------------------------------
+
+  if (baseUrl) {
+    const verifications: Array<{ key: string; fn: () => Promise<StepStatus> }> = []
+
+    if (telegram_bot_token && result.steps.register_webhooks.telegram?.status === "success") {
+      const expectedUrl = `${baseUrl}/api/webhooks/telegram/${slug}`
+      verifications.push({
+        key: "telegram",
+        fn: async () => {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 10_000)
+          const res = await fetch(`https://api.telegram.org/bot${telegram_bot_token}/getWebhookInfo`, { signal: controller.signal })
+          clearTimeout(timeout)
+          const data = await res.json()
+          if (data.ok && data.result?.url === expectedUrl) {
+            return { status: "success", message: "Verified — webhook active" }
+          }
+          return { status: "failed", message: data.result?.url ? `Points to: ${data.result.url}` : "Not configured" }
+        },
+      })
+    }
+
+    if (stripe_secret_key && result.steps.register_webhooks.stripe?.status === "success") {
+      const expectedUrl = `${baseUrl}/api/webhooks/stripe`
+      verifications.push({
+        key: "stripe",
+        fn: async () => {
+          const stripe = new Stripe(stripe_secret_key, { apiVersion: "2025-02-24.acacia" as any })
+          const endpoints = await stripe.webhookEndpoints.list({ limit: 100 })
+          const match = endpoints.data.find((wh) => wh.url === expectedUrl)
+          if (match && match.status === "enabled") {
+            return { status: "success", message: `Verified — ${match.enabled_events?.length || 0} events` }
+          }
+          return { status: "failed", message: match ? `Status: ${match.status}` : "Webhook not found" }
+        },
+      })
+    }
+
+    if (openphone_api_key && result.steps.register_webhooks.openphone?.status === "success") {
+      const expectedUrl = `${baseUrl}/api/webhooks/openphone`
+      verifications.push({
+        key: "openphone",
+        fn: async () => {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 10_000)
+          const res = await fetch("https://api.openphone.com/v1/webhooks", {
+            headers: { Authorization: openphone_api_key },
+            signal: controller.signal,
+          })
+          clearTimeout(timeout)
+          if (!res.ok) return { status: "failed", message: `API returned ${res.status}` }
+          const data = await res.json()
+          const match = (data.data || []).find((wh: any) => wh.url === expectedUrl)
+          if (match) return { status: "success", message: "Verified — webhook active" }
+          return { status: "failed", message: "Webhook not found after registration" }
+        },
+      })
+    }
+
+    if (verifications.length > 0) {
+      const vResults = await Promise.allSettled(verifications.map((v) => v.fn()))
+      for (let i = 0; i < verifications.length; i++) {
+        const key = verifications[i].key
+        const settled = vResults[i]
+        if (settled.status === "fulfilled") {
+          result.steps.verify_webhooks[key] = settled.value
+        } else {
+          result.steps.verify_webhooks[key] = {
+            status: "failed",
+            message: settled.reason?.message || "Verification failed",
+          }
+        }
+      }
     }
   }
 

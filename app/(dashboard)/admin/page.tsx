@@ -203,6 +203,7 @@ export default function AdminPage() {
   const [wizardTesting, setWizardTesting] = useState<string | null>(null)
   const [wizardTestResults, setWizardTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
   const [showExtraServices, setShowExtraServices] = useState(false)
+  const [customServices, setCustomServices] = useState<Array<{ name: string; fields: Array<{ key: string; value: string }> }>>([])
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -338,6 +339,7 @@ export default function AdminPage() {
     setWizardTesting(null)
     setWizardTestResults({})
     setShowExtraServices(false)
+    setCustomServices([])
   }
 
   async function testAllConnectionsDirect() {
@@ -409,6 +411,20 @@ export default function AdminPage() {
       const payload: Record<string, any> = {}
       for (const [k, v] of Object.entries(onboardForm)) {
         if (v !== "") payload[k] = v
+      }
+      // Include custom services as custom_credentials
+      if (customServices.length > 0) {
+        const cc: Record<string, Record<string, string>> = {}
+        for (const svc of customServices) {
+          if (svc.name.trim()) {
+            const fields: Record<string, string> = {}
+            for (const f of svc.fields) {
+              if (f.key.trim() && f.value.trim()) fields[f.key.trim()] = f.value.trim()
+            }
+            if (Object.keys(fields).length > 0) cc[svc.name.trim()] = fields
+          }
+        }
+        if (Object.keys(cc).length > 0) payload.custom_credentials = cc
       }
       const res = await fetch("/api/admin/onboard", {
         method: "POST",
@@ -2734,8 +2750,8 @@ export default function AdminPage() {
       {/* Onboarding Wizard */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-          <Card className="w-full max-w-2xl mx-4">
-            <CardHeader>
+          <Card className="w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col">
+            <CardHeader className="shrink-0">
               <div className="flex items-center justify-between">
                 <CardTitle>
                   {onboardStep === 0 && "Step 1: Business Info"}
@@ -2753,7 +2769,7 @@ export default function AdminPage() {
                 ))}
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-4 overflow-y-auto">
               {/* STEP 0 — Business Info */}
               {onboardStep === 0 && (
                 <>
@@ -2884,17 +2900,19 @@ export default function AdminPage() {
                   <div className="border rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">OpenPhone</Label>
+                      <a href="https://app.openphone.com/settings/api-keys" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      {wizardTestResults.openphone && (
+                        <span className={`text-xs ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.openphone.message}
+                        </span>
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
                         disabled={!onboardForm.openphone_api_key || !onboardForm.openphone_phone_id || !!wizardTesting}
                         onClick={() => testConnectionDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id })}
                       >
                         {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
-                      {wizardTestResults.openphone && (
-                        <span className={`text-xs ${wizardTestResults.openphone.success ? "text-green-600" : "text-red-600"}`}>
-                          {wizardTestResults.openphone.message}
-                        </span>
-                      )}
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
@@ -2907,17 +2925,19 @@ export default function AdminPage() {
                   <div className="border rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Telegram</Label>
+                      <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">BotFather</a>
+                      <div className="flex-1" />
+                      {wizardTestResults.telegram && (
+                        <span className={`text-xs ${wizardTestResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.telegram.message}
+                        </span>
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
                         disabled={!onboardForm.telegram_bot_token || !!wizardTesting}
                         onClick={() => testConnectionDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token })}
                       >
                         {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
-                      {wizardTestResults.telegram && (
-                        <span className={`text-xs ${wizardTestResults.telegram.success ? "text-green-600" : "text-red-600"}`}>
-                          {wizardTestResults.telegram.message}
-                        </span>
-                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
@@ -2929,17 +2949,19 @@ export default function AdminPage() {
                   <div className="border rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Stripe</Label>
+                      <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      {wizardTestResults.stripe && (
+                        <span className={`text-xs ${wizardTestResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.stripe.message}
+                        </span>
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
                         disabled={!onboardForm.stripe_secret_key || !!wizardTesting}
                         onClick={() => testConnectionDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
                       >
                         {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
-                      {wizardTestResults.stripe && (
-                        <span className={`text-xs ${wizardTestResults.stripe.success ? "text-green-600" : "text-red-600"}`}>
-                          {wizardTestResults.stripe.message}
-                        </span>
-                      )}
                     </div>
                     <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
                   </div>
@@ -2948,17 +2970,19 @@ export default function AdminPage() {
                   <div className="border rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">VAPI</Label>
+                      <a href="https://dashboard.vapi.ai" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      {wizardTestResults.vapi && (
+                        <span className={`text-xs ${wizardTestResults.vapi.success ? "text-green-600" : "text-red-600"}`}>
+                          {wizardTestResults.vapi.message}
+                        </span>
+                      )}
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
                         disabled={!onboardForm.vapi_api_key || !onboardForm.vapi_assistant_id || !!wizardTesting}
                         onClick={() => testConnectionDirect("vapi", { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id })}
                       >
                         {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
-                      {wizardTestResults.vapi && (
-                        <span className={`text-xs ${wizardTestResults.vapi.success ? "text-green-600" : "text-red-600"}`}>
-                          {wizardTestResults.vapi.message}
-                        </span>
-                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-1.5">
                       <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
@@ -2966,6 +2990,7 @@ export default function AdminPage() {
                       <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
                       <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
                     </div>
+                    <p className="text-xs text-muted-foreground mt-1">VAPI Server URL must be set manually in VAPI dashboard to: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/vapi</code></p>
                   </div>
 
                   {/* Additional Services — expandable */}
@@ -2975,8 +3000,8 @@ export default function AdminPage() {
                     onClick={() => setShowExtraServices(!showExtraServices)}
                   >
                     <span className={`transition-transform ${showExtraServices ? "rotate-90" : ""}`}>&#9654;</span>
-                    Additional Services (HousecallPro, Wave, GHL)
-                    {(onboardForm.housecall_pro_api_key || onboardForm.wave_api_token || onboardForm.ghl_location_id) && (
+                    Additional Services
+                    {(onboardForm.housecall_pro_api_key || onboardForm.wave_api_token || onboardForm.ghl_location_id || customServices.length > 0) && (
                       <Badge variant="secondary" className="ml-1 text-xs h-4">configured</Badge>
                     )}
                   </button>
@@ -2984,27 +3009,39 @@ export default function AdminPage() {
                     <div className="space-y-2 pl-2 border-l-2 border-muted">
                       {/* HousecallPro */}
                       <div className="border rounded-lg p-2">
-                        <Label className="font-semibold text-sm mb-1.5 block">HousecallPro</Label>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">HousecallPro</Label>
+                          <a href="https://pro.housecallpro.com/pro/settings/integrations" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
+                          <span className="text-xs text-orange-500">Manual webhook setup required</span>
+                        </div>
                         <div className="grid grid-cols-2 gap-1.5">
                           <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.housecall_pro_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_api_key: e.target.value })} />
                           <Input className="h-8 text-sm" placeholder="Company ID" value={onboardForm.housecall_pro_company_id} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_company_id: e.target.value })} />
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                          <p className="font-medium">Manual webhook setup:</p>
+                          <p>1. Go to HCP Settings &gt; Integrations &gt; Webhooks</p>
+                          <p>2. Add webhook URL: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/housecall-pro</code></p>
+                          <p>3. Enable events: job.scheduled, job.completed, estimate.scheduled</p>
                         </div>
                       </div>
                       {/* Wave */}
                       <div className="border rounded-lg p-2">
                         <div className="flex items-center gap-2 mb-1.5">
                           <Label className="font-semibold text-sm">Wave Accounting</Label>
+                          <a href="https://my.waveapps.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                          <div className="flex-1" />
+                          {wizardTestResults.wave && (
+                            <span className={`text-xs ${wizardTestResults.wave.success ? "text-green-600" : "text-red-600"}`}>
+                              {wizardTestResults.wave.message}
+                            </span>
+                          )}
                           <Button size="sm" variant="outline" className="h-6 px-2 text-xs"
                             disabled={!onboardForm.wave_api_token || !onboardForm.wave_business_id || !!wizardTesting}
                             onClick={() => testConnectionDirect("wave", { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id })}
                           >
                             {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                           </Button>
-                          {wizardTestResults.wave && (
-                            <span className={`text-xs ${wizardTestResults.wave.success ? "text-green-600" : "text-red-600"}`}>
-                              {wizardTestResults.wave.message}
-                            </span>
-                          )}
                         </div>
                         <div className="grid grid-cols-3 gap-1.5">
                           <Input className="h-8 text-sm" placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
@@ -3014,9 +3051,80 @@ export default function AdminPage() {
                       </div>
                       {/* GHL */}
                       <div className="border rounded-lg p-2">
-                        <Label className="font-semibold text-sm mb-1.5 block">GHL (GoHighLevel)</Label>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">GHL (GoHighLevel)</Label>
+                          <a href="https://app.gohighlevel.com/settings" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
+                          <span className="text-xs text-orange-500">Manual webhook setup required</span>
+                        </div>
                         <Input className="h-8 text-sm" placeholder="Location ID" value={onboardForm.ghl_location_id} onChange={(e) => setOnboardForm({ ...onboardForm, ghl_location_id: e.target.value })} />
+                        <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                          <p className="font-medium">Manual webhook setup:</p>
+                          <p>1. Go to GHL Settings &gt; Webhooks</p>
+                          <p>2. Add webhook URL: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/ghl</code></p>
+                          <p>3. Enable: Contact Create, Contact Update, Opportunity Status Change</p>
+                        </div>
                       </div>
+
+                      {/* Custom Services */}
+                      {customServices.map((svc, si) => (
+                        <div key={si} className="border rounded-lg p-2">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Input className="h-7 text-sm font-semibold w-40" placeholder="Service Name" value={svc.name}
+                              onChange={(e) => {
+                                const updated = [...customServices]
+                                updated[si] = { ...svc, name: e.target.value }
+                                setCustomServices(updated)
+                              }}
+                            />
+                            <Button size="sm" variant="ghost" className="h-6 px-1 text-xs text-red-500"
+                              onClick={() => setCustomServices(customServices.filter((_, i) => i !== si))}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {svc.fields.map((f, fi) => (
+                            <div key={fi} className="grid grid-cols-[1fr_1fr_auto] gap-1.5 mb-1">
+                              <Input className="h-7 text-xs" placeholder="Key (e.g. api_key)" value={f.key}
+                                onChange={(e) => {
+                                  const updated = [...customServices]
+                                  updated[si].fields[fi] = { ...f, key: e.target.value }
+                                  setCustomServices(updated)
+                                }}
+                              />
+                              <Input className="h-7 text-xs" placeholder="Value" value={f.value}
+                                onChange={(e) => {
+                                  const updated = [...customServices]
+                                  updated[si].fields[fi] = { ...f, value: e.target.value }
+                                  setCustomServices(updated)
+                                }}
+                              />
+                              <Button size="sm" variant="ghost" className="h-7 px-1"
+                                onClick={() => {
+                                  const updated = [...customServices]
+                                  updated[si].fields = svc.fields.filter((_, i) => i !== fi)
+                                  setCustomServices(updated)
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button size="sm" variant="ghost" className="h-6 text-xs"
+                            onClick={() => {
+                              const updated = [...customServices]
+                              updated[si].fields = [...svc.fields, { key: "", value: "" }]
+                              setCustomServices(updated)
+                            }}
+                          >
+                            + Add Field
+                          </Button>
+                        </div>
+                      ))}
+                      <Button size="sm" variant="outline" className="w-full h-7 text-xs"
+                        onClick={() => setCustomServices([...customServices, { name: "", fields: [{ key: "", value: "" }] }])}
+                      >
+                        + Add Custom Service
+                      </Button>
                     </div>
                   )}
 
@@ -3072,6 +3180,7 @@ export default function AdminPage() {
                           <p>3. Save all credentials</p>
                           <p>4. Test all connections</p>
                           <p>5. Register webhooks (Telegram, Stripe, OpenPhone)</p>
+                          <p>6. Verify webhooks are live</p>
                         </div>
                       </div>
                       <div className="flex justify-between pt-4">
@@ -3135,6 +3244,22 @@ export default function AdminPage() {
                                   <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                                 ) : step.status === "skipped" ? (
                                   <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+                                ) : (
+                                  <X className="h-4 w-4 text-red-500 shrink-0" />
+                                )}
+                                <span className="capitalize">{svc}</span>
+                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]">{step.message}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        {Object.keys(onboardResults.steps.verify_webhooks || {}).length > 0 && (
+                          <>
+                            <div className="border-t pt-2 mt-2 font-medium">Webhook Verification</div>
+                            {Object.entries(onboardResults.steps.verify_webhooks).map(([svc, step]: [string, any]) => (
+                              <div key={svc} className="flex items-center gap-2 pl-4">
+                                {step.status === "success" ? (
+                                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                                 ) : (
                                   <X className="h-4 w-4 text-red-500 shrink-0" />
                                 )}
