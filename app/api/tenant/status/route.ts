@@ -45,15 +45,6 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { user } = authResult
 
-  const { active } = await request.json()
-
-  if (typeof active !== "boolean") {
-    return NextResponse.json({
-      success: false,
-      error: "active (boolean) is required",
-    }, { status: 400 })
-  }
-
   if (!user.tenant_id) {
     return NextResponse.json({
       success: false,
@@ -61,12 +52,50 @@ export async function POST(request: NextRequest) {
     }, { status: 403 })
   }
 
+  const body = await request.json()
   const client = getSupabaseServiceClient()
 
-  // Update tenant active status
+  // Toggle sms_auto_response_enabled
+  if (typeof body.sms_auto_response_enabled === "boolean") {
+    const { data: tenant, error } = await client
+      .from("tenants")
+      .select("id, name, workflow_config")
+      .eq("id", user.tenant_id)
+      .single()
+
+    if (error || !tenant) {
+      return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
+    }
+
+    const wc = (tenant.workflow_config as Record<string, any>) || {}
+    wc.sms_auto_response_enabled = body.sms_auto_response_enabled
+
+    const { error: updateErr } = await client
+      .from("tenants")
+      .update({ workflow_config: wc, updated_at: new Date().toISOString() })
+      .eq("id", user.tenant_id)
+
+    if (updateErr) {
+      return NextResponse.json({ success: false, error: "Failed to update" }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      sms_auto_response_enabled: body.sms_auto_response_enabled,
+    })
+  }
+
+  // Toggle active status
+  if (typeof body.active !== "boolean") {
+    return NextResponse.json({
+      success: false,
+      error: "active (boolean) or sms_auto_response_enabled (boolean) is required",
+    }, { status: 400 })
+  }
+
   const { data: tenant, error } = await client
     .from("tenants")
-    .update({ active, updated_at: new Date().toISOString() })
+    .update({ active: body.active, updated_at: new Date().toISOString() })
     .eq("id", user.tenant_id)
     .select("id, name, active")
     .single()

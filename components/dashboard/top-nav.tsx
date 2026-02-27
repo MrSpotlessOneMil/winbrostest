@@ -1,6 +1,7 @@
 "use client"
 
-import { Search, PanelLeft, Menu } from "lucide-react"
+import { useState } from "react"
+import { Search, PanelLeft, Menu, MessageSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/auth-context"
 
@@ -10,7 +11,26 @@ interface TopNavProps {
 }
 
 export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
-  const { tenantStatus, isAdmin } = useAuth()
+  const { tenantStatus, isAdmin, refresh } = useAuth()
+  const [toggling, setToggling] = useState(false)
+
+  const smsOn = tenantStatus?.smsEnabled !== false
+
+  async function handleToggleSms() {
+    setToggling(true)
+    try {
+      await fetch("/api/tenant/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sms_auto_response_enabled: !smsOn }),
+      })
+      await refresh()
+    } catch {
+      // silently fail
+    } finally {
+      setToggling(false)
+    }
+  }
 
   // Determine status indicator
   const getStatus = () => {
@@ -82,7 +102,24 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {/* Auto-Texting Toggle — non-admin only */}
+        {!isAdmin && (
+          <button
+            onClick={handleToggleSms}
+            disabled={toggling}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              smsOn
+                ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                : "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+            } ${toggling ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            title={smsOn ? "Auto-texting is ON — click to disable" : "Auto-texting is OFF — click to enable"}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            {toggling ? "..." : smsOn ? "Auto-Text ON" : "Auto-Text OFF"}
+          </button>
+        )}
+
         {/* Status Indicator */}
         <div className={`hidden sm:flex items-center gap-2 rounded-lg ${colors.bg} px-3 py-1.5`}>
           <span className="relative flex h-2 w-2">
