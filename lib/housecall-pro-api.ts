@@ -720,7 +720,8 @@ export async function findOrCreateHCPCustomer(
     email: customerData.email || undefined,
     notifications_enabled: customerData.notificationsEnabled ?? true,
     tags: customerData.tags?.length ? customerData.tags : ['osiris'],
-    lead_source: customerData.leadSource || 'osiris',
+    // Note: lead_source must be a pre-configured value in HCP. Don't send it
+    // unless the tenant has a valid HCP lead source configured.
     company: customerData.company || undefined,
   }
 
@@ -778,7 +779,6 @@ export async function createHCPCustomerAlways(
     email: customerData.email || undefined,
     notifications_enabled: customerData.notificationsEnabled ?? true,
     tags: customerData.tags?.length ? customerData.tags : ['osiris'],
-    lead_source: customerData.leadSource || 'osiris',
     company: customerData.company || undefined,
   }
 
