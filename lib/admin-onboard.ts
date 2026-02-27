@@ -272,11 +272,12 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
       throw new Error(`OpenPhone ${config.path} webhook failed (${res.status}): ${errText}`)
     }
 
-    // Capture webhook secret from response (use first one — messages)
+    // Capture webhook signing key from response (use first one — messages)
+    // OpenPhone returns { data: { key: "..." } }
     if (!capturedSecret) {
       try {
         const body = await res.json()
-        capturedSecret = body.webhookSecret || body.webhook_secret || body.secret
+        capturedSecret = body.data?.key || body.key || body.webhookSecret || body.secret
       } catch {
         // Response may not be JSON — continue without secret
       }
