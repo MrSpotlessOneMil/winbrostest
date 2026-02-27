@@ -49,10 +49,17 @@ interface Job {
   service_type?: string
   address?: string
   date?: string
+  scheduled_at?: string
   price?: number
+  hours?: number
   status?: string
   paid?: boolean
   payment_status?: string
+  notes?: string
+  bedrooms?: number
+  bathrooms?: number
+  sqft?: number
+  frequency?: string
   created_at: string
 }
 
@@ -124,6 +131,8 @@ export default function CustomersPage() {
   const [copied, setCopied] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [savingCustomer, setSavingCustomer] = useState(false)
+  const [editingJob, setEditingJob] = useState<Job | null>(null)
+  const [savingJob, setSavingJob] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -370,6 +379,43 @@ export default function CustomersPage() {
       alert("Failed to update customer")
     } finally {
       setSavingCustomer(false)
+    }
+  }
+
+  // Handle save job edits
+  const handleSaveJob = async () => {
+    if (!editingJob) return
+    setSavingJob(true)
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingJob.id,
+          service_type: editingJob.service_type || "",
+          address: editingJob.address || "",
+          date: editingJob.date || "",
+          scheduled_at: editingJob.scheduled_at || "",
+          price: editingJob.price != null ? Number(editingJob.price) : undefined,
+          hours: editingJob.hours != null ? Number(editingJob.hours) : undefined,
+          status: editingJob.status || "",
+          notes: editingJob.notes || "",
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // The jobs PATCH returns the full row — update local state
+        const updated = json.data
+        setJobs((prev) => prev.map((j) => (j.id === updated.id ? { ...j, ...updated } : j)))
+        setEditingJob(null)
+      } else {
+        alert(json.error || "Failed to update job")
+      }
+    } catch (error) {
+      console.error("Failed to update job:", error)
+      alert("Failed to update job")
+    } finally {
+      setSavingJob(false)
     }
   }
 
@@ -929,6 +975,13 @@ export default function CustomersPage() {
                                   <span className="text-sm font-semibold text-zinc-200">
                                     ${job.price || 0}
                                   </span>
+                                  <button
+                                    onClick={() => setEditingJob({ ...job })}
+                                    className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                                    title="Edit job"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               </div>
                             ))}
@@ -1035,6 +1088,127 @@ export default function CustomersPage() {
                 className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
               >
                 {savingCustomer ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Job Modal */}
+      {editingJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingJob(null)}>
+          <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">Edit Job</h3>
+              <button onClick={() => setEditingJob(null)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Service Type</label>
+                  <input
+                    type="text"
+                    value={editingJob.service_type || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, service_type: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="Window cleaning"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Status</label>
+                  <select
+                    value={editingJob.status || "scheduled"}
+                    onChange={(e) => setEditingJob({ ...editingJob, status: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={editingJob.date || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, date: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editingJob.scheduled_at || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, scheduled_at: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Price ($)</label>
+                  <input
+                    type="number"
+                    value={editingJob.price ?? ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, price: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Hours</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editingJob.hours ?? ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, hours: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="2"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={editingJob.address || ""}
+                  onChange={(e) => setEditingJob({ ...editingJob, address: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="123 Main St, City, ST 12345"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                <textarea
+                  value={editingJob.notes || ""}
+                  onChange={(e) => setEditingJob({ ...editingJob, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
+                  placeholder="Job notes..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button
+                onClick={() => setEditingJob(null)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveJob}
+                disabled={savingJob}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {savingJob ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </div>

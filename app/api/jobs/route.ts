@@ -173,6 +173,11 @@ export async function PATCH(request: NextRequest) {
     if (date !== undefined) updates.date = date
     if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
     if (hours !== undefined) updates.hours = hours
+    if (body.service_type !== undefined) updates.service_type = body.service_type
+    if (body.address !== undefined) updates.address = body.address
+    if (body.price !== undefined) updates.price = body.price
+    if (body.status !== undefined) updates.status = body.status
+    if (body.notes !== undefined) updates.notes = body.notes
 
     // Handle cleaner reassignment
     const { cleaner_id } = body
