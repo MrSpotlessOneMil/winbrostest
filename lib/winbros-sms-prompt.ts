@@ -476,20 +476,33 @@ export function buildOwnerEscalationMessage(
     `Reason:\n${reasonLines}`,
   ]
 
-  // Format full conversation transcript
+  const footer = `Please reach out to this customer to continue the conversation.`
+
+  // Format conversation transcript, truncating to fit OpenPhone's 1600 char SMS limit
+  const headerText = parts.join('\n')
+  const overhead = headerText.length + footer.length + 60 // delimiters + newlines
+  const maxTranscriptLen = Math.max(200, 1600 - overhead)
+
   if (Array.isArray(conversationHistory) && conversationHistory.length > 0) {
-    const transcript = conversationHistory
+    let transcript = conversationHistory
       .map(m => {
         const label = m.role === 'client' ? 'Customer' : 'Mary (Bot)'
         return `${label}: ${m.content}`
       })
       .join('\n\n')
-    parts.push(`--- Full Conversation ---\n${transcript}\n--- End ---`)
+    if (transcript.length > maxTranscriptLen) {
+      transcript = transcript.slice(0, maxTranscriptLen - 15) + '\n...(truncated)'
+    }
+    parts.push(`--- Conversation ---\n${transcript}\n--- End ---`)
   } else if (typeof conversationHistory === 'string' && conversationHistory) {
-    parts.push(`Context: ${conversationHistory}`)
+    let ctx = conversationHistory
+    if (ctx.length > maxTranscriptLen) {
+      ctx = ctx.slice(0, maxTranscriptLen - 15) + '...(truncated)'
+    }
+    parts.push(`Context: ${ctx}`)
   }
 
-  parts.push(`Please reach out to this customer to continue the conversation.`)
+  parts.push(footer)
 
   return parts.join('\n')
 }
