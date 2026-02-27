@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2, Trash2, Copy, Check } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -121,6 +121,8 @@ export default function CustomersPage() {
   const [deletingCustomer, setDeletingCustomer] = useState(false)
   const deletingRef = useRef(false) // ref to skip polling during delete
   const [copied, setCopied] = useState(false)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  const [savingCustomer, setSavingCustomer] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -331,6 +333,42 @@ export default function CustomersPage() {
     } finally {
       setDeletingCustomer(false)
       deletingRef.current = false
+    }
+  }
+
+  // Handle save customer edits
+  const handleSaveCustomer = async () => {
+    if (!editingCustomer) return
+    setSavingCustomer(true)
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingCustomer.id,
+          first_name: editingCustomer.first_name || "",
+          last_name: editingCustomer.last_name || "",
+          email: editingCustomer.email || "",
+          phone_number: editingCustomer.phone_number,
+          address: editingCustomer.address || "",
+          notes: editingCustomer.notes || "",
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local state
+        const updated = json.data
+        setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+        setSelectedCustomer(updated)
+        setEditingCustomer(null)
+      } else {
+        alert(json.error || "Failed to update customer")
+      }
+    } catch (error) {
+      console.error("Failed to update customer:", error)
+      alert("Failed to update customer")
+    } finally {
+      setSavingCustomer(false)
     }
   }
 
@@ -666,6 +704,15 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Edit Customer */}
+                      <button
+                        onClick={() => setEditingCustomer({ ...selectedCustomer })}
+                        className="p-1.5 rounded text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10 transition-colors"
+                        title="Edit customer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+
                       {/* Copy Transcript */}
                       <button
                         onClick={handleCopyTranscript}
@@ -856,6 +903,99 @@ export default function CustomersPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit Customer Modal */}
+      {editingCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingCustomer(null)}>
+          <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">Edit Customer</h3>
+              <button onClick={() => setEditingCustomer(null)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    value={editingCustomer.first_name || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, first_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="First name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    value={editingCustomer.last_name || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, last_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="Last name"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Phone</label>
+                <input
+                  type="text"
+                  value={editingCustomer.phone_number || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, phone_number: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="+1 (555) 123-4567"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editingCustomer.email || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="email@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={editingCustomer.address || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, address: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="123 Main St, City, ST 12345"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                <textarea
+                  value={editingCustomer.notes || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
+                  placeholder="Private notes..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button
+                onClick={() => setEditingCustomer(null)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCustomer}
+                disabled={savingCustomer}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {savingCustomer ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
