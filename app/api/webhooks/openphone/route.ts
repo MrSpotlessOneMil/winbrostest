@@ -5,7 +5,7 @@ import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
-import { scheduleLeadFollowUp } from "@/lib/scheduler"
+import { scheduleLeadFollowUp, scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
@@ -1534,25 +1534,38 @@ export async function POST(request: NextRequest) {
 
             const sendResult = await sendSMS(tenant!, phone, cleanedResponse)
 
-            if (sendResult.success) {
-              await client.from("messages").insert({
-                tenant_id: tenant?.id,
-                customer_id: customer.id,
-                phone_number: phone,
-                role: "assistant",
-                content: cleanedResponse,
-                direction: "outbound",
-                message_type: "sms",
-                ai_generated: true,
-                timestamp: new Date().toISOString(),
-                source: "openphone",
-                metadata: {
-                  auto_response: true,
-                  existing_lead_id: existingLead.id,
-                  reason: autoResponse.reason,
-                  combined_message: combinedMessage,
-                  openphone_message_id: sendResult.messageId,
-                },
+            // Store message in DB regardless of send success (preserves conversation context)
+            const { data: msgRow } = await client.from("messages").insert({
+              tenant_id: tenant?.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: cleanedResponse,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: true,
+              status: sendResult.success ? "sent" : "failed",
+              timestamp: new Date().toISOString(),
+              source: "openphone",
+              metadata: {
+                auto_response: true,
+                existing_lead_id: existingLead.id,
+                reason: autoResponse.reason,
+                combined_message: combinedMessage,
+                openphone_message_id: sendResult.messageId,
+                ...(sendResult.success ? {} : { send_error: sendResult.error }),
+              },
+            }).select("id").single()
+            if (!sendResult.success) {
+              console.error(`[OpenPhone] Failed to send auto-response to existing lead:`, sendResult.error)
+              // Schedule a retry in 60 seconds
+              await scheduleTask({
+                tenantId: tenant?.id,
+                taskType: 'sms_retry',
+                taskKey: `sms-retry-${phone}-${Date.now()}`,
+                scheduledFor: new Date(Date.now() + 60_000),
+                payload: { phone, message: cleanedResponse, messageId: msgRow?.id },
+                maxAttempts: 2,
               })
             }
           } else {
@@ -2143,11 +2156,41 @@ export async function POST(request: NextRequest) {
           }
         } else {
           console.error(`[OpenPhone] Failed to send auto-response:`, sendResult.error)
+          // Store the failed message so conversation context is preserved for future AI interactions
+          const { data: failedMsg } = await client.from("messages").insert({
+            tenant_id: tenant?.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: autoResponse.response,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: true,
+            status: "failed",
+            timestamp: new Date().toISOString(),
+            source: "openphone",
+            metadata: {
+              auto_response: true,
+              reason: autoResponse.reason,
+              intent_analysis: intentResult,
+              combined_message: combinedMessage,
+              send_error: sendResult.error,
+            },
+          }).select("id").single()
+          // Schedule a retry in 60 seconds via scheduled_tasks cron
+          await scheduleTask({
+            tenantId: tenant?.id,
+            taskType: 'sms_retry',
+            taskKey: `sms-retry-${phone}-${Date.now()}`,
+            scheduledFor: new Date(Date.now() + 60_000),
+            payload: { phone, message: autoResponse.response, messageId: failedMsg?.id },
+            maxAttempts: 2,
+          })
           await logSystemEvent({
             tenant_id: tenant?.id,
             source: "openphone",
             event_type: "AUTO_RESPONSE_SEND_FAILED",
-            message: `Auto-response SMS send failed for ${phone}: ${sendResult.error || 'unknown'}`,
+            message: `Auto-response SMS send failed for ${phone}: ${sendResult.error || 'unknown'} — retry scheduled`,
             phone_number: phone,
             metadata: { error: sendResult.error, response_preview: autoResponse.response?.slice(0, 100) },
           })

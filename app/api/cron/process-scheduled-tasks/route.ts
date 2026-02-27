@@ -156,6 +156,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processJobReminder(payload, tenant)
       break
 
+    case 'sms_retry':
+      await processSmsRetry(payload, tenant)
+      break
+
     default:
       console.warn(`[process-scheduled-tasks] Unknown task type: ${task_type}`)
   }
@@ -599,6 +603,40 @@ async function processJobReminder(
 
   // This would send a Telegram notification to the cleaner
   // Implementation depends on having cleaner info loaded
+}
+
+/**
+ * Retry a failed SMS send.
+ * Payload: { phone, message, messageId? }
+ */
+async function processSmsRetry(
+  payload: Record<string, unknown>,
+  tenant: any
+) {
+  const phone = String(payload.phone || '')
+  const message = String(payload.message || '')
+  const messageId = payload.messageId as number | undefined
+
+  if (!phone || !message) {
+    console.warn('[sms-retry] Missing phone or message in payload')
+    return
+  }
+
+  console.log(`[sms-retry] Retrying SMS to ${phone.slice(-4)} for tenant ${tenant?.slug}`)
+
+  const result = await sendSMS(tenant, phone, message)
+
+  if (result.success && messageId) {
+    // Update the stored failed message to sent status
+    const client = getSupabaseServiceClient()
+    await client
+      .from('messages')
+      .update({ status: 'sent', metadata: { retried: true, retry_message_id: result.messageId } })
+      .eq('id', messageId)
+    console.log(`[sms-retry] Successfully sent retry SMS to ${phone.slice(-4)}`)
+  } else if (!result.success) {
+    console.error(`[sms-retry] Retry failed for ${phone.slice(-4)}: ${result.error}`)
+  }
 }
 
 // POST method for compatibility

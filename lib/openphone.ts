@@ -66,7 +66,7 @@ export async function sendSMS(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
-        const delayMs = attempt * 1500
+        const delayMs = attempt === 1 ? 3000 : 8000
         console.log(`[${tenant.slug}] Retrying SMS send (attempt ${attempt + 1}/${maxRetries + 1}) after ${delayMs}ms...`)
         await new Promise((r) => setTimeout(r, delayMs))
       }
