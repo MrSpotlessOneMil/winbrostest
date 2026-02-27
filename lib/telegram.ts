@@ -19,12 +19,18 @@ export async function logTelegramMessage(opts: {
   content: string
   source: string
   messageId?: number
+  tenantId?: string
 }) {
   try {
     const { getSupabaseServiceClient } = await import('./supabase')
-    const { getDefaultTenant: getTenant } = await import('./tenant')
-    const tenant = await getTenant()
-    if (!tenant) return
+
+    let tenantId = opts.tenantId
+    if (!tenantId) {
+      const { getDefaultTenant: getTenant } = await import('./tenant')
+      const tenant = await getTenant()
+      if (!tenant) return
+      tenantId = tenant.id
+    }
 
     const client = getSupabaseServiceClient()
 
@@ -32,7 +38,7 @@ export async function logTelegramMessage(opts: {
     const { data: cleaner } = await client
       .from('cleaners')
       .select('phone')
-      .eq('tenant_id', tenant.id)
+      .eq('tenant_id', tenantId)
       .eq('telegram_id', opts.telegramChatId)
       .limit(1)
       .maybeSingle()
@@ -43,7 +49,7 @@ export async function logTelegramMessage(opts: {
     const phone = rawPhone ? toE164(rawPhone) || rawPhone : null
 
     await client.from('messages').insert({
-      tenant_id: tenant.id,
+      tenant_id: tenantId,
       phone_number: phone,
       direction: opts.direction,
       message_type: 'sms',
@@ -146,10 +152,12 @@ export async function sendTelegramMessage(
   let parseMode: 'HTML' | 'Markdown' = 'HTML'
   let markup: InlineKeyboardMarkup | undefined
 
-  // Detect calling pattern
+  // Detect calling pattern — capture tenantId for logging
+  let tenantId: string | undefined
   if (typeof tenantOrChatId === 'object' && 'telegram_bot_token' in tenantOrChatId) {
     // New pattern: sendTelegramMessage(tenant, chatId, text, parseMode?, replyMarkup?)
     botToken = tenantOrChatId.telegram_bot_token
+    tenantId = (tenantOrChatId as Tenant & { id: string }).id
     chatId = chatIdOrText
     text = textOrParseMode || ''
     parseMode = (parseModeOrMarkup as 'HTML' | 'Markdown') || 'HTML'
@@ -227,6 +235,7 @@ export async function sendTelegramMessage(
       content: text,
       source: 'telegram_bot',
       messageId: data.result?.message_id,
+      tenantId,
     }).catch(() => {})
 
     return {
