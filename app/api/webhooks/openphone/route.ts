@@ -1125,6 +1125,295 @@ export async function POST(request: NextRequest) {
   }
 
   // ============================================
+  // STAGE 1.5: ASSIGNED LEAD — Post-booking corrections & questions
+  // Customer already has a booking assigned (salesman dispatched / cleaner confirmed).
+  // Handle info corrections (address, name, time), questions about their appointment,
+  // and general conversation. Do NOT re-trigger booking flow or create a new lead.
+  // ============================================
+  if (smsEnabled && tenant?.id) {
+    const { data: assignedLeads } = await client
+      .from("leads")
+      .select("id, status, form_data, converted_to_job_id, source")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant.id)
+      .in("status", ["assigned", "scheduled"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    const assignedLead = assignedLeads?.[0] ?? null
+
+    if (assignedLead) {
+      console.log(`[OpenPhone] Assigned lead ${assignedLead.id} found for ${maskPhone(phone)}, handling post-booking message`)
+
+      // Update last contact time
+      await client
+        .from("leads")
+        .update({ last_contact_at: new Date().toISOString() })
+        .eq("id", assignedLead.id)
+
+      // Check if auto-response is paused for this lead
+      const assignedFormData = parseFormData(assignedLead.form_data)
+      if (assignedFormData.followup_paused === true) {
+        console.log(`[OpenPhone] Auto-response paused for assigned lead ${assignedLead.id}, skipping`)
+        return NextResponse.json({ success: true, autoResponsePaused: true, leadId: assignedLead.id })
+      }
+
+      // Load the linked job
+      let assignedJob: any = null
+      if (assignedLead.converted_to_job_id) {
+        const { data: jobData } = await client
+          .from("jobs")
+          .select("*")
+          .eq("id", assignedLead.converted_to_job_id)
+          .maybeSingle()
+        assignedJob = jobData
+      }
+
+      // Fallback: find most recent scheduled/in_progress job for this phone
+      if (!assignedJob) {
+        const { data: recentJob } = await client
+          .from("jobs")
+          .select("*")
+          .eq("phone_number", phone)
+          .eq("tenant_id", tenant.id)
+          .in("status", ["scheduled", "in_progress"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        assignedJob = recentJob
+      }
+
+      // Load customer context for AI (active bookings, service history)
+      let postBookingCtx = null
+      try {
+        postBookingCtx = await loadCustomerContext(client, tenant.id, phone, customer?.id)
+      } catch (err) {
+        console.error('[OpenPhone] Failed to load customer context for assigned lead:', err)
+      }
+
+      // Build known customer info for the AI
+      const knownInfo: KnownCustomerInfo = {
+        firstName: customer.first_name || null,
+        lastName: customer.last_name || null,
+        address: customer.address || assignedJob?.address || null,
+        email: customer.email || null,
+        phone: phone,
+        source: assignedLead.source || null,
+      }
+
+      // Generate AI response with full booking context
+      const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
+      const autoResponse = await generateAutoResponse(
+        combinedMessage,
+        quickIntent,
+        tenant,
+        conversationHistory,
+        knownInfo,
+        { isReturningCustomer: false, customerContext: postBookingCtx }
+      )
+
+      // Send AI response (strip [BOOKING_COMPLETE] — never re-trigger for assigned leads)
+      if (autoResponse.shouldSend && autoResponse.response) {
+        const cleanedResponse = autoResponse.response
+          .replace(/\[BOOKING_COMPLETE\]/gi, '')
+          .replace(/\[BOOKING_COMPLETE:[^\]]*\]/gi, '')
+          .trim()
+
+        if (cleanedResponse) {
+          const sendResult = await sendSMS(tenant, phone, cleanedResponse)
+          if (sendResult.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: cleanedResponse,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: true,
+              timestamp: new Date().toISOString(),
+              source: "openphone",
+              metadata: {
+                auto_response: true,
+                assigned_lead_id: assignedLead.id,
+                job_id: assignedJob?.id || null,
+                reason: "post_booking_assigned",
+              },
+            })
+          }
+        }
+      }
+
+      // Extract corrections from conversation (address, name, email, date/time)
+      try {
+        const isWindowCleaningTenant = tenantUsesFeature(tenant, 'use_hcp_mirror')
+        let correctedData: any = {}
+
+        if (isWindowCleaningTenant) {
+          const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+          correctedData = await extractBookingData(conversationHistory)
+        } else {
+          const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
+          correctedData = await extractHouseCleaningBookingData(conversationHistory)
+        }
+
+        // Build update payloads only for fields that changed
+        const customerUpdates: Record<string, string | null> = {}
+        if (correctedData.firstName && correctedData.firstName !== customer.first_name) {
+          customerUpdates.first_name = correctedData.firstName
+        }
+        if (correctedData.lastName && correctedData.lastName !== customer.last_name) {
+          customerUpdates.last_name = correctedData.lastName
+        }
+        if (correctedData.address && correctedData.address !== customer.address) {
+          customerUpdates.address = correctedData.address
+        }
+        if (correctedData.email && correctedData.email !== customer.email) {
+          customerUpdates.email = correctedData.email
+        }
+
+        // Update customer record
+        if (Object.keys(customerUpdates).length > 0) {
+          await client.from("customers").update(customerUpdates).eq("id", customer.id)
+          console.log(`[OpenPhone] Updated customer ${customer.id} with corrections:`, Object.keys(customerUpdates))
+        }
+
+        // Update job record (address, date, time)
+        if (assignedJob) {
+          const jobUpdates: Record<string, string | null> = {}
+          if (correctedData.address && correctedData.address !== assignedJob.address) {
+            jobUpdates.address = correctedData.address
+          }
+          if (correctedData.preferredDate && correctedData.preferredDate !== assignedJob.date) {
+            jobUpdates.date = correctedData.preferredDate
+          }
+          if (correctedData.preferredTime && correctedData.preferredTime !== assignedJob.scheduled_at) {
+            jobUpdates.scheduled_at = correctedData.preferredTime
+          }
+
+          if (Object.keys(jobUpdates).length > 0) {
+            await client.from("jobs").update(jobUpdates).eq("id", assignedJob.id)
+            console.log(`[OpenPhone] Updated job ${assignedJob.id} with corrections:`, Object.keys(jobUpdates))
+          }
+
+          // Sync corrections to HCP (customer + job)
+          const hasCustomerChanges = Object.keys(customerUpdates).length > 0
+          const hasJobChanges = Object.keys(jobUpdates).length > 0
+          if (hasCustomerChanges || hasJobChanges) {
+            try {
+              if (hasCustomerChanges) {
+                await syncCustomerToHCP({
+                  tenantId: tenant.id,
+                  customerId: customer.id,
+                  phone,
+                  firstName: correctedData.firstName || customer.first_name,
+                  lastName: correctedData.lastName || customer.last_name,
+                  email: correctedData.email || customer.email,
+                  address: correctedData.address || customer.address,
+                })
+              }
+              if (hasJobChanges) {
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: assignedJob.id,
+                  phone,
+                  firstName: correctedData.firstName || customer.first_name,
+                  lastName: correctedData.lastName || customer.last_name,
+                  email: correctedData.email || customer.email,
+                  address: correctedData.address || assignedJob.address,
+                  serviceType: assignedJob.service_type,
+                  scheduledDate: correctedData.preferredDate || assignedJob.date,
+                  scheduledTime: correctedData.preferredTime || assignedJob.scheduled_at,
+                  price: assignedJob.price,
+                  notes: assignedJob.notes,
+                  source: 'sms_correction',
+                })
+              }
+              console.log(`[OpenPhone] Synced corrections to HCP for job ${assignedJob.id}`)
+            } catch (syncErr) {
+              console.error(`[OpenPhone] HCP sync failed for corrections:`, syncErr)
+            }
+          }
+        }
+      } catch (extractErr) {
+        console.error("[OpenPhone] Error extracting corrections for assigned lead:", extractErr)
+      }
+
+      // Handle escalation if AI flagged it (cancel requests, complaints)
+      if (autoResponse.escalation?.shouldEscalate && tenant.owner_phone) {
+        try {
+          const recentEscCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+          const { data: recentEsc } = await client
+            .from("system_events")
+            .select("id")
+            .eq("event_type", "LEAD_ESCALATED")
+            .eq("phone_number", phone)
+            .gte("created_at", recentEscCutoff)
+            .limit(1)
+
+          if (!recentEsc || recentEsc.length === 0) {
+            const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+            const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+              || extractNameFromConversation(conversationHistory)
+              || "Unknown"
+            const fullTranscript = [
+              ...conversationHistory,
+              { role: 'assistant' as const, content: autoResponse.response || '' },
+            ]
+            const ownerMsg = buildOwnerEscalationMessage(
+              phone,
+              customerName,
+              autoResponse.escalation.reasons,
+              fullTranscript
+            )
+            await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+
+            await logSystemEvent({
+              tenant_id: tenant.id,
+              source: "openphone",
+              event_type: "LEAD_ESCALATED",
+              message: `Assigned lead ${assignedLead.id} escalated: ${autoResponse.escalation.reasons.join(", ")}`,
+              phone_number: phone,
+              metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id, reasons: autoResponse.escalation.reasons },
+            })
+
+            await client
+              .from("leads")
+              .update({
+                status: "escalated",
+                form_data: {
+                  ...assignedFormData,
+                  followup_paused: true,
+                  escalation_reasons: autoResponse.escalation.reasons,
+                  previous_status: "assigned",
+                },
+              })
+              .eq("id", assignedLead.id)
+          }
+        } catch (escErr) {
+          console.error("[OpenPhone] Failed to send escalation for assigned lead:", escErr)
+        }
+      }
+
+      await logSystemEvent({
+        tenant_id: tenant.id,
+        source: "openphone",
+        event_type: "POST_BOOKING_MESSAGE_HANDLED",
+        message: `Post-booking message handled for assigned lead ${assignedLead.id}`,
+        phone_number: phone,
+        metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id },
+      })
+
+      return NextResponse.json({
+        success: true,
+        flow: "assigned_lead_post_booking",
+        leadId: assignedLead.id,
+        jobId: assignedJob?.id || null,
+      })
+    }
+  }
+
+  // ============================================
   // LOAD CUSTOMER CONTEXT for AI situation awareness
   // Active jobs, service history, profile — so the AI knows who's texting
   // ============================================
