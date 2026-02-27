@@ -469,9 +469,15 @@ export default function AdminPage() {
         body: JSON.stringify(payload),
       })
       const json = await res.json()
-      setOnboardResults(json.result)
       if (json.success && json.result?.tenantId) {
+        // Success — navigate directly to the new tenant
         await fetchTenants()
+        selectTenant(json.result.tenantId)
+        setShowAddModal(false)
+        resetOnboardWizard()
+      } else {
+        // Failed — show results so admin can see what went wrong
+        setOnboardResults(json.result)
       }
     } catch (e: any) {
       setError(e.message || "Onboarding failed")
@@ -2957,7 +2963,7 @@ export default function AdminPage() {
                         {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.openphone && (
-                        <span title={wizardTestResults.openphone.message}>
+                        <span className="inline-flex cursor-help" title={wizardTestResults.openphone.message}>
                           {wizardTestResults.openphone.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -2970,7 +2976,7 @@ export default function AdminPage() {
                         {wizardRegistering === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.openphone && (
-                        <span title={wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message}>
+                        <span className="inline-flex cursor-help" title={wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message}>
                           {wizardRegisterResults.openphone.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -2997,7 +3003,7 @@ export default function AdminPage() {
                         {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.telegram && (
-                        <span title={wizardTestResults.telegram.message}>
+                        <span className="inline-flex cursor-help" title={wizardTestResults.telegram.message}>
                           {wizardTestResults.telegram.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3010,7 +3016,7 @@ export default function AdminPage() {
                         {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.telegram && (
-                        <span title={wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message}>
+                        <span className="inline-flex cursor-help" title={wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message}>
                           {wizardRegisterResults.telegram.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3036,7 +3042,7 @@ export default function AdminPage() {
                         {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.stripe && (
-                        <span title={wizardTestResults.stripe.message}>
+                        <span className="inline-flex cursor-help" title={wizardTestResults.stripe.message}>
                           {wizardTestResults.stripe.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3049,7 +3055,7 @@ export default function AdminPage() {
                         {wizardRegistering === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
                       </Button>
                       {wizardRegisterResults.stripe && (
-                        <span title={wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message}>
+                        <span className="inline-flex cursor-help" title={wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message}>
                           {wizardRegisterResults.stripe.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3072,7 +3078,7 @@ export default function AdminPage() {
                         {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                       </Button>
                       {wizardTestResults.vapi && (
-                        <span title={wizardTestResults.vapi.message}>
+                        <span className="inline-flex cursor-help" title={wizardTestResults.vapi.message}>
                           {wizardTestResults.vapi.success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3133,7 +3139,7 @@ export default function AdminPage() {
                             {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
                           </Button>
                           {wizardTestResults.wave && (
-                            <span title={wizardTestResults.wave.message}>
+                            <span className="inline-flex cursor-help" title={wizardTestResults.wave.message}>
                               {wizardTestResults.wave.success
                                 ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                                 : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -3298,7 +3304,7 @@ export default function AdminPage() {
                               ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
                               : <X className="h-4 w-4 text-red-500 shrink-0" />}
                             <span className="capitalize">{svc}</span>
-                            <span className="text-muted-foreground ml-auto truncate max-w-[300px]" title={result.message}>{result.message}</span>
+                            <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={result.message}>{result.message}</span>
                           </div>
                         ))}
                       </div>
@@ -3319,7 +3325,7 @@ export default function AdminPage() {
                       </div>
                     )}
 
-                    {/* Pipeline results — shown after creation */}
+                    {/* Pipeline results — only shown on failure (success auto-navigates) */}
                     {onboardResults && (
                       <div className="border-t pt-3 mt-3 space-y-2 text-sm">
                         {/* Core steps */}
@@ -3337,7 +3343,7 @@ export default function AdminPage() {
                                 <X className="h-4 w-4 text-red-500 shrink-0" />
                               )}
                               <span className="font-medium">{label}</span>
-                              <span className="text-muted-foreground ml-auto truncate max-w-[300px]" title={step.message}>{step.message}</span>
+                              <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
                             </div>
                           )
                         })}
@@ -3353,7 +3359,7 @@ export default function AdminPage() {
                                   <X className="h-4 w-4 text-red-500 shrink-0" />
                                 )}
                                 <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]" title={step.message}>{step.message}</span>
+                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
                               </div>
                             ))}
                           </>
@@ -3372,7 +3378,7 @@ export default function AdminPage() {
                                   <X className="h-4 w-4 text-red-500 shrink-0" />
                                 )}
                                 <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]" title={step.message}>{step.message}</span>
+                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
                               </div>
                             ))}
                           </>
@@ -3388,7 +3394,7 @@ export default function AdminPage() {
                                   <X className="h-4 w-4 text-red-500 shrink-0" />
                                 )}
                                 <span className="capitalize">{svc}</span>
-                                <span className="text-muted-foreground ml-auto truncate max-w-[300px]" title={step.message}>{step.message}</span>
+                                <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
                               </div>
                             ))}
                           </>
@@ -3402,23 +3408,15 @@ export default function AdminPage() {
                         onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
                         Back
                       </Button>
-                      {!onboardResults ? (
-                        <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
-                          {onboarding ? (
-                            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
-                          ) : (
-                            "Create Tenant"
-                          )}
-                        </Button>
-                      ) : onboardResults.tenantId ? (
-                        <Button onClick={() => {
-                          selectTenant(onboardResults.tenantId)
-                          setShowAddModal(false)
-                          resetOnboardWizard()
-                        }}>
-                          Go to Tenant
-                        </Button>
-                      ) : null}
+                      <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
+                        {onboarding ? (
+                          <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
+                        ) : onboardResults ? (
+                          "Retry"
+                        ) : (
+                          "Create Tenant"
+                        )}
+                      </Button>
                     </div>
                   </>
                 )
