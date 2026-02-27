@@ -399,7 +399,7 @@ function buildInvoiceSummaryLines(job: Job, customer: Customer): string[] {
   return lines
 }
 
-function buildStaticCleaningDescription(job: Job, customer: Customer): string {
+export function buildStaticCleaningDescription(job: Job, customer: Customer): string {
   const tier = resolveCleaningTier(job.service_type)
   const propertyLine = buildPropertyLine(job, customer)
 
@@ -523,7 +523,7 @@ function buildStaticCleaningDescription(job: Job, customer: Customer): string {
   return lines.join('\n')
 }
 
-function buildPropertyLine(job: Job, customer: Customer): string | null {
+export function buildPropertyLine(job: Job, customer: Customer): string | null {
   const bedrooms = resolveNumber(customer.bedrooms, job.bedrooms)
   const bathrooms = resolveNumber(customer.bathrooms, job.bathrooms)
   const squareFootage = resolveNumber(customer.square_footage, job.square_footage)

@@ -2059,42 +2059,100 @@ async function sendDepositPaymentFlow(params: {
     return { success: false }
   }
 
-  // 1. Create invoice (routes to Stripe or Wave based on tenant config)
-  try {
-    const { createInvoice } = await import("@/lib/invoices")
-    const invoiceResult = await createInvoice(
-      { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { ...customer, email } as any,
-      tenant
-    )
+  // 1. Send booking confirmation (Stripe tenants get SMS summary; Wave tenants get invoice link)
+  const wc = tenant.workflow_config
+  const isStripeOnly = wc?.use_stripe && !wc?.use_wave
 
-    if (invoiceResult.success && invoiceResult.invoiceUrl) {
-      invoiceUrl = invoiceResult.invoiceUrl
+  if (isStripeOnly) {
+    // Stripe-only tenants: send informational booking confirmation SMS
+    // (skip Stripe invoice — avoids confusing "Already Paid" status)
+    try {
+      const serviceLabel = job?.service_type || 'Cleaning Service'
+      const propertyParts: string[] = []
+      const bed = customer.bedrooms ?? job?.bedrooms
+      const bath = customer.bathrooms ?? job?.bathrooms
+      const sqft = customer.square_footage ?? job?.square_footage
+      if (bed) propertyParts.push(`${bed} bed`)
+      if (bath) propertyParts.push(`${bath} bath`)
+      if (sqft) propertyParts.push(`${Number(sqft).toLocaleString()} sqft`)
+      const propertyLine = propertyParts.length > 0 ? `\n${propertyParts.join(' / ')}` : ''
 
-      // Send invoice SMS
-      const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
-      const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
-      if (invoiceSms.success) {
+      const dateLine = job?.date
+        ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        : 'TBD'
+      const timeLine = job?.scheduled_at || ''
+      const dateTimeStr = timeLine ? `${dateLine} at ${timeLine}` : dateLine
+      const addressLine = job?.address || customer.address || ''
+
+      const confirmMsg = [
+        `Booking Confirmed!`,
+        ``,
+        serviceLabel,
+        propertyLine ? propertyLine.trim() : null,
+        dateTimeStr,
+        addressLine,
+        `Total: $${servicePrice.toFixed(2)}`,
+        ``,
+        `Full service details sent to your email. Deposit link coming next!`,
+      ].filter(line => line !== null).join('\n')
+
+      const confirmSms = await sendSMS(tenant as any, phone, confirmMsg)
+      if (confirmSms.success) {
         await client.from("messages").insert({
           tenant_id: tenant.id,
           customer_id: customer.id,
           phone_number: phone,
           role: "assistant",
-          content: invoiceMsg,
+          content: confirmMsg,
           direction: "outbound",
           message_type: "sms",
           ai_generated: false,
           timestamp: new Date().toISOString(),
           source: "invoice",
-          metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
+          metadata: { lead_id: leadId, job_id: jobId },
         })
       }
-      console.log(`[OpenPhone] invoice sent to ${maskPhone(phone)}`)
-    } else {
-      console.warn(`[OpenPhone] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
+      console.log(`[OpenPhone] Booking confirmation SMS sent to ${maskPhone(phone)}`)
+    } catch (confirmErr) {
+      console.error("[OpenPhone] Booking confirmation SMS error:", confirmErr)
     }
-  } catch (invoiceErr) {
-    console.error("[OpenPhone] Invoice error:", invoiceErr)
+  } else {
+    // Wave tenants: create proper invoice with rich description
+    try {
+      const { createInvoice } = await import("@/lib/invoices")
+      const invoiceResult = await createInvoice(
+        { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
+        { ...customer, email } as any,
+        tenant
+      )
+
+      if (invoiceResult.success && invoiceResult.invoiceUrl) {
+        invoiceUrl = invoiceResult.invoiceUrl
+
+        const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
+        const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
+        if (invoiceSms.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: invoiceMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "invoice",
+            metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
+          })
+        }
+        console.log(`[OpenPhone] Invoice sent to ${maskPhone(phone)}`)
+      } else {
+        console.warn(`[OpenPhone] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
+      }
+    } catch (invoiceErr) {
+      console.error("[OpenPhone] Invoice error:", invoiceErr)
+    }
   }
 
   // Small delay between invoice and deposit messages

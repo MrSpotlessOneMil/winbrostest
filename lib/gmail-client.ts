@@ -63,18 +63,38 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
 
   const timeStr = job.scheduled_at || 'TBD'
 
+  // Build service description for the email
+  let serviceDescriptionHtml = ''
+  try {
+    const { buildStaticCleaningDescription, buildPropertyLine } = await import('./invoices')
+    const desc = buildStaticCleaningDescription(job, customer)
+    if (desc) {
+      serviceDescriptionHtml = `<h3>What's Included:</h3><pre style="font-family: inherit; white-space: pre-wrap;">${desc}</pre>`
+    }
+  } catch {
+    // invoices module not available, skip
+  }
+
+  // Conditionally build invoice/payment section
+  const paymentSection = waveInvoiceUrl
+    ? `<p>To secure your booking, we've attached your invoice below. Please pay the 50% deposit to lock in your date. You can use the link sent below for debit/credit card payments.</p>
+       <p><strong>Invoice Link:</strong> <a href="${waveInvoiceUrl}">${waveInvoiceUrl}</a></p>
+       <p><strong>Credit/Debit Payment Info:</strong><br>
+       Stripe Link: <a href="${stripeDepositUrl}">${stripeDepositUrl}</a></p>`
+    : `<p>To secure your booking, please pay the 50% deposit to lock in your date:</p>
+       <p><strong>Pay Deposit:</strong> <a href="${stripeDepositUrl}">${stripeDepositUrl}</a></p>`
+
+  const businessName = params.tenant?.business_name_short || params.tenant?.name || 'Our Team'
+
   // Build email HTML
   const htmlBody = `
     <p>Congrats ${customer.first_name || 'there'}, we can confirm for ${dateStr} at ${timeStr}</p>
 
     <p>We're excited to get started and make your space feel refreshed and spotless. Your ${job.service_type || 'Cleaning'} is scheduled for ${job.address || customer.address || '[Address]'}. Our professional ${cleanerName ? `cleaner, ${cleanerName}` : 'team'}, will be arriving ready to work. Please allow an arrival window of 1 hour to account for any unforeseen circumstances.</p>
 
-    <p>To secure your booking, we've attached your invoice below. Please pay the 50% deposit to lock in your date. You can use the link sent below for debit/credit card payments.</p>
+    ${serviceDescriptionHtml}
 
-    ${waveInvoiceUrl ? `<p><strong>Invoice Link:</strong> <a href="${waveInvoiceUrl}">${waveInvoiceUrl}</a></p>` : ''}
-
-    <p><strong>Credit/Debit Payment Info:</strong><br>
-    Stripe Link: <a href="${stripeDepositUrl}">${stripeDepositUrl}</a></p>
+    ${paymentSection}
 
     <p>On the day of your cleaning, our professional team members will be arriving ready to work. We'll give you a 30 to 60-minute heads-up before finishing so we can do a final walkthrough together and make sure you're 100% happy with the results.</p>
 
@@ -83,7 +103,7 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     <p>Let me know if you have any questions — I'll be in touch every step of the way.</p>
 
     <p>Warm regards,<br>
-    Dominic: (424) 677-1146</p>
+    ${businessName}</p>
   `.trim()
 
   const businessName = params.tenant?.business_name_short || params.tenant?.name || undefined
