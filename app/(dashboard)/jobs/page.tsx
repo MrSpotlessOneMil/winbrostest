@@ -1388,18 +1388,56 @@ export default function JobsPage() {
                 <label className="cal-form-label">Service Type</label>
                 <select
                   className="cal-form-control"
-                  value={createForm.service_type}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                  }
+                  value={["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) ? createForm.service_type : "__custom__"}
+                  onChange={(e) => {
+                    if (e.target.value === "__custom__") {
+                      setCreateForm((prev) => ({ ...prev, service_type: "" }))
+                    } else {
+                      setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                    }
+                  }}
+                  style={!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru","__custom__"].includes(createForm.service_type) ? { display: "none" } : undefined}
                 >
-                  <option value="Standard cleaning">Standard Cleaning</option>
-                  <option value="Deep cleaning">Deep Cleaning</option>
-                  <option value="Move-in/move-out">Move-in/Move-out</option>
-                  <option value="Window cleaning">Window Cleaning</option>
-                  <option value="Pressure washing">Pressure Washing</option>
-                  <option value="Gutter cleaning">Gutter Cleaning</option>
+                  {isHouseCleaning ? (
+                    <>
+                      <option value="Standard cleaning">Standard Cleaning</option>
+                      <option value="Deep cleaning">Deep Cleaning</option>
+                      <option value="Move-in/move-out">Move-in/Move-out</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Window cleaning">Window Cleaning</option>
+                      <option value="Pressure washing">Pressure Washing</option>
+                      <option value="Gutter cleaning">Gutter Cleaning</option>
+                      <option value="Walkthru">Walkthru</option>
+                    </>
+                  )}
+                  <option value="__custom__">Other (type your own)</option>
                 </select>
+                {!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) && (
+                  <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
+                    <input
+                      type="text"
+                      className="cal-form-control"
+                      placeholder="Type service name..."
+                      autoFocus
+                      value={createForm.service_type}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="cal-form-control"
+                      style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
+                      onClick={() => setCreateForm((prev) => ({ ...prev, service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning" }))}
+                      title="Back to list"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

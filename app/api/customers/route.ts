@@ -17,7 +17,7 @@ export async function PATCH(request: NextRequest) {
   }
 
   // Whitelist updatable fields
-  const allowed = ["first_name", "last_name", "email", "phone_number", "address", "notes"]
+  const allowed = ["first_name", "last_name", "email", "phone_number", "address", "notes", "auto_response_paused"]
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (fields[key] !== undefined) {

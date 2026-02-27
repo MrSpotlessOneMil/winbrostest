@@ -293,6 +293,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
+  // Per-customer auto-response kill switch
+  if (customer?.auto_response_paused === true) {
+    console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — storing message, skipping AI`)
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "customer_paused" },
+    })
+    return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
+  }
+
   // Extract OpenPhone message ID for dedup (v3: data.object.id, v2: data.id, fallback: root id)
   const opMessageId: string | undefined =
     payload?.data?.object?.id || payload?.data?.id || payload?.id || undefined

@@ -27,6 +27,7 @@ interface Customer {
   email?: string
   address?: string
   notes?: string
+  auto_response_paused?: boolean
   created_at: string
   updated_at: string
 }
@@ -440,6 +441,51 @@ export default function CustomersPage() {
     }
   }
 
+  // Per-customer auto-response toggle (stored on customers table)
+  const handleToggleCustomerAutoResponse = async (customer: Customer) => {
+    const newPaused = !customer.auto_response_paused
+
+    // Optimistic update
+    setCustomers((prev) =>
+      prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: newPaused } : c)
+    )
+    if (selectedCustomer?.id === customer.id) {
+      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: newPaused } : prev)
+    }
+
+    // Also toggle lead followup_paused to stay in sync
+    const lead = getCustomerLead(customer.phone_number)
+    if (lead) {
+      handleToggleFollowup(newPaused)
+    }
+
+    try {
+      const res = await fetch(`/api/customers?id=${customer.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_response_paused: newPaused }),
+      })
+      const json = await res.json()
+      if (!json.success) {
+        // Rollback
+        setCustomers((prev) =>
+          prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+        )
+        if (selectedCustomer?.id === customer.id) {
+          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+        }
+      }
+    } catch {
+      // Rollback
+      setCustomers((prev) =>
+        prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+      )
+      if (selectedCustomer?.id === customer.id) {
+        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+      }
+    }
+  }
+
   const getCustomerTimeline = (customer: Customer): TimelineItem[] => {
     const items: TimelineItem[] = []
 
@@ -732,29 +778,27 @@ export default function CustomersPage() {
                         {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
 
-                      {/* Auto-Response Toggle */}
-                      {getCustomerLead(selectedCustomer.phone_number) && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-400">Auto-response</span>
-                          <button
-                            onClick={() => handleToggleFollowup(!isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)))}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                              isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
-                                ? "bg-zinc-600"
-                                : "bg-emerald-500"
+                      {/* Per-Customer Auto-Response Toggle */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-400">Auto-text</span>
+                        <button
+                          onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            selectedCustomer.auto_response_paused
+                              ? "bg-zinc-600"
+                              : "bg-emerald-500"
+                          }`}
+                          title={selectedCustomer.auto_response_paused ? "Enable auto-texting for this customer" : "Pause auto-texting for this customer"}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              selectedCustomer.auto_response_paused
+                                ? "translate-x-1"
+                                : "translate-x-[18px]"
                             }`}
-                            title={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)) ? "Enable auto-response" : "Pause auto-response"}
-                          >
-                            <span
-                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                                isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
-                                  ? "translate-x-1"
-                                  : "translate-x-[18px]"
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      )}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tab navigation */}
