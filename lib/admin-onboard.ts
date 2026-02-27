@@ -243,33 +243,36 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
     }
   }
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10_000)
-  const res = await fetch("https://api.openphone.com/v1/webhooks", {
-    method: "POST",
-    headers: {
-      Authorization: key,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url: webhookUrl,
-      events: [
-        "message.received",
-        "message.delivered",
-        "call.completed",
-        "call.ringing",
-      ],
-    }),
-    signal: controller.signal,
-  })
-  clearTimeout(timeout)
+  // OpenPhone requires separate webhook registrations per resource type
+  const webhookConfigs = [
+    { path: "messages", events: ["message.received", "message.delivered"] },
+    { path: "calls", events: ["call.completed", "call.ringing"] },
+  ]
 
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`OpenPhone API returned ${res.status}: ${errText}`)
+  for (const config of webhookConfigs) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(`https://api.openphone.com/v1/webhooks/${config.path}`, {
+      method: "POST",
+      headers: {
+        Authorization: key,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: webhookUrl,
+        events: config.events,
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`OpenPhone ${config.path} webhook failed (${res.status}): ${errText}`)
+    }
   }
 
-  return { ok: true, message: `OpenPhone webhook registered: ${webhookUrl}` }
+  return { ok: true, message: `OpenPhone webhooks registered: ${webhookUrl}` }
 }
 
 // ---------------------------------------------------------------------------
