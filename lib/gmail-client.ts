@@ -1,44 +1,53 @@
 import nodemailer from 'nodemailer'
 import type { Job, Customer } from './supabase'
 
+/**
+ * Resolve Gmail credentials: tenant-specific first, then env var fallback.
+ * Tenant object needs gmail_user + gmail_app_password columns.
+ */
+function getGmailCreds(tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }) {
+  // Tenant-specific creds take priority
+  if (tenant?.gmail_user && tenant?.gmail_app_password) {
+    return { user: tenant.gmail_user, pass: tenant.gmail_app_password }
+  }
+  // Fallback to global env vars
+  const user = process.env.GMAIL_USER
+  const pass = process.env.GMAIL_APP_PASSWORD
+  if (user && pass) return { user, pass }
+  return null
+}
+
+function createTransporter(creds: { user: string; pass: string }) {
+  return nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: creds.user, pass: creds.pass },
+  })
+}
+
 interface ConfirmationEmailParams {
   customer: Customer
   job: Job
   waveInvoiceUrl?: string
   stripeDepositUrl: string
   cleanerName?: string
+  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null }
 }
 
 export async function sendConfirmationEmail(params: ConfirmationEmailParams): Promise<{
   success: boolean
   error?: string
 }> {
-  const gmailUser = process.env.GMAIL_USER
-  const gmailPassword = process.env.GMAIL_APP_PASSWORD
-
-  if (!gmailUser || !gmailPassword) {
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
     console.error('Gmail credentials not configured')
-    return {
-      success: false,
-      error: 'Gmail credentials not configured'
-    }
+    return { success: false, error: 'Gmail credentials not configured' }
   }
 
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: gmailUser,
-      pass: gmailPassword,
-    },
-  })
-
+  const transporter = createTransporter(creds)
   const { customer, job, waveInvoiceUrl, stripeDepositUrl, cleanerName } = params
 
   if (!customer.email) {
-    return {
-      success: false,
-      error: 'Customer email is required'
-    }
+    return { success: false, error: 'Customer email is required' }
   }
 
   // Format date with day of week
@@ -77,21 +86,73 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     Dominic: (424) 677-1146</p>
   `.trim()
 
+  const businessName = params.tenant?.business_name_short || params.tenant?.name || undefined
+  const from = businessName
+    ? `"${businessName}" <${creds.user}>`
+    : creds.user
+
   try {
     await transporter.sendMail({
-      from: gmailUser,
+      from,
       to: customer.email,
       subject: `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`,
       html: htmlBody,
     })
 
-    console.log(`Confirmation email sent to ${customer.email}`)
+    console.log(`Confirmation email sent to ${customer.email} from ${creds.user}`)
     return { success: true }
   } catch (error) {
     console.error('Gmail send error:', error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
+    }
+  }
+}
+
+/**
+ * Send a custom email with plain text body (wrapped in simple HTML).
+ * Checks tenant Gmail creds first, falls back to env vars.
+ */
+export async function sendCustomEmail(params: {
+  to: string
+  subject: string
+  body: string
+  fromName?: string
+  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }
+}): Promise<{ success: boolean; error?: string }> {
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
+    console.error('Gmail credentials not configured')
+    return { success: false, error: 'Gmail credentials not configured' }
+  }
+
+  const transporter = createTransporter(creds)
+
+  const htmlBody = params.body
+    .split('\n')
+    .map(line => `<p>${line || '&nbsp;'}</p>`)
+    .join('\n')
+
+  const from = params.fromName
+    ? `"${params.fromName}" <${creds.user}>`
+    : creds.user
+
+  try {
+    await transporter.sendMail({
+      from,
+      to: params.to,
+      subject: params.subject,
+      html: htmlBody,
+    })
+
+    console.log(`Custom email sent to ${params.to} from ${creds.user}: "${params.subject}"`)
+    return { success: true }
+  } catch (error) {
+    console.error('Gmail send error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
     }
   }
 }

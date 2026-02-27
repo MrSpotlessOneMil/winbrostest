@@ -191,20 +191,21 @@ export async function createAndSendInvoice(
 
   try {
     const stripe = getStripeClientForTenant(stripeSecretKey)
-    const domain = getClientDomain()
+    const domain = await getTenantRedirectDomain((job as any).tenant_id)
 
     // Find or create Stripe customer (on the same Stripe account)
     const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
-    // Create invoice
+    // Create invoice as informational (no payment collection — customer pays via deposit link)
     const invoice = await stripe.invoices.create({
       customer: stripeCustomer.id,
       collection_method: 'send_invoice',
-      days_until_due: 7,
+      days_until_due: 30,
       metadata: {
         job_id: job.id || '',
         phone_number: job.phone_number,
         service_type: job.service_type || '',
+        informational: 'true',
       },
     })
 
@@ -218,11 +219,14 @@ export async function createAndSendInvoice(
       description,
     })
 
-    // Finalize and send the invoice
+    // Finalize the invoice to generate hosted page with details
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
-    await stripe.invoices.sendInvoice(finalizedInvoice.id)
 
-    console.log(`[Stripe] Invoice ${finalizedInvoice.id} sent to ${customer.email}`)
+    // Mark as paid out of band — removes the "Pay" button from the hosted page.
+    // Actual payment is collected via the separate deposit link (50% now, 50% later).
+    await stripe.invoices.pay(finalizedInvoice.id, { paid_out_of_band: true })
+
+    console.log(`[Stripe] Informational invoice ${finalizedInvoice.id} created for ${customer.email} (marked paid — deposit link handles payment)`)
 
     return {
       success: true,
@@ -245,7 +249,7 @@ function buildInvoiceDescription(job: Job): string {
   const parts = [job.service_type || 'Cleaning Service']
 
   if (job.date) {
-    const dateObj = new Date(job.date)
+    const dateObj = new Date(job.date + 'T12:00:00')
     const formattedDate = dateObj.toLocaleDateString('en-US', {
       weekday: 'long',
       month: 'long',
@@ -257,6 +261,29 @@ function buildInvoiceDescription(job: Job): string {
 
   if (job.scheduled_at) {
     parts.push(`at ${job.scheduled_at}`)
+  }
+
+  if (job.address) {
+    parts.push(`| Address: ${job.address}`)
+  }
+
+  if (job.notes) {
+    // Clean up internal override notes, keep customer-facing info
+    const cleanNotes = job.notes
+      .replace(/OVERRIDE:\s*\w+=\d+/g, '')
+      .replace(/\n+/g, ', ')
+      .trim()
+    if (cleanNotes) {
+      parts.push(`| Details: ${cleanNotes}`)
+    }
+  }
+
+  if (job.cleaners && job.cleaners > 1) {
+    parts.push(`| ${job.cleaners} cleaners`)
+  }
+
+  if (job.hours) {
+    parts.push(`| Est. ${job.hours}hrs`)
   }
 
   return parts.join(' ')

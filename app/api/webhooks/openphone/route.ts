@@ -808,6 +808,7 @@ export async function POST(request: NextRequest) {
                 customer: { ...customer, email: providedEmail },
                 job,
                 stripeDepositUrl: cardResult.url,
+                tenant: tenant as any,
               })
               console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(providedEmail)}`)
             } catch (emailErr) {
@@ -2148,6 +2149,7 @@ async function sendDepositPaymentFlow(params: {
       job: job || {} as any,
       waveInvoiceUrl: invoiceUrl,
       stripeDepositUrl: depositUrl || '',
+      tenant: tenant as any,
     })
     console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(email)}`)
   } catch (emailErr) {
