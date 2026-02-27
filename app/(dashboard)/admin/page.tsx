@@ -1803,15 +1803,15 @@ export default function AdminPage() {
                           {testingService === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
                           Test Connection
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("openphone")} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
-                          {registeringWebhook === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
-                          Register Webhook
-                        </Button>
                         {testResults["openphone"] && (
                           <span className="inline-flex cursor-pointer" title={testResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["openphone"].message)}>
                             {testResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("openphone")} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
+                          {registeringWebhook === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
                         {webhookResults["openphone"] && (
                           <span className="inline-flex cursor-pointer" title={webhookResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["openphone"].message)}>
                             {webhookResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -2009,15 +2009,15 @@ export default function AdminPage() {
                           {testingService === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
                           Test Connection
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("stripe")} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
-                          {registeringWebhook === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
-                          Register Webhook
-                        </Button>
                         {testResults["stripe"] && (
                           <span className="inline-flex cursor-pointer" title={testResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["stripe"].message)}>
                             {testResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("stripe")} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
+                          {registeringWebhook === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
                         {webhookResults["stripe"] && (
                           <span className="inline-flex cursor-pointer" title={webhookResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["stripe"].message)}>
                             {webhookResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
@@ -2279,15 +2279,15 @@ export default function AdminPage() {
                           {testingService === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
                           Test Connection
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("telegram")} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
-                          {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
-                          Register Webhook
-                        </Button>
                         {testResults["telegram"] && (
                           <span className="inline-flex cursor-pointer" title={testResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["telegram"].message)}>
                             {testResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
+                        <Button variant="outline" size="sm" onClick={() => registerWebhook("telegram")} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
+                          {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
                         {webhookResults["telegram"] && (
                           <span className="inline-flex cursor-pointer" title={webhookResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["telegram"].message)}>
                             {webhookResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
