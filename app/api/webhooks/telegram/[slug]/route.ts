@@ -267,27 +267,33 @@ async function handleAcceptCallback(
     const client = getSupabaseServiceClient()
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your acceptance...")
 
-    const assignment = await getCleanerAssignmentById(assignmentId)
-    if (!assignment) {
-      await sendMsg(chatId, "Sorry, this assignment could not be found.", tenant)
-      return NextResponse.json({ success: false, error: "Assignment not found" })
+    // Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
+    const { data: claimed, error: claimErr } = await client
+      .from('cleaner_assignments')
+      .update({
+        status: 'confirmed',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', assignmentId)
+      .eq('status', 'pending')  // atomic guard — only one concurrent request succeeds
+      .select('*')
+      .maybeSingle()
+
+    if (claimErr || !claimed) {
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendMsg(chatId, statusMsg, tenant)
+      return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
-    if (assignment.status !== "pending") {
-      await sendMsg(chatId, `This job has already been ${assignment.status}.`, tenant)
-      return NextResponse.json({ success: true })
-    }
+    const assignment = claimed
 
     const job = await getJobById(jobId)
     if (!job) {
       await sendMsg(chatId, "Sorry, this job could not be found.", tenant)
       return NextResponse.json({ success: false, error: "Job not found" })
-    }
-
-    const updatedAssignment = await updateCleanerAssignment(assignmentId, "confirmed")
-    if (!updatedAssignment) {
-      await sendMsg(chatId, "Failed to update assignment. Please try again.", tenant)
-      return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
     await updateJob(jobId, { cleaner_confirmed: true, status: 'scheduled', cleaner_id: assignment.cleaner_id } as Record<string, unknown>, {}, client)
@@ -439,16 +445,29 @@ async function handleDeclineCallback(
   try {
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your response...")
 
-    const assignment = await getCleanerAssignmentById(assignmentId)
-    if (!assignment) {
-      await sendMsg(chatId, "Sorry, this assignment could not be found.", tenant)
-      return NextResponse.json({ success: false, error: "Assignment not found" })
+    // Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
+    const client = getSupabaseServiceClient()
+    const { data: claimed, error: claimErr } = await client
+      .from('cleaner_assignments')
+      .update({
+        status: 'declined',
+        responded_at: new Date().toISOString(),
+      })
+      .eq('id', assignmentId)
+      .eq('status', 'pending')  // atomic guard
+      .select('*')
+      .maybeSingle()
+
+    if (claimErr || !claimed) {
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendMsg(chatId, statusMsg, tenant)
+      return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
-    if (assignment.status !== "pending") {
-      await sendMsg(chatId, `This job has already been ${assignment.status}.`, tenant)
-      return NextResponse.json({ success: true })
-    }
+    const assignment = claimed
 
     const job = await getJobById(jobId)
     if (!job) {
@@ -456,7 +475,6 @@ async function handleDeclineCallback(
       return NextResponse.json({ success: false, error: "Job not found" })
     }
 
-    await updateCleanerAssignment(assignmentId, "declined")
     await sendMsg(chatId, "No problem! We'll find another cleaner for this job.", tenant)
 
     // Check if this tenant uses broadcast mode
@@ -873,7 +891,7 @@ export async function POST(
 
     // Schedule query
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, tenant.id)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, tenant.id, tenant.timezone)
       await sendMsg(chatId, scheduleMsg, tenant)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
@@ -1070,13 +1088,13 @@ async function handleOnboardingStep(
   }
 }
 
-async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string, tenantId?: string): Promise<string> {
+async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string, tenantId?: string, tenantTimezone?: string): Promise<string> {
   if (!cleanerId) {
     return `Hi! You're not registered as a cleaner yet. Send "join" to get set up.`
   }
 
   const supabase = getSupabaseServiceClient()
-  const tz = 'America/Chicago'
+  const tz = tenantTimezone || 'America/Chicago'
   const nowLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz })
   const tomorrowLocal = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: tz })
 
@@ -1276,6 +1294,8 @@ STRICT RULES - NEVER VIOLATE:
 
     let messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }]
 
+    const aiAbort = new AbortController()
+    const aiTimeout = setTimeout(() => aiAbort.abort(), 15_000)
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 500,
@@ -1283,6 +1303,7 @@ STRICT RULES - NEVER VIOLATE:
       system: systemPrompt,
       tools: tools.length > 0 ? tools : undefined,
     })
+    clearTimeout(aiTimeout)
 
     // Process tool calls if any
     const toolUseBlocks = response.content.filter(b => b.type === "tool_use")
@@ -1363,6 +1384,8 @@ STRICT RULES - NEVER VIOLATE:
         { role: "user", content: toolResultContents }
       ]
 
+      const followAbort = new AbortController()
+      const followTimeout = setTimeout(() => followAbort.abort(), 15_000)
       const followUp = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 300,
@@ -1370,6 +1393,7 @@ STRICT RULES - NEVER VIOLATE:
         system: systemPrompt,
         tools,
       })
+      clearTimeout(followTimeout)
 
       const followUpText = followUp.content.find(b => b.type === "text")
       if (followUpText?.type === "text" && followUpText.text) {

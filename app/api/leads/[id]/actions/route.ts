@@ -251,13 +251,17 @@ export async function POST(
 
               // For stage 4 (double dial), schedule a second call in 30 seconds
               if (stage === 4) {
-                setTimeout(async () => {
-                  try {
-                    await initiateOutboundCall(leadPhone, leadName, { leadId })
-                  } catch (e) {
-                    console.error('[move_to_stage] Double dial second call failed:', e)
-                  }
-                }, 30000)
+                try {
+                  await scheduleTask({
+                    tenantId: tenant.id,
+                    taskType: 'lead_followup',
+                    taskKey: `lead-${leadId}-double-dial`,
+                    scheduledFor: new Date(Date.now() + 30_000),
+                    payload: { leadId, leadPhone, leadName, stage: 4, action: 'call', isDoubleDial: true },
+                  })
+                } catch (e) {
+                  console.error('[move_to_stage] Failed to schedule double dial:', e)
+                }
               }
             } catch (e) {
               actionResult = { success: false, message: 'Failed to initiate call' }
@@ -403,6 +407,7 @@ export async function POST(
           .select("id, scheduled_for")
           .eq("status", "pending")
           .eq("task_type", "lead_followup")
+          .eq("tenant_id", tenant.id)
           .like("task_key", `lead-${leadId}-stage-%`)
           .order("scheduled_for", { ascending: true })
 
@@ -417,6 +422,7 @@ export async function POST(
               .from("scheduled_tasks")
               .update({ scheduled_for: newTime.toISOString() })
               .eq("id", task.id)
+              .eq("tenant_id", tenant.id)
           }
 
           console.log(`[lead_actions] Rescheduled ${pendingTasks.length} task(s) for lead ${leadId} by +${Math.round(shift / 60000)}min`)

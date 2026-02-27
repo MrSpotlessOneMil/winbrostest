@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createHmac, timingSafeEqual } from "crypto"
 import type { HousecallProWebhookPayload, ApiResponse } from "@/lib/types"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       leadCustomer: lead?.customer ? 'present' : 'missing'
     })
 
-    const client = getSupabaseClient()
+    const client = getSupabaseServiceClient()
     const tenant = await getDefaultTenant()
 
     // Best-effort field extraction (HCP payload shapes vary by event)
@@ -354,18 +354,19 @@ export async function POST(request: NextRequest) {
 
       case "job.updated":
         console.log("[OSIRIS] Job updated in HCP, syncing to Supabase")
-        // Best effort update by job id if present
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId != null) {
+            let updateQuery = client
               .from("jobs")
               .update({
                 status: (data as any)?.job?.status || (data as any)?.status || null,
                 paid: Boolean((data as any)?.job?.paid || (data as any)?.paid),
                 address,
               })
-              .eq("id", Number(jobId))
+              .eq("housecall_pro_job_id", String(hcpJobId))
+            if (tenant?.id) updateQuery = updateQuery.eq("tenant_id", tenant.id)
+            await updateQuery
           }
         }
         break
@@ -382,7 +383,7 @@ export async function POST(request: NextRequest) {
             const { data: existingJob } = await client
               .from("jobs")
               .select("id")
-              .eq("hcp_job_id", String(hcpJobId))
+              .eq("housecall_pro_job_id", String(hcpJobId))
               .maybeSingle()
 
             if (existingJob) {
@@ -416,9 +417,11 @@ export async function POST(request: NextRequest) {
       case "job.cancelled":
         console.log("[OSIRIS] Job cancelled, sending notifications")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client.from("jobs").update({ status: "cancelled" }).eq("id", Number(jobId))
+          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId != null) {
+            let cancelQuery = client.from("jobs").update({ status: "cancelled" }).eq("housecall_pro_job_id", String(hcpJobId))
+            if (tenant?.id) cancelQuery = cancelQuery.eq("tenant_id", tenant.id)
+            await cancelQuery
           }
         }
         break
@@ -594,7 +597,8 @@ export async function POST(request: NextRequest) {
             if (tenant) {
               smsResult = await sendSMS(tenant, phone, initialMessage)
             } else {
-              smsResult = await sendSMS(phone, initialMessage)
+              console.warn("[OSIRIS] HCP Webhook: No tenant found, skipping SMS for lead")
+              smsResult = { success: false, error: "No tenant" }
             }
 
             if (smsResult.success) {
@@ -692,10 +696,12 @@ export async function POST(request: NextRequest) {
             }
 
             if (status) {
-              await client
+              let leadQuery = client
                 .from("leads")
                 .update({ status, form_data: data })
                 .eq("source_id", String(leadId))
+              if (tenant?.id) leadQuery = leadQuery.eq("tenant_id", tenant.id)
+              await leadQuery
             }
           }
         }

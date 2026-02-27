@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { normalizePhone, maskPhone, maskEmail } from "@/lib/phone-utils"
-import { getSupabaseClient } from "@/lib/supabase"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     const toPhone = normalizePhoneNumber(toE164)
 
     if (toPhone) {
-      const client = getSupabaseClient()
+      const client = getSupabaseServiceClient()
 
       // Route to correct tenant
       let tenant = await getTenantByPhoneNumber(extracted.from)
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ignored: true })
   }
 
-  const client = getSupabaseClient()
+  const client = getSupabaseServiceClient()
 
   // Log extracted data for debugging
   console.log(`[OpenPhone] Extracted message data: direction=${extracted.direction}, eventType=${extracted.eventType}`)
@@ -1910,7 +1910,7 @@ async function sendDepositPaymentFlow(params: {
   jobId: string | null,
   leadId: string,
   servicePrice: number | null,
-  client: ReturnType<typeof getSupabaseClient>,
+  client: ReturnType<typeof getSupabaseServiceClient>,
 }): Promise<{ success: boolean; invoiceUrl?: string; depositUrl?: string }> {
   const { tenant, phone, email, customer, job, jobId, leadId, client } = params
   let { servicePrice } = params

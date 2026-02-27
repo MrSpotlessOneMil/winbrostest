@@ -85,7 +85,7 @@ export function getBaseUrl(): string | null {
 // ---------------------------------------------------------------------------
 
 export async function testStripeConnection(key: string): Promise<StepResult> {
-  const stripe = new Stripe(key, { apiVersion: "2025-02-24.acacia" as any })
+  const stripe = new Stripe(key, { apiVersion: "2025-02-24.acacia" as any, timeout: 10_000 })
   const balance = await stripe.balance.retrieve()
   const balanceStr = balance.available
     .map((b: any) => `${(b.amount / 100).toFixed(2)} ${b.currency.toUpperCase()}`)

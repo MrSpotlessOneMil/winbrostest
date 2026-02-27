@@ -391,6 +391,7 @@ export function tenantUsesFeature(
     | 'use_review_request'
     | 'use_retargeting'
     | 'use_payment_collection'
+    | 'use_broadcast_assignment'
     | 'lead_followup_enabled'
     | 'post_cleaning_followup_enabled'
     | 'monthly_followup_enabled'

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { randomBytes } from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
 import Stripe from "stripe"
@@ -204,7 +205,7 @@ export async function POST(request: NextRequest) {
   // -------------------------------------------------------------------------
 
   try {
-    const userPassword = password || slug
+    const userPassword = password || randomBytes(12).toString('base64url')
     const { error: userError } = await client.rpc("create_user_with_password", {
       p_username: slug,
       p_password: userPassword,

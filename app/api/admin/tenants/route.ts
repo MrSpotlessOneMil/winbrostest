@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { randomBytes } from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
 
@@ -124,16 +125,34 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const enrichedTenants = (tenants || []).map((t: any) => ({
-    ...t,
-    cleaner_count: cleanerCountMap[t.id] || 0,
-    pricing_tier_count: pricingCountMap[t.id] || 0,
-    webhook_health: {
-      housecall_pro: webhookHealthMap[t.id]?.housecall_pro || null,
-      ghl: webhookHealthMap[t.id]?.ghl || null,
-      vapi: webhookHealthMap[t.id]?.vapi || null,
-    },
-  }))
+  // Mask secret values — show only last 4 chars
+  const SECRET_FIELDS = [
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+  ]
+  function maskSecret(val: string | null): string | null {
+    if (!val) return null
+    if (val.length <= 8) return '****'
+    return '****' + val.slice(-4)
+  }
+
+  const enrichedTenants = (tenants || []).map((t: any) => {
+    const masked = { ...t }
+    for (const field of SECRET_FIELDS) {
+      if (masked[field]) masked[field] = maskSecret(masked[field])
+    }
+    return {
+      ...masked,
+      cleaner_count: cleanerCountMap[t.id] || 0,
+      pricing_tier_count: pricingCountMap[t.id] || 0,
+      webhook_health: {
+        housecall_pro: webhookHealthMap[t.id]?.housecall_pro || null,
+        ghl: webhookHealthMap[t.id]?.ghl || null,
+        vapi: webhookHealthMap[t.id]?.vapi || null,
+      },
+    }
+  })
 
   return NextResponse.json({ success: true, data: enrichedTenants })
 }
@@ -240,7 +259,7 @@ export async function POST(request: NextRequest) {
 
   // Auto-create a login user for this tenant (username = slug)
   if (tenant) {
-    const userPassword = password || slug // Default password to slug if not provided
+    const userPassword = password || randomBytes(12).toString('base64url') // Generate random password if not provided
     const { error: userError } = await client.rpc("create_user_with_password", {
       p_username: slug,
       p_password: userPassword,
@@ -264,10 +283,38 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { tenantId, updates } = body
+  const { tenantId, updates: rawUpdates } = body
 
   if (!tenantId) {
     return NextResponse.json({ success: false, error: "tenantId is required" }, { status: 400 })
+  }
+
+  // Whitelist allowed fields to prevent injection of arbitrary columns
+  const ALLOWED_FIELDS = new Set([
+    'name', 'slug', 'email', 'business_name', 'business_name_short', 'service_area',
+    'sdr_persona', 'owner_phone', 'owner_email', 'google_review_link', 'timezone',
+    'openphone_api_key', 'openphone_phone_id', 'openphone_phone_number',
+    'openphone_webhook_secret',
+    'vapi_api_key', 'vapi_assistant_id', 'vapi_outbound_assistant_id', 'vapi_phone_id',
+    'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_company_id', 'housecall_pro_webhook_secret',
+    'ghl_location_id', 'ghl_webhook_secret',
+    'telegram_bot_token', 'owner_telegram_chat_id',
+    'wave_api_token', 'wave_business_id', 'wave_income_account_id',
+    'workflow_config', 'active',
+  ])
+  // Secret fields that are masked in GET — skip if the value looks masked
+  const SECRET_PATCH_FIELDS = new Set([
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+  ])
+  const updates: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rawUpdates || {})) {
+    if (!ALLOWED_FIELDS.has(key)) continue
+    // Skip masked values to prevent overwriting real secrets with "****xxxx"
+    if (SECRET_PATCH_FIELDS.has(key) && typeof value === 'string' && value.startsWith('****')) continue
+    updates[key] = value
   }
 
   const client = getAdminClient()
