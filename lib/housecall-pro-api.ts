@@ -993,12 +993,12 @@ export async function updateHCPJob(
     context: string
   ): Promise<boolean> => {
     const fallback = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: payload,
     })
 
     if (fallback.success) {
-      console.warn(`[HCP API] ${context} updated via PUT fallback for job ${jobId}`)
+      console.warn(`[HCP API] ${context} updated via PATCH fallback for job ${jobId}`)
       return true
     }
 
@@ -1093,7 +1093,7 @@ export async function updateHCPJob(
     if (jobData.description) patchBody.description = jobData.description
 
     const metadataPatch = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PUT',
+      method: 'PATCH',
       body: patchBody,
     })
 

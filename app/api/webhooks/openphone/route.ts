@@ -685,7 +685,7 @@ export async function POST(request: NextRequest) {
         // Move lead out of "booked" so subsequent messages don't re-trigger this flow
         await client
           .from("leads")
-          .update({ status: "confirmed" })
+          .update({ status: "assigned" })
           .eq("id", bookedLead.id)
 
         await logSystemEvent({
