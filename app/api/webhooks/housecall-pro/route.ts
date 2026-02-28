@@ -302,9 +302,45 @@ export async function POST(request: NextRequest) {
           console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${maskPhone(phone)}, type: ${jobType})`)
 
           // Backfill missing fields from HCP API (webhook payload is often minimal)
+          // Also log raw webhook + API payloads to system_events for debugging
+          await client.from("system_events").insert({
+            tenant_id: tenant?.id,
+            source: "housecall_pro",
+            event_type: "HCP_DEBUG_PAYLOAD",
+            message: `job.created webhook payload for HCP job ${hcpJobId}`,
+            metadata: {
+              webhook_job_keys: job ? Object.keys(job) : 'no job',
+              webhook_job_scheduled_start: (job as any)?.scheduled_start,
+              webhook_job_total_amount: (job as any)?.total_amount,
+              webhook_job_line_items: (job as any)?.line_items,
+              webhook_data_keys: data ? Object.keys(data) : 'no data',
+              scheduledDate,
+              scheduledTime,
+              lineItemName,
+            },
+          })
+
           if (hcpJobId && newHcpJob?.id) {
             try {
               const hcpJobResult = await getHCPJob(hcpJobId)
+
+              // Log the API result for debugging
+              await client.from("system_events").insert({
+                tenant_id: tenant?.id,
+                source: "housecall_pro",
+                event_type: "HCP_DEBUG_API_RESULT",
+                message: `getHCPJob(${hcpJobId}) result`,
+                metadata: {
+                  success: hcpJobResult.success,
+                  error: hcpJobResult.error || null,
+                  api_scheduled_start: hcpJobResult.data?.scheduled_start,
+                  api_total_amount: hcpJobResult.data?.total_amount,
+                  api_line_items: hcpJobResult.data?.line_items,
+                  api_work_status: hcpJobResult.data?.work_status,
+                  api_keys: hcpJobResult.data ? Object.keys(hcpJobResult.data) : 'no data',
+                },
+              })
+
               if (hcpJobResult.success && hcpJobResult.data) {
                 const fullJob = hcpJobResult.data
                 const backfill: Record<string, unknown> = {}
@@ -323,7 +359,6 @@ export async function POST(request: NextRequest) {
 
                 if (Object.keys(backfill).length > 0) {
                   await client.from("jobs").update(backfill).eq("id", newHcpJob.id)
-                  console.log(`[OSIRIS] HCP Webhook: Backfilled job ${newHcpJob.id} from API:`, Object.keys(backfill).join(', '))
                 }
               }
             } catch (apiErr) {
