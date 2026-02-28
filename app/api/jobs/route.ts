@@ -608,6 +608,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Generate recurring instances if frequency is not one-time
+    const freq = body.frequency || "one-time"
+    if (freq !== "one-time" && scheduledDate) {
+      generateRecurringInstances({
+        parentJobId: Number(row.id),
+        tenantId: tenant.id,
+        customerId,
+        phone,
+        address: body.address || undefined,
+        serviceType: body.service_type || "Standard cleaning",
+        scheduledAt,
+        hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
+        price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
+        notes: body.notes || undefined,
+        bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+        bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+        sqft: body.sqft != null ? Number(body.sqft) : undefined,
+        frequency: freq,
+        startDate: scheduledDate,
+        addons: body.addons ? JSON.stringify(body.addons) : undefined,
+      }).catch((err) => console.error("[Jobs POST] Failed to generate recurring instances:", err))
+    }
+
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })
   } catch (error) {
@@ -617,4 +640,101 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(response, { status: 400 })
   }
+}
+
+// ─── Recurring Job Generation ───────────────────────────────────────────────
+
+const RECURRING_HORIZON_WEEKS = 12 // Generate 3 months of future instances
+
+function calculateNextDate(dateStr: string, frequency: string): string {
+  const d = new Date(dateStr + "T12:00:00")
+  switch (frequency) {
+    case "weekly":
+      d.setDate(d.getDate() + 7)
+      break
+    case "bi-weekly":
+      d.setDate(d.getDate() + 14)
+      break
+    case "monthly":
+      d.setMonth(d.getMonth() + 1)
+      break
+    default:
+      return dateStr
+  }
+  return d.toISOString().split("T")[0]
+}
+
+function getIntervalDays(frequency: string): number {
+  switch (frequency) {
+    case "weekly": return 7
+    case "bi-weekly": return 14
+    case "monthly": return 30
+    default: return 0
+  }
+}
+
+async function generateRecurringInstances(opts: {
+  parentJobId: number
+  tenantId: string
+  customerId: number | null
+  phone: string
+  address?: string
+  serviceType: string
+  scheduledAt?: string
+  hours?: number
+  price?: number
+  notes?: string
+  bedrooms?: number
+  bathrooms?: number
+  sqft?: number
+  frequency: string
+  startDate: string
+  addons?: string
+}) {
+  const client = getSupabaseServiceClient()
+  const horizonDays = RECURRING_HORIZON_WEEKS * 7
+  const maxDate = new Date()
+  maxDate.setDate(maxDate.getDate() + horizonDays)
+  const maxDateStr = maxDate.toISOString().split("T")[0]
+
+  const instances: any[] = []
+  let nextDate = calculateNextDate(opts.startDate, opts.frequency)
+
+  while (nextDate <= maxDateStr) {
+    instances.push({
+      tenant_id: opts.tenantId,
+      customer_id: opts.customerId,
+      phone_number: opts.phone,
+      address: opts.address,
+      service_type: opts.serviceType,
+      date: nextDate,
+      scheduled_at: opts.scheduledAt,
+      hours: opts.hours,
+      price: opts.price,
+      notes: opts.notes,
+      bedrooms: opts.bedrooms,
+      bathrooms: opts.bathrooms,
+      sqft: opts.sqft,
+      frequency: opts.frequency,
+      status: "scheduled",
+      booked: true,
+      parent_job_id: opts.parentJobId,
+      addons: opts.addons,
+    })
+    nextDate = calculateNextDate(nextDate, opts.frequency)
+  }
+
+  if (instances.length === 0) return
+
+  const { error } = await client.from("jobs").insert(instances)
+  if (error) {
+    console.error(`[Recurring Jobs] Failed to insert ${instances.length} instances:`, error.message)
+    return
+  }
+
+  // Update parent with last generated date
+  const lastDate = instances[instances.length - 1].date
+  await client.from("jobs").update({ last_generated_date: lastDate }).eq("id", opts.parentJobId)
+
+  console.log(`[Recurring Jobs] Generated ${instances.length} ${opts.frequency} instances from job ${opts.parentJobId} through ${lastDate}`)
 }

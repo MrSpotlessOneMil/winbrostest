@@ -681,6 +681,15 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         .eq('tenant_id', tenant.id)
         .maybeSingle()
 
+      // Mark customer as having card on file
+      if (customer?.id) {
+        await client.from('customers').update({
+          card_on_file_at: new Date().toISOString(),
+          stripe_customer_id: typeof session.customer === 'string' ? session.customer : (session.customer as any)?.id || null,
+        }).eq('id', customer.id)
+        console.log(`[Stripe Webhook] Marked customer ${customer.id} as card-on-file`)
+      }
+
       await client.from('messages').insert({
         tenant_id: tenant.id,
         customer_id: customer?.id || null,

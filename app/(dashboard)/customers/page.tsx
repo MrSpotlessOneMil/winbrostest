@@ -28,6 +28,8 @@ interface Customer {
   address?: string
   notes?: string
   auto_response_paused?: boolean
+  card_on_file_at?: string | null
+  stripe_customer_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -767,7 +769,14 @@ export default function CustomersPage() {
                             {name.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-zinc-200 truncate">{name}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
+                              {customer.card_on_file_at && (
+                                <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                                  Card
+                                </span>
+                              )}
+                            </div>
                             <div className="text-xs text-zinc-500">
                               {jobCount} {jobCount === 1 ? "job" : "jobs"} · ${revenue.toLocaleString()}
                             </div>

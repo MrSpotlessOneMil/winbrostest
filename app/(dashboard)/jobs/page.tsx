@@ -51,6 +51,7 @@ type CalendarEventDetails = {
   service: string
   notes: string
   hours: number
+  cardOnFile: boolean
 }
 
 type PendingMove = {
@@ -514,6 +515,7 @@ export default function JobsPage() {
       const teamName = resolveTeamName(job)
       const jobNotes = resolveNotes(job)
       const customerName = resolveCustomerName(job)
+      const customer = resolveCustomer(job)
       const title = cleanerName
         ? `${customerName} (${cleanerName})`
         : job.title || job.service_type || customerName
@@ -543,6 +545,7 @@ export default function JobsPage() {
           status: job.status || "scheduled",
           jobId: String(job.id),
           hours: job.hours ? Number(job.hours) : 2,
+          cardOnFile: !!customer?.card_on_file_at,
         },
       }
     })
@@ -623,6 +626,7 @@ export default function JobsPage() {
       service: info.event.extendedProps.service || "",
       notes: info.event.extendedProps.notes || "",
       hours: info.event.extendedProps.hours || 2,
+      cardOnFile: !!info.event.extendedProps.cardOnFile,
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1140,8 +1144,21 @@ export default function JobsPage() {
                   <strong>When:</strong>{" "}
                   {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
+                <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
                   <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+                  {selectedEvent?.cardOnFile && (
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      fontSize: "0.65rem",
+                      fontWeight: 600,
+                      background: "rgba(16, 185, 129, 0.12)",
+                      color: "#34d399",
+                      border: "1px solid rgba(16, 185, 129, 0.2)",
+                    }}>Card on file</span>
+                  )}
                 </div>
                 {selectedEvent?.service && (
                   <div style={{ marginBottom: "0.5rem" }}>
