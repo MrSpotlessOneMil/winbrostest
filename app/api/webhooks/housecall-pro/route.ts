@@ -8,7 +8,7 @@ import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getDefaultTenant, tenantUsesFeature, getAllActiveTenants } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
-import { getCustomer as getHCPCustomer, getJob as getHCPJob } from "@/integrations/housecall-pro/hcp-client"
+import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
 /**
  * Webhook handler for Housecall Pro events
@@ -247,9 +247,15 @@ export async function POST(request: NextRequest) {
             customer = upserted
           }
 
-          // Extract schedule from top-level job object (HCP sends scheduled_start)
-          // then fallback to nested data paths
-          const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
+          // HCP webhook sends schedule as a nested object, NOT as scheduled_start
+          const scheduleObj = (job as any)?.schedule || (data as any)?.job?.schedule
+          const scheduledStart =
+            scheduleObj?.scheduled_start ||
+            scheduleObj?.start_time ||
+            scheduleObj?.start ||
+            scheduleObj?.start_at ||
+            (job as any)?.scheduled_start ||  // fallback to flat field
+            (data as any)?.job?.scheduled_start
           let scheduledDate =
             (scheduledStart ? new Date(scheduledStart).toISOString().split('T')[0] : null) ||
             (data as any)?.job?.scheduled_date ||
@@ -294,76 +300,22 @@ export async function POST(request: NextRequest) {
             status: "scheduled",
             booked: true,
             housecall_pro_job_id: hcpJobId || null,
-            price: (job as any)?.total_amount || null,
+            price: (job as any)?.total_amount ?? null,
             notes: jobNotes || null,
             job_type: jobType,
           }).select("id").single()
 
           console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${maskPhone(phone)}, type: ${jobType})`)
 
-          // Backfill missing fields from HCP API (webhook payload is often minimal)
-          // Also log raw webhook + API payloads to system_events for debugging
-          await client.from("system_events").insert({
-            tenant_id: tenant?.id,
-            source: "housecall_pro",
-            event_type: "HCP_DEBUG_PAYLOAD",
-            message: `job.created webhook payload for HCP job ${hcpJobId}`,
-            metadata: {
-              webhook_job_keys: job ? Object.keys(job) : 'no job',
-              webhook_job_scheduled_start: (job as any)?.scheduled_start,
-              webhook_job_total_amount: (job as any)?.total_amount,
-              webhook_job_line_items: (job as any)?.line_items,
-              webhook_data_keys: data ? Object.keys(data) : 'no data',
-              scheduledDate,
-              scheduledTime,
-              lineItemName,
-            },
-          })
-
-          if (hcpJobId && newHcpJob?.id) {
-            try {
-              const hcpJobResult = await getHCPJob(hcpJobId)
-
-              // Log the API result for debugging
-              await client.from("system_events").insert({
-                tenant_id: tenant?.id,
-                source: "housecall_pro",
-                event_type: "HCP_DEBUG_API_RESULT",
-                message: `getHCPJob(${hcpJobId}) result`,
-                metadata: {
-                  success: hcpJobResult.success,
-                  error: hcpJobResult.error || null,
-                  api_scheduled_start: hcpJobResult.data?.scheduled_start,
-                  api_total_amount: hcpJobResult.data?.total_amount,
-                  api_line_items: hcpJobResult.data?.line_items,
-                  api_work_status: hcpJobResult.data?.work_status,
-                  api_keys: hcpJobResult.data ? Object.keys(hcpJobResult.data) : 'no data',
-                },
-              })
-
-              if (hcpJobResult.success && hcpJobResult.data) {
-                const fullJob = hcpJobResult.data
-                const backfill: Record<string, unknown> = {}
-
-                if (!scheduledDate && fullJob.scheduled_start) {
-                  scheduledDate = new Date(fullJob.scheduled_start).toISOString().split('T')[0]
-                  backfill.date = scheduledDate
-                  backfill.scheduled_at = new Date(fullJob.scheduled_start).toTimeString().slice(0, 5)
-                }
-                if (!((job as any)?.total_amount) && fullJob.total_amount) {
-                  backfill.price = fullJob.total_amount
-                }
-                if (lineItemName === 'Service' && fullJob.line_items?.[0]?.name) {
-                  backfill.service_type = fullJob.line_items[0].name
-                }
-
-                if (Object.keys(backfill).length > 0) {
-                  await client.from("jobs").update(backfill).eq("id", newHcpJob.id)
-                }
-              }
-            } catch (apiErr) {
-              console.error(`[OSIRIS] HCP Webhook: Failed to backfill job from API:`, apiErr)
-            }
+          // Log schedule object structure for debugging (temporary — remove once schedule extraction confirmed)
+          if (!scheduledDate && scheduleObj) {
+            await client.from("system_events").insert({
+              tenant_id: tenant?.id,
+              source: "housecall_pro",
+              event_type: "HCP_DEBUG_SCHEDULE",
+              message: `Unknown schedule structure for HCP job ${hcpJobId}`,
+              metadata: { schedule_keys: Object.keys(scheduleObj), schedule_value: scheduleObj },
+            })
           }
 
           // WinBros: If this is a real cleaning job (NOT an estimate), auto-assign a technician
@@ -850,7 +802,14 @@ export async function POST(request: NextRequest) {
         console.log("[OSIRIS] Job scheduled in HCP, syncing schedule to Supabase")
         {
           const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.id
-          const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
+          const schedObj = (job as any)?.schedule || (data as any)?.job?.schedule
+          const scheduledStart =
+            schedObj?.scheduled_start ||
+            schedObj?.start_time ||
+            schedObj?.start ||
+            schedObj?.start_at ||
+            (job as any)?.scheduled_start ||
+            (data as any)?.job?.scheduled_start
           if (hcpJobId) {
             // Use service client to bypass RLS (webhook has no user session)
             const svcClient = getSupabaseServiceClient()
