@@ -151,15 +151,45 @@ export async function getPricingRow(
   )
 
   if (matching.length === 0) {
-    // No exact match — fall back to the largest available tier for this service type
-    // (e.g., 5bed/5bath gets the 4bed/3bath max tier price)
+    // No exact match — find the closest tier that is >= requested (round UP)
     if (rows.length > 0) {
+      // 1. Same bedrooms, next bathroom tier up (e.g. 3bed/1.5bath → 3bed/2bath)
+      const sameBedHigherBath = rows
+        .filter((r) => r.bedrooms === bedrooms && r.bathrooms >= bathrooms)
+        .sort((a, b) => a.bathrooms - b.bathrooms)
+      if (sameBedHigherBath.length > 0) {
+        console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — rounding up to ${sameBedHigherBath[0].bedrooms}bed/${sameBedHigherBath[0].bathrooms}bath ($${sameBedHigherBath[0].price})`)
+        return sameBedHigherBath[0]
+      }
+
+      // 2. Same bedrooms, lower bathroom (e.g. 3bed/1bath when only 3bed/2bath exists)
+      const sameBedLowerBath = rows
+        .filter((r) => r.bedrooms === bedrooms)
+        .sort((a, b) => Math.abs(a.bathrooms - bathrooms) - Math.abs(b.bathrooms - bathrooms))
+      if (sameBedLowerBath.length > 0) {
+        console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — closest same-bed tier: ${sameBedLowerBath[0].bedrooms}bed/${sameBedLowerBath[0].bathrooms}bath ($${sameBedLowerBath[0].price})`)
+        return sameBedLowerBath[0]
+      }
+
+      // 3. Next larger tier overall (higher bedrooms)
+      const larger = rows
+        .filter((r) => r.bedrooms >= bedrooms && r.bathrooms >= bathrooms)
+        .sort((a, b) => {
+          if (a.bedrooms !== b.bedrooms) return a.bedrooms - b.bedrooms
+          return a.bathrooms - b.bathrooms
+        })
+      if (larger.length > 0) {
+        console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — next larger tier: ${larger[0].bedrooms}bed/${larger[0].bathrooms}bath ($${larger[0].price})`)
+        return larger[0]
+      }
+
+      // 4. Last resort: largest available tier
       const sorted = [...rows].sort((a, b) => {
         if (b.bedrooms !== a.bedrooms) return b.bedrooms - a.bedrooms
         if (b.bathrooms !== a.bathrooms) return b.bathrooms - a.bathrooms
         return b.max_sq_ft - a.max_sq_ft
       })
-      console.log(`[pricing-db] No exact match for ${bedrooms}bed/${bathrooms}bath — using largest tier: ${sorted[0].bedrooms}bed/${sorted[0].bathrooms}bath ($${sorted[0].price})`)
+      console.log(`[pricing-db] No close match for ${bedrooms}bed/${bathrooms}bath — using largest tier: ${sorted[0].bedrooms}bed/${sorted[0].bathrooms}bath ($${sorted[0].price})`)
       return sorted[0]
     }
     return null
