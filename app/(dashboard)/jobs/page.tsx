@@ -341,6 +341,9 @@ export default function JobsPage() {
   const [createError, setCreateError] = useState("")
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   const [basePrice, setBasePrice] = useState<number>(0)
+  const [addressSuggestions, setAddressSuggestions] = useState<{ id: number; first_name: string; last_name: string; phone_number: string; address: string }[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+  const [phoneLookedUp, setPhoneLookedUp] = useState("")
 
   // Auto-populate price when property details change (house cleaning only)
   useEffect(() => {
@@ -398,6 +401,63 @@ export default function JobsPage() {
       })
       .catch(() => {})
   }, [createOpen])
+
+  // Auto-populate from phone number (debounced)
+  useEffect(() => {
+    if (!createOpen) return
+    const digits = createForm.customer_phone.replace(/\D/g, "")
+    if (digits.length < 10 || digits === phoneLookedUp) return
+
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (!res.success || !res.data?.length) return
+          const c = res.data[0]
+          setPhoneLookedUp(digits)
+          setCreateForm((prev) => ({
+            ...prev,
+            customer_name: prev.customer_name || [c.first_name, c.last_name].filter(Boolean).join(" "),
+            email: prev.email || c.email || "",
+            address: prev.address || c.address || "",
+            bedrooms: prev.bedrooms || (c.bedrooms ? String(c.bedrooms) : ""),
+            bathrooms: prev.bathrooms || (c.bathrooms ? String(c.bathrooms) : ""),
+            sqft: prev.sqft || (c.sqft ? String(c.sqft) : ""),
+          }))
+        })
+        .catch(() => {})
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [createForm.customer_phone, createOpen])
+
+  // Address suggestions (debounced)
+  useEffect(() => {
+    if (!createOpen || !createForm.address || createForm.address.length < 3) {
+      setAddressSuggestions([])
+      return
+    }
+
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/lookup?q=${encodeURIComponent(createForm.address)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) {
+            // Deduplicate by address
+            const seen = new Set<string>()
+            const unique = res.data.filter((c: any) => {
+              if (!c.address || seen.has(c.address)) return false
+              seen.add(c.address)
+              return true
+            })
+            setAddressSuggestions(unique)
+          }
+        })
+        .catch(() => {})
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [createForm.address, createOpen])
 
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
@@ -520,8 +580,13 @@ export default function JobsPage() {
       sqft: "",
       frequency: "one-time",
       cleaner_id: "",
+      is_quote: false,
+      selected_addons: [],
     })
     setCreateError("")
+    setPhoneLookedUp("")
+    setBasePrice(0)
+    setAddressSuggestions([])
     setCreateOpen(true)
 
     // Fetch cleaners list if not already loaded
@@ -1490,18 +1555,71 @@ export default function JobsPage() {
               </div>
             </div>
 
-            {/* Address */}
-            <div style={{ marginBottom: "0.5rem" }}>
+            {/* Address with autocomplete */}
+            <div style={{ marginBottom: "0.5rem", position: "relative" }}>
               <label className="cal-form-label">Address</label>
               <input
                 type="text"
                 className="cal-form-control"
                 placeholder="123 Main St, City, State"
                 value={createForm.address}
-                onChange={(e) =>
+                onChange={(e) => {
                   setCreateForm((prev) => ({ ...prev, address: e.target.value }))
-                }
+                  setShowAddressSuggestions(true)
+                }}
+                onFocus={() => setShowAddressSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
               />
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  zIndex: 100,
+                  background: "#1e1e21",
+                  border: "1px solid rgba(63, 63, 70, 0.6)",
+                  borderRadius: 8,
+                  marginTop: 2,
+                  maxHeight: 160,
+                  overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  {addressSuggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          address: s.address,
+                          customer_name: prev.customer_name || [s.first_name, s.last_name].filter(Boolean).join(" "),
+                          customer_phone: prev.customer_phone || s.phone_number || "",
+                        }))
+                        setShowAddressSuggestions(false)
+                      }}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "0.45rem 0.75rem",
+                        background: "transparent",
+                        border: "none",
+                        borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                        color: "#d4d4d8",
+                        fontSize: "0.8rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <div style={{ color: "#e4e4e7" }}>{s.address}</div>
+                      <div style={{ color: "#71717a", fontSize: "0.7rem" }}>
+                        {[s.first_name, s.last_name].filter(Boolean).join(" ")} {s.phone_number ? `• ${s.phone_number}` : ""}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Property Details — house cleaning tenants only */}
