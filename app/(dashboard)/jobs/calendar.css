@@ -125,6 +125,10 @@
   background: rgba(234, 179, 8, 0.7);
 }
 
+.fc .event-quoted {
+  background: rgba(6, 182, 212, 0.7);
+}
+
 .fc .fc-list-event-title a,
 .fc .fc-list-event-time {
   color: #d4d4d8;

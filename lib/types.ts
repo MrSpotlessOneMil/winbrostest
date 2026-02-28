@@ -23,7 +23,7 @@ export interface Lead {
 }
 
 // ==================== JOBS ====================
-export type JobStatus = "scheduled" | "confirmed" | "in-progress" | "completed" | "cancelled" | "rescheduled"
+export type JobStatus = "scheduled" | "confirmed" | "quoted" | "in-progress" | "completed" | "cancelled" | "rescheduled"
 export type ServiceType = "window_cleaning" | "pressure_washing" | "gutter_cleaning" | "full_service"
 export type JobType = "estimate" | "cleaning"
 export type EmployeeType = "technician" | "salesman"

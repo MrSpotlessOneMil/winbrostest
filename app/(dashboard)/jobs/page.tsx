@@ -68,6 +68,13 @@ type PendingMove = {
   source: "drag" | "edit"
 }
 
+type AddonOption = {
+  addon_key: string
+  label: string
+  flat_price: number | null
+  minutes: number
+}
+
 type CreateForm = {
   customer_phone: string
   customer_name: string
@@ -84,6 +91,8 @@ type CreateForm = {
   sqft: string
   frequency: string
   cleaner_id: string
+  is_quote: boolean
+  selected_addons: string[]
 }
 
 type RainDayPreview = {
@@ -282,6 +291,7 @@ function eventClassForStatus(status?: string) {
   if (normalized === "confirmed") return "event-confirmed"
   if (normalized === "in-progress") return "event-in-progress"
   if (normalized === "rescheduled") return "event-rescheduled"
+  if (normalized === "quoted") return "event-quoted"
   return "event-scheduled"
 }
 
@@ -324,9 +334,13 @@ export default function JobsPage() {
     sqft: "",
     frequency: "one-time",
     cleaner_id: "",
+    is_quote: false,
+    selected_addons: [],
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+  const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  const [basePrice, setBasePrice] = useState<number>(0)
 
   // Auto-populate price when property details change (house cleaning only)
   useEffect(() => {
@@ -347,13 +361,43 @@ export default function JobsPage() {
       .then((res) => {
         if (cancelled) return
         if (res.success && res.data?.price != null) {
-          setCreateForm((prev) => ({ ...prev, price: String(res.data.price) }))
+          const base = Number(res.data.price)
+          setBasePrice(base)
+          // Add addon prices
+          const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            return sum + (addon?.flat_price || 0)
+          }, 0)
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
         }
       })
       .catch(() => {})
 
     return () => { cancelled = true }
   }, [createForm.bedrooms, createForm.bathrooms, createForm.sqft, createForm.service_type])
+
+  // Recalculate price when add-ons change
+  useEffect(() => {
+    if (!isHouseCleaning || !basePrice) return
+    const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+      const addon = addonsList.find((a) => a.addon_key === key)
+      return sum + (addon?.flat_price || 0)
+    }, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
+  }, [createForm.selected_addons])
+
+  // Fetch add-ons when create modal opens
+  useEffect(() => {
+    if (!createOpen || !isHouseCleaning) return
+    fetch("/api/pricing/addons")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          setAddonsList(res.data)
+        }
+      })
+      .catch(() => {})
+  }, [createOpen])
 
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
@@ -852,6 +896,11 @@ export default function JobsPage() {
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
           cleaner_id: createForm.cleaner_id || undefined,
+          status: createForm.is_quote ? "quoted" : "scheduled",
+          addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
+          }) : undefined,
         }),
       })
 
@@ -1592,20 +1641,93 @@ export default function JobsPage() {
               </div>
             </div>
 
-            {/* Price */}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Price ($)</label>
-              <input
-                type="number"
-                className="cal-form-control"
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                value={createForm.price}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, price: e.target.value }))
-                }
-              />
+            {/* Add-ons — house cleaning only */}
+            {isHouseCleaning && addonsList.length > 0 && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <label className="cal-form-label">Add-ons</label>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "0.25rem",
+                  background: "rgba(39, 39, 42, 0.3)",
+                  borderRadius: 8,
+                  border: "1px solid rgba(63, 63, 70, 0.4)",
+                  padding: "0.5rem",
+                  maxHeight: 160,
+                  overflowY: "auto",
+                }}>
+                  {addonsList.map((addon) => (
+                    <label
+                      key={addon.addon_key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        cursor: "pointer",
+                        padding: "0.2rem 0.25rem",
+                        borderRadius: 4,
+                        fontSize: "0.8rem",
+                        color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
+                        background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createForm.selected_addons.includes(addon.addon_key)}
+                        onChange={(e) => {
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            selected_addons: e.target.checked
+                              ? [...prev.selected_addons, addon.addon_key]
+                              : prev.selected_addons.filter((k) => k !== addon.addon_key),
+                          }))
+                        }}
+                        style={{ accentColor: "#8b5cf6" }}
+                      />
+                      <span style={{ flex: 1 }}>{addon.label}</span>
+                      {addon.flat_price != null && addon.flat_price > 0 && (
+                        <span style={{ color: "#71717a", fontSize: "0.7rem" }}>+${addon.flat_price}</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Price + Quote toggle */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "0.5rem", alignItems: "end", marginBottom: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Price ($)</label>
+                <input
+                  type="number"
+                  className="cal-form-control"
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  value={createForm.price}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, price: e.target.value }))
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateForm((prev) => ({ ...prev, is_quote: !prev.is_quote }))}
+                style={{
+                  padding: "0.5rem 0.75rem",
+                  borderRadius: 8,
+                  border: `1px solid ${createForm.is_quote ? "rgba(6, 182, 212, 0.4)" : "rgba(63, 63, 70, 0.6)"}`,
+                  background: createForm.is_quote ? "rgba(6, 182, 212, 0.15)" : "rgba(39, 39, 42, 0.5)",
+                  color: createForm.is_quote ? "#22d3ee" : "#a1a1aa",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  height: "fit-content",
+                }}
+              >
+                {createForm.is_quote ? "Quote" : "Scheduled"}
+              </button>
             </div>
 
             {/* Notes */}
@@ -1639,7 +1761,7 @@ export default function JobsPage() {
               onClick={handleCreateSave}
               disabled={createSaving}
             >
-              {createSaving ? <><span className="saving-spinner" /> Creating...</> : "Create Job"}
+              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Send Quote" : "Create Job"}
             </button>
           </div>
         </div>

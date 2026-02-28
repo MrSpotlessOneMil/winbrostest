@@ -21,7 +21,7 @@ function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
     case "scheduled":
       return "scheduled"
     case "quoted":
-      return "confirmed"
+      return "quoted"
     case "lead":
       return "scheduled"
     default:
@@ -474,8 +474,9 @@ export async function POST(request: NextRequest) {
         hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
         price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
         notes: body.notes || undefined,
-        status: "scheduled",
-        booked: true,
+        status: body.status === "quoted" ? "quoted" : "scheduled",
+        booked: body.status !== "quoted",
+        addons: body.addons ? JSON.stringify(body.addons) : undefined,
         bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
         bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
         sqft: body.sqft != null ? Number(body.sqft) : undefined,
