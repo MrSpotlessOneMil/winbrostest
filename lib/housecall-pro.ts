@@ -28,6 +28,8 @@ async function hcpRequest<T>(endpoint: string, options: HcpRequestOptions = {}):
     })
   }
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
   const response = await fetch(url.toString(), {
     method: options.method || "GET",
     headers: {
@@ -35,7 +37,9 @@ async function hcpRequest<T>(endpoint: string, options: HcpRequestOptions = {}):
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: controller.signal,
   })
+  clearTimeout(timeout)
 
   if (!response.ok) {
     const error = await response.text()

@@ -494,11 +494,15 @@ async function hcpRequest<T>(
     const attempt = attempts[index]
 
     try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
       const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
         method: options.method || 'GET',
         headers: attempt.headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
 
       const responseText = await response.text()
       if (response.ok) {
