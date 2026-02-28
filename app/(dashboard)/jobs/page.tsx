@@ -341,7 +341,7 @@ export default function JobsPage() {
   const [createError, setCreateError] = useState("")
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   const [basePrice, setBasePrice] = useState<number>(0)
-  const [addressSuggestions, setAddressSuggestions] = useState<{ id: number; first_name: string; last_name: string; phone_number: string; address: string }[]>([])
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
 
@@ -431,7 +431,7 @@ export default function JobsPage() {
     return () => clearTimeout(timer)
   }, [createForm.customer_phone, createOpen])
 
-  // Address suggestions (debounced)
+  // Address suggestions via Google Places Autocomplete (debounced)
   useEffect(() => {
     if (!createOpen || !createForm.address || createForm.address.length < 3) {
       setAddressSuggestions([])
@@ -439,18 +439,11 @@ export default function JobsPage() {
     }
 
     const timer = setTimeout(() => {
-      fetch(`/api/customers/lookup?q=${encodeURIComponent(createForm.address)}`)
+      fetch(`/api/places/autocomplete?input=${encodeURIComponent(createForm.address)}`)
         .then((r) => r.json())
         .then((res) => {
           if (res.success && Array.isArray(res.data)) {
-            // Deduplicate by address
-            const seen = new Set<string>()
-            const unique = res.data.filter((c: any) => {
-              if (!c.address || seen.has(c.address)) return false
-              seen.add(c.address)
-              return true
-            })
-            setAddressSuggestions(unique)
+            setAddressSuggestions(res.data)
           }
         })
         .catch(() => {})
@@ -1581,41 +1574,35 @@ export default function JobsPage() {
                   border: "1px solid rgba(63, 63, 70, 0.6)",
                   borderRadius: 8,
                   marginTop: 2,
-                  maxHeight: 160,
+                  maxHeight: 200,
                   overflowY: "auto",
                   boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
                 }}>
                   {addressSuggestions.map((s) => (
                     <button
-                      key={s.id}
+                      key={s.place_id}
                       type="button"
                       onMouseDown={(e) => {
                         e.preventDefault()
-                        setCreateForm((prev) => ({
-                          ...prev,
-                          address: s.address,
-                          customer_name: prev.customer_name || [s.first_name, s.last_name].filter(Boolean).join(" "),
-                          customer_phone: prev.customer_phone || s.phone_number || "",
-                        }))
+                        setCreateForm((prev) => ({ ...prev, address: s.description }))
                         setShowAddressSuggestions(false)
                       }}
                       style={{
                         display: "block",
                         width: "100%",
                         textAlign: "left",
-                        padding: "0.45rem 0.75rem",
+                        padding: "0.5rem 0.75rem",
                         background: "transparent",
                         border: "none",
                         borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
-                        color: "#d4d4d8",
+                        color: "#e4e4e7",
                         fontSize: "0.8rem",
                         cursor: "pointer",
                       }}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(63, 63, 70, 0.3)")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      <div style={{ color: "#e4e4e7" }}>{s.address}</div>
-                      <div style={{ color: "#71717a", fontSize: "0.7rem" }}>
-                        {[s.first_name, s.last_name].filter(Boolean).join(" ")} {s.phone_number ? `• ${s.phone_number}` : ""}
-                      </div>
+                      {s.description}
                     </button>
                   ))}
                 </div>
