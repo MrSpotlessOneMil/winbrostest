@@ -267,6 +267,20 @@ export async function POST(request: NextRequest) {
             (data as any)?.job?.scheduled_at ||
             null
 
+          // Calculate hours from schedule end - start
+          const scheduledEnd =
+            scheduleObj?.scheduled_end ||
+            scheduleObj?.end_time ||
+            scheduleObj?.end ||
+            scheduleObj?.end_at ||
+            (job as any)?.scheduled_end ||
+            (data as any)?.job?.scheduled_end
+          let jobHours: number | null = null
+          if (scheduledStart && scheduledEnd) {
+            const diffMs = new Date(scheduledEnd).getTime() - new Date(scheduledStart).getTime()
+            if (diffMs > 0) jobHours = Math.round((diffMs / 3_600_000) * 100) / 100
+          }
+
           const hcpJobId = (job as any)?.id || (data as any)?.job?.id
           const jobAddress = address || ((job as any)?.address ? formatHCPAddress((job as any).address) : null)
 
@@ -301,6 +315,7 @@ export async function POST(request: NextRequest) {
             booked: true,
             housecall_pro_job_id: hcpJobId || null,
             price: (job as any)?.total_amount ?? null,
+            hours: jobHours,
             notes: jobNotes || null,
             job_type: jobType,
           }).select("id").single()
