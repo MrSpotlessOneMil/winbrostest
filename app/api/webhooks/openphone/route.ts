@@ -1034,12 +1034,12 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("phone_number", phone)
       .eq("tenant_id", tenant?.id)
-      .in("source", ["card_on_file", "deposit", "invoice"])
+      .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked", "vapi_booking_confirmation"])
       .limit(1)
       .maybeSingle()
 
     if (existingPaymentFallback) {
-      console.log(`[OpenPhone] Fallback post-booking: payment links already sent for ${maskPhone(phone)}, using post-booking AI`)
+      console.log(`[OpenPhone] Fallback post-booking: booking confirmation already sent for ${maskPhone(phone)}, using post-booking AI`)
       const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
       const sdrName = tenant?.sdr_persona || 'Mary'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
@@ -1111,7 +1111,7 @@ export async function POST(request: NextRequest) {
         const resp = await anthropicClient.messages.create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 200,
-          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
+          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- For estimate appointments: pricing is determined on-site by the team member who visits. If the customer asks about price, explain that a team member will provide an on-site quote at their appointment.\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
           messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
         })
         const txt = resp.content.find(b => b.type === 'text')

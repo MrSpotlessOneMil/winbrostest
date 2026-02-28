@@ -393,13 +393,12 @@ export async function scheduleEstimate(
       return a.driveMinutes - b.driveMinutes
     })
 
-    // Return up to 3 8am options — keep filling 8am until every salesman has one
-    const seen = new Set<string>() // dedup by "date|salesmanId"
+    // Return up to 3 8am options — dedup by date so the customer never sees the same date+time twice
+    const seenDates = new Set<string>()
     const options: EstimateOption[] = []
     for (const entry of missing8am) {
-      const key = `${entry.date}|${entry.salesman.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
+      if (seenDates.has(entry.date)) continue
+      seenDates.add(entry.date)
       options.push({
         date: entry.date,
         time: '8:00 AM',
@@ -541,10 +540,19 @@ export async function scheduleEstimate(
     c.score = c.driveTimeMinutes + dayOffset * 60 + c.timeMinutes * 0.1
   }
 
-  // Sort by score ascending and return top 3
+  // Sort by score ascending, then dedup by date+time so customer never sees the same slot twice
   candidates.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity))
 
-  const top3 = candidates.slice(0, 3)
+  const seenSlots = new Set<string>()
+  const top3: CandidateSlot[] = []
+  for (const c of candidates) {
+    const slotKey = `${c.date}|${c.timeMinutes}`
+    if (seenSlots.has(slotKey)) continue
+    seenSlots.add(slotKey)
+    top3.push(c)
+    if (top3.length >= 3) break
+  }
+
   const options: EstimateOption[] = top3.map((c) => ({
     date: c.date,
     time: formatTimeFromMinutes(c.timeMinutes),
