@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] HCP Webhook phone extracted, normalized=${phone ? 'yes' : 'no'}`)
 
-    const address =
+    const rawAddress =
       lead?.address ||
       job?.address ||
       customer?.address ||
@@ -175,6 +175,10 @@ export async function POST(request: NextRequest) {
       (data as any)?.address ||
       (data as any)?.customer?.address ||
       null
+    // Format HCP address objects to a clean string; pass through if already a string
+    const address = rawAddress && typeof rawAddress === 'object'
+      ? formatHCPAddress(rawAddress)
+      : rawAddress
 
     // Helper: check if OSIRIS is actively managing this customer (recent lead or outbound message)
     // Used to prevent HCP webhooks from overwriting fresh OSIRIS data with stale HCP data
