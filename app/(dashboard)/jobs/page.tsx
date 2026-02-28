@@ -1052,6 +1052,70 @@ export default function JobsPage() {
         </div>
       </div>
 
+      {/* Mobile FAB — Create Job */}
+      <button
+        className="md:hidden"
+        onClick={() => {
+          const now = new Date()
+          const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+          setCreateForm({
+            customer_phone: "",
+            customer_name: "",
+            email: "",
+            address: "",
+            service_type: "Standard cleaning",
+            date,
+            time: "09:00",
+            duration_minutes: "120",
+            price: "",
+            notes: "",
+            bedrooms: "",
+            bathrooms: "",
+            sqft: "",
+            frequency: "one-time",
+            cleaner_id: "",
+            is_quote: false,
+            selected_addons: [],
+          })
+          setCreateError("")
+          setPhoneLookedUp("")
+          setBasePrice(0)
+          setAddressSuggestions([])
+          setCreateOpen(true)
+          if (cleanersList.length === 0) {
+            fetch("/api/teams")
+              .then((r) => r.json())
+              .then((data) => {
+                if (data.cleaners) setCleanersList(data.cleaners.map((c: any) => ({ id: c.id, name: c.name })))
+              })
+              .catch(() => {})
+          }
+        }}
+        style={{
+          position: "fixed",
+          bottom: "1.5rem",
+          right: "1.5rem",
+          zIndex: 50,
+          width: 56,
+          height: 56,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #7c3aed, #6d28d9)",
+          border: "none",
+          boxShadow: "0 4px 16px rgba(124, 58, 237, 0.4)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: "#fff",
+          fontSize: "1.75rem",
+          fontWeight: 300,
+          lineHeight: 1,
+        }}
+        aria-label="Create Job"
+      >
+        +
+      </button>
+
       {/* Event Details Modal */}
       <div
         className={`cal-modal-backdrop${selectedEvent ? " open" : ""}`}
