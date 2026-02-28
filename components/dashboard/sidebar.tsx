@@ -134,18 +134,18 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
       onWheel={handleWheel}
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
-      } bg-zinc-950 border-r border-zinc-800/60 h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
+      } bg-zinc-950/80 backdrop-blur-xl border-r border-white/[0.06] h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
     >
       {/* Logo */}
-      <div className="h-14 flex items-center px-4 border-b border-zinc-800/60">
+      <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
-          <Link href="/" className="font-semibold text-zinc-100 tracking-wide hover:text-purple-300 transition-colors text-sm">
+          <Link href="/" className="font-semibold text-zinc-100 tracking-tight hover:text-purple-300 transition-colors text-sm">
             OSIRIS
           </Link>
         )}
         {collapsed && (
           <Link href="/" className="w-full flex justify-center">
-            <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300">
+            <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300 logo-glow">
               O
             </div>
           </Link>
@@ -163,10 +163,10 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
               href={item.href}
               title={collapsed ? item.name : undefined}
               onClick={onNavClick}
-              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-colors min-h-[44px] ${
+              className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-all duration-150 min-h-[44px] ${
                 isActive
-                  ? "text-zinc-100 bg-purple-500/10"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                  ? "text-zinc-100 bg-white/[0.06] sidebar-active-border"
+                  : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]"
               }`}
             >
               <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : ""}`} />
@@ -177,7 +177,7 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
       </nav>
 
       {/* User Switcher */}
-      <div className="px-3 py-3 border-t border-zinc-800/60">
+      <div className="px-3 py-3 border-t border-white/[0.06]">
         {!collapsed ? (
           <div ref={dropdownRef} className="relative">
             <button
