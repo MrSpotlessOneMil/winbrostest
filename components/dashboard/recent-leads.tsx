@@ -107,31 +107,39 @@ export function RecentLeads() {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {leads.map((lead) => {
+          {loading && (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="skeleton-card p-3 flex items-center gap-4">
+                  <div className="skeleton-circle w-10 h-10 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="flex justify-between">
+                      <div className="skeleton-line w-28" />
+                      <div className="skeleton-line w-16" />
+                    </div>
+                    <div className="skeleton-line w-40" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && leads.map((lead) => {
             const SourceIcon = sourceIcons[lead.source as keyof typeof sourceIcons]
             return (
               <div
                 key={lead.id}
-                className="flex items-center gap-4 rounded-lg border border-border p-3 transition-colors hover:bg-muted/50"
+                className="flex items-center gap-4 glass-list-item p-3"
               >
                 <div
                   className={cn(
-                    "flex h-10 w-10 items-center justify-center rounded-full",
-                    lead.source === "phone" && "bg-primary/10",
-                    lead.source === "meta" && "bg-pink-500/10",
-                    lead.source === "website" && "bg-success/10",
-                    lead.source === "sms" && "bg-accent/10"
+                    "flex h-10 w-10 items-center justify-center rounded-full icon-glow",
+                    lead.source === "phone" && "bg-primary/15 text-primary",
+                    lead.source === "meta" && "bg-pink-500/15 text-pink-500",
+                    lead.source === "website" && "bg-success/15 text-success",
+                    lead.source === "sms" && "bg-accent/15 text-accent"
                   )}
                 >
-                  <SourceIcon
-                    className={cn(
-                      "h-5 w-5",
-                      lead.source === "phone" && "text-primary",
-                      lead.source === "meta" && "text-pink-500",
-                      lead.source === "website" && "text-success",
-                      lead.source === "sms" && "text-accent"
-                    )}
-                  />
+                  <SourceIcon className="h-5 w-5" />
                 </div>
 
                 <div className="flex-1 space-y-1 min-w-0">
@@ -145,17 +153,22 @@ export function RecentLeads() {
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">{lead.service}</span>
-                    <span className="font-medium text-foreground">{lead.value}</span>
+                    <span className="text-zinc-500">{lead.service}</span>
+                    <span className="font-semibold text-zinc-200">{lead.value}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{lead.time}</span>
+                  <span className="text-xs text-zinc-600">{lead.time}</span>
                 </div>
               </div>
             )
           })}
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
           {!loading && leads.length === 0 && (
-            <p className="text-sm text-muted-foreground">No recent leads.</p>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800/60">
+                <Phone className="h-6 w-6 text-zinc-500" />
+              </div>
+              <p className="mt-3 font-medium text-zinc-300">No recent leads</p>
+              <p className="text-sm text-zinc-500">New inquiries will show up here</p>
+            </div>
           )}
         </div>
       </CardContent>

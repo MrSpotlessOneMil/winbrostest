@@ -101,17 +101,17 @@ export function StatsCards() {
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      {stats.map((stat) => (
-        <Card key={stat.name} className="relative overflow-hidden">
+      {stats.map((stat, i) => (
+        <Card key={stat.name} className={`relative overflow-hidden stat-card-border hover-glow-border stagger-${i + 1}`}>
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
               <div className="space-y-2">
-                <p className="text-sm font-medium text-muted-foreground">{stat.name}</p>
+                <p className="text-sm font-medium text-zinc-400">{stat.name}</p>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-3xl font-semibold text-foreground">{stat.value}</p>
-                  <span className="text-sm text-muted-foreground">/ {stat.target}</span>
+                  <p className="text-4xl font-bold gradient-text">{stat.value}</p>
+                  <span className="text-sm text-zinc-500">/ {stat.target}</span>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   {stat.trend === "up" && (
                     <TrendingUp className="h-4 w-4 text-success" />
                   )}
@@ -123,23 +123,23 @@ export function StatsCards() {
                       "text-sm font-medium",
                       stat.trend === "up" && "text-success",
                       stat.trend === "down" && "text-destructive",
-                      stat.trend === "neutral" && "text-muted-foreground"
+                      stat.trend === "neutral" && "text-zinc-500"
                     )}
                   >
                     {stat.change}
                   </span>
                 </div>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <stat.icon className="h-6 w-6 text-primary" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 icon-glow text-primary">
+                <stat.icon className="h-6 w-6" />
               </div>
             </div>
-            
+
             {/* Progress bar */}
             <div className="mt-4">
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/60">
                 <div
-                  className="h-full rounded-full bg-primary transition-all duration-500"
+                  className="h-full rounded-full progress-bar-glow transition-all duration-700 ease-out"
                   style={{ width: `${stat.progress}%` }}
                 />
               </div>
