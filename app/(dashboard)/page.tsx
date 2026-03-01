@@ -15,22 +15,43 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 stagger-1">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-semibold text-foreground truncate">Command Center</h1>
-          <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground truncate page-title-gradient">Command Center</h1>
+          <p className="text-xs md:text-sm text-zinc-500 hidden sm:block">
             Real-time overview of operations
           </p>
         </div>
-        <div className="text-right hidden md:block">
-          <p className="text-sm text-muted-foreground">Today</p>
-          <p className="text-lg font-medium text-foreground">
-            {new Date().toLocaleDateString("en-US", {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-            })}
-          </p>
+        <div className="flex items-center gap-4">
+          {/* System Toggle */}
+          <div className="flex items-center gap-3 rounded-xl system-badge px-4 py-2.5">
+            <div className={systemActive ? "live-dot" : "live-dot-offline"} />
+            <div className="hidden sm:block">
+              <div className="text-sm font-medium text-zinc-200">
+                {systemActive ? "System Active" : "System Offline"}
+              </div>
+              {tenantName && (
+                <div className="text-[11px] text-zinc-500">{tenantName}</div>
+              )}
+            </div>
+            <Switch
+              checked={systemActive}
+              onCheckedChange={toggleSystem}
+              disabled={systemLoading}
+            />
+          </div>
+
+          {/* Date */}
+          <div className="text-right hidden md:block">
+            <p className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Today</p>
+            <p className="text-base font-semibold text-zinc-200">
+              {new Date().toLocaleDateString("en-US", {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -38,7 +59,7 @@ export default function DashboardPage() {
       <StatsCards />
 
       {/* Charts Row */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-3">
         <div className="md:col-span-2">
           <RevenueChart />
         </div>
@@ -46,7 +67,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Today's Jobs + Team Status */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-4">
         <div className="md:col-span-2 lg:col-span-2">
           <TodaysJobs />
         </div>
@@ -54,14 +75,14 @@ export default function DashboardPage() {
       </div>
 
       {/* Funnel, Earnings, Top Performer */}
-      <div className="grid gap-4 md:gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 sm:grid-cols-2 lg:grid-cols-3 stagger-5">
         <FunnelSummary />
         <EarningsSummary />
         <TopPerformer />
       </div>
 
       {/* Recent Leads + Exceptions */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 stagger-6">
         <RecentLeads />
         <ExceptionsList />
       </div>

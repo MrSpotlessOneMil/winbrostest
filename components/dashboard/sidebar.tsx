@@ -197,11 +197,12 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
 
             {dropdownVisible && (
               <div
-                className={`absolute left-0 right-0 bottom-full mb-2 bg-zinc-900 border border-zinc-700/80 rounded-lg py-1 z-50 shadow-2xl shadow-black/50 transition-all duration-200 origin-bottom ${
+                className={`absolute left-0 right-0 bottom-full mb-2 rounded-xl py-1 z-50 transition-all duration-200 origin-bottom ${
                   dropdownOpen
                     ? "opacity-100 scale-100 translate-y-0"
                     : "opacity-0 scale-95 translate-y-2 pointer-events-none"
                 }`}
+                style={{ background: 'rgba(24, 24, 27, 0.85)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)' }}
               >
                 {/* Current account indicator */}
                 <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
