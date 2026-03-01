@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
+import { getBaseUrl } from "@/lib/admin-onboard"
 import Stripe from "stripe"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -8,12 +9,6 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
 function getAdminClient() {
   return createClient(supabaseUrl, supabaseServiceKey)
-}
-
-function getBaseUrl(): string | null {
-  if (process.env.NEXT_PUBLIC_BASE_URL) return process.env.NEXT_PUBLIC_BASE_URL
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-  return null
 }
 
 interface VerifyResult {
@@ -54,10 +49,11 @@ export async function POST(request: NextRequest) {
 
   const services = service
     ? [service]
-    : ["telegram", "stripe", "openphone"].filter((s) => {
+    : ["telegram", "stripe", "openphone", "vapi"].filter((s) => {
         if (s === "telegram") return !!tenant.telegram_bot_token
         if (s === "stripe") return !!tenant.stripe_secret_key && tenant.workflow_config?.use_stripe
         if (s === "openphone") return !!tenant.openphone_api_key
+        if (s === "vapi") return !!tenant.vapi_api_key && !!tenant.vapi_assistant_id
         return false
       })
 
@@ -140,6 +136,42 @@ export async function POST(request: NextRequest) {
             } else {
               results.openphone = { active: false, url: null, message: "No webhook found for this URL" }
             }
+          }
+          break
+        }
+
+        case "vapi": {
+          if (!tenant.vapi_api_key || !tenant.vapi_assistant_id) {
+            results.vapi = { active: false, url: null, message: "VAPI credentials not configured" }
+            break
+          }
+          const expectedVapiUrl = `${baseUrl}/api/webhooks/vapi/${tenant.slug}`
+          const assistantIds = [tenant.vapi_assistant_id, ...(tenant.vapi_outbound_assistant_id ? [tenant.vapi_outbound_assistant_id] : [])]
+          let allMatch = true
+          const mismatches: string[] = []
+          for (const aId of assistantIds) {
+            const vapiController = new AbortController()
+            const vapiTimeout = setTimeout(() => vapiController.abort(), 10_000)
+            const vapiRes = await fetch(`https://api.vapi.ai/assistant/${aId}`, {
+              headers: { Authorization: `Bearer ${tenant.vapi_api_key}` },
+              signal: vapiController.signal,
+            })
+            clearTimeout(vapiTimeout)
+            if (!vapiRes.ok) {
+              allMatch = false
+              mismatches.push(`${aId}: API returned ${vapiRes.status}`)
+              continue
+            }
+            const vapiData = await vapiRes.json()
+            if (vapiData.server?.url !== expectedVapiUrl) {
+              allMatch = false
+              mismatches.push(`${aId}: ${vapiData.server?.url || "no server URL"}`)
+            }
+          }
+          if (allMatch) {
+            results.vapi = { active: true, url: expectedVapiUrl, message: `Server URL active on ${assistantIds.length} assistant(s)` }
+          } else {
+            results.vapi = { active: false, url: null, message: `Mismatch: ${mismatches.join("; ")}` }
           }
           break
         }

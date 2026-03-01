@@ -6,6 +6,16 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -257,6 +267,15 @@ export default function AdminPage() {
   // Bulk action state
   const [testingAll, setTestingAll] = useState(false)
   const [registeringAll, setRegisteringAll] = useState(false)
+  const [webhookConfirmOpen, setWebhookConfirmOpen] = useState(false)
+  const [webhookConfirmAction, setWebhookConfirmAction] = useState<(() => void) | null>(null)
+  const [webhookConfirmService, setWebhookConfirmService] = useState("")
+
+  function confirmWebhookRegistration(service: string, action: () => void) {
+    setWebhookConfirmService(service)
+    setWebhookConfirmAction(() => action)
+    setWebhookConfirmOpen(true)
+  }
 
   async function fetchTenants() {
     setLoading(true)
@@ -1641,7 +1660,7 @@ export default function AdminPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={registerAllWebhooks}
+                        onClick={() => confirmWebhookRegistration("all", registerAllWebhooks)}
                         disabled={registeringAll}
                       >
                         {registeringAll ? (
@@ -1808,7 +1827,7 @@ export default function AdminPage() {
                             {testResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("openphone")} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("OpenPhone", () => registerWebhook("openphone"))} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
                           {registeringWebhook === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
                           Register Webhook
                         </Button>
@@ -2000,7 +2019,7 @@ export default function AdminPage() {
                             {testResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("stripe")} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("Stripe", () => registerWebhook("stripe"))} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
                           {registeringWebhook === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
                           Register Webhook
                         </Button>
@@ -2247,7 +2266,7 @@ export default function AdminPage() {
                             {testResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
-                        <Button variant="outline" size="sm" onClick={() => registerWebhook("telegram")} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("Telegram", () => registerWebhook("telegram"))} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
                           {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
                           Register Webhook
                         </Button>
@@ -3384,6 +3403,30 @@ export default function AdminPage() {
           </Card>
         </div>
       )}
+      <AlertDialog open={webhookConfirmOpen} onOpenChange={setWebhookConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Re-register {webhookConfirmService === "all" ? "all webhooks" : `${webhookConfirmService} webhook`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete the existing webhook and create a new one with a new signing secret. The current secret will be invalidated. If the new secret fails to save, webhook signature validation will break until re-registered.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                webhookConfirmAction?.()
+                setWebhookConfirmOpen(false)
+              }}
+            >
+              Re-register
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

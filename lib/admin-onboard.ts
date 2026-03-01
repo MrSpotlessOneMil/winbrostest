@@ -158,7 +158,8 @@ export async function testWaveConnection(apiToken: string, businessId: string): 
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      query: `query { business(id: "${businessId}") { id name } }`,
+      query: `query GetBusiness($id: ID!) { business(id: $id) { id name } }`,
+      variables: { id: businessId },
     }),
     signal: controller.signal,
   })
@@ -219,7 +220,7 @@ export async function registerTelegramWebhook(token: string, webhookUrl: string)
 }
 
 export async function registerStripeWebhook(key: string, webhookUrl: string): Promise<StepResult & { secret?: string }> {
-  const stripe = new Stripe(key, { apiVersion: "2025-02-24.acacia" as any })
+  const stripe = new Stripe(key, { apiVersion: "2025-02-24.acacia" as any, timeout: 10_000 })
 
   // Delete existing webhooks with the same URL to avoid duplicates
   const existing = await stripe.webhookEndpoints.list({ limit: 100 })
@@ -259,62 +260,52 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
     const listData = await listRes.json()
     for (const wh of (listData.data || [])) {
       if (wh.url === webhookUrl) {
+        const delController = new AbortController()
+        const delTimeout = setTimeout(() => delController.abort(), 10_000)
         await fetch(`https://api.openphone.com/v1/webhooks/${wh.id}`, {
           method: "DELETE",
           headers: { Authorization: key },
+          signal: delController.signal,
         })
+        clearTimeout(delTimeout)
       }
     }
   }
 
-  // OpenPhone requires separate webhook registrations per resource type
-  const webhookConfigs = [
-    { path: "messages", events: ["message.received", "message.delivered"] },
-    { path: "calls", events: ["call.completed", "call.ringing"] },
-  ]
+  // Register a single webhook for all events (OpenPhone API: POST /v1/webhooks)
+  const allEvents = ["message.received", "message.delivered", "call.completed", "call.ringing"]
 
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+  const res = await fetch("https://api.openphone.com/v1/webhooks", {
+    method: "POST",
+    headers: {
+      Authorization: key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url: webhookUrl,
+      events: allEvents,
+    }),
+    signal: controller.signal,
+  })
+  clearTimeout(timeout)
+
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`OpenPhone webhook registration failed (${res.status}): ${errText}`)
+  }
+
+  // Capture webhook signing key — OpenPhone returns { data: { key: "..." } }
   let capturedSecret: string | undefined
-  const capturedSecrets: Record<string, string> = {}
-
-  for (const config of webhookConfigs) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 10_000)
-    const res = await fetch(`https://api.openphone.com/v1/webhooks/${config.path}`, {
-      method: "POST",
-      headers: {
-        Authorization: key,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        url: webhookUrl,
-        events: config.events,
-      }),
-      signal: controller.signal,
-    })
-    clearTimeout(timeout)
-
-    if (!res.ok) {
-      const errText = await res.text()
-      throw new Error(`OpenPhone ${config.path} webhook failed (${res.status}): ${errText}`)
+  try {
+    const body = await res.json()
+    capturedSecret = body.data?.key || body.key || body.webhookSecret || body.secret
+    if (!capturedSecret) {
+      console.warn(`[OpenPhone] No signing key found in webhook response. Signature validation will fail.`)
     }
-
-    // Capture webhook signing key from response for each resource type
-    // OpenPhone returns { data: { key: "..." } }
-    try {
-      const body = await res.json()
-      const secret = body.data?.key || body.key || body.webhookSecret || body.secret
-      if (secret) {
-        capturedSecrets[config.path] = secret
-        if (!capturedSecret) capturedSecret = secret
-      }
-    } catch {
-      // Response may not be JSON — continue without secret
-    }
-  }
-
-  // Warn if messages and calls have different signing keys
-  if (capturedSecrets.messages && capturedSecrets.calls && capturedSecrets.messages !== capturedSecrets.calls) {
-    console.warn(`[OpenPhone] Messages and calls webhook keys differ! Using messages key.`)
+  } catch {
+    console.warn(`[OpenPhone] Could not parse webhook response as JSON — signing key not captured.`)
   }
 
   // Post-registration verification: confirm webhooks appear in active list
@@ -342,6 +333,54 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
     message: `OpenPhone webhooks registered: ${webhookUrl}`,
     secret: capturedSecret,
   }
+}
+
+export async function registerVapiWebhook(apiKey: string, assistantIds: string[], webhookUrl: string): Promise<StepResult> {
+  const registered: string[] = []
+
+  for (const id of assistantIds) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(`https://api.vapi.ai/assistant/${id}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ server: { url: webhookUrl } }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`VAPI PATCH assistant ${id} failed (${res.status}): ${errText}`)
+    }
+    registered.push(id)
+  }
+
+  // Post-registration verification: confirm serverUrl on each assistant
+  for (const id of registered) {
+    try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 10_000)
+      const res = await fetch(`https://api.vapi.ai/assistant/${id}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: controller.signal,
+      })
+      clearTimeout(timeout)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.server?.url !== webhookUrl) {
+          console.warn(`[VAPI] Post-reg verification: server.url mismatch on ${id}. Expected ${webhookUrl}, got ${data.server?.url}`)
+        }
+      }
+    } catch {
+      console.warn(`[VAPI] Post-reg verification failed for ${id} (non-fatal)`)
+    }
+  }
+
+  return { ok: true, message: `Server URL set on ${registered.length} assistant(s): ${webhookUrl}` }
 }
 
 // ---------------------------------------------------------------------------

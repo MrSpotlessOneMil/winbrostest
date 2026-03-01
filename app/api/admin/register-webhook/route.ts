@@ -6,6 +6,7 @@ import {
   registerTelegramWebhook,
   registerStripeWebhook,
   registerOpenPhoneWebhook,
+  registerVapiWebhook,
 } from "@/lib/admin-onboard"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -62,7 +63,11 @@ export async function POST(request: NextRequest) {
         if (result.secret) {
           tgUpdate.telegram_webhook_secret = result.secret
         }
-        await client.from("tenants").update(tgUpdate).eq("id", tenantId)
+        const { error: tgDbError } = await client.from("tenants").update(tgUpdate).eq("id", tenantId)
+        if (tgDbError) {
+          console.error(`[register-webhook] Failed to save Telegram secret for tenant ${tenantId}:`, tgDbError.message)
+          return NextResponse.json({ success: false, error: `Webhook registered at Telegram but failed to save secret: ${tgDbError.message}. Re-register to generate a new secret.` }, { status: 500 })
+        }
         return NextResponse.json({ success: true, message: result.message })
       }
 
@@ -81,7 +86,11 @@ export async function POST(request: NextRequest) {
         if (result.secret) {
           stripeUpdate.stripe_webhook_secret = result.secret
         }
-        await client.from("tenants").update(stripeUpdate).eq("id", tenantId)
+        const { error: stripeDbError } = await client.from("tenants").update(stripeUpdate).eq("id", tenantId)
+        if (stripeDbError) {
+          console.error(`[register-webhook] Failed to save Stripe secret for tenant ${tenantId}:`, stripeDbError.message)
+          return NextResponse.json({ success: false, error: `Webhook registered at Stripe but failed to save secret: ${stripeDbError.message}. Re-register to generate a new secret.` }, { status: 500 })
+        }
         return NextResponse.json({ success: true, message: result.message })
       }
 
@@ -100,7 +109,32 @@ export async function POST(request: NextRequest) {
         if (result.secret) {
           opUpdate.openphone_webhook_secret = result.secret
         }
-        await client.from("tenants").update(opUpdate).eq("id", tenantId)
+        const { error: opDbError } = await client.from("tenants").update(opUpdate).eq("id", tenantId)
+        if (opDbError) {
+          console.error(`[register-webhook] Failed to save OpenPhone secret for tenant ${tenantId}:`, opDbError.message)
+          return NextResponse.json({ success: false, error: `Webhook registered at OpenPhone but failed to save secret: ${opDbError.message}. Re-register to generate a new secret.` }, { status: 500 })
+        }
+        return NextResponse.json({ success: true, message: result.message })
+      }
+
+      case "vapi": {
+        if (!tenant.vapi_api_key || !tenant.vapi_assistant_id) {
+          return NextResponse.json({ success: false, error: "VAPI API key and assistant ID not configured" }, { status: 400 })
+        }
+        const webhookUrl = `${baseUrl}/api/webhooks/vapi/${tenant.slug}`
+        const assistantIds = [tenant.vapi_assistant_id, ...(tenant.vapi_outbound_assistant_id ? [tenant.vapi_outbound_assistant_id] : [])]
+        const result = await registerVapiWebhook(tenant.vapi_api_key, assistantIds, webhookUrl)
+        const vapiUpdate: Record<string, any> = {
+          vapi_webhook_registered_at: new Date().toISOString(),
+          vapi_webhook_error: null,
+          vapi_webhook_error_at: null,
+          updated_at: new Date().toISOString(),
+        }
+        const { error: vapiDbError } = await client.from("tenants").update(vapiUpdate).eq("id", tenantId)
+        if (vapiDbError) {
+          console.error(`[register-webhook] Failed to save VAPI webhook status for tenant ${tenantId}:`, vapiDbError.message)
+          return NextResponse.json({ success: false, error: `Server URL set on VAPI but failed to save status: ${vapiDbError.message}` }, { status: 500 })
+        }
         return NextResponse.json({ success: true, message: result.message })
       }
 
@@ -109,7 +143,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (err: any) {
     // Persist error to DB so it survives page reload
-    if (service && ["telegram", "stripe", "openphone"].includes(service)) {
+    if (service && ["telegram", "stripe", "openphone", "vapi"].includes(service)) {
       try {
         await client.from("tenants").update({
           [`${service}_webhook_error`]: err.message || "Unknown error",

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { randomBytes } from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
 import Stripe from "stripe"
@@ -14,6 +13,7 @@ import {
   registerTelegramWebhook,
   registerStripeWebhook,
   registerOpenPhoneWebhook,
+  registerVapiWebhook,
   getDefaultPricingTiers,
   getDefaultPricingAddons,
   StepResult,
@@ -50,7 +50,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const body = await request.json()
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const {
     // Required
     name,
@@ -88,8 +94,8 @@ export async function POST(request: NextRequest) {
     seed_pricing,
   } = body
 
-  if (!name || !slug) {
-    return NextResponse.json({ success: false, error: "Name and slug are required" }, { status: 400 })
+  if (!name || !slug || !password) {
+    return NextResponse.json({ success: false, error: "Name, slug, and password are required" }, { status: 400 })
   }
 
   if (!/^[a-z0-9-]+$/.test(slug)) {
@@ -111,135 +117,148 @@ export async function POST(request: NextRequest) {
   }
 
   // -------------------------------------------------------------------------
-  // Step 1: Create tenant
+  // Step 1: Create tenant (idempotent — resumes if slug already exists)
   // -------------------------------------------------------------------------
 
-  // Check for duplicate slug
+  let tenant: any
+
   const { data: existingTenant } = await client
     .from("tenants")
-    .select("id")
+    .select("*")
     .eq("slug", slug)
     .single()
 
   if (existingTenant) {
-    result.steps.create_tenant = { status: "failed", message: "A business with this slug already exists" }
-    return NextResponse.json({ success: false, result })
+    // Resume from previous partial onboard
+    tenant = existingTenant
+    result.tenantId = tenant.id
+    result.steps.create_tenant = { status: "skipped", message: `Tenant "${name}" already exists (${tenant.id}) — resuming` }
+  } else {
+    const flowPreset = getWorkflowConfigForFlowType(flow_type || "spotless")
+    const workflowConfig = {
+      use_housecall_pro: false,
+      use_vapi_inbound: true,
+      use_vapi_outbound: true,
+      use_ghl: false,
+      use_stripe: true,
+      use_wave: false,
+      use_route_optimization: false,
+      lead_followup_enabled: true,
+      lead_followup_stages: 5,
+      skip_calls_for_sms_leads: true,
+      followup_delays_minutes: [0, 10, 15, 20, 30],
+      post_cleaning_followup_enabled: true,
+      post_cleaning_delay_hours: 2,
+      monthly_followup_enabled: true,
+      monthly_followup_days: 30,
+      monthly_followup_discount: "15%",
+      cleaner_assignment_auto: true,
+      require_deposit: true,
+      deposit_percentage: 50,
+      sms_auto_response_enabled: true,
+      seasonal_reminders_enabled: false,
+      frequency_nudge_enabled: false,
+      frequency_nudge_days: 21,
+      review_only_followup_enabled: false,
+      seasonal_campaigns: [],
+      use_hcp_mirror: false,
+      use_rainy_day_reschedule: false,
+      use_team_routing: false,
+      use_cleaner_dispatch: true,
+      use_review_request: true,
+      use_retargeting: true,
+      use_payment_collection: true,
+      ...flowPreset,
+    }
+
+    const { data: newTenant, error: tenantError } = await client
+      .from("tenants")
+      .insert({
+        name,
+        slug,
+        email: email || null,
+        business_name: business_name || name,
+        business_name_short: business_name_short || null,
+        service_area: service_area || null,
+        sdr_persona: sdr_persona || "Mary",
+        owner_phone: owner_phone || null,
+        owner_email: owner_email || email || null,
+        google_review_link: google_review_link || null,
+        timezone: timezone || "America/Chicago",
+        active: true,
+        workflow_config: workflowConfig,
+      })
+      .select()
+      .single()
+
+    if (tenantError || !newTenant) {
+      result.steps.create_tenant = { status: "failed", message: tenantError?.message || "Unknown error" }
+      return NextResponse.json({ success: false, result })
+    }
+
+    tenant = newTenant
+    result.tenantId = tenant.id
+    result.steps.create_tenant = { status: "success", message: `Tenant "${name}" created (${tenant.id})` }
   }
 
-  // Build workflow_config by merging flow type preset with defaults
-  const flowPreset = getWorkflowConfigForFlowType(flow_type || "spotless")
-  const workflowConfig = {
-    // Integration toggles
-    use_housecall_pro: false,
-    use_vapi_inbound: true,
-    use_vapi_outbound: true,
-    use_ghl: false,
-    use_stripe: true,
-    use_wave: false,
-    use_route_optimization: false,
-    // Lead follow-up
-    lead_followup_enabled: true,
-    lead_followup_stages: 5,
-    skip_calls_for_sms_leads: true,
-    followup_delays_minutes: [0, 10, 15, 20, 30],
-    // Post-cleaning follow-up
-    post_cleaning_followup_enabled: true,
-    post_cleaning_delay_hours: 2,
-    // Monthly follow-up
-    monthly_followup_enabled: true,
-    monthly_followup_days: 30,
-    monthly_followup_discount: "15%",
-    // Cleaner assignment
-    cleaner_assignment_auto: true,
-    require_deposit: true,
-    deposit_percentage: 50,
-    sms_auto_response_enabled: true,
-    // Lifecycle messaging
-    seasonal_reminders_enabled: false,
-    frequency_nudge_enabled: false,
-    frequency_nudge_days: 21,
-    review_only_followup_enabled: false,
-    seasonal_campaigns: [],
-    // Flow flags from preset
-    use_hcp_mirror: false,
-    use_rainy_day_reschedule: false,
-    use_team_routing: false,
-    use_cleaner_dispatch: true,
-    use_review_request: true,
-    use_retargeting: true,
-    use_payment_collection: true,
-    // Override with flow type preset
-    ...flowPreset,
-  }
+  // -------------------------------------------------------------------------
+  // Step 2: Create login user (skip if already exists)
+  // -------------------------------------------------------------------------
 
-  const { data: tenant, error: tenantError } = await client
-    .from("tenants")
-    .insert({
-      name,
-      slug,
-      email: email || null,
-      business_name: business_name || name,
-      business_name_short: business_name_short || null,
-      service_area: service_area || null,
-      sdr_persona: sdr_persona || "Mary",
-      owner_phone: owner_phone || null,
-      owner_email: owner_email || email || null,
-      google_review_link: google_review_link || null,
-      timezone: timezone || "America/Chicago",
-      active: true,
-      workflow_config: workflowConfig,
-    })
-    .select()
+  const { data: existingUser } = await client
+    .from("users")
+    .select("id")
+    .eq("username", slug)
     .single()
 
-  if (tenantError || !tenant) {
-    result.steps.create_tenant = { status: "failed", message: tenantError?.message || "Unknown error" }
-    return NextResponse.json({ success: false, result })
-  }
+  if (existingUser) {
+    result.steps.create_user = { status: "skipped", message: `User "${slug}" already exists` }
+  } else {
+    try {
+      const { error: userError } = await client.rpc("create_user_with_password", {
+        p_username: slug,
+        p_password: password,
+        p_display_name: slug,
+        p_email: email || null,
+        p_tenant_id: tenant.id,
+      })
 
-  result.tenantId = tenant.id
-  result.steps.create_tenant = { status: "success", message: `Tenant "${name}" created (${tenant.id})` }
-
-  // -------------------------------------------------------------------------
-  // Step 2: Create login user
-  // -------------------------------------------------------------------------
-
-  try {
-    const userPassword = password || randomBytes(12).toString('base64url')
-    const { error: userError } = await client.rpc("create_user_with_password", {
-      p_username: slug,
-      p_password: userPassword,
-      p_display_name: slug,
-      p_email: email || null,
-      p_tenant_id: tenant.id,
-    })
-
-    if (userError) throw new Error(userError.message)
-    result.steps.create_user = { status: "success", message: `User "${slug}" created` }
-  } catch (err: any) {
-    result.steps.create_user = { status: "failed", message: err.message || "Failed to create user" }
+      if (userError) throw new Error(userError.message)
+      result.steps.create_user = { status: "success", message: `User "${slug}" created` }
+    } catch (err: any) {
+      result.steps.create_user = { status: "failed", message: err.message || "Failed to create user" }
+    }
   }
 
   // -------------------------------------------------------------------------
-  // Step 3: Seed pricing
+  // Step 3: Seed pricing (skip if already seeded)
   // -------------------------------------------------------------------------
 
   if (seed_pricing === "skip") {
     result.steps.seed_pricing = { status: "skipped", message: "Skipped by user" }
   } else {
-    try {
-      const tiers = getDefaultPricingTiers(tenant.id)
-      const addons = getDefaultPricingAddons(tenant.id)
+    const { count: existingTiers } = await client
+      .from("pricing_tiers")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenant.id)
 
-      const { error: tierError } = await client.from("pricing_tiers").insert(tiers)
-      if (tierError) throw new Error(`Tiers: ${tierError.message}`)
+    if (existingTiers && existingTiers > 0) {
+      result.steps.seed_pricing = { status: "skipped", message: `${existingTiers} pricing tiers already exist` }
+    } else {
+      try {
+        const tiers = getDefaultPricingTiers(tenant.id)
+        const addons = getDefaultPricingAddons(tenant.id)
 
-      const { error: addonError } = await client.from("pricing_addons").insert(addons)
-      if (addonError) throw new Error(`Addons: ${addonError.message}`)
+        const { error: tierError } = await client.from("pricing_tiers").insert(tiers)
+        if (tierError) throw new Error(`Tiers: ${tierError.message}`)
 
-      result.steps.seed_pricing = { status: "success", message: `${tiers.length} tiers + ${addons.length} addons seeded` }
-    } catch (err: any) {
-      result.steps.seed_pricing = { status: "failed", message: err.message || "Failed to seed pricing" }
+        const { error: addonError } = await client.from("pricing_addons").insert(addons)
+        if (addonError) throw new Error(`Addons: ${addonError.message}`)
+
+        result.steps.seed_pricing = { status: "success", message: `${tiers.length} tiers + ${addons.length} addons seeded` }
+      } catch (err: any) {
+        result.steps.seed_pricing = { status: "failed", message: err.message || "Failed to seed pricing" }
+      }
     }
   }
 
@@ -329,8 +348,14 @@ export async function POST(request: NextRequest) {
   }
 
   // -------------------------------------------------------------------------
-  // Step 6: Register webhooks (parallel)
+  // Step 6: Register webhooks (parallel) — skip services that failed connection test
   // -------------------------------------------------------------------------
+
+  const failedConnections = new Set(
+    Object.entries(result.steps.test_connections)
+      .filter(([, v]) => v.status === "failed")
+      .map(([k]) => k)
+  )
 
   const baseUrl = getBaseUrl()
 
@@ -340,26 +365,42 @@ export async function POST(request: NextRequest) {
       fn: () => Promise<StepResult & { secret?: string }>
     }> = []
 
-    if (telegram_bot_token) {
+    if (telegram_bot_token && !failedConnections.has("telegram")) {
       const webhookUrl = `${baseUrl}/api/webhooks/telegram/${slug}`
       webhookRegistrations.push({
         key: "telegram",
         fn: () => registerTelegramWebhook(telegram_bot_token, webhookUrl),
       })
+    } else if (telegram_bot_token && failedConnections.has("telegram")) {
+      result.steps.register_webhooks.telegram = { status: "skipped", message: "Skipped — connection test failed" }
     }
-    if (stripe_secret_key) {
+    if (stripe_secret_key && !failedConnections.has("stripe")) {
       const webhookUrl = `${baseUrl}/api/webhooks/stripe`
       webhookRegistrations.push({
         key: "stripe",
         fn: () => registerStripeWebhook(stripe_secret_key, webhookUrl),
       })
+    } else if (stripe_secret_key && failedConnections.has("stripe")) {
+      result.steps.register_webhooks.stripe = { status: "skipped", message: "Skipped — connection test failed" }
     }
-    if (openphone_api_key) {
+    if (openphone_api_key && !failedConnections.has("openphone")) {
       const webhookUrl = `${baseUrl}/api/webhooks/openphone`
       webhookRegistrations.push({
         key: "openphone",
         fn: () => registerOpenPhoneWebhook(openphone_api_key, webhookUrl),
       })
+    } else if (openphone_api_key && failedConnections.has("openphone")) {
+      result.steps.register_webhooks.openphone = { status: "skipped", message: "Skipped — connection test failed" }
+    }
+    if (vapi_api_key && vapi_assistant_id && !failedConnections.has("vapi")) {
+      const webhookUrl = `${baseUrl}/api/webhooks/vapi/${slug}`
+      const assistantIds = [vapi_assistant_id, ...(vapi_outbound_assistant_id ? [vapi_outbound_assistant_id] : [])]
+      webhookRegistrations.push({
+        key: "vapi",
+        fn: () => registerVapiWebhook(vapi_api_key, assistantIds, webhookUrl),
+      })
+    } else if (vapi_api_key && vapi_assistant_id && failedConnections.has("vapi")) {
+      result.steps.register_webhooks.vapi = { status: "skipped", message: "Skipped — connection test failed" }
     }
 
     if (webhookRegistrations.length > 0) {
@@ -401,7 +442,18 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      await client.from("tenants").update(webhookUpdate).eq("id", tenant.id)
+      const { error: webhookDbError } = await client.from("tenants").update(webhookUpdate).eq("id", tenant.id)
+      if (webhookDbError) {
+        console.error(`[onboard] Failed to save webhook secrets for tenant ${tenant.id}:`, webhookDbError.message)
+        for (const key of Object.keys(result.steps.register_webhooks)) {
+          if (result.steps.register_webhooks[key].status === "success") {
+            result.steps.register_webhooks[key] = {
+              status: "failed",
+              message: `Registered but failed to save secret: ${webhookDbError.message}. Re-register to generate a new secret.`,
+            }
+          }
+        }
+      }
     }
   } else {
     // No base URL — skip webhook registration
@@ -443,7 +495,7 @@ export async function POST(request: NextRequest) {
       verifications.push({
         key: "stripe",
         fn: async () => {
-          const stripe = new Stripe(stripe_secret_key, { apiVersion: "2025-02-24.acacia" as any })
+          const stripe = new Stripe(stripe_secret_key, { apiVersion: "2025-02-24.acacia" as any, timeout: 10_000 })
           const endpoints = await stripe.webhookEndpoints.list({ limit: 100 })
           const match = endpoints.data.find((wh) => wh.url === expectedUrl)
           if (match && match.status === "enabled") {
@@ -471,6 +523,28 @@ export async function POST(request: NextRequest) {
           const match = (data.data || []).find((wh: any) => wh.url === expectedUrl)
           if (match) return { status: "success", message: "Verified — webhook active" }
           return { status: "failed", message: "Webhook not found after registration" }
+        },
+      })
+    }
+
+    if (vapi_api_key && vapi_assistant_id && result.steps.register_webhooks.vapi?.status === "success") {
+      const expectedUrl = `${baseUrl}/api/webhooks/vapi/${slug}`
+      verifications.push({
+        key: "vapi",
+        fn: async () => {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 10_000)
+          const res = await fetch(`https://api.vapi.ai/assistant/${vapi_assistant_id}`, {
+            headers: { Authorization: `Bearer ${vapi_api_key}` },
+            signal: controller.signal,
+          })
+          clearTimeout(timeout)
+          if (!res.ok) return { status: "failed", message: `VAPI API returned ${res.status}` }
+          const data = await res.json()
+          if (data.server?.url === expectedUrl) {
+            return { status: "success", message: "Verified — server URL active" }
+          }
+          return { status: "failed", message: data.server?.url ? `Points to: ${data.server.url}` : "No server URL configured" }
         },
       })
     }
