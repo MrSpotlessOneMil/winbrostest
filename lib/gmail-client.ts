@@ -164,9 +164,12 @@ export async function sendReplyEmail(params: {
 
   const transporter = createTransporter(creds)
 
+  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
   const htmlBody = params.body
-    .split('\n')
-    .map(line => `<p>${line || '&nbsp;'}</p>`)
+    .split(/\n{2,}/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
   const from = params.fromName
@@ -222,9 +225,12 @@ export async function sendCustomEmail(params: {
 
   const transporter = createTransporter(creds)
 
+  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
   const htmlBody = params.body
-    .split('\n')
-    .map(line => `<p>${line || '&nbsp;'}</p>`)
+    .split(/\n{2,}/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
   const from = params.fromName

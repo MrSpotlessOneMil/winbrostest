@@ -368,8 +368,10 @@ async function processIncomingEmail(
       await client.from('leads').update({ followup_paused: true }).eq('id', lead.id)
     }
 
-    // Send reply
-    const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
+    // Send reply — use business name in subject for first reply, keep Re: for threads
+    const subject = email.subject.startsWith('Re:')
+      ? email.subject
+      : `Re: ${businessName} - Booking Inquiry`
     const replyRefs = [...email.references]
     if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
 
@@ -472,8 +474,10 @@ async function processIncomingEmail(
     return { replied: true }
   }
 
-  // ── Send reply email ──
-  const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
+  // ── Send reply email — use business name in subject for first reply, keep Re: for threads ──
+  const subject = email.subject.startsWith('Re:')
+    ? email.subject
+    : `Re: ${businessName} - Booking Inquiry`
   const replyRefs = [...email.references]
   if (email.messageId && !replyRefs.includes(email.messageId)) {
     replyRefs.push(email.messageId)
