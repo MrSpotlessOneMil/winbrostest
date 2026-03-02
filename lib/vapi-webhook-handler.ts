@@ -151,7 +151,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   await logSystemEvent({
     source: "vapi",
     event_type: "VAPI_CALL_RECEIVED",
-    message: `Inbound VAPI call from ${phone} - ${data.outcome || 'unknown outcome'}`,
+    message: `${direction} VAPI call ${direction === 'inbound' ? 'from' : 'to'} ${phone} - ${data.outcome || 'unknown outcome'}`,
     phone_number: phone,
     metadata: {
       call_id: providerCallId,
@@ -160,6 +160,34 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
       tenant_slug: tenant.slug,
     },
   })
+
+  // For outbound calls that were answered (customer engaged), cancel remaining call follow-up tasks.
+  // This prevents the system from calling the customer again after they already spoke with the AI.
+  // We detect "answered" by checking for a meaningful transcript (>100 chars = real conversation).
+  if (isOutbound && metadata.leadId && data.transcript && data.transcript.length > 100) {
+    try {
+      const leadId = Number(metadata.leadId)
+      const { cancelTask } = await import("@/lib/scheduler")
+      // Cancel call stages: stage-2 (call), stage-3 (double_call), stage-5 (call), double-call-2
+      for (const key of [
+        `lead-${leadId}-stage-2`,
+        `lead-${leadId}-stage-3`,
+        `lead-${leadId}-stage-5`,
+        `lead-${leadId}-double-call-2`,
+      ]) {
+        await cancelTask(key)
+      }
+      console.log(`${tag} Cancelled remaining call follow-up tasks for lead ${leadId} (outbound call was answered)`)
+
+      // Update lead status to reflect customer engagement
+      await client
+        .from("leads")
+        .update({ last_contact_at: nowIso })
+        .eq("id", leadId)
+    } catch (cancelErr) {
+      console.error(`${tag} Error cancelling follow-up tasks after answered outbound call:`, cancelErr)
+    }
+  }
 
   // Parse transcript and create lead if booked
   if (data.transcript && data.transcript.length > 50) {

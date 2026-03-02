@@ -272,10 +272,9 @@ async function processLeadFollowup(
     return
   }
 
-  // For stage 4 (call 2), only proceed if the previous call (call 1) was NOT answered
-  // This prevents unnecessary repeat calls if the customer already spoke with the AI
-  if (stage === 4) {
-    // Look up the most recent call for this lead's phone number
+  // For ANY call stage, check if the customer already answered a previous call.
+  // If they did, don't call again — they've already engaged with the AI.
+  if (action === 'call' || action === 'double_call') {
     const { data: recentCalls } = await client
       .from('calls')
       .select('outcome, created_at')
@@ -285,20 +284,26 @@ async function processLeadFollowup(
 
     const lastCall = recentCalls?.[0]
     if (lastCall) {
-      // Check if the call was answered (successful conversation)
       const answeredOutcomes = ['answered', 'completed', 'human-answered', 'booked', 'interested']
       const wasAnswered = answeredOutcomes.some(o =>
         lastCall.outcome?.toLowerCase().includes(o.toLowerCase())
       )
 
       if (wasAnswered) {
-        console.log(`[lead-followup] Lead ${leadId} call 1 was answered (outcome: ${lastCall.outcome}), cancelling remaining follow-ups`)
+        console.log(`[lead-followup] Lead ${leadId} previous call was answered (outcome: ${lastCall.outcome}), cancelling all remaining call follow-ups`)
 
-        // Cancel stage 5 task since customer already engaged
+        // Cancel all remaining call stages
         const { cancelTask } = await import('@/lib/scheduler')
-        await cancelTask(`lead-${leadId}-stage-5`)
+        for (const key of [
+          `lead-${leadId}-stage-2`,
+          `lead-${leadId}-stage-3`,
+          `lead-${leadId}-stage-5`,
+          `lead-${leadId}-double-call-2`,
+        ]) {
+          await cancelTask(key)
+        }
 
-        // Move lead to "responded" stage (stage 6)
+        // Move lead to "contacted" (customer engaged via phone)
         await client
           .from('leads')
           .update({
@@ -308,10 +313,30 @@ async function processLeadFollowup(
           })
           .eq('id', leadId)
 
-        console.log(`[lead-followup] Lead ${leadId} moved to stage 6 (responded) after successful call`)
+        console.log(`[lead-followup] Lead ${leadId} moved to stage 6 (responded) after previous answered call`)
         return
       }
-      console.log(`[lead-followup] Lead ${leadId} call 1 was not answered (outcome: ${lastCall.outcome}), proceeding with call 2`)
+      console.log(`[lead-followup] Lead ${leadId} last call was not answered (outcome: ${lastCall.outcome}), proceeding with ${action}`)
+    }
+  }
+
+  // Also check if customer has been texting recently (inbound SMS engagement)
+  // If they're actively texting, don't call — they prefer SMS
+  if (action === 'call' || action === 'double_call') {
+    const smsWindow = new Date(Date.now() - 30 * 60 * 1000).toISOString() // 30 minutes
+    const { data: recentInbound } = await client
+      .from('messages')
+      .select('id')
+      .eq('phone_number', leadPhone)
+      .eq('tenant_id', tenant?.id)
+      .eq('direction', 'inbound')
+      .gte('timestamp', smsWindow)
+      .limit(1)
+      .maybeSingle()
+
+    if (recentInbound) {
+      console.log(`[lead-followup] Lead ${leadId} has recent inbound SMS (within 30 min), skipping call stage ${stage} — customer engaged via text`)
+      return
     }
   }
 
