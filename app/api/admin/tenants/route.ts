@@ -51,6 +51,8 @@ export async function GET(request: NextRequest) {
       wave_api_token,
       wave_business_id,
       wave_income_account_id,
+      gmail_user,
+      gmail_app_password,
       workflow_config,
       active,
       created_at,
