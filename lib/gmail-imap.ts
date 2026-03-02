@@ -127,7 +127,7 @@ export async function fetchUnreadEmails(
             uid: (message as any).uid,
             from: fromAddr,
             fromName,
-            subject: parsed.subject || '(no subject)',
+            subject: parsed.subject || '',
             textBody: parsed.text || '',
             htmlBody: parsed.html || '',
             messageId: parsed.messageId || '',

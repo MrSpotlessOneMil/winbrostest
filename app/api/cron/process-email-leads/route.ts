@@ -30,23 +30,18 @@ import type { IncomingEmail } from '@/lib/gmail-imap'
 export const maxDuration = 60
 
 /**
- * Generate a sensible subject line when the customer's email has no subject.
- * Uses the tenant's business name for a professional-looking reply subject.
+ * Build the reply subject line. NEVER changes the base subject —
+ * Gmail threads by subject match, so altering it breaks threading.
+ * Just prepends "Re:" if not already present.
  */
-function getReplySubject(originalSubject: string, businessName: string): string {
+function getReplySubject(originalSubject: string): string {
   const trimmed = (originalSubject || '').trim()
 
-  // Already has a Re: prefix — use as-is (ongoing thread)
+  // Already has a Re: prefix — use as-is
   if (trimmed.startsWith('Re:')) return trimmed
 
-  // Empty, generic, or meaningless subject — generate one
-  const isEmpty = !trimmed || /^(no subject|none|\(no subject\))$/i.test(trimmed)
-  if (isEmpty) {
-    return `Re: Your ${businessName} Inquiry`
-  }
-
-  // Normal subject — just prepend Re:
-  return `Re: ${trimmed}`
+  // Prepend Re: to whatever the original subject was (even if empty)
+  return trimmed ? `Re: ${trimmed}` : 'Re:'
 }
 
 export async function GET(request: NextRequest) {
@@ -408,7 +403,7 @@ async function processIncomingEmail(
     }
 
     // Send reply — keep original subject with Re: prefix for threading
-    const subject = getReplySubject(email.subject, businessName)
+    const subject = getReplySubject(email.subject)
     const replyRefs = [...email.references]
     if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
 
@@ -512,7 +507,7 @@ async function processIncomingEmail(
   }
 
   // ── Send reply email — keep original subject with Re: prefix for threading ──
-  const subject = getReplySubject(email.subject, businessName)
+  const subject = getReplySubject(email.subject)
   const replyRefs = [...email.references]
   if (email.messageId && !replyRefs.includes(email.messageId)) {
     replyRefs.push(email.messageId)
@@ -793,7 +788,7 @@ async function handleEmailBookingCompletion(
   if (originalEmail.messageId && !replyRefs.includes(originalEmail.messageId)) {
     replyRefs.push(originalEmail.messageId)
   }
-  const confirmSubject = getReplySubject(originalEmail.subject, tenant.business_name || tenant.name || 'Our Team')
+  const confirmSubject = getReplySubject(originalEmail.subject)
 
   // ── Payment flow: WinBros gets card-on-file, house cleaning gets Wave invoice + deposit ──
   let paymentUrl = ''
