@@ -59,29 +59,63 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Find customers (try all phone formats, across all tenants for admin)
-    const { data: customers } = await withTenant(
+    // 1. Find customers by phone (try all phone formats, across all tenants for admin)
+    const { data: customersByPhone } = await withTenant(
       client.from("customers").select("id, phone_number, tenant_id")
     ).in("phone_number", phoneFormats)
 
-    const customerIds = customers?.map((c) => c.id) || []
-    console.log(`[admin] Found ${customers?.length || 0} customers with matching phone`)
+    // Also find customers by email
+    let customersByEmail: typeof customersByPhone = []
+    if (rawEmail) {
+      const { data } = await withTenant(
+        client.from("customers").select("id, phone_number, tenant_id")
+      ).ilike("email", rawEmail)
+      customersByEmail = data || []
+    }
 
-    // 2. Find all leads for this phone number (try all phone formats)
-    const { data: leads } = await withTenant(
+    // Merge and deduplicate customer IDs
+    const allCustomers = [...(customersByPhone || []), ...(customersByEmail || [])]
+    const customerIds = [...new Set(allCustomers.map((c) => c.id))]
+    // Collect all phone numbers from matched customers to cascade deletions
+    const allPhoneFormats = [...new Set([
+      ...phoneFormats,
+      ...allCustomers.map((c) => c.phone_number).filter(Boolean),
+    ])]
+    console.log(`[admin] Found ${customerIds.length} customers (${customersByPhone?.length || 0} by phone, ${customersByEmail?.length || 0} by email)`)
+
+    // 2. Find all leads by phone and email
+    const { data: leadsByPhone } = await withTenant(
       client.from("leads").select("id, phone_number")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
-    const leadIds = leads?.map((l) => l.id) || []
-    console.log(`[admin] Found ${leads?.length || 0} leads with matching phone`)
+    let leadsByEmail: typeof leadsByPhone = []
+    if (rawEmail) {
+      const { data } = await withTenant(
+        client.from("leads").select("id, phone_number")
+      ).ilike("email", rawEmail)
+      leadsByEmail = data || []
+    }
 
-    // 3. Find all jobs for this phone number (try all phone formats)
-    const { data: jobs } = await withTenant(
+    const allLeads = [...(leadsByPhone || []), ...(leadsByEmail || [])]
+    const leadIds = [...new Set(allLeads.map((l) => l.id))]
+    console.log(`[admin] Found ${leadIds.length} leads (${leadsByPhone?.length || 0} by phone, ${leadsByEmail?.length || 0} by email)`)
+
+    // 3. Find all jobs by phone and by customer_id (catches email-only customers)
+    const { data: jobsByPhone } = await withTenant(
       client.from("jobs").select("id, phone_number")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
-    const jobIds = jobs?.map((j) => j.id) || []
-    console.log(`[admin] Found ${jobs?.length || 0} jobs with matching phone`)
+    let jobsByCustomer: typeof jobsByPhone = []
+    if (customerIds.length > 0) {
+      const { data } = await withTenant(
+        client.from("jobs").select("id, phone_number")
+      ).in("customer_id", customerIds)
+      jobsByCustomer = data || []
+    }
+
+    const allJobs = [...(jobsByPhone || []), ...(jobsByCustomer || [])]
+    const jobIds = [...new Set(allJobs.map((j) => j.id))]
+    console.log(`[admin] Found ${jobIds.length} jobs (${jobsByPhone?.length || 0} by phone, ${jobsByCustomer?.length || 0} by customer)`)
 
     // 4. Delete scheduled_tasks for these leads
     if (leadIds.length > 0) {
@@ -100,36 +134,36 @@ export async function POST(request: NextRequest) {
     // 5. Count and delete system_events for this phone number (all formats)
     const { data: events } = await withTenant(
       client.from("system_events").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (events && events.length > 0) {
       await withTenant(
         client.from("system_events").delete()
-      ).in("phone_number", phoneFormats)
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${events.length} system events`)
     }
 
     // 6. Count and delete messages for this phone number (all formats)
     const { data: messages } = await withTenant(
       client.from("messages").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (messages && messages.length > 0) {
       await withTenant(
         client.from("messages").delete()
-      ).in("phone_number", phoneFormats)
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${messages.length} messages`)
     }
 
     // 7. Count and delete calls for this phone number (all formats)
     const { data: calls } = await withTenant(
       client.from("calls").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (calls && calls.length > 0) {
       await withTenant(
         client.from("calls").delete()
-      ).in("phone_number", phoneFormats)
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${calls.length} calls`)
     }
 
@@ -174,13 +208,13 @@ export async function POST(request: NextRequest) {
     const { data: followups } = await client
       .from("followup_queue")
       .select("id")
-      .in("phone_number", phoneFormats)
+      .in("phone_number", allPhoneFormats)
 
     if (followups && followups.length > 0) {
       await client
         .from("followup_queue")
         .delete()
-        .in("phone_number", phoneFormats)
+        .in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 

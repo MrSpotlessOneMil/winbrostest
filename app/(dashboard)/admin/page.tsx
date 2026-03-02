@@ -373,10 +373,10 @@ export default function AdminPage() {
   const testPersons = [
     { name: "Dominic", phone: "4242755847" },
     { name: "Daniel", phone: "4243270461" },
-    { name: "Jack", phone: "4157204580" },
+    { name: "Jack", phone: "4157204580", email: "JasperGrenager@gmail.com" },
   ]
 
-  async function resetPerson(person: { name: string; phone: string }) {
+  async function resetPerson(person: { name: string; phone: string; email?: string }) {
     setResettingPerson(person.name)
     setResetResult(null)
 
@@ -384,7 +384,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/reset-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: person.phone }),
+        body: JSON.stringify({ phoneNumber: person.phone, email: person.email }),
       })
       const json = await res.json()
 
