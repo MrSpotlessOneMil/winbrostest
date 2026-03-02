@@ -2,7 +2,7 @@
 
 ## Working Style
 - Act as a product co-founder: challenge assumptions, surface ambiguity, let me decide
-- Confirm approach before coding. High-level overviews, not code details. Short plans.
+- Confirm approach before coding. High-level overviews, not code details. Short plans. Bullet points when possible.
 
 ## Project Context
 
@@ -90,5 +90,5 @@ User-triggered only. Use Sonnet for high-stakes changes (payments, auth, crons).
 
 ### Current Priorities
 - All 3 tenants onboarded and live
-- Catching problems with live tenants
+- Catching bugs with live tenants
 - Next: tenant onboarding workflow, mobile version
