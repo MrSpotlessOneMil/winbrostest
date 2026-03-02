@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MapPin, Clock, DollarSign, ChevronRight, User } from "lucide-react"
+import { MapPin, Clock, DollarSign, ChevronRight, User, CalendarCheck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Job as ApiJob, PaginatedResponse } from "@/lib/types"
 
@@ -113,19 +113,36 @@ export function TodaysJobs() {
         </Button>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {jobs.map((job) => (
+        <div className="space-y-3">
+          {loading && (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="skeleton-card p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="skeleton-line w-32" />
+                    <div className="skeleton-line w-16" />
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="skeleton-line w-40" />
+                    <div className="skeleton-line w-20" />
+                    <div className="skeleton-line w-16" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && jobs.map((job) => (
             <div
               key={job.id}
-              className="flex items-center gap-4 rounded-lg border border-border bg-muted/30 p-4 transition-colors hover:bg-muted/50"
+              className="flex items-center gap-4 glass-list-item p-4"
             >
               {/* Status indicator */}
               <div
                 className={cn(
                   "h-full w-1 self-stretch rounded-full",
                   job.status === "completed" && "bg-success",
-                  job.status === "in-progress" && "bg-primary",
-                  job.status === "scheduled" && "bg-muted-foreground"
+                  job.status === "in-progress" && "bg-primary status-dot-pulse",
+                  job.status === "scheduled" && "bg-zinc-600"
                 )}
               />
 
@@ -138,39 +155,44 @@ export function TodaysJobs() {
                       {statusConfig[job.status as keyof typeof statusConfig].label}
                     </Badge>
                   </div>
-                  <span className="text-sm font-mono text-muted-foreground">{job.id}</span>
+                  <span className="text-xs font-mono text-zinc-600">{job.id}</span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-zinc-500">
                   <div className="flex items-center gap-1 min-w-0">
-                    <MapPin className="h-4 w-4 shrink-0" />
+                    <MapPin className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate max-w-[180px] sm:max-w-none">{job.address}</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
+                    <Clock className="h-3.5 w-3.5" />
                     <span>{job.time}</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <DollarSign className="h-4 w-4" />
-                    <span>${job.value}</span>
+                    <DollarSign className="h-3.5 w-3.5" />
+                    <span className="text-zinc-300 font-medium">${job.value}</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <User className="h-4 w-4" />
+                    <User className="h-3.5 w-3.5" />
                     <span>Team {job.team}</span>
                   </div>
                 </div>
 
                 {job.upsell && (
-                  <div className="text-xs text-success">
+                  <div className="text-xs text-success font-medium">
                     + {job.upsell}
                   </div>
                 )}
               </div>
             </div>
           ))}
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
           {!loading && jobs.length === 0 && (
-            <p className="text-sm text-muted-foreground">No jobs scheduled for today.</p>
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800/60">
+                <CalendarCheck className="h-6 w-6 text-zinc-500" />
+              </div>
+              <p className="mt-3 font-medium text-zinc-300">No jobs today</p>
+              <p className="text-sm text-zinc-500">Jobs will appear here when scheduled</p>
+            </div>
           )}
         </div>
       </CardContent>

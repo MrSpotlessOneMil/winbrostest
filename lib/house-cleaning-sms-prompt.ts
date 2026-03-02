@@ -207,6 +207,7 @@ For serviceType: Map "standard cleaning" or "regular cleaning" to "standard_clea
 For bedrooms/bathrooms: Extract the numbers. "2 bed 2 bath" = bedrooms: 2, bathrooms: 2. Handle "1.5 bath" as bathrooms: 1.5.
 
 IMPORTANT: If the customer corrects ANY information, always return the CORRECTED version, not the original.
+IMPORTANT: Today's date is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}. Use this to resolve relative dates like "tomorrow", "next Monday", etc. For preferredDate, include BOTH the date AND time if the customer specified a time. Format: "YYYY-MM-DD at H:MM AM/PM" (e.g. "tomorrow at 8am" → "${(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()} at 8:00 AM"). If no time was mentioned, return just the date "YYYY-MM-DD".
 
 CONVERSATION:
 ${transcript}
@@ -223,6 +224,7 @@ Return ONLY the JSON object, nothing else.`
 
       // Parse natural date
       const { parseNaturalDate } = await import('./winbros-sms-prompt')
+      const dateResult = parsed.preferredDate ? parseNaturalDate(parsed.preferredDate) : { date: null, time: null }
 
       return {
         serviceType: parsed.serviceType || null,
@@ -235,8 +237,8 @@ Return ONLY the JSON object, nothing else.`
         firstName: parsed.firstName || null,
         lastName: parsed.lastName || null,
         address: parsed.address || null,
-        preferredDate: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).date : null,
-        preferredTime: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).time : null,
+        preferredDate: dateResult.date,
+        preferredTime: dateResult.time,
         email: parsed.email || null,
       }
     } catch (err) {

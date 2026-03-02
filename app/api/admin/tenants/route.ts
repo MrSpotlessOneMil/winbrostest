@@ -29,6 +29,8 @@ export async function GET(request: NextRequest) {
       business_name,
       business_name_short,
       service_area,
+      service_description,
+      timezone,
       sdr_persona,
       owner_phone,
       owner_email,
@@ -52,6 +54,8 @@ export async function GET(request: NextRequest) {
       wave_api_token,
       wave_business_id,
       wave_income_account_id,
+      gmail_user,
+      gmail_app_password,
       telegram_webhook_registered_at,
       telegram_webhook_error,
       telegram_webhook_error_at,
@@ -166,7 +170,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const {
     name, slug, email, password,
-    business_name, business_name_short, service_area,
+    business_name, business_name_short, service_area, service_description,
     sdr_persona, owner_phone, owner_email, timezone,
     flow_flags, // optional: { use_hcp_mirror, use_team_routing, use_cleaner_dispatch, ... }
   } = body
@@ -203,6 +207,7 @@ export async function POST(request: NextRequest) {
       business_name: business_name || name,
       business_name_short: business_name_short || null,
       service_area: service_area || null,
+      service_description: service_description || null,
       sdr_persona: sdr_persona || 'Mary',
       owner_phone: owner_phone || null,
       owner_email: owner_email || email || null,
@@ -330,7 +335,7 @@ export async function PATCH(request: NextRequest) {
 
   // Whitelist allowed fields to prevent injection of arbitrary columns
   const ALLOWED_FIELDS = new Set([
-    'name', 'slug', 'email', 'business_name', 'business_name_short', 'service_area',
+    'name', 'slug', 'email', 'business_name', 'business_name_short', 'service_area', 'service_description',
     'sdr_persona', 'owner_phone', 'owner_email', 'google_review_link', 'timezone',
     'openphone_api_key', 'openphone_phone_id', 'openphone_phone_number',
     'openphone_webhook_secret',

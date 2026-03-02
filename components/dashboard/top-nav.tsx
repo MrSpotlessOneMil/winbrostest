@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
-import { Search, PanelLeft, Menu, MessageSquare } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Search, PanelLeft, Menu, Power, PowerOff } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/lib/auth-context"
 
 interface TopNavProps {
@@ -12,32 +13,42 @@ interface TopNavProps {
 
 export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
   const { tenantStatus, isAdmin, refresh } = useAuth()
-  const [toggling, setToggling] = useState(false)
 
-  const smsOn = tenantStatus?.smsEnabled !== false
+  // Local optimistic state for system active toggle — initializes from auth context
+  const [localActive, setLocalActive] = useState<boolean | null>(null)
 
-  async function handleToggleSms() {
-    setToggling(true)
+  // Sync from auth context when it loads / changes
+  useEffect(() => {
+    if (tenantStatus) {
+      setLocalActive(tenantStatus.active)
+    }
+  }, [tenantStatus?.active])
+
+  const systemActive = localActive ?? tenantStatus?.active ?? true
+
+  async function toggleSystem() {
+    const newActive = !systemActive
+    // Optimistic update — switch immediately
+    setLocalActive(newActive)
     try {
       await fetch("/api/tenant/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sms_auto_response_enabled: !smsOn }),
+        body: JSON.stringify({ active: newActive }),
       })
-      await refresh()
+      // Sync auth context in background (no await — don't block)
+      refresh().catch(() => {})
     } catch {
-      // silently fail
-    } finally {
-      setToggling(false)
+      // Rollback on failure
+      setLocalActive(!newActive)
     }
   }
 
   // Determine status indicator
   const getStatus = () => {
-    // Admin sees all tenants — just show "Online"
     if (isAdmin) return { label: "Online", color: "emerald", ping: true }
     if (!tenantStatus) return { label: "Online", color: "emerald", ping: true }
-    if (!tenantStatus.active) return { label: "Inactive", color: "red", ping: false }
+    if (!systemActive) return { label: "Inactive", color: "red", ping: false }
     if (!tenantStatus.smsEnabled) return { label: "SMS Off", color: "amber", ping: false }
     return { label: "Online", color: "emerald", ping: true }
   }
@@ -103,21 +114,24 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
 
       {/* Right side */}
       <div className="flex items-center gap-2">
-        {/* Auto-Texting Toggle — non-admin only */}
-        {!isAdmin && (
-          <button
-            onClick={handleToggleSms}
-            disabled={toggling}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              smsOn
-                ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                : "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-            } ${toggling ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-            title={smsOn ? "Auto-texting is ON — click to disable" : "Auto-texting is OFF — click to enable"}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            {toggling ? "..." : smsOn ? "Auto-Text ON" : "Auto-Text OFF"}
-          </button>
+        {/* System Active Toggle — non-admin only */}
+        {!isAdmin && tenantStatus && (
+          <div className="flex items-center gap-2 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-1.5">
+            <div className={`p-1 rounded-md ${systemActive ? "bg-green-500/10" : "bg-red-500/10"}`}>
+              {systemActive ? (
+                <Power className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <PowerOff className="h-3.5 w-3.5 text-red-500" />
+              )}
+            </div>
+            <span className="hidden sm:inline text-xs font-medium text-zinc-300">
+              {systemActive ? "Active" : "Offline"}
+            </span>
+            <Switch
+              checked={systemActive}
+              onCheckedChange={toggleSystem}
+            />
+          </div>
         )}
 
         {/* Status Indicator */}

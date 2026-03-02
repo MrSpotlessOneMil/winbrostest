@@ -29,6 +29,21 @@ import type { IncomingEmail } from '@/lib/gmail-imap'
 
 export const maxDuration = 60
 
+/**
+ * Build the reply subject line. NEVER changes the base subject —
+ * Gmail threads by subject match, so altering it breaks threading.
+ * Just prepends "Re:" if not already present.
+ */
+function getReplySubject(originalSubject: string): string {
+  const trimmed = (originalSubject || '').trim()
+
+  // Already has a Re: prefix — use as-is
+  if (trimmed.startsWith('Re:')) return trimmed
+
+  // Prepend Re: to whatever the original subject was (even if empty)
+  return trimmed ? `Re: ${trimmed}` : 'Re:'
+}
+
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
@@ -40,26 +55,14 @@ export async function GET(request: NextRequest) {
   let totalProcessed = 0
   let totalReplied = 0
   const errors: string[] = []
-  const debug: string[] = []
-
-  debug.push(`tenants: ${tenants.map(t => t.slug).join(', ')}`)
 
   for (const tenant of tenants) {
     // Only process tenants with Gmail credentials
     const hasCreds = (tenant.gmail_user && tenant.gmail_app_password) ||
                      (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
-    if (!hasCreds) {
-      debug.push(`${tenant.slug}: skipped (no creds)`)
-      continue
-    }
+    if (!hasCreds) continue
 
-    // Only process house cleaning tenants (not WinBros window cleaning)
-    if (tenantUsesFeature(tenant, 'use_hcp_mirror')) {
-      debug.push(`${tenant.slug}: skipped (hcp_mirror)`)
-      continue
-    }
-
-    debug.push(`${tenant.slug}: processing (gmail: ${tenant.gmail_user || 'env_fallback'})`)
+    // Email bot now works for all tenant types (house cleaning + window cleaning)
 
     try {
       const { emails, error: imapError } = await fetchUnreadEmails(tenant)
@@ -67,13 +70,7 @@ export async function GET(request: NextRequest) {
       if (imapError) {
         console.error(`[Email Cron] IMAP error for tenant ${tenant.slug}:`, imapError)
         errors.push(`${tenant.slug}: ${imapError}`)
-        debug.push(`${tenant.slug}: IMAP error: ${imapError}`)
         continue
-      }
-
-      debug.push(`${tenant.slug}: fetched ${emails.length} email(s)`)
-      if (emails.length > 0) {
-        debug.push(`${tenant.slug}: emails from: ${emails.map(e => e.from).join(', ')}`)
       }
 
       if (emails.length === 0) continue
@@ -111,7 +108,6 @@ export async function GET(request: NextRequest) {
     processed: totalProcessed,
     replied: totalReplied,
     errors: errors.length > 0 ? errors : undefined,
-    debug,
   })
 }
 
@@ -143,13 +139,49 @@ async function processIncomingEmail(
     }
   }
 
+  // ── Reset watermark: skip emails older than the last reset for this sender ──
+  // When the admin resets a test customer, old emails in Gmail shouldn't be re-ingested
+  const { data: resetEvent } = await client
+    .from('system_events')
+    .select('created_at')
+    .eq('event_type', 'SYSTEM_RESET')
+    .contains('metadata', { reset_email: senderEmail })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (resetEvent && email.date < new Date(resetEvent.created_at)) {
+    console.log(`[Email Cron] Skipping pre-reset email from ${senderEmail} (email: ${email.date.toISOString()}, reset: ${resetEvent.created_at})`)
+    return { replied: false }
+  }
+
   // ── Find or create customer by email ──
+  // Check by email first, then by phone_number placeholder (unique constraint key)
   let { data: customer } = await client
     .from('customers')
     .select('*')
     .eq('tenant_id', tenant.id)
     .eq('email', senderEmail)
     .maybeSingle()
+
+  if (!customer) {
+    // Also check by phone_number placeholder — handles cases where email column
+    // was corrupted but the unique constraint record still exists
+    const { data: byPhone } = await client
+      .from('customers')
+      .select('*')
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', `email:${senderEmail}`)
+      .maybeSingle()
+
+    if (byPhone) {
+      // Fix the email column and use this customer
+      await client.from('customers').update({ email: senderEmail }).eq('id', byPhone.id)
+      byPhone.email = senderEmail
+      customer = byPhone
+      console.log(`[Email Cron] Found existing customer #${byPhone.id} by phone placeholder, fixed email`)
+    }
+  }
 
   if (!customer) {
     // Try to extract name from the email "From" field
@@ -162,6 +194,7 @@ async function processIncomingEmail(
       .insert({
         tenant_id: tenant.id,
         email: senderEmail,
+        phone_number: `email:${senderEmail}`,  // placeholder until phone collected during booking
         first_name: firstName,
         last_name: lastName,
       })
@@ -369,8 +402,8 @@ async function processIncomingEmail(
       await client.from('leads').update({ followup_paused: true }).eq('id', lead.id)
     }
 
-    // Send reply
-    const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
+    // Send reply — keep original subject with Re: prefix for threading
+    const subject = getReplySubject(email.subject)
     const replyRefs = [...email.references]
     if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
 
@@ -473,8 +506,8 @@ async function processIncomingEmail(
     return { replied: true }
   }
 
-  // ── Send reply email ──
-  const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
+  // ── Send reply email — keep original subject with Re: prefix for threading ──
+  const subject = getReplySubject(email.subject)
   const replyRefs = [...email.references]
   if (email.messageId && !replyRefs.includes(email.messageId)) {
     replyRefs.push(email.messageId)
@@ -541,24 +574,121 @@ async function handleEmailBookingCompletion(
   originalEmail: IncomingEmail,
 ) {
   const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
 
-  // Extract booking data from conversation
-  const { extractHouseCleaningBookingData } = await import('@/lib/house-cleaning-sms-prompt')
-  const bookingData = await extractHouseCleaningBookingData(conversationHistory)
+  // For email leads, the customer's email is always senderEmail.
+  const finalEmail = senderEmail
 
-  console.log(`[Email Cron] Extracted booking: service=${bookingData.serviceType}, beds=${bookingData.bedrooms}, baths=${bookingData.bathrooms}, date=${bookingData.preferredDate}`)
+  // ── Extract booking data (different extractor per tenant type) ──
+  let firstName: string | null = null
+  let lastName: string | null = null
+  let address: string | null = null
+  let serviceType: string | null = null
+  let preferredDate: string | null = null
+  let preferredTime: string | null = null
+  let servicePrice: number | null = null
+  let jobNotes = 'Booked via email'
+  let bookingData: any = {}
 
-  const finalEmail = bookingData.email || senderEmail
+  if (isWinBros) {
+    const { extractBookingData } = await import('@/lib/winbros-sms-prompt')
+    const wb = await extractBookingData(conversationHistory)
+    bookingData = wb
+    firstName = wb.firstName
+    lastName = wb.lastName
+    address = wb.address
+    serviceType = wb.serviceType?.replace(/_/g, ' ') || 'Window cleaning'
+    preferredDate = wb.preferredDate
+    preferredTime = wb.preferredTime || null
 
-  // Extract phone number from conversation (customer may have provided it via email)
+    // WinBros: use pricebook for pricing (never trust AI-extracted price)
+    try {
+      const { lookupPrice } = await import('@/lib/pricebook')
+      const priceLookup = lookupPrice({
+        serviceType: wb.serviceType || null,
+        squareFootage: wb.squareFootage || null,
+        scope: wb.scope || null,
+        pressureWashingSurfaces: wb.pressureWashingSurfaces || null,
+        propertyType: wb.propertyType || null,
+      })
+      if (priceLookup) {
+        servicePrice = priceLookup.price
+        console.log(`[Email Cron] Pricebook: ${priceLookup.serviceName} = $${servicePrice}`)
+      }
+    } catch (pbErr) {
+      console.error('[Email Cron] Pricebook lookup error:', pbErr)
+    }
+
+    const noteParts = [
+      wb.scope ? `Scope: ${wb.scope}` : null,
+      wb.squareFootage ? `${wb.squareFootage} sqft` : null,
+      wb.buildingType ? `Building: ${wb.buildingType}` : null,
+      wb.referralSource ? `Referral: ${wb.referralSource}` : null,
+      'Booked via email',
+    ].filter(Boolean)
+    jobNotes = noteParts.join(' | ')
+
+    console.log(`[Email Cron] WinBros extracted: service=${wb.serviceType}, sqft=${wb.squareFootage}, scope=${wb.scope}, date=${wb.preferredDate}`)
+  } else {
+    const { extractHouseCleaningBookingData } = await import('@/lib/house-cleaning-sms-prompt')
+    const hc = await extractHouseCleaningBookingData(conversationHistory)
+    bookingData = hc
+    firstName = hc.firstName
+    lastName = hc.lastName
+    address = hc.address
+    serviceType = hc.serviceType?.replace(/_/g, ' ') || 'Standard cleaning'
+    preferredDate = hc.preferredDate
+    preferredTime = hc.preferredTime || null
+
+    // House cleaning: use pricing_tiers DB
+    if (hc.bedrooms && hc.bathrooms && tenant?.id) {
+      try {
+        const { getPricingRow } = await import('@/lib/pricing-db')
+        const svcRaw = (hc.serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+        const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+        const pricingRow = await getPricingRow(
+          pricingTier as 'standard' | 'deep' | 'move',
+          hc.bedrooms,
+          hc.bathrooms,
+          hc.squareFootage || null,
+          tenant.id
+        )
+        if (pricingRow?.price) {
+          servicePrice = pricingRow.price
+          console.log(`[Email Cron] Price: $${servicePrice} (${pricingTier} ${hc.bedrooms}bd/${hc.bathrooms}ba)`)
+        }
+      } catch (pricingErr) {
+        console.error('[Email Cron] Pricing lookup failed:', pricingErr)
+      }
+    }
+
+    const { mergeOverridesIntoNotes } = await import('@/lib/pricing-config')
+    const noteParts = [
+      hc.hasPets ? 'Has pets' : null,
+      hc.frequency ? `Frequency: ${hc.frequency}` : null,
+      'Booked via email',
+    ].filter(Boolean)
+    jobNotes = noteParts.join(' | ')
+
+    if (hc.bedrooms || hc.bathrooms || hc.squareFootage) {
+      jobNotes = mergeOverridesIntoNotes(jobNotes || null, {
+        bedrooms: hc.bedrooms || undefined,
+        bathrooms: hc.bathrooms || undefined,
+        squareFootage: hc.squareFootage || undefined,
+      })
+    }
+
+    console.log(`[Email Cron] Extracted booking: service=${hc.serviceType}, beds=${hc.bedrooms}, baths=${hc.bathrooms}, date=${hc.preferredDate}`)
+  }
+
+  // ── Extract phone number from conversation ──
   let phoneNumber = customer.phone_number || null
-  if (!phoneNumber) {
+  if (!phoneNumber || phoneNumber.startsWith('email:')) {
     const phoneRegex = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/
     for (const msg of [...conversationHistory].reverse()) {
       if (msg.role === 'client') {
         const phoneMatch = msg.content.match(phoneRegex)
         if (phoneMatch) {
-          // Normalize to digits only
           const digits = phoneMatch[0].replace(/\D/g, '')
           phoneNumber = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : phoneMatch[0]
           console.log(`[Email Cron] Phone extracted from conversation: ${phoneNumber}`)
@@ -568,12 +698,12 @@ async function handleEmailBookingCompletion(
     }
   }
 
-  // Update customer with extracted data
+  // ── Update customer with extracted data ──
   await client.from('customers').update({
     email: finalEmail,
-    first_name: bookingData.firstName || customer.first_name,
-    last_name: bookingData.lastName || customer.last_name,
-    address: bookingData.address || customer.address,
+    first_name: firstName || customer.first_name,
+    last_name: lastName || customer.last_name,
+    address: address || customer.address,
     phone_number: phoneNumber || customer.phone_number || null,
   }).eq('id', customer.id)
 
@@ -584,54 +714,15 @@ async function handleEmailBookingCompletion(
       tenantId: tenant.id,
       customerId: customer.id,
       phone: phoneNumber || customer.phone_number || '',
-      firstName: bookingData.firstName || customer.first_name,
-      lastName: bookingData.lastName || customer.last_name,
+      firstName: firstName || customer.first_name,
+      lastName: lastName || customer.last_name,
       email: finalEmail,
-      address: bookingData.address || customer.address,
-    })
-  }
-
-  // ── Calculate price ──
-  let servicePrice: number | null = null
-  if (bookingData.bedrooms && bookingData.bathrooms && tenant?.id) {
-    try {
-      const { getPricingRow } = await import('@/lib/pricing-db')
-      const svcRaw = (bookingData.serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
-      const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
-      const pricingRow = await getPricingRow(
-        pricingTier as 'standard' | 'deep' | 'move',
-        bookingData.bedrooms,
-        bookingData.bathrooms,
-        bookingData.squareFootage || null,
-        tenant.id
-      )
-      if (pricingRow?.price) {
-        servicePrice = pricingRow.price
-        console.log(`[Email Cron] Price: $${servicePrice} (${pricingTier} ${bookingData.bedrooms}bd/${bookingData.bathrooms}ba)`)
-      }
-    } catch (pricingErr) {
-      console.error('[Email Cron] Pricing lookup failed:', pricingErr)
-    }
-  }
-
-  // ── Build job notes ──
-  const { mergeOverridesIntoNotes } = await import('@/lib/pricing-config')
-  let jobNotes = [
-    bookingData.hasPets ? 'Has pets' : null,
-    bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
-    'Booked via email',
-  ].filter(Boolean).join(' | ')
-
-  if (bookingData.bedrooms || bookingData.bathrooms || bookingData.squareFootage) {
-    jobNotes = mergeOverridesIntoNotes(jobNotes || null, {
-      bedrooms: bookingData.bedrooms || undefined,
-      bathrooms: bookingData.bathrooms || undefined,
-      squareFootage: bookingData.squareFootage || undefined,
+      address: address || customer.address,
     })
   }
 
   // ── Fallback date ──
-  let jobDate = bookingData.preferredDate || null
+  let jobDate = preferredDate || null
   if (!jobDate) {
     const now = new Date()
     const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
@@ -641,22 +732,20 @@ async function handleEmailBookingCompletion(
     jobDate = candidate.toISOString().split('T')[0]
   }
 
-  const defaultServiceType = 'Standard cleaning'
-
   // ── Create job ──
   const { data: newJob, error: jobError } = await client.from('jobs').insert({
     tenant_id: tenant.id,
     customer_id: customer.id,
     phone_number: phoneNumber || customer.phone_number || null,
-    service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-    address: bookingData.address || customer.address || null,
+    service_type: serviceType || 'Standard cleaning',
+    address: address || customer.address || null,
     price: servicePrice || null,
     date: jobDate,
-    scheduled_at: bookingData.preferredTime || '09:00',
+    scheduled_at: preferredTime || '09:00',
     status: 'scheduled',
     booked: true,
     notes: jobNotes || null,
-    job_type: 'cleaning',
+    job_type: isWinBros ? 'estimate' : 'cleaning',
   }).select('id').single()
 
   if (jobError || !newJob?.id) {
@@ -671,17 +760,17 @@ async function handleEmailBookingCompletion(
     tenant,
     jobId: newJob.id,
     phone: customer.phone_number,
-    firstName: bookingData.firstName || customer.first_name,
-    lastName: bookingData.lastName || customer.last_name,
+    firstName: firstName || customer.first_name,
+    lastName: lastName || customer.last_name,
     email: finalEmail,
-    address: bookingData.address || customer.address,
-    serviceType: bookingData.serviceType || null,
+    address: address || customer.address,
+    serviceType: serviceType || null,
     scheduledDate: jobDate,
-    scheduledTime: bookingData.preferredTime || '09:00',
+    scheduledTime: preferredTime || '09:00',
     price: servicePrice,
     notes: 'Booked via email',
     source: 'email',
-    isEstimate: false,
+    isEstimate: isWinBros,
   })
 
   // ── Update lead to booked ──
@@ -694,92 +783,195 @@ async function handleEmailBookingCompletion(
     },
   }).eq('id', lead.id)
 
-  // ── Send deposit payment flow via email ──
-  // Calculate price if not yet determined
-  if (!servicePrice) {
-    try {
-      const { calculateJobEstimateAsync } = await import('@/lib/stripe-client')
-      const jobForEstimate = {
-        id: newJob.id,
-        service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-        notes: jobNotes,
-      }
-      const estimate = await calculateJobEstimateAsync(jobForEstimate, undefined, tenant.id)
-      servicePrice = estimate.totalPrice
-      console.log(`[Email Cron] Calculated price: $${servicePrice}`)
-    } catch (err) {
-      console.error('[Email Cron] Price calculation failed:', err)
-    }
+  // ── Build threading headers so confirmation lands in same email thread ──
+  const replyRefs = [...originalEmail.references]
+  if (originalEmail.messageId && !replyRefs.includes(originalEmail.messageId)) {
+    replyRefs.push(originalEmail.messageId)
   }
+  const confirmSubject = getReplySubject(originalEmail.subject)
 
-  // Create Stripe deposit link
-  let depositUrl = ''
-  if (servicePrice && tenant.stripe_secret_key) {
-    try {
-      const { createDepositPaymentLink } = await import('@/lib/stripe-client')
-      const depositResult = await createDepositPaymentLink(
-        { ...customer, email: finalEmail } as any,
-        {
-          ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number },
-          service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-        } as any,
-        { lead_id: String(lead.id) },
-        tenant.id,
-        tenant.stripe_secret_key
-      )
+  // ── Payment flow: WinBros estimates get simple confirmation, house cleaning gets Wave invoice + deposit ──
+  let paymentUrl = ''
 
-      if (depositResult?.url) {
-        depositUrl = depositResult.url
-        console.log(`[Email Cron] Stripe deposit link created: ${depositUrl}`)
-
-        // Update job with payment info
-        const { updateJob } = await import('@/lib/supabase')
-        await updateJob(newJob.id, {
-          invoice_sent: true,
-          status: 'quoted' as any,
-          booked: false,
-        })
-      }
-    } catch (stripeErr) {
-      console.error('[Email Cron] Stripe deposit creation failed:', stripeErr)
+  if (isWinBros) {
+    // WinBros: estimates are FREE in-home visits — no payment link needed.
+    // Send a simple confirmation reply in the same thread.
+    const sdrName = tenant.sdr_persona || 'Mary'
+    const jobDate_ = jobDate ? new Date(jobDate + 'T12:00:00') : null
+    const dateDisplay = jobDate_
+      ? jobDate_.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      : 'a date we\'ll confirm shortly'
+    // Convert 24h time (e.g. "08:00") to 12h display (e.g. "8:00 AM")
+    let timeDisplay = '9:00 AM'
+    if (preferredTime) {
+      const [h, m] = preferredTime.split(':').map(Number)
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+      timeDisplay = `${h12}:${(m || 0).toString().padStart(2, '0')} ${ampm}`
     }
-  }
+    const addrDisplay = address || customer.address || 'your home'
 
-  // ── Send confirmation email with payment link ──
-  if (depositUrl) {
-    await sendConfirmationEmail({
-      customer: { ...customer, email: finalEmail },
-      job: {
-        date: jobDate,
-        scheduled_at: bookingData.preferredTime || '09:00',
-        service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-        address: bookingData.address || customer.address || null,
-      } as any,
-      stripeDepositUrl: depositUrl,
+    const confirmBody = [
+      `Hi ${firstName || customer.first_name || 'there'},`,
+      '',
+      `You're all set! We'll have one of our team members come out to ${addrDisplay} on ${dateDisplay} at ${timeDisplay} for a free estimate. The visit usually takes about 15-20 minutes, and they'll walk through everything with you and give you exact pricing right on the spot — no obligation at all.`,
+      '',
+      `We'll send a reminder before the appointment. If anything changes or you have any questions in the meantime, just reply to this email.`,
+      '',
+      `Looking forward to meeting you!`,
+      '',
+      sdrName,
+    ].join('\n')
+
+    const sendResult = await sendReplyEmail({
+      to: senderEmail,
+      subject: confirmSubject,
+      body: confirmBody,
+      fromName: businessName,
+      inReplyTo: originalEmail.messageId,
+      references: replyRefs,
       tenant,
     })
 
-    // Store confirmation as a message for conversation history
-    await client.from('messages').insert({
-      tenant_id: tenant.id,
-      direction: 'outbound',
-      message_type: 'email',
-      content: `Booking confirmed! Sent deposit link and confirmation details to ${finalEmail}`,
-      role: 'assistant',
-      ai_generated: false,
-      status: 'sent',
-      source: 'deposit',
-      customer_id: customer.id,
-      lead_id: lead.id,
-      email_address: senderEmail,
-      email_thread_id: threadId,
-      metadata: {
-        deposit_url: depositUrl,
-        job_id: newJob.id,
-        service_price: servicePrice,
-      },
-      timestamp: new Date().toISOString(),
-    })
+    if (sendResult.success) {
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        direction: 'outbound',
+        message_type: 'email',
+        content: confirmBody,
+        role: 'assistant',
+        ai_generated: false,
+        status: 'sent',
+        source: 'estimate_booked',
+        customer_id: customer.id,
+        lead_id: lead.id,
+        email_address: senderEmail,
+        email_thread_id: threadId,
+        email_message_id: sendResult.messageId || null,
+        metadata: {
+          subject: confirmSubject,
+          job_id: newJob.id,
+        },
+        timestamp: new Date().toISOString(),
+      })
+      console.log(`[Email Cron] WinBros estimate confirmation sent to ${senderEmail}`)
+    } else {
+      console.error(`[Email Cron] Failed to send estimate confirmation to ${senderEmail}: ${sendResult.error}`)
+    }
+  } else {
+    // House cleaning: Wave invoice + Stripe deposit link
+
+    // Calculate price if not yet determined
+    if (!servicePrice) {
+      try {
+        const { calculateJobEstimateAsync } = await import('@/lib/stripe-client')
+        const jobForEstimate = {
+          id: newJob.id,
+          service_type: serviceType || 'Standard cleaning',
+          notes: jobNotes,
+        }
+        const estimate = await calculateJobEstimateAsync(jobForEstimate, undefined, tenant.id)
+        servicePrice = estimate.totalPrice
+        console.log(`[Email Cron] Calculated price: $${servicePrice}`)
+      } catch (err) {
+        console.error('[Email Cron] Price calculation failed:', err)
+      }
+    }
+
+    // Create Wave invoice for Wave tenants
+    let waveInvoiceUrl: string | undefined
+    const wc = tenant.workflow_config
+    const isStripeOnly = wc?.use_stripe && !wc?.use_wave
+
+    if (!isStripeOnly && servicePrice && servicePrice > 0) {
+      try {
+        const { createInvoice } = await import('@/lib/invoices')
+        const invoiceResult = await createInvoice(
+          { ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number }, service_type: serviceType || 'Standard cleaning' } as any,
+          { ...customer, email: finalEmail } as any,
+          tenant
+        )
+        if (invoiceResult.success && invoiceResult.invoiceUrl) {
+          waveInvoiceUrl = invoiceResult.invoiceUrl
+          console.log(`[Email Cron] Wave invoice created: ${waveInvoiceUrl}`)
+        } else {
+          console.warn(`[Email Cron] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
+        }
+      } catch (invoiceErr) {
+        console.error('[Email Cron] Invoice creation error:', invoiceErr)
+      }
+    }
+
+    // Create Stripe deposit link
+    if (servicePrice && tenant.stripe_secret_key) {
+      try {
+        const { createDepositPaymentLink } = await import('@/lib/stripe-client')
+        const depositResult = await createDepositPaymentLink(
+          { ...customer, email: finalEmail } as any,
+          {
+            ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number },
+            service_type: serviceType || 'Standard cleaning',
+          } as any,
+          { lead_id: String(lead.id) },
+          tenant.id,
+          tenant.stripe_secret_key
+        )
+        if (depositResult?.url) {
+          paymentUrl = depositResult.url
+          console.log(`[Email Cron] Stripe deposit link created: ${paymentUrl}`)
+
+          const { updateJob } = await import('@/lib/supabase')
+          await updateJob(newJob.id, {
+            invoice_sent: true,
+            status: 'quoted' as any,
+            booked: false,
+          })
+        }
+      } catch (stripeErr) {
+        console.error('[Email Cron] Stripe deposit creation failed:', stripeErr)
+      }
+    }
+
+    // Send confirmation email with payment link
+    if (paymentUrl) {
+      await sendConfirmationEmail({
+        customer: { ...customer, email: finalEmail },
+        job: {
+          date: jobDate,
+          scheduled_at: preferredTime || '09:00',
+          service_type: serviceType || 'Standard cleaning',
+          address: address || customer.address || null,
+        } as any,
+        waveInvoiceUrl,
+        stripeDepositUrl: paymentUrl,
+        tenant,
+        inReplyTo: originalEmail.messageId,
+        references: replyRefs,
+        subjectOverride: confirmSubject,
+      })
+
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        direction: 'outbound',
+        message_type: 'email',
+        content: `Booking confirmed! Sent deposit link and confirmation details to ${finalEmail}`,
+        role: 'assistant',
+        ai_generated: false,
+        status: 'sent',
+        source: 'deposit',
+        customer_id: customer.id,
+        lead_id: lead.id,
+        email_address: senderEmail,
+        email_thread_id: threadId,
+        metadata: {
+          deposit_url: paymentUrl,
+          wave_invoice_url: waveInvoiceUrl || null,
+          job_id: newJob.id,
+          service_price: servicePrice,
+        },
+        timestamp: new Date().toISOString(),
+      })
+    }
   }
 
   await logSystemEvent({
@@ -792,7 +984,7 @@ async function handleEmailBookingCompletion(
       job_id: newJob.id,
       booking_data: bookingData,
       email: finalEmail,
-      deposit_url: depositUrl || null,
+      deposit_url: paymentUrl || null,
       service_price: servicePrice,
     },
   })

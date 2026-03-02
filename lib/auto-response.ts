@@ -853,6 +853,131 @@ async function getEstimateTimeOptions(
 // =====================================================================
 
 /**
+ * Look up 3 available cleaning time slots for a tenant.
+ * Uses the same tiered cascade algorithm as the VAPI estimate scheduler:
+ *   8:00 AM → 11:00 AM → 2:00 PM → 5:00 PM
+ * For each tier, checks the next 3 days. Fills 8 AM slots first across all
+ * days, then cascades to 11 AM, etc. Returns a formatted string the AI can
+ * present in the email, or null if lookup fails.
+ */
+async function getAvailableCleaningSlots(
+  tenantId: string,
+  timezone: string
+): Promise<string | null> {
+  try {
+    const { getSupabaseServiceClient } = await import('./supabase')
+    const client = getSupabaseServiceClient()
+
+    // Same time tiers as vapi-estimate-scheduler.ts
+    const TIME_TIERS = [
+      { minutes: 480, label: '8:00 AM' },   // 8:00 AM
+      { minutes: 660, label: '11:00 AM' },  // 11:00 AM
+      { minutes: 840, label: '2:00 PM' },   // 2:00 PM
+      { minutes: 1020, label: '5:00 PM' },  // 5:00 PM
+    ]
+    const LOOKAHEAD_DAYS = 7
+
+    // Get current time in tenant timezone
+    const now = new Date()
+    const opts = { timeZone: timezone } as const
+    const year = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(now))
+    const month = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(now))
+    const day = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(now))
+    const hour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric', hour12: false }).format(now))
+    const minute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(now))
+    const nowMinutes = (hour === 24 ? 0 : hour) * 60 + minute
+
+    // Build candidate dates (skip Sundays, skip today if past 5 PM)
+    const cursor = new Date(year, month - 1, day)
+    if (nowMinutes >= 1020) cursor.setDate(cursor.getDate() + 1) // skip today if past 5 PM
+    const candidates: string[] = []
+    while (candidates.length < LOOKAHEAD_DAYS) {
+      if (cursor.getDay() !== 0) {
+        const yyyy = cursor.getFullYear()
+        const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+        const dd = String(cursor.getDate()).padStart(2, '0')
+        candidates.push(`${yyyy}-${mm}-${dd}`)
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+
+    const priorityDates = candidates.slice(0, 3)
+    const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+    // Load existing jobs for these dates
+    const { data: jobRows } = await client
+      .from('jobs')
+      .select('date, scheduled_at')
+      .eq('tenant_id', tenantId)
+      .in('date', candidates)
+      .neq('status', 'cancelled')
+
+    // Build a set of occupied slots: "date|tierMinutes"
+    const occupiedSlots = new Set<string>()
+    for (const job of (jobRows || [])) {
+      if (!job.date || !job.scheduled_at) continue
+      // Parse scheduled_at to minutes
+      const raw = String(job.scheduled_at).trim().toLowerCase()
+      let jobMinutes: number | null = null
+      const match12 = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i)
+      if (match12) {
+        let h = Number(match12[1])
+        const m = Number(match12[2])
+        if (match12[3].toLowerCase() === 'pm' && h < 12) h += 12
+        if (match12[3].toLowerCase() === 'am' && h === 12) h = 0
+        jobMinutes = h * 60 + m
+      } else {
+        const match24 = raw.match(/^(\d{1,2}):(\d{2})/)
+        if (match24) jobMinutes = Number(match24[1]) * 60 + Number(match24[2])
+      }
+      if (jobMinutes === null) continue
+
+      // Mark the tier slot as occupied if the job falls within 30 min of the tier
+      for (const tier of TIME_TIERS) {
+        if (Math.abs(jobMinutes - tier.minutes) < 30) {
+          occupiedSlots.add(`${job.date}|${tier.minutes}`)
+        }
+      }
+    }
+
+    // Tiered cascade: 8 AM across all 3 days, then 11 AM, then 2 PM, then 5 PM
+    const options: Array<{ date: string; time: string }> = []
+    const usedSlots = new Set<string>()
+
+    for (const tier of TIME_TIERS) {
+      if (options.length >= 3) break
+      for (const date of priorityDates) {
+        if (options.length >= 3) break
+        const slotKey = `${date}|${tier.minutes}`
+        if (usedSlots.has(slotKey)) continue
+        if (occupiedSlots.has(slotKey)) continue
+
+        // Skip if today and past this time
+        if (date === todayStr && nowMinutes >= tier.minutes + 30) continue
+
+        usedSlots.add(slotKey)
+        options.push({ date, time: tier.label })
+      }
+    }
+
+    if (options.length === 0) return null
+
+    // Format for the AI
+    const formatted = options.map(opt => {
+      const d = new Date(opt.date + 'T12:00:00')
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+      const monthDay = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })
+      return `${dayName}, ${monthDay} at ${opt.time}`
+    })
+
+    return formatted.join(' / ')
+  } catch (err) {
+    console.error('[Email Bot] Failed to look up available cleaning slots:', err)
+    return null
+  }
+}
+
+/**
  * Generate an email response for house cleaning booking conversations.
  * Same flow as SMS but adapted: batches 2-3 questions per email,
  * professional tone, and email address is already known.
@@ -864,10 +989,11 @@ export async function generateEmailResponse(
   knownCustomerInfo?: KnownCustomerInfo,
   customerContext?: CustomerContext | null
 ): Promise<AutoResponseResult> {
-  const { buildEmailBotSystemPrompt } = await import('./email-bot-prompt')
+  const { buildEmailBotSystemPrompt, buildWinBrosEmailPrompt } = await import('./email-bot-prompt')
   const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = buildEmailBotSystemPrompt(tenant)
+  const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
+  const systemPrompt = isWinBros ? buildWinBrosEmailPrompt(tenant) : buildEmailBotSystemPrompt(tenant)
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length
@@ -888,12 +1014,20 @@ export async function generateEmailResponse(
 
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
+  // Look up available time slots so the AI can suggest specific times in the first email
+  const tz = tenant.timezone || 'America/Chicago'
+  const availableSlots = await getAvailableCleaningSlots(tenant.id, tz)
+  const slotsBlock = availableSlots
+    ? `\n\nAVAILABLE TIME SLOTS (present these to the customer when asking about date/time):\n${availableSlots}\nPresent these naturally — e.g. "We have a few openings coming up — [slot 1], [slot 2], or [slot 3]. Which works best for you?"\n`
+    : ''
+
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: tenant.timezone || 'America/Chicago',
+    timeZone: tz,
   })
 
-  const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text (and escalation/booking-complete tag if needed). Nothing else.`
+  const tagHint = '(and tags like [BOOKING_COMPLETE] or [ESCALATE:reason] if needed)'
+  const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${slotsBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text ${tagHint}. Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {

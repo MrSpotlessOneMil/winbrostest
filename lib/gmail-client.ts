@@ -41,6 +41,10 @@ interface ConfirmationEmailParams {
   stripeDepositUrl: string
   cleanerName?: string
   tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null; openphone_phone_number?: string | null; owner_phone?: string | null }
+  // Threading headers — keep confirmation in the same email thread
+  inReplyTo?: string
+  references?: string[]
+  subjectOverride?: string
 }
 
 export async function sendConfirmationEmail(params: ConfirmationEmailParams): Promise<{
@@ -125,12 +129,18 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     ? `"${fromName}" <${creds.user}>`
     : creds.user
 
+  const subject = params.subjectOverride || `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`
+
   try {
     await transporter.sendMail({
       from,
       to: customer.email,
-      subject: `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`,
+      subject,
       html: htmlBody,
+      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+      ...(params.references && params.references.length > 0
+        ? { references: params.references.join(' ') }
+        : {}),
     })
 
     console.log(`Confirmation email sent to ${customer.email} from ${creds.user}`)
@@ -164,23 +174,27 @@ export async function sendReplyEmail(params: {
 
   const transporter = createTransporter(creds)
 
-  const htmlBody = params.body
-    .split('\n')
-    .map(line => `<p>${line || '&nbsp;'}</p>`)
+  // Strip any markdown formatting that the AI might include
+  const cleanedBody = params.body
+    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
+    .replace(/\*(.+?)\*/g, '$1')       // *italic* → italic
+    .replace(/__(.+?)__/g, '$1')       // __bold__ → bold
+    .replace(/_(.+?)_/g, '$1')         // _italic_ → italic
+    .replace(/^#{1,6}\s+/gm, '')       // # headers → plain text
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [text](url) → text
+    .replace(/`(.+?)`/g, '$1')         // `code` → code
+
+  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
+  const htmlBody = cleanedBody
+    .split(/\n{2,}/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
   const from = params.fromName
     ? `"${params.fromName}" <${creds.user}>`
     : creds.user
-
-  // Build threading headers
-  const headers: Record<string, string> = {}
-  if (params.inReplyTo) {
-    headers['In-Reply-To'] = params.inReplyTo
-  }
-  if (params.references && params.references.length > 0) {
-    headers['References'] = params.references.join(' ')
-  }
 
   try {
     const info = await transporter.sendMail({
@@ -188,11 +202,14 @@ export async function sendReplyEmail(params: {
       to: params.to,
       subject: params.subject,
       html: htmlBody,
-      headers,
+      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+      ...(params.references && params.references.length > 0
+        ? { references: params.references.join(' ') }
+        : {}),
     })
 
     const messageId = info.messageId || ''
-    console.log(`[Email Bot] Reply sent to ${params.to}, Message-ID: ${messageId}`)
+    console.log(`[Email Bot] Reply sent to ${params.to}, Message-ID: ${messageId}, In-Reply-To: ${params.inReplyTo || 'none'}, References: ${params.references?.length || 0} IDs, Subject: ${params.subject}`)
     return { success: true, messageId }
   } catch (error) {
     console.error('[Email Bot] Send reply error:', error)
@@ -222,9 +239,12 @@ export async function sendCustomEmail(params: {
 
   const transporter = createTransporter(creds)
 
+  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
   const htmlBody = params.body
-    .split('\n')
-    .map(line => `<p>${line || '&nbsp;'}</p>`)
+    .split(/\n{2,}/)
+    .map(para => para.trim())
+    .filter(Boolean)
+    .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
   const from = params.fromName

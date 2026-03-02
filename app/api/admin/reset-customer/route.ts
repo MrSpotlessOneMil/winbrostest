@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const rawPhone = body.phoneNumber
+  const rawEmail = body.email?.trim().toLowerCase() as string | undefined
 
   if (!rawPhone) {
     return NextResponse.json({ success: false, error: "Phone number required" }, { status: 400 })
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   const phoneFormats = [e164, digits10, digits11].filter(Boolean)
   const phone = e164 // Primary format for logging
 
-  console.log(`[admin] Resetting all data for phone formats: ${phoneFormats.join(", ")}`)
+  console.log(`[admin] Resetting all data for phone formats: ${phoneFormats.join(", ")}${rawEmail ? `, email: ${rawEmail}` : ""}`)
 
   const deletionLog: string[] = []
 
@@ -58,29 +59,80 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // 1. Find customers (try all phone formats, across all tenants for admin)
-    const { data: customers } = await withTenant(
+    // 1. Find customers by phone (try all phone formats, across all tenants for admin)
+    const { data: customersByPhone } = await withTenant(
       client.from("customers").select("id, phone_number, tenant_id")
     ).in("phone_number", phoneFormats)
 
-    const customerIds = customers?.map((c) => c.id) || []
-    console.log(`[admin] Found ${customers?.length || 0} customers with matching phone`)
+    // Also find customers by email (both the email column and the phone_number placeholder)
+    let customersByEmail: typeof customersByPhone = []
+    if (rawEmail) {
+      const { data } = await withTenant(
+        client.from("customers").select("id, phone_number, tenant_id")
+      ).ilike("email", rawEmail)
+      customersByEmail = data || []
 
-    // 2. Find all leads for this phone number (try all phone formats)
-    const { data: leads } = await withTenant(
+      // Also check the phone_number placeholder pattern used by email leads
+      const { data: byPlaceholder } = await withTenant(
+        client.from("customers").select("id, phone_number, tenant_id")
+      ).eq("phone_number", `email:${rawEmail}`)
+      if (byPlaceholder?.length) {
+        customersByEmail = [...customersByEmail, ...byPlaceholder]
+      }
+    }
+
+    // Merge and deduplicate customer IDs
+    const allCustomers = [...(customersByPhone || []), ...(customersByEmail || [])]
+    const customerIds = [...new Set(allCustomers.map((c) => c.id))]
+    // Collect all phone numbers from matched customers to cascade deletions
+    const allPhoneFormats = [...new Set([
+      ...phoneFormats,
+      ...allCustomers.map((c) => c.phone_number).filter(Boolean),
+    ])]
+    console.log(`[admin] Found ${customerIds.length} customers (${customersByPhone?.length || 0} by phone, ${customersByEmail?.length || 0} by email)`)
+
+    // 2. Find all leads by phone and email
+    const { data: leadsByPhone } = await withTenant(
       client.from("leads").select("id, phone_number")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
-    const leadIds = leads?.map((l) => l.id) || []
-    console.log(`[admin] Found ${leads?.length || 0} leads with matching phone`)
+    let leadsByEmail: typeof leadsByPhone = []
+    if (rawEmail) {
+      const { data } = await withTenant(
+        client.from("leads").select("id, phone_number")
+      ).ilike("email", rawEmail)
+      leadsByEmail = data || []
+    }
 
-    // 3. Find all jobs for this phone number (try all phone formats)
-    const { data: jobs } = await withTenant(
+    // Also find leads by customer_id (catches email leads with placeholder phone numbers)
+    let leadsByCustomer: typeof leadsByPhone = []
+    if (customerIds.length > 0) {
+      const { data } = await withTenant(
+        client.from("leads").select("id, phone_number")
+      ).in("customer_id", customerIds)
+      leadsByCustomer = data || []
+    }
+
+    const allLeads = [...(leadsByPhone || []), ...(leadsByEmail || []), ...(leadsByCustomer || [])]
+    const leadIds = [...new Set(allLeads.map((l) => l.id))]
+    console.log(`[admin] Found ${leadIds.length} leads (${leadsByPhone?.length || 0} by phone, ${leadsByEmail?.length || 0} by email, ${leadsByCustomer?.length || 0} by customer)`)
+
+    // 3. Find all jobs by phone and by customer_id (catches email-only customers)
+    const { data: jobsByPhone } = await withTenant(
       client.from("jobs").select("id, phone_number")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
-    const jobIds = jobs?.map((j) => j.id) || []
-    console.log(`[admin] Found ${jobs?.length || 0} jobs with matching phone`)
+    let jobsByCustomer: typeof jobsByPhone = []
+    if (customerIds.length > 0) {
+      const { data } = await withTenant(
+        client.from("jobs").select("id, phone_number")
+      ).in("customer_id", customerIds)
+      jobsByCustomer = data || []
+    }
+
+    const allJobs = [...(jobsByPhone || []), ...(jobsByCustomer || [])]
+    const jobIds = [...new Set(allJobs.map((j) => j.id))]
+    console.log(`[admin] Found ${jobIds.length} jobs (${jobsByPhone?.length || 0} by phone, ${jobsByCustomer?.length || 0} by customer)`)
 
     // 4. Delete scheduled_tasks for these leads
     if (leadIds.length > 0) {
@@ -99,36 +151,50 @@ export async function POST(request: NextRequest) {
     // 5. Count and delete system_events for this phone number (all formats)
     const { data: events } = await withTenant(
       client.from("system_events").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (events && events.length > 0) {
       await withTenant(
         client.from("system_events").delete()
-      ).in("phone_number", phoneFormats)
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${events.length} system events`)
     }
 
-    // 6. Count and delete messages for this phone number (all formats)
+    // 6. Count and delete messages by phone number (SMS) AND email address (email leads)
     const { data: messages } = await withTenant(
       client.from("messages").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (messages && messages.length > 0) {
       await withTenant(
         client.from("messages").delete()
-      ).in("phone_number", phoneFormats)
-      deletionLog.push(`Deleted ${messages.length} messages`)
+      ).in("phone_number", allPhoneFormats)
+      deletionLog.push(`Deleted ${messages.length} messages (by phone)`)
+    }
+
+    // Also delete email messages (keyed by email_address, not phone_number)
+    if (rawEmail) {
+      const { data: emailMessages } = await withTenant(
+        client.from("messages").select("id")
+      ).ilike("email_address", rawEmail)
+
+      if (emailMessages && emailMessages.length > 0) {
+        await withTenant(
+          client.from("messages").delete()
+        ).ilike("email_address", rawEmail)
+        deletionLog.push(`Deleted ${emailMessages.length} email messages`)
+      }
     }
 
     // 7. Count and delete calls for this phone number (all formats)
     const { data: calls } = await withTenant(
       client.from("calls").select("id")
-    ).in("phone_number", phoneFormats)
+    ).in("phone_number", allPhoneFormats)
 
     if (calls && calls.length > 0) {
       await withTenant(
         client.from("calls").delete()
-      ).in("phone_number", phoneFormats)
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${calls.length} calls`)
     }
 
@@ -173,13 +239,13 @@ export async function POST(request: NextRequest) {
     const { data: followups } = await client
       .from("followup_queue")
       .select("id")
-      .in("phone_number", phoneFormats)
+      .in("phone_number", allPhoneFormats)
 
     if (followups && followups.length > 0) {
       await client
         .from("followup_queue")
         .delete()
-        .in("phone_number", phoneFormats)
+        .in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 
@@ -195,12 +261,13 @@ export async function POST(request: NextRequest) {
     console.log(`[admin] Reset complete for ${phone}:`, deletionLog)
 
     // Log the reset as a system event so it's visible in the debug page
+    // Include reset_email so the email cron can use it as a watermark
     await logSystemEvent({
       event_type: "SYSTEM_RESET" as any,
       source: "system" as any,
-      message: `Reset all data for ${phone}`,
+      message: `Reset all data for ${phone}${rawEmail ? ` / ${rawEmail}` : ''}`,
       phone_number: phone,
-      metadata: { deletions: deletionLog, raw_phone: rawPhone },
+      metadata: { deletions: deletionLog, raw_phone: rawPhone, reset_email: rawEmail || null },
     })
 
     return NextResponse.json({

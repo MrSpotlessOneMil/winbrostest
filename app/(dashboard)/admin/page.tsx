@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -103,6 +104,8 @@ interface Tenant {
   business_name: string | null
   business_name_short: string | null
   service_area: string | null
+  service_description: string | null
+  timezone: string
   sdr_persona: string | null
   owner_phone: string | null
   owner_email: string | null
@@ -133,6 +136,9 @@ interface Tenant {
   wave_api_token: string | null
   wave_business_id: string | null
   wave_income_account_id: string | null
+  // Gmail (Email Bot)
+  gmail_user: string | null
+  gmail_app_password: string | null
   // Webhook registration timestamps
   telegram_webhook_registered_at: string | null
   stripe_webhook_registered_at: string | null
@@ -167,11 +173,14 @@ function maskKey(key: string | null): string {
 }
 
 export default function AdminPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
-  const [selectedTenant, setSelectedTenant] = useState<string | null>(null)
+  const [selectedTenant, setSelectedTenantRaw] = useState<string | null>(searchParams.get("tenant"))
 
   // Onboarding wizard state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -185,6 +194,7 @@ export default function AdminPage() {
     business_name: "",
     business_name_short: "",
     service_area: "",
+    service_description: "",
     timezone: "America/Chicago",
     sdr_persona: "Mary",
     owner_phone: "",
@@ -223,8 +233,28 @@ export default function AdminPage() {
   const [savingCredentials, setSavingCredentials] = useState(false)
   const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set())
 
-  // Tab state - persists across saves
-  const [activeTab, setActiveTab] = useState("controls")
+  // Tab state - persists in URL across reloads
+  const [activeTab, setActiveTabRaw] = useState(searchParams.get("tab") || "controls")
+
+  // Sync state to URL params so they survive reloads
+  const updateUrlParams = useCallback((params: Record<string, string | null>) => {
+    const url = new URL(window.location.href)
+    for (const [key, value] of Object.entries(params)) {
+      if (value) url.searchParams.set(key, value)
+      else url.searchParams.delete(key)
+    }
+    router.replace(url.pathname + url.search, { scroll: false })
+  }, [router])
+
+  const setSelectedTenant = useCallback((id: string | null) => {
+    setSelectedTenantRaw(id)
+    updateUrlParams({ tenant: id })
+  }, [updateUrlParams])
+
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabRaw(tab)
+    updateUrlParams({ tab })
+  }, [updateUrlParams])
 
   // Copy all credentials state
   const [copied, setCopied] = useState(false)
@@ -353,7 +383,7 @@ export default function AdminPage() {
     setOnboardStep(0)
     setOnboardForm({
       name: "", slug: "", password: "", flow_type: "spotless",
-      business_name: "", business_name_short: "", service_area: "",
+      business_name: "", business_name_short: "", service_area: "", service_description: "",
       timezone: "America/Chicago", sdr_persona: "Mary",
       owner_phone: "", owner_email: "", google_review_link: "",
       openphone_api_key: "", openphone_phone_id: "", openphone_phone_number: "",
@@ -551,6 +581,8 @@ export default function AdminPage() {
       { label: "Business Name", value: currentTenant.business_name },
       { label: "Short Name", value: currentTenant.business_name_short },
       { label: "Service Area", value: currentTenant.service_area },
+      { label: "Service Type", value: currentTenant.service_description },
+      { label: "Timezone", value: currentTenant.timezone },
       { label: "SDR Persona", value: currentTenant.sdr_persona },
       { label: "Owner Phone", value: currentTenant.owner_phone },
       { label: "Owner Email", value: currentTenant.owner_email },
@@ -574,6 +606,8 @@ export default function AdminPage() {
       { label: "Wave API Token", value: currentTenant.wave_api_token },
       { label: "Wave Business ID", value: currentTenant.wave_business_id },
       { label: "Wave Income Account ID", value: currentTenant.wave_income_account_id },
+      { label: "Gmail User", value: currentTenant.gmail_user },
+      { label: "Gmail App Password", value: currentTenant.gmail_app_password },
     ]
 
     const text = credentialFields
@@ -590,10 +624,10 @@ export default function AdminPage() {
   const testPersons = [
     { name: "Dominic", phone: "4242755847" },
     { name: "Daniel", phone: "4243270461" },
-    { name: "Jack", phone: "4157204580" },
+    { name: "Jack", phone: "4157204580", email: "JasperGrenager@gmail.com" },
   ]
 
-  async function resetPerson(person: { name: string; phone: string }) {
+  async function resetPerson(person: { name: string; phone: string; email?: string }) {
     setResettingPerson(person.name)
     setResetResult(null)
 
@@ -601,7 +635,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/reset-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: person.phone }),
+        body: JSON.stringify({ phoneNumber: person.phone, email: person.email }),
       })
       const json = await res.json()
 
@@ -1735,6 +1769,28 @@ export default function AdminPage() {
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label className="text-sm">Service Type</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "service_description")}
+                            onChange={(e) => setFieldValue("service_description", e.target.value)}
+                            placeholder="e.g., window cleaning, house cleaning"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Timezone</Label>
+                          <select
+                            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={getFieldValue(currentTenant, "timezone") || "America/Chicago"}
+                            onChange={(e) => setFieldValue("timezone", e.target.value)}
+                          >
+                            <option value="America/New_York">Eastern (New York)</option>
+                            <option value="America/Chicago">Central (Chicago)</option>
+                            <option value="America/Denver">Mountain (Denver)</option>
+                            <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+                            <option value="America/Phoenix">Arizona (Phoenix)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
                           <Label className="text-sm">SDR Persona</Label>
                           <Input
                             value={getFieldValue(currentTenant, "sdr_persona")}
@@ -2359,7 +2415,172 @@ export default function AdminPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Gmail (Email Bot) */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4" />
+                        Gmail (Email Bot)
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Gmail Address</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "gmail_user")}
+                            onChange={(e) => setFieldValue("gmail_user", e.target.value)}
+                            placeholder="business@gmail.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">App Password</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("gmail_app_password") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "gmail_app_password")}
+                              onChange={(e) => setFieldValue("gmail_app_password", e.target.value)}
+                              placeholder={currentTenant.gmail_app_password ? maskKey(currentTenant.gmail_app_password) : "Enter app password"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("gmail_app_password")}
+                            >
+                              {revealedFields.has("gmail_app_password") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                     )}
+                  </TabsContent>
+
+                  {/* Setup Checklist Tab */}
+                  <TabsContent value="setup" className="space-y-6">
+                    {/* Setup Checklist */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <ClipboardList className="h-5 w-5" />
+                          Setup Checklist
+                        </CardTitle>
+                        <CardDescription>Required integrations and configuration status</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {(() => {
+                          const checks = [
+                            {
+                              label: "Business details",
+                              description: "Name, service area, phone, email",
+                              ok: !!(currentTenant.business_name && currentTenant.service_area && currentTenant.owner_phone && currentTenant.owner_email),
+                            },
+                            {
+                              label: "OpenPhone",
+                              description: "API key, phone ID, phone number",
+                              ok: !!(currentTenant.openphone_api_key && currentTenant.openphone_phone_id && currentTenant.openphone_phone_number),
+                            },
+                            {
+                              label: "VAPI (Voice AI)",
+                              description: "API key, assistant ID",
+                              ok: !!(currentTenant.vapi_api_key && currentTenant.vapi_assistant_id),
+                            },
+                            {
+                              label: "Stripe",
+                              description: "Secret key, webhook secret",
+                              ok: !!(currentTenant.stripe_secret_key && currentTenant.stripe_webhook_secret),
+                            },
+                            {
+                              label: "Telegram",
+                              description: "Bot token, owner chat ID",
+                              ok: !!(currentTenant.telegram_bot_token && currentTenant.owner_telegram_chat_id),
+                            },
+                            {
+                              label: "Gmail (Email Bot)",
+                              description: "Gmail address, app password",
+                              ok: !!(currentTenant.gmail_user && currentTenant.gmail_app_password),
+                              optional: true,
+                            },
+                            {
+                              label: "Google Review Link",
+                              description: "For post-cleaning review requests",
+                              ok: !!currentTenant.google_review_link,
+                              optional: true,
+                            },
+                          ]
+                          const doneCount = checks.filter((c) => c.ok).length
+                          const requiredCount = checks.filter((c) => !c.optional).length
+                          const requiredDone = checks.filter((c) => !c.optional && c.ok).length
+
+                          return (
+                            <>
+                              <div className="flex items-center gap-2 pb-2 mb-2 border-b">
+                                <span className={`text-sm font-medium ${requiredDone === requiredCount ? "text-green-500" : "text-orange-500"}`}>
+                                  {doneCount}/{checks.length} configured
+                                </span>
+                                {requiredDone === requiredCount && (
+                                  <Badge variant="outline" className="text-green-500 border-green-500/30">All required done</Badge>
+                                )}
+                              </div>
+                              {checks.map((check) => (
+                                <div key={check.label} className="flex items-center gap-3 py-1">
+                                  {check.ok ? (
+                                    <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
+                                  ) : (
+                                    <AlertTriangle className={`h-5 w-5 shrink-0 ${check.optional ? "text-zinc-400" : "text-orange-500"}`} />
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium flex items-center gap-2">
+                                      {check.label}
+                                      {check.optional && <span className="text-xs text-muted-foreground">(optional)</span>}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">{check.description}</div>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          )
+                        })()}
+                      </CardContent>
+                    </Card>
+
+                    {/* Webhook URLs */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          <ExternalLink className="h-5 w-5" />
+                          Webhook URLs
+                        </CardTitle>
+                        <CardDescription>Configure these URLs in the respective external services</CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {[
+                          { label: "VAPI", service: "vapi", hint: "VAPI → Assistant → Server URL" },
+                          { label: "OpenPhone", service: "openphone", hint: "OpenPhone → Settings → Webhooks" },
+                          { label: "Stripe", service: "stripe", hint: "Stripe → Developers → Webhooks" },
+                          { label: "Telegram", service: "telegram", hint: "Set via bot API setWebhook" },
+                        ].map(({ label, service, hint }) => (
+                          <div key={service} className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm font-medium">{label}</Label>
+                              <span className="text-xs text-muted-foreground">{hint}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <Input
+                                readOnly
+                                value={getWebhookUrl(currentTenant.slug, service)}
+                                className="bg-muted/50 font-mono text-xs"
+                              />
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, service), `webhook_${service}`)}
+                              >
+                                {copiedUrl === `webhook_${service}` ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
                   </TabsContent>
 
                   {/* Campaigns Tab */}
@@ -2882,6 +3103,14 @@ export default function AdminPage() {
                         placeholder="Dallas, TX"
                       />
                     </div>
+                    <div className="space-y-2">
+                      <Label>Service Type</Label>
+                      <Input
+                        value={onboardForm.service_description}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, service_description: e.target.value })}
+                        placeholder="e.g., window cleaning, house cleaning"
+                      />
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -3259,6 +3488,7 @@ export default function AdminPage() {
                         { label: "Pricing", value: onboardForm.seed_pricing === "default" ? "Default (14 tiers + 7 addons)" : "Skip", required: false, always: true },
                         { label: "Short Name", value: onboardForm.business_name_short },
                         { label: "Service Area", value: onboardForm.service_area },
+                        { label: "Service Type", value: onboardForm.service_description },
                         { label: "Timezone", value: ({ "America/New_York": "Eastern", "America/Chicago": "Central", "America/Denver": "Mountain", "America/Los_Angeles": "Pacific" } as Record<string, string>)[onboardForm.timezone] || onboardForm.timezone, required: false, always: true },
                         { label: "SDR Persona", value: onboardForm.sdr_persona, required: false, always: true },
                         { label: "Owner Phone", value: onboardForm.owner_phone },
