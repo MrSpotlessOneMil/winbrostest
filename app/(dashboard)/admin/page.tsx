@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -143,11 +144,14 @@ function maskKey(key: string | null): string {
 }
 
 export default function AdminPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+
   const [tenants, setTenants] = useState<Tenant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [updating, setUpdating] = useState<string | null>(null)
-  const [selectedTenant, setSelectedTenant] = useState<string | null>(null)
+  const [selectedTenant, setSelectedTenantRaw] = useState<string | null>(searchParams.get("tenant"))
 
   // Add New Business modal state
   const [showAddModal, setShowAddModal] = useState(false)
@@ -163,8 +167,28 @@ export default function AdminPage() {
   const [savingCredentials, setSavingCredentials] = useState(false)
   const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set())
 
-  // Tab state - persists across saves
-  const [activeTab, setActiveTab] = useState("controls")
+  // Tab state - persists in URL across reloads
+  const [activeTab, setActiveTabRaw] = useState(searchParams.get("tab") || "controls")
+
+  // Sync state to URL params so they survive reloads
+  const updateUrlParams = useCallback((params: Record<string, string | null>) => {
+    const url = new URL(window.location.href)
+    for (const [key, value] of Object.entries(params)) {
+      if (value) url.searchParams.set(key, value)
+      else url.searchParams.delete(key)
+    }
+    router.replace(url.pathname + url.search, { scroll: false })
+  }, [router])
+
+  const setSelectedTenant = useCallback((id: string | null) => {
+    setSelectedTenantRaw(id)
+    updateUrlParams({ tenant: id })
+  }, [updateUrlParams])
+
+  const setActiveTab = useCallback((tab: string) => {
+    setActiveTabRaw(tab)
+    updateUrlParams({ tab })
+  }, [updateUrlParams])
 
   // Copy all credentials state
   const [copied, setCopied] = useState(false)
