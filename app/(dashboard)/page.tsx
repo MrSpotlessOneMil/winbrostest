@@ -22,36 +22,15 @@ export default function DashboardPage() {
             Real-time overview of operations
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          {/* System Toggle */}
-          <div className="flex items-center gap-3 rounded-xl system-badge px-4 py-2.5">
-            <div className={systemActive ? "live-dot" : "live-dot-offline"} />
-            <div className="hidden sm:block">
-              <div className="text-sm font-medium text-zinc-200">
-                {systemActive ? "System Active" : "System Offline"}
-              </div>
-              {tenantName && (
-                <div className="text-[11px] text-zinc-500">{tenantName}</div>
-              )}
-            </div>
-            <Switch
-              checked={systemActive}
-              onCheckedChange={toggleSystem}
-              disabled={systemLoading}
-            />
-          </div>
-
-          {/* Date */}
-          <div className="text-right hidden md:block">
-            <p className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Today</p>
-            <p className="text-base font-semibold text-zinc-200">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-              })}
-            </p>
-          </div>
+        <div className="text-right hidden md:block">
+          <p className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Today</p>
+          <p className="text-base font-semibold text-zinc-200">
+            {new Date().toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
         </div>
       </div>
 
