@@ -1,7 +1,9 @@
 /**
  * Gmail IMAP Client
  *
- * Fetches unread emails from a Gmail inbox using IMAP.
+ * Fetches recent emails from a Gmail inbox using IMAP.
+ * Uses date-based search (not UNSEEN) so read emails are still caught.
+ * Dedup happens in the cron via Message-ID checks in the DB.
  * Uses the same credential resolution as gmail-client.ts:
  * tenant-specific creds first, then env var fallback.
  */
@@ -38,8 +40,10 @@ function getGmailCreds(tenant?: { gmail_user?: string | null; gmail_app_password
 }
 
 /**
- * Connect to Gmail IMAP, fetch all UNSEEN emails, and return parsed results.
- * Does NOT mark emails as seen — call markEmailAsRead() after successful processing.
+ * Connect to Gmail IMAP, fetch recent emails (last 10 min), and return parsed results.
+ * Uses date-based search instead of UNSEEN so we catch read emails too.
+ * Dedup is handled by Message-ID checks in the cron — safe to return duplicates.
+ * Still marks emails as read after processing for inbox cleanliness.
  */
 export async function fetchUnreadEmails(
   tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }
@@ -58,20 +62,25 @@ export async function fetchUnreadEmails(
   })
 
   const emails: IncomingEmail[] = []
+  // IMAP SINCE only supports date (not datetime), so we search today's emails
+  // and filter by timestamp in code to only return the last 10 minutes
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000)
 
   try {
     await client.connect()
 
     const lock = await client.getMailboxLock('INBOX')
     try {
-      // Search for unseen messages
-      const uids = await client.search({ seen: false }, { uid: true })
+      // Search for emails received today (IMAP SINCE is date-only)
+      const sinceDate = new Date()
+      sinceDate.setHours(0, 0, 0, 0)
+      const uids = await client.search({ since: sinceDate }, { uid: true })
 
       if (!uids || uids.length === 0) {
         return { emails: [] }
       }
 
-      // Fetch each unseen message
+      // Fetch each message and filter by timestamp
       for (const uid of uids) {
         try {
           const message = await client.fetchOne(String(uid), {
@@ -84,6 +93,10 @@ export async function fetchUnreadEmails(
           if (!msgSource) continue
 
           const parsed: ParsedMail = await simpleParser(msgSource)
+
+          // Only process emails from the last 10 minutes
+          const emailDate = parsed.date || new Date()
+          if (emailDate < cutoff) continue
 
           const fromAddr = parsed.from?.value?.[0]?.address || ''
           const fromName = parsed.from?.value?.[0]?.name || fromAddr
@@ -124,7 +137,7 @@ export async function fetchUnreadEmails(
             messageId: parsed.messageId || '',
             inReplyTo: (typeof parsed.inReplyTo === 'string' ? parsed.inReplyTo : null),
             references,
-            date: parsed.date || new Date(),
+            date: emailDate,
           })
         } catch (msgErr) {
           console.error(`[Gmail IMAP] Error parsing message UID ${uid}:`, msgErr)
