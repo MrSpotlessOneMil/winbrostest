@@ -854,9 +854,11 @@ async function getEstimateTimeOptions(
 
 /**
  * Look up 3 available cleaning time slots for a tenant.
- * Checks existing jobs over the next 10 business days, picks the 3 least-busy
- * days, and suggests morning/afternoon slots. Returns a formatted string the
- * AI can present in the email, or null if lookup fails.
+ * Uses the same tiered cascade algorithm as the VAPI estimate scheduler:
+ *   8:00 AM → 11:00 AM → 2:00 PM → 5:00 PM
+ * For each tier, checks the next 3 days. Fills 8 AM slots first across all
+ * days, then cascades to 11 AM, etc. Returns a formatted string the AI can
+ * present in the email, or null if lookup fails.
  */
 async function getAvailableCleaningSlots(
   tenantId: string,
@@ -866,51 +868,108 @@ async function getAvailableCleaningSlots(
     const { getSupabaseServiceClient } = await import('./supabase')
     const client = getSupabaseServiceClient()
 
-    // Build next 10 business days (Mon-Sat, skip Sun)
-    const now = new Date()
-    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now)
-    const cursor = new Date(todayStr + 'T12:00:00')
-    cursor.setDate(cursor.getDate() + 1) // start tomorrow
+    // Same time tiers as vapi-estimate-scheduler.ts
+    const TIME_TIERS = [
+      { minutes: 480, label: '8:00 AM' },   // 8:00 AM
+      { minutes: 660, label: '11:00 AM' },  // 11:00 AM
+      { minutes: 840, label: '2:00 PM' },   // 2:00 PM
+      { minutes: 1020, label: '5:00 PM' },  // 5:00 PM
+    ]
+    const LOOKAHEAD_DAYS = 7
 
+    // Get current time in tenant timezone
+    const now = new Date()
+    const opts = { timeZone: timezone } as const
+    const year = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(now))
+    const month = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(now))
+    const day = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(now))
+    const hour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric', hour12: false }).format(now))
+    const minute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(now))
+    const nowMinutes = (hour === 24 ? 0 : hour) * 60 + minute
+
+    // Build candidate dates (skip Sundays, skip today if past 5 PM)
+    const cursor = new Date(year, month - 1, day)
+    if (nowMinutes >= 1020) cursor.setDate(cursor.getDate() + 1) // skip today if past 5 PM
     const candidates: string[] = []
-    while (candidates.length < 10) {
-      if (cursor.getDay() !== 0) { // skip Sunday
-        const dateStr = cursor.toISOString().split('T')[0]
-        candidates.push(dateStr)
+    while (candidates.length < LOOKAHEAD_DAYS) {
+      if (cursor.getDay() !== 0) {
+        const yyyy = cursor.getFullYear()
+        const mm = String(cursor.getMonth() + 1).padStart(2, '0')
+        const dd = String(cursor.getDate()).padStart(2, '0')
+        candidates.push(`${yyyy}-${mm}-${dd}`)
       }
       cursor.setDate(cursor.getDate() + 1)
     }
 
-    // Count existing jobs per date
-    const { data: jobs } = await client
+    const priorityDates = candidates.slice(0, 3)
+    const todayStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+
+    // Load existing jobs for these dates
+    const { data: jobRows } = await client
       .from('jobs')
-      .select('date')
+      .select('date, scheduled_at')
       .eq('tenant_id', tenantId)
       .in('date', candidates)
       .neq('status', 'cancelled')
 
-    const countByDate: Record<string, number> = {}
-    for (const d of candidates) countByDate[d] = 0
-    for (const j of (jobs || [])) {
-      if (j.date) countByDate[j.date] = (countByDate[j.date] || 0) + 1
+    // Build a set of occupied slots: "date|tierMinutes"
+    const occupiedSlots = new Set<string>()
+    for (const job of (jobRows || [])) {
+      if (!job.date || !job.scheduled_at) continue
+      // Parse scheduled_at to minutes
+      const raw = String(job.scheduled_at).trim().toLowerCase()
+      let jobMinutes: number | null = null
+      const match12 = raw.match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/i)
+      if (match12) {
+        let h = Number(match12[1])
+        const m = Number(match12[2])
+        if (match12[3].toLowerCase() === 'pm' && h < 12) h += 12
+        if (match12[3].toLowerCase() === 'am' && h === 12) h = 0
+        jobMinutes = h * 60 + m
+      } else {
+        const match24 = raw.match(/^(\d{1,2}):(\d{2})/)
+        if (match24) jobMinutes = Number(match24[1]) * 60 + Number(match24[2])
+      }
+      if (jobMinutes === null) continue
+
+      // Mark the tier slot as occupied if the job falls within 30 min of the tier
+      for (const tier of TIME_TIERS) {
+        if (Math.abs(jobMinutes - tier.minutes) < 30) {
+          occupiedSlots.add(`${job.date}|${tier.minutes}`)
+        }
+      }
     }
 
-    // Pick 3 least-busy days, then re-sort chronologically
-    const bestDates = [...candidates]
-      .sort((a, b) => countByDate[a] - countByDate[b])
-      .slice(0, 3)
-      .sort()
+    // Tiered cascade: 8 AM across all 3 days, then 11 AM, then 2 PM, then 5 PM
+    const options: Array<{ date: string; time: string }> = []
+    const usedSlots = new Set<string>()
 
-    // Alternate morning (9 AM) and afternoon (1 PM)
-    const timeSlots = ['9:00 AM', '1:00 PM', '9:00 AM']
-    const formatted = bestDates.map((date, i) => {
-      const d = new Date(date + 'T12:00:00')
+    for (const tier of TIME_TIERS) {
+      if (options.length >= 3) break
+      for (const date of priorityDates) {
+        if (options.length >= 3) break
+        const slotKey = `${date}|${tier.minutes}`
+        if (usedSlots.has(slotKey)) continue
+        if (occupiedSlots.has(slotKey)) continue
+
+        // Skip if today and past this time
+        if (date === todayStr && nowMinutes >= tier.minutes + 30) continue
+
+        usedSlots.add(slotKey)
+        options.push({ date, time: tier.label })
+      }
+    }
+
+    if (options.length === 0) return null
+
+    // Format for the AI
+    const formatted = options.map(opt => {
+      const d = new Date(opt.date + 'T12:00:00')
       const dayName = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
       const monthDay = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })
-      return `${dayName}, ${monthDay} at ${timeSlots[i]}`
+      return `${dayName}, ${monthDay} at ${opt.time}`
     })
 
-    if (formatted.length === 0) return null
     return formatted.join(' / ')
   } catch (err) {
     console.error('[Email Bot] Failed to look up available cleaning slots:', err)
