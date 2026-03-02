@@ -790,66 +790,66 @@ async function handleEmailBookingCompletion(
   }
   const confirmSubject = getReplySubject(originalEmail.subject)
 
-  // ── Payment flow: WinBros gets card-on-file, house cleaning gets Wave invoice + deposit ──
+  // ── Payment flow: WinBros estimates get simple confirmation, house cleaning gets Wave invoice + deposit ──
   let paymentUrl = ''
 
   if (isWinBros) {
-    // WinBros: card-on-file link (same as SMS flow)
-    if (tenant.stripe_secret_key) {
-      try {
-        const { createCardOnFileLink } = await import('@/lib/stripe-client')
-        const cardResult = await createCardOnFileLink(
-          { ...customer, email: finalEmail } as any,
-          newJob.id,
-          tenant.id,
-          tenant.stripe_secret_key,
-        )
-        if (cardResult.success && cardResult.url) {
-          paymentUrl = cardResult.url
-          console.log(`[Email Cron] Card-on-file link created: ${paymentUrl}`)
-        }
-      } catch (cardErr) {
-        console.error('[Email Cron] Card-on-file creation failed:', cardErr)
-      }
-    }
+    // WinBros: estimates are FREE in-home visits — no payment link needed.
+    // Send a simple confirmation reply in the same thread.
+    const sdrName = tenant.sdr_persona || 'Mary'
+    const jobDate_ = jobDate ? new Date(jobDate + 'T12:00:00') : null
+    const dateDisplay = jobDate_
+      ? jobDate_.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      : 'a date we\'ll confirm shortly'
+    const timeDisplay = preferredTime || '9:00 AM'
+    const addrDisplay = address || customer.address || 'your home'
 
-    // Send confirmation email with card-on-file link
-    if (paymentUrl) {
-      await sendConfirmationEmail({
-        customer: { ...customer, email: finalEmail },
-        job: {
-          date: jobDate,
-          scheduled_at: preferredTime || '09:00',
-          service_type: serviceType || 'Window cleaning',
-          address: address || customer.address || null,
-        } as any,
-        stripeDepositUrl: paymentUrl,
-        tenant,
-        inReplyTo: originalEmail.messageId,
-        references: replyRefs,
-        subjectOverride: confirmSubject,
-      })
+    const confirmBody = [
+      `Hi ${firstName || customer.first_name || 'there'},`,
+      '',
+      `You're all set! We'll have one of our team members come out to ${addrDisplay} on ${dateDisplay} at ${timeDisplay} for a free estimate. The visit usually takes about 15-20 minutes, and they'll walk through everything with you and give you exact pricing right on the spot — no obligation at all.`,
+      '',
+      `We'll send a reminder before the appointment. If anything changes or you have any questions in the meantime, just reply to this email.`,
+      '',
+      `Looking forward to meeting you!`,
+      '',
+      sdrName,
+    ].join('\n')
 
+    const sendResult = await sendReplyEmail({
+      to: senderEmail,
+      subject: confirmSubject,
+      body: confirmBody,
+      fromName: businessName,
+      inReplyTo: originalEmail.messageId,
+      references: replyRefs,
+      tenant,
+    })
+
+    if (sendResult.success) {
       await client.from('messages').insert({
         tenant_id: tenant.id,
         direction: 'outbound',
         message_type: 'email',
-        content: `Booking confirmed! Sent card-on-file link and confirmation details to ${finalEmail}`,
+        content: confirmBody,
         role: 'assistant',
         ai_generated: false,
         status: 'sent',
-        source: 'card_on_file',
+        source: 'estimate_booked',
         customer_id: customer.id,
         lead_id: lead.id,
         email_address: senderEmail,
         email_thread_id: threadId,
+        email_message_id: sendResult.messageId || null,
         metadata: {
-          card_on_file_url: paymentUrl,
+          subject: confirmSubject,
           job_id: newJob.id,
-          service_price: servicePrice,
         },
         timestamp: new Date().toISOString(),
       })
+      console.log(`[Email Cron] WinBros estimate confirmation sent to ${senderEmail}`)
+    } else {
+      console.error(`[Email Cron] Failed to send estimate confirmation to ${senderEmail}: ${sendResult.error}`)
     }
   } else {
     // House cleaning: Wave invoice + Stripe deposit link
