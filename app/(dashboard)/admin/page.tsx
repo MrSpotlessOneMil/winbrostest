@@ -125,6 +125,9 @@ interface Tenant {
   wave_api_token: string | null
   wave_business_id: string | null
   wave_income_account_id: string | null
+  // Gmail (Email Bot)
+  gmail_user: string | null
+  gmail_app_password: string | null
   // Status
   workflow_config: WorkflowConfig
   active: boolean
@@ -357,6 +360,8 @@ export default function AdminPage() {
       { label: "Wave API Token", value: currentTenant.wave_api_token },
       { label: "Wave Business ID", value: currentTenant.wave_business_id },
       { label: "Wave Income Account ID", value: currentTenant.wave_income_account_id },
+      { label: "Gmail User", value: currentTenant.gmail_user },
+      { label: "Gmail App Password", value: currentTenant.gmail_app_password },
     ]
 
     const text = credentialFields
@@ -1588,6 +1593,42 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Gmail (Email Bot) */}
+                    <div className="p-4 rounded-lg border border-border space-y-4">
+                      <div className="font-medium flex items-center gap-2">
+                        <MessageSquare className="h-4 w-4" />
+                        Gmail (Email Bot)
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label className="text-sm">Gmail Address</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "gmail_user")}
+                            onChange={(e) => setFieldValue("gmail_user", e.target.value)}
+                            placeholder="business@gmail.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">App Password</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("gmail_app_password") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "gmail_app_password")}
+                              onChange={(e) => setFieldValue("gmail_app_password", e.target.value)}
+                              placeholder={currentTenant.gmail_app_password ? maskKey(currentTenant.gmail_app_password) : "Enter app password"}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("gmail_app_password")}
+                            >
+                              {revealedFields.has("gmail_app_password") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </TabsContent>
 
                   {/* Setup Checklist Tab */}
@@ -1628,6 +1669,12 @@ export default function AdminPage() {
                               label: "Telegram",
                               description: "Bot token, owner chat ID",
                               ok: !!(currentTenant.telegram_bot_token && currentTenant.owner_telegram_chat_id),
+                            },
+                            {
+                              label: "Gmail (Email Bot)",
+                              description: "Gmail address, app password",
+                              ok: !!(currentTenant.gmail_user && currentTenant.gmail_app_password),
+                              optional: true,
                             },
                             {
                               label: "Google Review Link",
