@@ -162,6 +162,7 @@ async function processIncomingEmail(
       .insert({
         tenant_id: tenant.id,
         email: senderEmail,
+        phone_number: `email:${senderEmail}`,  // placeholder until phone collected during booking
         first_name: firstName,
         last_name: lastName,
       })
