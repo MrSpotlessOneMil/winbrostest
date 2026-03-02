@@ -172,8 +172,8 @@ function InlineMarkdown({ text }: { text: string }) {
 }
 
 function InlineText({ text }: { text: string }) {
-  // Parse bold (**text**) and inline code (`text`)
-  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+  // Parse bold (**text**), inline code (`text`), and URLs (https://...)
+  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>"']+)/g)
   return (
     <>
       {tokens.map((token, i) => {
@@ -189,6 +189,13 @@ function InlineText({ text }: { text: string }) {
             <code key={i} className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 text-xs font-mono">
               {token.slice(1, -1)}
             </code>
+          )
+        }
+        if (/^https?:\/\//.test(token)) {
+          return (
+            <a key={i} href={token} target="_blank" rel="noopener noreferrer" className="text-purple-400 underline break-all hover:text-purple-300">
+              {token}
+            </a>
           )
         }
         return <span key={i}>{token}</span>

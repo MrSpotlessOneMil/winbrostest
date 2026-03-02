@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -17,7 +17,7 @@ function normalizePhone(phone: string | null | undefined): string {
   return digits
 }
 
-type TabType = "messages" | "jobs" | "invoices"
+type TabType = "messages" | "jobs" | "invoices" | "recurring"
 
 interface Customer {
   id: number
@@ -30,6 +30,9 @@ interface Customer {
   auto_response_paused?: boolean
   card_on_file_at?: string | null
   stripe_customer_id?: string | null
+  preferred_frequency?: string | null
+  preferred_day?: string | null
+  recurring_notes?: string | null
   created_at: string
   updated_at: string
 }
@@ -62,6 +65,9 @@ interface Job {
   bathrooms?: number
   sqft?: number
   frequency?: string
+  parent_job_id?: number | null
+  paused_at?: string | null
+  last_generated_date?: string | null
   created_at: string
 }
 
@@ -115,6 +121,196 @@ interface TimelineItem {
   data: Message | Call
 }
 
+function RecurringTab({ jobs, customer }: { jobs: Job[]; customer: Customer }) {
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [localJobs, setLocalJobs] = useState(jobs)
+
+  useEffect(() => { setLocalJobs(jobs) }, [jobs])
+
+  const parentJobs = localJobs.filter(
+    (j) => j.frequency && j.frequency !== "one-time" && !j.parent_job_id
+  )
+
+  const getNextDate = (parentId: number) => {
+    const today = new Date().toISOString().split("T")[0]
+    const children = localJobs
+      .filter((j) => j.parent_job_id === parentId && j.date && j.date >= today && j.status !== "cancelled")
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+    return children[0]?.date || null
+  }
+
+  const handleAction = async (action: string, parentJobId: number, extra?: Record<string, string>) => {
+    setActionLoading(`${action}-${parentJobId}`)
+    try {
+      const res = await fetch("/api/actions/recurring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, parent_job_id: parentJobId, ...extra }),
+      })
+      const json = await res.json()
+      if (!json.success) {
+        alert(json.error || `Failed to ${action}`)
+        return
+      }
+      // Optimistic updates
+      if (action === "pause") {
+        setLocalJobs((prev) =>
+          prev.map((j) => (j.id === parentJobId ? { ...j, paused_at: new Date().toISOString() } : j))
+        )
+      } else if (action === "resume") {
+        setLocalJobs((prev) =>
+          prev.map((j) => (j.id === parentJobId ? { ...j, paused_at: null } : j))
+        )
+      } else if (action === "cancel") {
+        setLocalJobs((prev) =>
+          prev.map((j) =>
+            j.id === parentJobId
+              ? { ...j, status: "cancelled", frequency: "one-time" }
+              : j.parent_job_id === parentJobId ? { ...j, status: "cancelled" } : j
+          )
+        )
+      } else if (action === "skip-next") {
+        if (json.skipped_job_id) {
+          setLocalJobs((prev) =>
+            prev.map((j) => (j.id === json.skipped_job_id ? { ...j, status: "cancelled" } : j))
+          )
+        }
+      } else if (action === "change-frequency" && extra?.frequency) {
+        setLocalJobs((prev) =>
+          prev.map((j) =>
+            j.id === parentJobId || j.parent_job_id === parentJobId
+              ? { ...j, frequency: extra.frequency }
+              : j
+          )
+        )
+      }
+    } catch {
+      alert(`Failed to ${action}`)
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  if (parentJobs.length === 0) {
+    return (
+      <div className="space-y-3">
+        <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
+          No recurring series
+        </div>
+        {customer.preferred_frequency && (
+          <div className="px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10 text-xs text-purple-300">
+            Detected preference: <strong>{customer.preferred_frequency}</strong>
+            {customer.preferred_day && <> on <strong>{customer.preferred_day}</strong></>}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {customer.preferred_frequency && (
+        <div className="px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10 text-xs text-purple-300">
+          Detected preference: <strong>{customer.preferred_frequency}</strong>
+          {customer.preferred_day && <> on <strong>{customer.preferred_day}</strong></>}
+        </div>
+      )}
+      {parentJobs.map((job) => {
+        const nextDate = getNextDate(job.id)
+        const isPaused = !!job.paused_at
+        const childCount = localJobs.filter((j) => j.parent_job_id === job.id && j.status !== "cancelled").length
+
+        return (
+          <div key={job.id} className="border border-zinc-800 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Repeat className="w-3.5 h-3.5 text-purple-400" />
+                  <span className="text-sm font-medium text-zinc-200">
+                    {job.service_type || "Cleaning"}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-400/10 text-purple-400 font-medium">
+                    {(job.frequency || "").replace("-", "-")}
+                  </span>
+                  {isPaused && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 font-medium">
+                      Paused
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-zinc-500 mt-1">
+                  ${job.price || 0}/visit · {childCount} upcoming
+                  {nextDate && (
+                    <> · Next: {new Date(nextDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2">
+              {/* Change frequency */}
+              <select
+                className="text-xs px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 focus:outline-none focus:border-purple-500"
+                value={job.frequency || ""}
+                onChange={(e) => handleAction("change-frequency", job.id, { frequency: e.target.value })}
+                disabled={!!actionLoading}
+              >
+                <option value="weekly">Weekly</option>
+                <option value="bi-weekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+
+              <button
+                onClick={() => handleAction("skip-next", job.id)}
+                disabled={!!actionLoading}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors disabled:opacity-50"
+                title="Skip next instance"
+              >
+                <SkipForward className="w-3 h-3" />
+                Skip next
+              </button>
+
+              {isPaused ? (
+                <button
+                  onClick={() => handleAction("resume", job.id)}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
+                >
+                  <Play className="w-3 h-3" />
+                  Resume
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleAction("pause", job.id)}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
+                >
+                  <Pause className="w-3 h-3" />
+                  Pause
+                </button>
+              )}
+
+              <button
+                onClick={() => {
+                  if (confirm("Cancel this entire recurring series? All future instances will be cancelled.")) {
+                    handleAction("cancel", job.id)
+                  }
+                }}
+                disabled={!!actionLoading}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+              >
+                <XCircle className="w-3 h-3" />
+                Cancel series
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -126,7 +322,7 @@ export default function CustomersPage() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
-      if (saved === "messages" || saved === "jobs" || saved === "invoices") return saved
+      if (saved === "messages" || saved === "jobs" || saved === "invoices" || saved === "recurring") return saved
     }
     return "messages"
   })
@@ -146,6 +342,17 @@ export default function CustomersPage() {
   const [editingJob, setEditingJob] = useState<Job | null>(null)
   const [savingJob, setSavingJob] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Payment popover state
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentType, setPaymentType] = useState<string | null>(null)
+  const [paymentAmount, setPaymentAmount] = useState("")
+  const [paymentJobId, setPaymentJobId] = useState<string>("")
+  const [paymentLoading, setPaymentLoading] = useState(false)
+  const [paymentResult, setPaymentResult] = useState<{ url?: string; invoiceId?: string } | null>(null)
+  const [paymentCopied, setPaymentCopied] = useState(false)
+  const [paymentSmsSent, setPaymentSmsSent] = useState(false)
+  const paymentRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
   useEffect(() => {
@@ -650,6 +857,87 @@ export default function CustomersPage() {
     }
   }
 
+  // Close payment popover on outside click
+  useEffect(() => {
+    if (!paymentOpen) return
+    const handler = (e: MouseEvent) => {
+      if (paymentRef.current && !paymentRef.current.contains(e.target as Node)) {
+        setPaymentOpen(false)
+        setPaymentType(null)
+        setPaymentResult(null)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [paymentOpen])
+
+  const handleGeneratePaymentLink = async (type: string) => {
+    if (!selectedCustomer) return
+    setPaymentLoading(true)
+    setPaymentResult(null)
+    setPaymentCopied(false)
+    setPaymentSmsSent(false)
+
+    try {
+      const body: Record<string, unknown> = {
+        customerId: selectedCustomer.id,
+        type,
+      }
+      if (type === "payment") {
+        body.amount = parseFloat(paymentAmount)
+        body.description = "Payment"
+      }
+      if (paymentJobId) body.jobId = paymentJobId
+
+      const res = await fetch("/api/actions/generate-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setPaymentResult({ url: json.url, invoiceId: json.invoiceId })
+      } else {
+        alert(json.error || "Failed to generate link")
+      }
+    } catch {
+      alert("Failed to generate link")
+    } finally {
+      setPaymentLoading(false)
+    }
+  }
+
+  const handlePaymentCopy = () => {
+    if (paymentResult?.url) {
+      navigator.clipboard.writeText(paymentResult.url)
+      setPaymentCopied(true)
+      setTimeout(() => setPaymentCopied(false), 2000)
+    }
+  }
+
+  const handlePaymentSms = async () => {
+    if (!paymentResult?.url || !selectedCustomer) return
+    setPaymentSmsSent(false)
+    try {
+      const res = await fetch("/api/actions/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: selectedCustomer.phone_number,
+          message: `Here's your payment link: ${paymentResult.url}`,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setPaymentSmsSent(true)
+      } else {
+        alert(json.error || "Failed to send SMS")
+      }
+    } catch {
+      alert("Failed to send SMS")
+    }
+  }
+
   const handleCopyTranscript = () => {
     if (!selectedCustomer) return
     const customerName = getCustomerName(selectedCustomer)
@@ -687,6 +975,7 @@ export default function CustomersPage() {
             getCustomerCalls(selectedCustomer.phone_number).length,
         },
         { id: "jobs", label: "Jobs", count: getCustomerJobs(selectedCustomer.phone_number).length },
+        { id: "recurring", label: "Recurring", count: getCustomerJobs(selectedCustomer.phone_number).filter(j => j.frequency && j.frequency !== "one-time" && !j.parent_job_id).length },
       ]
     : []
 
@@ -836,6 +1125,197 @@ export default function CustomersPage() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
+
+                      {/* Payment Links */}
+                      <div className="relative" ref={paymentRef}>
+                        <button
+                          onClick={() => {
+                            setPaymentOpen(!paymentOpen)
+                            setPaymentType(null)
+                            setPaymentResult(null)
+                            setPaymentAmount("")
+                            setPaymentJobId("")
+                          }}
+                          className={`p-1.5 rounded transition-colors ${paymentOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10"}`}
+                          title="Payment links"
+                        >
+                          <DollarSign className="w-4 h-4" />
+                        </button>
+
+                        {paymentOpen && (
+                          <div className="absolute right-0 top-9 z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+                            {!paymentType && !paymentResult && (
+                              <div className="p-2 space-y-0.5">
+                                <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
+                                {[
+                                  { key: "card_on_file", label: "Card on File", desc: "Save card for later", icon: CreditCard },
+                                  { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
+                                  { key: "deposit", label: "Deposit", desc: "50% + 3% fee", icon: DollarSign },
+                                  { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.key}
+                                    onClick={() => {
+                                      if (opt.key === "payment") {
+                                        setPaymentType("payment")
+                                      } else if (opt.key === "deposit" || opt.key === "invoice") {
+                                        // Need to pick a job first
+                                        const custJobs = getCustomerJobs(selectedCustomer.phone_number).filter(j => j.status !== "cancelled")
+                                        if (custJobs.length === 0) {
+                                          alert("No active jobs found for this customer")
+                                          return
+                                        }
+                                        if (custJobs.length === 1) {
+                                          setPaymentJobId(String(custJobs[0].id))
+                                        }
+                                        setPaymentType(opt.key)
+                                      } else {
+                                        handleGeneratePaymentLink(opt.key)
+                                        setPaymentType(opt.key)
+                                      }
+                                    }}
+                                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+                                  >
+                                    <opt.icon className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                                    <div>
+                                      <div className="text-sm text-zinc-200">{opt.label}</div>
+                                      <div className="text-xs text-zinc-500">{opt.desc}</div>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Payment Link — amount input */}
+                            {paymentType === "payment" && !paymentResult && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-zinc-200">Payment Link</p>
+                                <input
+                                  type="number"
+                                  value={paymentAmount}
+                                  onChange={(e) => setPaymentAmount(e.target.value)}
+                                  placeholder="Amount ($)"
+                                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                                  autoFocus
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setPaymentType(null)}
+                                    className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                  >
+                                    Back
+                                  </button>
+                                  <button
+                                    onClick={() => handleGeneratePaymentLink("payment")}
+                                    disabled={paymentLoading || !paymentAmount || parseFloat(paymentAmount) <= 0}
+                                    className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+                                  >
+                                    {paymentLoading ? "Generating..." : "Generate"}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Deposit / Invoice — job picker (if multiple jobs) */}
+                            {(paymentType === "deposit" || paymentType === "invoice") && !paymentResult && !paymentJobId && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-zinc-200">Select Job</p>
+                                {getCustomerJobs(selectedCustomer.phone_number)
+                                  .filter(j => j.status !== "cancelled")
+                                  .map((job) => (
+                                    <button
+                                      key={job.id}
+                                      onClick={() => setPaymentJobId(String(job.id))}
+                                      className="w-full flex justify-between items-center px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                                    >
+                                      <span className="text-sm text-zinc-200">{job.service_type || "Cleaning"}</span>
+                                      <span className="text-xs text-zinc-400">${job.price || 0}</span>
+                                    </button>
+                                  ))}
+                                <button
+                                  onClick={() => { setPaymentType(null); setPaymentJobId("") }}
+                                  className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                >
+                                  Back
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Deposit / Invoice — confirm with selected job */}
+                            {(paymentType === "deposit" || paymentType === "invoice") && !paymentResult && paymentJobId && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-zinc-200">
+                                  {paymentType === "deposit" ? "Generate Deposit Link" : "Send Invoice"}
+                                </p>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => { setPaymentType(null); setPaymentJobId("") }}
+                                    className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                  >
+                                    Back
+                                  </button>
+                                  <button
+                                    onClick={() => handleGeneratePaymentLink(paymentType)}
+                                    disabled={paymentLoading}
+                                    className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+                                  >
+                                    {paymentLoading ? "Generating..." : paymentType === "invoice" ? "Send Invoice" : "Generate"}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Loading state */}
+                            {paymentType === "card_on_file" && !paymentResult && paymentLoading && (
+                              <div className="p-4 flex items-center justify-center gap-2 text-sm text-zinc-400">
+                                <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+                              </div>
+                            )}
+
+                            {/* Result — URL + copy/SMS */}
+                            {paymentResult && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-emerald-400">
+                                  {paymentResult.invoiceId ? "Invoice Sent!" : "Link Generated!"}
+                                </p>
+                                {paymentResult.url && (
+                                  <>
+                                    <div className="px-3 py-2 bg-zinc-800 rounded-lg text-xs text-zinc-300 break-all max-h-20 overflow-y-auto">
+                                      {paymentResult.url}
+                                    </div>
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={handlePaymentCopy}
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                                      >
+                                        {paymentCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {paymentCopied ? "Copied" : "Copy"}
+                                      </button>
+                                      <button
+                                        onClick={handlePaymentSms}
+                                        disabled={paymentSmsSent}
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-600 hover:bg-purple-500 disabled:bg-emerald-600 text-white rounded-lg transition-colors"
+                                      >
+                                        {paymentSmsSent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                                        {paymentSmsSent ? "Sent" : "Send SMS"}
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                                {paymentResult.invoiceId && !paymentResult.url && (
+                                  <p className="text-xs text-zinc-400">Invoice emailed to customer.</p>
+                                )}
+                                <button
+                                  onClick={() => { setPaymentType(null); setPaymentResult(null); setPaymentOpen(false) }}
+                                  className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                >
+                                  Done
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       {/* Copy Transcript */}
                       <button
@@ -1020,6 +1500,14 @@ export default function CustomersPage() {
                           </div>
                         )}
                       </div>
+                    )}
+
+                    {/* Recurring Series */}
+                    {activeTab === "recurring" && (
+                      <RecurringTab
+                        jobs={getCustomerJobs(selectedCustomer.phone_number)}
+                        customer={selectedCustomer}
+                      />
                     )}
                   </div>
                 </div>

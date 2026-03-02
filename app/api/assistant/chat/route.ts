@@ -157,7 +157,7 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   {
     name: "generate_stripe_link",
     description:
-      "Generate a Stripe payment link for a customer. Supports card-on-file (saves card) or deposit (collects 50% + 3% fee). Looks up the customer by phone number.",
+      "Generate a Stripe link for a customer. Supports card-on-file (saves card), deposit (50% + 3% fee), or payment (any custom amount). Looks up the customer by phone number.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -167,9 +167,17 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
         },
         link_type: {
           type: "string",
-          enum: ["card_on_file", "deposit"],
+          enum: ["card_on_file", "deposit", "payment"],
           description:
-            "Type of link: 'card_on_file' saves their card for later charges, 'deposit' collects 50% upfront + 3% processing fee. Default: card_on_file",
+            "Type of link: 'card_on_file' saves their card for later charges, 'deposit' collects 50% upfront + 3% fee, 'payment' collects a custom dollar amount. Default: card_on_file",
+        },
+        amount: {
+          type: "number",
+          description: "Dollar amount to charge (required when link_type is 'payment'). E.g. 150 for $150.",
+        },
+        description: {
+          type: "string",
+          description: "Description shown on the payment page (required when link_type is 'payment'). E.g. 'Deep clean service'",
         },
       },
       required: ["phone_number"],
@@ -346,7 +354,7 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   {
     name: "send_payment_link",
     description:
-      "Generate a Stripe payment link AND send it to the customer via SMS in one step. Requires the customer to have an email on file.",
+      "Generate a Stripe link AND send it to the customer via SMS in one step. Supports card-on-file, deposit, or custom payment amount. Requires the customer to have an email on file.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -356,9 +364,17 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
         },
         link_type: {
           type: "string",
-          enum: ["card_on_file", "deposit"],
+          enum: ["card_on_file", "deposit", "payment"],
           description:
-            "Type of link: 'deposit' collects 50% upfront + 3% fee (default), 'card_on_file' saves card for later",
+            "Type of link: 'deposit' collects 50% upfront + 3% fee (default), 'card_on_file' saves card for later, 'payment' collects a custom dollar amount",
+        },
+        amount: {
+          type: "number",
+          description: "Dollar amount to charge (required when link_type is 'payment'). E.g. 150 for $150.",
+        },
+        description: {
+          type: "string",
+          description: "Description shown on the payment page (required when link_type is 'payment'). E.g. 'Deep clean service'",
         },
       },
       required: ["phone_number"],
@@ -847,7 +863,7 @@ async function executeTool(
         return `${customer.first_name || "This customer"} doesn't have an email on file yet. I'll need their email to generate a Stripe link — could you share it so I can update their record?`
       }
 
-      // Get latest job
+      // Get latest job (optional for 'payment' type)
       let stripeJobsQuery = client
         .from("jobs")
         .select("*")
@@ -858,11 +874,23 @@ async function executeTool(
         .limit(1)
 
       const job = jobs?.[0]
-      if (!job) {
+      if (!job && linkType !== "payment") {
         return `${customer.first_name || "This customer"} doesn't have any jobs yet. Would you like me to create one first?`
       }
 
-      if (linkType === "deposit") {
+      if (linkType === "payment") {
+        const paymentAmount = toolInput.amount as number
+        const paymentDesc = (toolInput.description as string) || "Payment"
+        if (!paymentAmount || paymentAmount <= 0) {
+          return "Please specify an amount for the payment link. E.g. 'generate a $150 payment link for Dale'"
+        }
+        const { createCustomPaymentLink } = await import("@/lib/stripe-client")
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant?.stripe_secret_key || undefined, job ? String(job.id) : undefined)
+        if (result.success && result.url) {
+          return `Here's the payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nAmount: $${paymentAmount.toFixed(2)} — ${paymentDesc}`
+        }
+        return `Failed to generate payment link: ${result.error || "Unknown error"}`
+      } else if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
         const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (result.success && result.url) {
@@ -1350,38 +1378,54 @@ async function executeTool(
         .limit(1)
 
       const job = jobs?.[0]
-      if (!job) return `${customer.first_name || "This customer"} doesn't have any jobs yet. Create one first.`
+      if (!job && linkType !== "payment") return `${customer.first_name || "This customer"} doesn't have any jobs yet. Create one first.`
 
       let linkUrl = ""
       let amount = 0
+      let linkLabel = ""
 
-      if (linkType === "deposit") {
+      if (linkType === "payment") {
+        const paymentAmount = toolInput.amount as number
+        const paymentDesc = (toolInput.description as string) || "Payment"
+        if (!paymentAmount || paymentAmount <= 0) {
+          return "Please specify an amount for the payment link. E.g. 'send Dale a $150 payment link for deep clean'"
+        }
+        const { createCustomPaymentLink } = await import("@/lib/stripe-client")
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant?.stripe_secret_key || undefined, job ? String(job.id) : undefined)
+        if (!result.success || !result.url) return `Failed to generate payment link: ${result.error || "Unknown error"}`
+        linkUrl = result.url
+        amount = paymentAmount
+        linkLabel = `$${paymentAmount.toFixed(2)} payment`
+      } else if (linkType === "deposit") {
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
         const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
         if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
+        linkLabel = `$${amount.toFixed(2)} deposit`
       } else {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
         const result = await createCardOnFileLink(customer, String(job.id), tenantId)
         if (!result.success || !result.url) return `Failed to generate card-on-file link: ${result.error || "Unknown error"}`
         linkUrl = result.url
+        linkLabel = "card-on-file"
       }
 
       // Send via SMS
       const { sendSMS } = await import("@/lib/openphone")
       const { paymentLink } = await import("@/lib/sms-templates")
       const name = customer.first_name || "there"
-      const smsAmount = linkType === "deposit" ? amount : job.price || 0
-      const msg = paymentLink(name, smsAmount, linkUrl)
+      const smsAmount = amount || job.price || 0
+      const msg = linkType === "card_on_file"
+        ? `Hi ${name}, please save your card on file to confirm your appointment: ${linkUrl}`
+        : paymentLink(name, smsAmount, linkUrl)
       const smsResult = await sendSMS(tenant, customer.phone_number, msg)
 
       if (!smsResult.success) {
-        return `Payment link created but SMS failed: ${smsResult.error}\n\nLink: ${linkUrl}`
+        return `Link created but SMS failed: ${smsResult.error}\n\nLink: ${linkUrl}`
       }
 
-      const amountStr = linkType === "deposit" ? `$${amount.toFixed(2)} deposit` : "card-on-file"
-      return `Payment link sent to ${customer.first_name || phone} via SMS!\n- Type: ${amountStr}\n- Link: ${linkUrl}`
+      return `${linkLabel} link sent to ${customer.first_name || phone} via SMS!\n- Type: ${linkLabel}\n- Link: ${linkUrl}`
     } catch (err: any) {
       return `Error sending payment link: ${err.message}`
     }
@@ -1839,6 +1883,7 @@ Today is ${dayOfWeek}, ${today}.
 - **NEVER fabricate data.** Do not invent job IDs, customer details, prices, or any information. Every piece of data you reference MUST come from a tool result.
 - If you don't have the information you need, call the appropriate tool first (search_customers, lookup_customer, list_cleaners, etc.)
 - If a tool returns no results, say so honestly — never fill in gaps with made-up data
+- **NEVER truncate, abbreviate, or shorten URLs.** When a tool generates a link, say "Here's the link:" and the full URL will be attached automatically. Do NOT try to reproduce the URL yourself.
 
 ## SMART LOOKUPS
 - When the user mentions a customer by name (e.g. "Sarah" or "John Smith"), use search_customers FIRST — don't ask for a phone number
@@ -1976,6 +2021,7 @@ export async function POST(request: NextRequest) {
     let iterations = 0
     const MAX_ITERATIONS = 8
     const toolsUsed: Record<string, number> = {}
+    const collectedUrls: string[] = [] // Track URLs from tool results across all iterations
 
     while (iterations < MAX_ITERATIONS) {
       iterations++
@@ -1999,17 +2045,30 @@ export async function POST(request: NextRequest) {
           toolsUsed[block.name] = (toolsUsed[block.name] || 0) + 1
           const toolResult = await executeTool(block.name, block.input as Record<string, any>, user.id, tenant)
 
+          // Extract URLs from tool results so Claude can't truncate them
+          const urlRegex = /https?:\/\/[^\s"'<>]+/g
+          const foundUrls = toolResult.match(urlRegex) || []
+          for (const url of foundUrls) {
+            if (url.length > 60) collectedUrls.push(url)
+          }
+
+          // Replace long URLs with placeholder so Claude doesn't rewrite/truncate them
+          let sanitizedResult = toolResult
+          for (const url of foundUrls) {
+            if (url.length > 60) {
+              sanitizedResult = sanitizedResult.replace(url, '[link generated — will be attached]')
+            }
+          }
+
           toolResultBlocks.push({
             type: "tool_result",
             tool_use_id: block.id,
-            content: toolResult,
+            content: sanitizedResult,
           })
         }
       }
 
-      if (!hasToolUse) {
-        break
-      }
+      if (!hasToolUse) break
 
       // One assistant message with all tool_use blocks, then one user message with all tool_results
       currentMessages = [
@@ -2018,6 +2077,11 @@ export async function POST(request: NextRequest) {
         { role: "user" as const, content: toolResultBlocks },
       ]
       finalText = "" // Reset — we want the final text response after tool use
+    }
+
+    // Append collected URLs that Claude never saw (prevents truncation)
+    if (collectedUrls.length > 0) {
+      finalText += '\n\n' + collectedUrls.join('\n')
     }
 
     // Persist conversation and extract facts if memory is enabled
