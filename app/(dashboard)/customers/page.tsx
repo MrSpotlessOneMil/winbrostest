@@ -638,6 +638,48 @@ export default function CustomersPage() {
     }
   }
 
+  // Handle delete job (with option to delete future recurring instances)
+  const [deletingJob, setDeletingJob] = useState(false)
+  const handleDeleteJob = async (deleteFuture: boolean) => {
+    if (!editingJob) return
+    setDeletingJob(true)
+    try {
+      // Delete the job itself
+      const res = await fetch(`/api/jobs?id=${editingJob.id}`, { method: "DELETE" })
+      const json = await res.json()
+      if (!json.success) {
+        alert(json.error || "Failed to delete job")
+        return
+      }
+
+      let deletedIds = [editingJob.id]
+
+      // If deleting future recurring instances
+      if (deleteFuture && editingJob.parent_job_id) {
+        const today = editingJob.date || new Date().toISOString().split("T")[0]
+        const futureJobs = jobs.filter(
+          (j) =>
+            j.parent_job_id === editingJob.parent_job_id &&
+            j.id !== editingJob.id &&
+            j.date && j.date >= today &&
+            j.status !== "cancelled" && j.status !== "completed"
+        )
+        for (const fj of futureJobs) {
+          await fetch(`/api/jobs?id=${fj.id}`, { method: "DELETE" })
+          deletedIds.push(fj.id)
+        }
+      }
+
+      // Update local state
+      setJobs((prev) => prev.filter((j) => !deletedIds.includes(j.id)))
+      setEditingJob(null)
+    } catch {
+      alert("Failed to delete job")
+    } finally {
+      setDeletingJob(false)
+    }
+  }
+
   // Handle toggle auto-response on/off - with optimistic update
   const handleToggleFollowup = async (paused: boolean) => {
     if (!selectedCustomer) return
@@ -1720,20 +1762,47 @@ export default function CustomersPage() {
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+            <div className="flex items-center justify-between px-5 py-4 border-t border-zinc-800">
               <button
-                onClick={() => setEditingJob(null)}
-                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                onClick={() => {
+                  const isRecurringChild = !!editingJob.parent_job_id
+                  if (isRecurringChild) {
+                    const choice = window.prompt(
+                      "This job is part of a recurring series.\n\nType 'all' to delete this and all future jobs, or 'one' to delete just this one.",
+                      "one"
+                    )
+                    if (!choice) return
+                    if (choice.toLowerCase() === "all") {
+                      handleDeleteJob(true)
+                    } else {
+                      handleDeleteJob(false)
+                    }
+                  } else {
+                    if (confirm("Delete this job? This cannot be undone.")) {
+                      handleDeleteJob(false)
+                    }
+                  }
+                }}
+                disabled={deletingJob}
+                className="px-3 py-2 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors disabled:opacity-50"
               >
-                Cancel
+                {deletingJob ? "Deleting..." : "Delete"}
               </button>
-              <button
-                onClick={handleSaveJob}
-                disabled={savingJob}
-                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
-              >
-                {savingJob ? "Saving..." : "Save Changes"}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEditingJob(null)}
+                  className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveJob}
+                  disabled={savingJob}
+                  className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {savingJob ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
