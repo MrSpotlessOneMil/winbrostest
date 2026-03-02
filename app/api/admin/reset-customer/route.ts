@@ -253,12 +253,13 @@ export async function POST(request: NextRequest) {
     console.log(`[admin] Reset complete for ${phone}:`, deletionLog)
 
     // Log the reset as a system event so it's visible in the debug page
+    // Include reset_email so the email cron can use it as a watermark
     await logSystemEvent({
       event_type: "SYSTEM_RESET" as any,
       source: "system" as any,
-      message: `Reset all data for ${phone}`,
+      message: `Reset all data for ${phone}${rawEmail ? ` / ${rawEmail}` : ''}`,
       phone_number: phone,
-      metadata: { deletions: deletionLog, raw_phone: rawPhone },
+      metadata: { deletions: deletionLog, raw_phone: rawPhone, reset_email: rawEmail || null },
     })
 
     return NextResponse.json({

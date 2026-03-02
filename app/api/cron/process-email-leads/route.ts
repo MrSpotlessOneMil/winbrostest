@@ -125,6 +125,22 @@ async function processIncomingEmail(
     }
   }
 
+  // ── Reset watermark: skip emails older than the last reset for this sender ──
+  // When the admin resets a test customer, old emails in Gmail shouldn't be re-ingested
+  const { data: resetEvent } = await client
+    .from('system_events')
+    .select('created_at')
+    .eq('event_type', 'SYSTEM_RESET')
+    .contains('metadata', { reset_email: senderEmail })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (resetEvent && email.date < new Date(resetEvent.created_at)) {
+    console.log(`[Email Cron] Skipping pre-reset email from ${senderEmail} (email: ${email.date.toISOString()}, reset: ${resetEvent.created_at})`)
+    return { replied: false }
+  }
+
   // ── Find or create customer by email ──
   let { data: customer } = await client
     .from('customers')
