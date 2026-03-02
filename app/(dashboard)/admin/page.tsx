@@ -2415,6 +2415,7 @@ export default function AdminPage() {
                         )}
                       </div>
                     </div>
+                    )}
 
                     {/* Gmail (Email Bot) */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
@@ -2451,7 +2452,6 @@ export default function AdminPage() {
                         </div>
                       </div>
                     </div>
-                    )}
                   </TabsContent>
 
                   {/* Setup Checklist Tab */}
@@ -3124,6 +3124,7 @@ export default function AdminPage() {
                         <option value="America/Chicago">Central</option>
                         <option value="America/Denver">Mountain</option>
                         <option value="America/Los_Angeles">Pacific</option>
+                        <option value="America/Phoenix">Arizona</option>
                       </select>
                     </div>
                     <div className="space-y-2">
