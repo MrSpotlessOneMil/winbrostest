@@ -22,7 +22,7 @@ import { getAllActiveTenants } from '@/lib/tenant'
 import { tenantUsesFeature } from '@/lib/tenant'
 import { fetchUnreadEmails, markEmailsAsRead } from '@/lib/gmail-imap'
 import { sendReplyEmail, sendConfirmationEmail } from '@/lib/gmail-client'
-import { generateEmailResponse } from '@/lib/auto-response'
+import { generateEmailResponse, loadCustomerContext } from '@/lib/auto-response'
 import type { KnownCustomerInfo } from '@/lib/auto-response'
 import { logSystemEvent } from '@/lib/system-events'
 import type { IncomingEmail } from '@/lib/gmail-imap'
@@ -159,6 +159,7 @@ async function processIncomingEmail(
   }
 
   // ── Find or create lead ──
+  // Look for an active email lead (not lost/unresponsive)
   let { data: lead } = await client
     .from('leads')
     .select('*')
@@ -169,6 +170,21 @@ async function processIncomingEmail(
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  // If the existing lead is booked and its job is completed, allow re-booking
+  // by creating a fresh lead (same pattern as SMS returning customers)
+  if (lead && lead.status === 'booked' && lead.converted_to_job_id) {
+    const { data: linkedJob } = await client
+      .from('jobs')
+      .select('status')
+      .eq('id', lead.converted_to_job_id)
+      .maybeSingle()
+
+    if (linkedJob?.status === 'completed') {
+      console.log(`[Email Cron] Previous booking (job ${lead.converted_to_job_id}) is completed — allowing re-booking for ${senderEmail}`)
+      lead = null // force new lead creation below
+    }
+  }
 
   if (!lead) {
     const { data: newLead } = await client
@@ -246,11 +262,15 @@ async function processIncomingEmail(
     timestamp: email.date.toISOString(),
   })
 
-  // ── Skip auto-response for booked/assigned leads ──
-  if (['booked', 'assigned', 'lost', 'unresponsive'].includes(lead.status)) {
+  // ── Skip auto-response for dead leads ──
+  if (['lost', 'unresponsive'].includes(lead.status)) {
     console.log(`[Email Cron] Lead ${lead.id} status is '${lead.status}', skipping auto-response`)
     return { replied: false }
   }
+
+  // ── Post-booking / assigned lead: respond with customer context ──
+  // (Same pattern as SMS bot — answer questions, handle corrections, don't re-book)
+  const isPostBooking = ['booked', 'assigned'].includes(lead.status)
 
   // ── Load conversation history for this email thread ──
   const { data: historyRows } = await client
@@ -275,6 +295,93 @@ async function processIncomingEmail(
     email: senderEmail,
   }
 
+  // ── Load customer context (active jobs, history) for AI awareness ──
+  let customerContext = null
+  try {
+    customerContext = await loadCustomerContext(
+      client,
+      tenant.id,
+      customer.phone_number || '',
+      customer.id
+    )
+  } catch (err) {
+    console.error('[Email Cron] Failed to load customer context:', err)
+  }
+
+  // ── Post-booking lead: respond with context, no booking flow ──
+  if (isPostBooking) {
+    console.log(`[Email Cron] Post-booking response for ${senderEmail} (lead ${lead.id}, status: ${lead.status})`)
+
+    const autoResponse = await generateEmailResponse(
+      email.textBody || email.subject,
+      tenant,
+      conversationHistory,
+      knownInfo,
+      customerContext,
+    )
+
+    if (!autoResponse.shouldSend || !autoResponse.response) {
+      return { replied: false }
+    }
+
+    // Strip [BOOKING_COMPLETE] tags — post-booking customers shouldn't re-trigger booking
+    const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/g, '').trim()
+    if (!cleanedResponse) return { replied: false }
+
+    // Handle escalation for post-booking customers (reschedule, cancel, complaints)
+    if (autoResponse.escalation?.shouldEscalate) {
+      if (tenant.owner_email) {
+        const { sendCustomEmail } = await import('@/lib/gmail-client')
+        await sendCustomEmail({
+          to: tenant.owner_email,
+          subject: `[Escalation] Post-booking email from ${email.fromName || senderEmail}`,
+          body: `A booked customer has been escalated.\n\nCustomer: ${email.fromName || senderEmail}\nEmail: ${senderEmail}\nLead status: ${lead.status}\nReason: ${autoResponse.escalation.reasons.join(', ')}\n\nConversation:\n${conversationHistory.map(m => `${m.role === 'client' ? 'Customer' : 'Bot'}: ${m.content}`).join('\n')}`,
+          fromName: businessName,
+          tenant,
+        })
+      }
+      await client.from('leads').update({ followup_paused: true }).eq('id', lead.id)
+    }
+
+    // Send reply
+    const subject = email.subject.startsWith('Re:') ? email.subject : `Re: ${email.subject}`
+    const replyRefs = [...email.references]
+    if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
+
+    const sendResult = await sendReplyEmail({
+      to: senderEmail,
+      subject,
+      body: cleanedResponse,
+      fromName: businessName,
+      inReplyTo: email.messageId,
+      references: replyRefs,
+      tenant,
+    })
+
+    if (sendResult.success) {
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        direction: 'outbound',
+        message_type: 'email',
+        content: cleanedResponse,
+        role: 'assistant',
+        ai_generated: true,
+        status: 'sent',
+        source: 'gmail',
+        customer_id: customer.id,
+        lead_id: lead.id,
+        email_address: senderEmail,
+        email_thread_id: threadId,
+        email_message_id: sendResult.messageId || null,
+        metadata: { subject, reason: 'post_booking_response' },
+        timestamp: new Date().toISOString(),
+      })
+      console.log(`[Email Cron] Post-booking reply sent to ${senderEmail}`)
+    }
+
+    return { replied: sendResult.success }
+  }
+
   // ── DEDUP GUARD: Check if payment links already sent for this email ──
   const { data: alreadySentPayment } = await client
     .from('messages')
@@ -290,12 +397,13 @@ async function processIncomingEmail(
     return { replied: false }
   }
 
-  // ── Generate AI response ──
+  // ── Generate AI response (active booking flow) ──
   const autoResponse = await generateEmailResponse(
     email.textBody || email.subject,
     tenant,
     conversationHistory,
     knownInfo,
+    customerContext,
   )
 
   if (!autoResponse.shouldSend || !autoResponse.response) {
