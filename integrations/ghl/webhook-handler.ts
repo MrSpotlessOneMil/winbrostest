@@ -111,7 +111,11 @@ export async function processGHLWebhook(
   // 6. Send immediate SMS
   const initialMessage = GHL_SMS_TEMPLATES.initial(contactData.firstName)
   const tenant = brandMode ? await getTenantBySlug(brandMode) : null
-  const smsResult = tenant ? await sendSMS(tenant, phoneNumber, initialMessage) : await sendSMS(phoneNumber, initialMessage)
+  if (!tenant) {
+    console.error(`[GHL] No tenant found for brand '${brandMode}' — skipping initial SMS to ${phoneNumber}`)
+    return { ...result, action: 'skipped_no_tenant' }
+  }
+  const smsResult = await sendSMS(tenant, phoneNumber, initialMessage)
 
   if (smsResult.success) {
     await logSystemEvent({

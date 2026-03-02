@@ -433,6 +433,129 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
       required: ["phone_number"],
     },
   },
+  // ===== NEW AGENT TOOLS =====
+  {
+    name: "send_email",
+    description:
+      "Send an email to a customer or anyone. Can look up customer email by phone number if not provided directly.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        to_email: {
+          type: "string",
+          description: "Email address to send to. If not provided, will look up by customer_phone.",
+        },
+        subject: { type: "string", description: "Email subject line" },
+        body: { type: "string", description: "Email body (plain text — will be wrapped in HTML)" },
+        customer_phone: {
+          type: "string",
+          description: "Optional customer phone number to auto-lookup their email if to_email not provided",
+        },
+      },
+      required: ["subject", "body"],
+    },
+  },
+  {
+    name: "get_message_history",
+    description:
+      "Read the SMS conversation history with a phone number. Returns recent inbound and outbound messages so you can see what's been said.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The phone number to get message history for",
+        },
+        limit: {
+          type: "number",
+          description: "Number of messages to return (default 20, max 50)",
+        },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "get_lead_details",
+    description:
+      "Look up a lead's status and pipeline info. Shows source, service interest, follow-up stage, and full journey context.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "The lead's phone number",
+        },
+        lead_id: {
+          type: "string",
+          description: "Or the lead ID directly",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "schedule_followup",
+    description:
+      "Schedule a future follow-up task (SMS, reminder, etc.) that the system will automatically execute at the scheduled time.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "Customer/lead phone number",
+        },
+        task_type: {
+          type: "string",
+          enum: ["lead_followup", "day_before_reminder", "post_cleaning_followup"],
+          description: "Type of follow-up to schedule",
+        },
+        delay_hours: {
+          type: "number",
+          description: "Hours from now to schedule the task (e.g. 24 = tomorrow same time)",
+        },
+        message: {
+          type: "string",
+          description: "Optional custom message to include in the follow-up",
+        },
+      },
+      required: ["phone_number", "task_type", "delay_hours"],
+    },
+  },
+  {
+    name: "get_scheduled_tasks",
+    description:
+      "View pending or upcoming scheduled tasks. Can filter by phone number to see what's scheduled for a specific customer.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: {
+          type: "string",
+          description: "Optional: filter tasks by this customer's phone number",
+        },
+        status: {
+          type: "string",
+          enum: ["pending", "processing", "completed", "failed", "cancelled"],
+          description: "Filter by status (default: pending)",
+        },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "cancel_scheduled_task",
+    description:
+      "Cancel a pending scheduled task by its ID. The task will not be executed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        task_id: {
+          type: "string",
+          description: "The scheduled task ID to cancel",
+        },
+      },
+      required: ["task_id"],
+    },
+  },
 ]
 
   return TOOLS
@@ -760,17 +883,20 @@ async function executeTool(
     }
   }
 
-  // ----- CREATE WAVE INVOICE -----
+  // ----- CREATE INVOICE (Stripe or Wave based on tenant config) -----
   if (toolName === "create_wave_invoice") {
     try {
-      if (!tenant || !tenantHasIntegration(tenant, "wave")) {
-        return "Wave invoicing isn't configured for your business yet. You can set it up in Settings > Integrations by adding your Wave API token and business ID."
+      // Check if tenant has any invoicing provider configured
+      const hasWave = tenant ? tenantHasIntegration(tenant, "wave") : false
+      const hasStripe = tenant ? tenantHasIntegration(tenant, "stripe") : false
+      if (!tenant || (!hasWave && !hasStripe)) {
+        return "Invoicing isn't configured for your business yet. You can set it up in Settings > Integrations by adding your Stripe or Wave credentials."
       }
 
       const phone = toolInput.phone_number as string
       const customer: any = await findCustomerByPhone(client, phone, tenantId)
       if (!customer) return `No customer found with phone number ${phone}. Would you like me to create one?`
-      if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. An email is required to send a Wave invoice — could you share it?`
+      if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. An email is required to send an invoice — could you share it?`
 
       // Get job
       let job: any
@@ -793,10 +919,11 @@ async function executeTool(
       if (!job.price || job.price <= 0) return "The job doesn't have a price set yet. Let me know the service details and I'll calculate the pricing."
 
       const { createInvoice } = await import("@/lib/invoices")
-      const result = await createInvoice(job, customer)
+      const result = await createInvoice(job, customer, tenant)
 
       if (result.success) {
-        return `Wave invoice created and sent to ${customer.email}!\n- Invoice ID: ${result.invoiceId}\n- Amount: $${job.price}\n- Service: ${job.service_type || "Cleaning"}\n${result.invoiceUrl ? `- View invoice: ${result.invoiceUrl}` : ""}`
+        const providerLabel = result.provider === 'stripe' ? 'Stripe' : 'Wave'
+        return `${providerLabel} invoice created and sent to ${customer.email}!\n- Invoice ID: ${result.invoiceId}\n- Amount: $${job.price}\n- Service: ${job.service_type || "Cleaning"}\n${result.invoiceUrl ? `- View invoice: ${result.invoiceUrl}` : ""}`
       }
       return `Failed to create invoice: ${result.error}`
     } catch (err: any) {
@@ -1395,6 +1522,262 @@ async function executeTool(
     }
   }
 
+  // ----- SEND EMAIL -----
+  if (toolName === "send_email") {
+    try {
+      let toEmail = toolInput.to_email as string | undefined
+
+      // Auto-lookup email from customer phone if not provided
+      if (!toEmail && toolInput.customer_phone) {
+        const customer: any = await findCustomerByPhone(client, toolInput.customer_phone, tenantId, "email, first_name")
+        if (!customer) return `No customer found with phone ${toolInput.customer_phone}. Provide the email directly or create the customer first.`
+        if (!customer.email) return `${customer.first_name || "This customer"} doesn't have an email on file. Provide the email directly or use update_customer to add it.`
+        toEmail = customer.email
+      }
+
+      if (!toEmail) return "No email address provided. Either provide to_email directly or customer_phone to auto-lookup."
+
+      const { sendCustomEmail } = await import("@/lib/gmail-client")
+      const businessName = tenant?.business_name_short || tenant?.name || undefined
+      const result = await sendCustomEmail({
+        to: toEmail,
+        subject: toolInput.subject,
+        body: toolInput.body,
+        fromName: businessName,
+        tenant: tenant as any,
+      })
+
+      if (!result.success) return `Failed to send email: ${result.error}`
+      return `Email sent to ${toEmail}!\n- Subject: ${toolInput.subject}`
+    } catch (err: any) {
+      return `Error sending email: ${err.message}`
+    }
+  }
+
+  // ----- GET MESSAGE HISTORY -----
+  if (toolName === "get_message_history") {
+    try {
+      if (!tenantId) return "Cannot get messages: your account isn't linked to a business yet."
+
+      const phone = toolInput.phone_number as string
+      const limit = Math.min(toolInput.limit || 20, 50)
+      const e164 = toE164(phone)
+      const digits = phone.replace(/\D/g, "")
+      const last10 = digits.slice(-10)
+
+      let query = client
+        .from("messages")
+        .select("direction, body, created_at, channel")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false })
+        .limit(limit)
+
+      // Match by E164 or last-10 digits
+      if (e164) {
+        query = query.eq("phone_number", e164)
+      } else if (last10.length === 10) {
+        query = query.like("phone_number", `%${last10}`)
+      } else {
+        return `Invalid phone number: ${phone}`
+      }
+
+      const { data: messages, error } = await query
+      if (error) return `Error fetching messages: ${error.message}`
+      if (!messages || messages.length === 0) return `No message history found for ${phone}.`
+
+      return JSON.stringify({
+        phone: e164 || phone,
+        count: messages.length,
+        messages: messages.reverse().map((m: any) => ({
+          direction: m.direction || "unknown",
+          body: m.body || "",
+          time: m.created_at,
+          channel: m.channel || "sms",
+        })),
+      })
+    } catch (err: any) {
+      return `Error getting message history: ${err.message}`
+    }
+  }
+
+  // ----- GET LEAD DETAILS -----
+  if (toolName === "get_lead_details") {
+    try {
+      if (!tenantId) return "Cannot get lead: your account isn't linked to a business yet."
+
+      let lead: any = null
+
+      if (toolInput.lead_id) {
+        const { data } = await client
+          .from("leads")
+          .select("*")
+          .eq("id", toolInput.lead_id)
+          .eq("tenant_id", tenantId)
+          .single()
+        lead = data
+      } else if (toolInput.phone_number) {
+        const phone = toolInput.phone_number as string
+        const e164 = toE164(phone)
+        const digits = phone.replace(/\D/g, "")
+        const last10 = digits.slice(-10)
+
+        let query = client
+          .from("leads")
+          .select("*")
+          .eq("tenant_id", tenantId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+
+        if (e164) {
+          query = query.eq("phone_number", e164)
+        } else if (last10.length === 10) {
+          query = query.like("phone_number", `%${last10}`)
+        }
+
+        const { data } = await query
+        lead = data?.[0]
+      } else {
+        return "Please provide either a phone_number or lead_id to look up."
+      }
+
+      if (!lead) return `No lead found. They may not have entered the system yet.`
+
+      return JSON.stringify({
+        id: lead.id,
+        phone: lead.phone_number,
+        name: [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown",
+        status: lead.status,
+        source: lead.source,
+        service_interest: lead.service_interest || lead.form_data?.service_type || "Unknown",
+        follow_up_stage: lead.follow_up_stage,
+        form_data: lead.form_data || {},
+        created_at: lead.created_at,
+        updated_at: lead.updated_at,
+        converted_to_job_id: lead.converted_to_job_id,
+      })
+    } catch (err: any) {
+      return `Error getting lead details: ${err.message}`
+    }
+  }
+
+  // ----- SCHEDULE FOLLOWUP -----
+  if (toolName === "schedule_followup") {
+    try {
+      if (!tenantId) return "Cannot schedule task: your account isn't linked to a business yet."
+
+      const phone = toolInput.phone_number as string
+      const taskType = toolInput.task_type as string
+      const delayHours = toolInput.delay_hours as number
+      const customMessage = toolInput.message as string | undefined
+
+      const scheduledFor = new Date(Date.now() + delayHours * 60 * 60 * 1000)
+
+      const { scheduleTask } = await import("@/lib/scheduler")
+      const result = await scheduleTask({
+        tenantId,
+        taskType: taskType as any,
+        taskKey: `assistant-${taskType}-${phone}-${Date.now()}`,
+        scheduledFor,
+        payload: {
+          phone_number: toE164(phone) || phone,
+          custom_message: customMessage,
+          source: "assistant",
+        },
+      })
+
+      if (!result.success) return `Failed to schedule task: ${result.error}`
+
+      const timeStr = scheduledFor.toLocaleString("en-US", {
+        timeZone: "America/Chicago",
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+
+      return `Follow-up scheduled!\n- Type: ${taskType}\n- For: ${phone}\n- When: ${timeStr} (${delayHours}h from now)\n- Task ID: ${result.taskId}${customMessage ? `\n- Message: "${customMessage}"` : ""}`
+    } catch (err: any) {
+      return `Error scheduling follow-up: ${err.message}`
+    }
+  }
+
+  // ----- GET SCHEDULED TASKS -----
+  if (toolName === "get_scheduled_tasks") {
+    try {
+      if (!tenantId) return "Cannot get tasks: your account isn't linked to a business yet."
+
+      const status = (toolInput.status as string) || "pending"
+
+      let query = client
+        .from("scheduled_tasks")
+        .select("id, task_type, task_key, scheduled_for, status, payload, created_at")
+        .eq("tenant_id", tenantId)
+        .eq("status", status)
+        .order("scheduled_for", { ascending: true })
+        .limit(20)
+
+      // Filter by phone if provided
+      if (toolInput.phone_number) {
+        const phone = toolInput.phone_number as string
+        const e164 = toE164(phone)
+        if (e164) {
+          query = query.contains("payload", { phone_number: e164 })
+        }
+      }
+
+      const { data: tasks, error } = await query
+      if (error) return `Error fetching tasks: ${error.message}`
+      if (!tasks || tasks.length === 0) return `No ${status} scheduled tasks found.`
+
+      return JSON.stringify({
+        count: tasks.length,
+        tasks: tasks.map((t: any) => ({
+          id: t.id,
+          type: t.task_type,
+          scheduled_for: t.scheduled_for,
+          status: t.status,
+          phone: t.payload?.phone_number || t.payload?.customerPhone || t.payload?.leadPhone || "N/A",
+          details: t.payload?.custom_message || t.payload?.type || "",
+        })),
+      })
+    } catch (err: any) {
+      return `Error getting scheduled tasks: ${err.message}`
+    }
+  }
+
+  // ----- CANCEL SCHEDULED TASK -----
+  if (toolName === "cancel_scheduled_task") {
+    try {
+      if (!tenantId) return "Cannot cancel task: your account isn't linked to a business yet."
+
+      const taskId = toolInput.task_id as string
+
+      // Verify task belongs to this tenant and is pending
+      const { data: task } = await client
+        .from("scheduled_tasks")
+        .select("id, task_type, status, scheduled_for")
+        .eq("id", taskId)
+        .eq("tenant_id", tenantId)
+        .single()
+
+      if (!task) return `Task ${taskId} not found.`
+      if (task.status !== "pending") return `Task ${taskId} is already ${task.status} — can only cancel pending tasks.`
+
+      const { error } = await client
+        .from("scheduled_tasks")
+        .update({ status: "cancelled" })
+        .eq("id", taskId)
+        .eq("status", "pending")
+
+      if (error) return `Failed to cancel task: ${error.message}`
+
+      return `Task cancelled!\n- ID: ${taskId}\n- Type: ${task.task_type}\n- Was scheduled for: ${task.scheduled_for}`
+    } catch (err: any) {
+      return `Error cancelling task: ${err.message}`
+    }
+  }
+
   return `Unknown tool: ${toolName}`
 }
 
@@ -1485,6 +1868,12 @@ Today is ${dayOfWeek}, ${today}.
 18. **Today's summary** — Quick snapshot of jobs, revenue, and leads
 19. **Reset a customer** — Fully wipe all their data from the system (messages, jobs, leads, everything)
 20. **Toggle the system** — Turn automation on or off
+21. **Send email** — Send a custom email to any address (auto-lookups customer email by phone)
+22. **Message history** — Read recent SMS conversation with any phone number
+23. **Lead details** — Check a lead's status, source, follow-up stage, and full pipeline context
+24. **Schedule follow-up** — Schedule a future SMS, reminder, or follow-up that the system executes automatically
+25. **View scheduled tasks** — See what's queued up for a customer or across the business
+26. **Cancel scheduled task** — Cancel a pending follow-up or reminder
 
 ## BOOKING FLOW
 When the owner wants to book a job from a manual intake (e.g. "I just got a call from..."), follow this order:
@@ -1506,6 +1895,27 @@ ${creatingJobsSection}
 - Stripe: ${stripeEnabled}
 - Wave Invoices: ${waveEnabled}
 - Telegram: ${telegramEnabled}
+
+## AUTONOMY RULES
+You have two modes of operation:
+
+**Auto-execute (no confirmation needed):**
+- Looking up customers, leads, jobs, message history
+- Sending follow-up SMS to existing customers about their scheduled jobs
+- Sending payment links to customers who already have jobs booked
+- Sending review requests after completed jobs
+- Scheduling routine follow-ups and reminders
+- Composing and sending booking confirmation emails
+
+**Confirm first (ask the owner before executing):**
+- Sending SMS or email to someone with no prior contact history
+- Resetting customer data
+- Cancelling jobs
+- Any action involving money (creating invoices, changing prices)
+- Toggling the system on/off
+- Any action you're unsure about
+
+When confirming, briefly state what you're about to do and why, then ask "Should I go ahead?"
 
 Keep responses focused, actionable, and formatted with markdown for readability.`
 }
@@ -1564,7 +1974,7 @@ export async function POST(request: NextRequest) {
     let currentMessages = anthropicMessages
     let finalText = ""
     let iterations = 0
-    const MAX_ITERATIONS = 5
+    const MAX_ITERATIONS = 8
     const toolsUsed: Record<string, number> = {}
 
     while (iterations < MAX_ITERATIONS) {

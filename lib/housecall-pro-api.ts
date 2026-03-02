@@ -315,8 +315,12 @@ function pickCustomerAddressId(
         return addr.id
       }
     }
+    // Requested address doesn't match any existing address — return undefined
+    // so ensureCustomerAddressId creates the new address in HCP
+    return undefined
   }
 
+  // No specific address requested — return any existing address
   const serviceAddress = addresses.find((a) => a.id && String(a.type || '').toLowerCase() === 'service')
   if (serviceAddress?.id) return serviceAddress.id
 
@@ -449,6 +453,15 @@ function buildHcpRequestAttempts(
 }
 
 /**
+ * Quick check if an HCP resource still exists (GET returns 200).
+ * Used to detect stale IDs from resources deleted in the HCP dashboard.
+ */
+export async function verifyHCPResource(tenant: Tenant, endpoint: string): Promise<boolean> {
+  const result = await hcpRequest<unknown>(tenant, endpoint)
+  return result.success
+}
+
+/**
  * Make authenticated request to HousecallPro API
  */
 async function hcpRequest<T>(
@@ -481,11 +494,15 @@ async function hcpRequest<T>(
     const attempt = attempts[index]
 
     try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
       const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
         method: options.method || 'GET',
         headers: attempt.headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
 
       const responseText = await response.text()
       if (response.ok) {
@@ -587,18 +604,39 @@ export async function createHCPLead(
 
   console.log(`[HCP API] Using customer ${customerResult.customerId} for lead`)
 
-  // Step 2: Create lead with customer_id
+  // Push current name/email/address to HCP so stale data gets overwritten
+  if (leadData.firstName || leadData.lastName || leadData.email || leadData.address) {
+    await updateHCPCustomer(tenant, customerResult.customerId, {
+      firstName: leadData.firstName,
+      lastName: leadData.lastName,
+      email: leadData.email,
+      address: leadData.address,
+    })
+  }
+
+  // Step 2: Create lead with customer_id AND name fields
+  // HCP caches first_name/last_name on the lead at creation time,
+  // so we must send them explicitly (not just rely on customer_id link).
+  const leadBody: Record<string, unknown> = {
+    customer_id: customerResult.customerId,
+    notes: leadData.notes || `Source: ${leadData.source || 'API'}`,
+    source: leadData.source || 'api',
+  }
+  if (leadData.firstName) leadBody.first_name = leadData.firstName
+  if (leadData.lastName) leadBody.last_name = leadData.lastName
+  if (leadData.email) leadBody.email = leadData.email
+  if (leadData.phone) leadBody.mobile_number = leadData.phone
+  // NOTE: Do NOT send address on leads — HCP expects address as a hash object
+  // (not a flat string) and returns 422 "address must be a hash" if we send a string.
+  // The address is already on the linked customer record.
+
   const result = await hcpRequest<HCPLead>(tenant, '/leads', {
     method: 'POST',
-    body: {
-      customer_id: customerResult.customerId,
-      notes: leadData.notes || `Source: ${leadData.source || 'API'}`,
-      source: leadData.source || 'api',
-    },
+    body: leadBody,
   })
 
   if (result.success && result.data?.id) {
-    console.log(`[HCP API] Lead created: ${result.data.id}`)
+    console.log(`[HCP API] Lead created: ${result.data.id} (name: ${leadData.firstName} ${leadData.lastName})`)
     return { success: true, leadId: result.data.id, customerId: customerResult.customerId }
   }
 
@@ -630,21 +668,25 @@ export async function findOrCreateHCPCustomer(
   ): Promise<{ success: boolean; customerId?: string; addressId?: string } | null> => {
     if (!customers.length) return null
 
+    // Only use a customer if the phone number actually matches.
+    // HCP's search API returns ALL customers when there's no match,
+    // so we must verify the phone ourselves to avoid hijacking a random customer.
     const exactPhoneMatch = customers.find((customer) => {
       const phones = [customer.mobile_number, customer.home_number, customer.work_number]
       return phones.some((phone) => normalizePhoneForMatch(phone) === phoneDigits)
     })
 
-    const existing = exactPhoneMatch || customers[0]
+    if (!exactPhoneMatch) return null
+
     const addressId = await ensureCustomerAddressId(
       tenant,
-      existing.id,
-      existing.addresses,
+      exactPhoneMatch.id,
+      exactPhoneMatch.addresses,
       customerData.address
     )
 
-    console.log(`[HCP API] Found existing customer: ${existing.id}`)
-    return { success: true, customerId: existing.id, addressId }
+    console.log(`[HCP API] Found existing customer: ${exactPhoneMatch.id}`)
+    return { success: true, customerId: exactPhoneMatch.id, addressId }
   }
 
   // First try explicit mobile_number filter.
@@ -682,7 +724,8 @@ export async function findOrCreateHCPCustomer(
     email: customerData.email || undefined,
     notifications_enabled: customerData.notificationsEnabled ?? true,
     tags: customerData.tags?.length ? customerData.tags : ['osiris'],
-    lead_source: customerData.leadSource || 'osiris',
+    // Note: lead_source must be a pre-configured value in HCP. Don't send it
+    // unless the tenant has a valid HCP lead source configured.
     company: customerData.company || undefined,
   }
 
@@ -740,7 +783,6 @@ export async function createHCPCustomerAlways(
     email: customerData.email || undefined,
     notifications_enabled: customerData.notificationsEnabled ?? true,
     tags: customerData.tags?.length ? customerData.tags : ['osiris'],
-    lead_source: customerData.leadSource || 'osiris',
     company: customerData.company || undefined,
   }
 
@@ -988,7 +1030,7 @@ export async function updateHCPJob(
 
   const criticalErrors: string[] = []
 
-  const fallbackPatch = async (
+  const fallbackPut = async (
     payload: Record<string, unknown>,
     context: string
   ): Promise<boolean> => {
@@ -1025,7 +1067,7 @@ export async function updateHCPJob(
     })
 
     if (!scheduleResult.success) {
-      const patched = await fallbackPatch(
+      const patched = await fallbackPut(
         {
           scheduled_start: scheduledStart,
           scheduled_end: scheduledEnd || scheduledStart,
@@ -1047,7 +1089,7 @@ export async function updateHCPJob(
     })
 
     if (!dispatchResult.success) {
-      const patched = await fallbackPatch(
+      const patched = await fallbackPut(
         { assigned_employee_ids: normalizedAssignmentIds },
         'dispatch'
       )
@@ -1071,7 +1113,7 @@ export async function updateHCPJob(
     )
 
     if (!lineItemsResult.success) {
-      const patched = await fallbackPatch({ line_items: lineItemsCents }, 'line items')
+      const patched = await fallbackPut({ line_items: lineItemsCents }, 'line items')
       if (!patched) {
         criticalErrors.push(`line_items: ${lineItemsResult.error}`)
       }
@@ -1084,23 +1126,9 @@ export async function updateHCPJob(
   ].filter(Boolean)
   const notes = notesParts.join('\n')
 
-  if (notes || jobData.address || jobData.tags || jobData.description) {
-    const patchBody: Record<string, unknown> = {
-      notes: notes || undefined,
-      address: jobData.address || undefined,
-    }
-    if (jobData.tags?.length) patchBody.tags = jobData.tags
-    if (jobData.description) patchBody.description = jobData.description
-
-    const metadataPatch = await hcpRequest<HCPJob>(tenant, `/jobs/${jobId}`, {
-      method: 'PUT',
-      body: patchBody,
-    })
-
-    if (!metadataPatch.success) {
-      console.warn(`[HCP API] Metadata PUT failed for job ${jobId}: ${metadataPatch.error}`)
-    }
-  }
+  // NOTE: HCP does not support PUT or PATCH on /jobs/{id} (returns 404).
+  // notes, address, tags, description are already included in the initial
+  // POST /jobs body by createHCPJob, so no separate metadata update is needed.
 
   if (criticalErrors.length > 0) {
     return { success: false, error: criticalErrors.join(' | ') }
@@ -1176,6 +1204,61 @@ export async function updateHCPLeadStatus(
 }
 
 /**
+ * Update a lead in HousecallPro (name, email, notes).
+ * HCP caches first_name/last_name on the lead record at creation time,
+ * so updating the linked customer does NOT update the lead's display name.
+ * Call this after any customer name change to keep the lead in sync.
+ */
+export async function updateHCPLead(
+  tenant: Tenant,
+  leadId: string,
+  updates: {
+    firstName?: string
+    lastName?: string
+    email?: string
+    phone?: string
+    address?: string
+    notes?: string
+  }
+): Promise<{ success: boolean; error?: string }> {
+  const body: Record<string, unknown> = {}
+  if (updates.firstName !== undefined) body.first_name = updates.firstName
+  if (updates.lastName !== undefined) body.last_name = updates.lastName
+  if (updates.email !== undefined) body.email = updates.email
+  if (updates.phone !== undefined) body.mobile_number = updates.phone
+  if (updates.address !== undefined) body.address = updates.address
+  if (updates.notes !== undefined) body.notes = updates.notes
+
+  if (Object.keys(body).length === 0) {
+    return { success: true }
+  }
+
+  console.log(`[HCP API] Updating lead ${leadId} with: ${JSON.stringify(body)}`)
+
+  let result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
+    method: 'PATCH',
+    body,
+  })
+
+  // HCP may not support PATCH on leads for name fields (returns 404) — try PUT fallback
+  if (!result.success) {
+    console.warn(`[HCP API] PATCH lead ${leadId} failed (${result.error?.substring(0, 80)}), trying PUT`)
+    result = await hcpRequest<HCPLead>(tenant, `/leads/${leadId}`, {
+      method: 'PUT',
+      body,
+    })
+  }
+
+  if (result.success) {
+    console.log(`[HCP API] Lead ${leadId} updated: first_name=${result.data?.first_name}, last_name=${result.data?.last_name}`)
+    return { success: true }
+  }
+
+  console.warn(`[HCP API] Could not update lead ${leadId} (PATCH+PUT both failed): ${result.error?.substring(0, 120)}`)
+  return { success: false, error: result.error }
+}
+
+/**
  * Update an existing customer in HousecallPro (name, email, address, etc.)
  * Used when customer corrects their info via SMS or other channels.
  */
@@ -1190,8 +1273,6 @@ export async function updateHCPCustomer(
     address?: string
   }
 ): Promise<{ success: boolean; error?: string }> {
-  console.log(`[HCP API] Updating customer ${hcpCustomerId}`)
-
   const body: Record<string, unknown> = {}
   if (updates.firstName !== undefined) body.first_name = updates.firstName
   if (updates.lastName !== undefined) body.last_name = updates.lastName
@@ -1199,17 +1280,41 @@ export async function updateHCPCustomer(
   if (updates.phone !== undefined) body.mobile_number = updates.phone
 
   if (Object.keys(body).length === 0 && !updates.address) {
-    return { success: true } // Nothing to update
+    console.log(`[HCP API] No fields to update for customer ${hcpCustomerId}`)
+    return { success: true }
   }
 
-  const result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
-    method: 'PUT',
+  console.log(`[HCP API] Updating customer ${hcpCustomerId} with: ${JSON.stringify(body)}`)
+
+  // Use PATCH first (partial update) — PUT replaces the entire resource and silently
+  // drops fields not included, so sending only { first_name } via PUT wipes last_name etc.
+  let result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
+    method: 'PATCH',
     body,
   })
 
   if (!result.success) {
+    console.warn(`[HCP API] PATCH failed for customer ${hcpCustomerId}, trying PUT: ${result.error}`)
+    result = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`, {
+      method: 'PUT',
+      body,
+    })
+  }
+
+  if (!result.success) {
     console.error(`[HCP API] Failed to update customer ${hcpCustomerId}: ${result.error}`)
     return { success: false, error: result.error }
+  }
+
+  // Log what HCP returned to verify the update took effect
+  if (result.data) {
+    console.log(`[HCP API] Customer ${hcpCustomerId} after update: first_name=${result.data.first_name}, last_name=${result.data.last_name}`)
+  } else {
+    console.log(`[HCP API] Customer ${hcpCustomerId} update returned empty body — re-fetching to verify`)
+    const verify = await hcpRequest<HCPCustomer>(tenant, `/customers/${hcpCustomerId}`)
+    if (verify.success && verify.data) {
+      console.log(`[HCP API] Customer ${hcpCustomerId} verified: first_name=${verify.data.first_name}, last_name=${verify.data.last_name}`)
+    }
   }
 
   // If address provided, ensure it exists on the customer

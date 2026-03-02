@@ -156,6 +156,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processJobReminder(payload, tenant)
       break
 
+    case 'sms_retry':
+      await processSmsRetry(payload, tenant)
+      break
+
     default:
       console.warn(`[process-scheduled-tasks] Unknown task type: ${task_type}`)
   }
@@ -236,6 +240,30 @@ async function processLeadFollowup(
     return
   }
 
+  // Skip if lead has already been converted to a job (even if status wasn't updated)
+  if (lead.converted_to_job_id) {
+    console.log(`[lead-followup] Lead ${leadId} already converted to job ${lead.converted_to_job_id}, skipping follow-up`)
+    return
+  }
+
+  // Skip if this phone number already has an active job for the tenant
+  // (catches cases where a different lead for the same customer was booked)
+  if (leadPhone && tenant?.id) {
+    const { data: customerWithActiveJob } = await client
+      .from('customers')
+      .select('id, jobs!inner(id, status)')
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', leadPhone)
+      .in('jobs.status', ['pending', 'scheduled', 'in_progress'])
+      .limit(1)
+      .maybeSingle()
+
+    if (customerWithActiveJob) {
+      console.log(`[lead-followup] Phone ${leadPhone} already has an active job for tenant ${tenant.slug}, skipping follow-up for lead ${leadId}`)
+      return
+    }
+  }
+
   // Skip if auto-followup is paused for this lead
   // Use parseFormData to handle both string and object form_data
   const formData = parseFormData(lead.form_data)
@@ -244,10 +272,9 @@ async function processLeadFollowup(
     return
   }
 
-  // For stage 4 (call 2), only proceed if the previous call (call 1) was NOT answered
-  // This prevents unnecessary repeat calls if the customer already spoke with the AI
-  if (stage === 4) {
-    // Look up the most recent call for this lead's phone number
+  // For ANY call stage, check if the customer already answered a previous call.
+  // If they did, don't call again — they've already engaged with the AI.
+  if (action === 'call' || action === 'double_call') {
     const { data: recentCalls } = await client
       .from('calls')
       .select('outcome, created_at')
@@ -257,20 +284,26 @@ async function processLeadFollowup(
 
     const lastCall = recentCalls?.[0]
     if (lastCall) {
-      // Check if the call was answered (successful conversation)
       const answeredOutcomes = ['answered', 'completed', 'human-answered', 'booked', 'interested']
       const wasAnswered = answeredOutcomes.some(o =>
         lastCall.outcome?.toLowerCase().includes(o.toLowerCase())
       )
 
       if (wasAnswered) {
-        console.log(`[lead-followup] Lead ${leadId} call 1 was answered (outcome: ${lastCall.outcome}), cancelling remaining follow-ups`)
+        console.log(`[lead-followup] Lead ${leadId} previous call was answered (outcome: ${lastCall.outcome}), cancelling all remaining call follow-ups`)
 
-        // Cancel stage 5 task since customer already engaged
+        // Cancel all remaining call stages
         const { cancelTask } = await import('@/lib/scheduler')
-        await cancelTask(`lead-${leadId}-stage-5`)
+        for (const key of [
+          `lead-${leadId}-stage-2`,
+          `lead-${leadId}-stage-3`,
+          `lead-${leadId}-stage-5`,
+          `lead-${leadId}-double-call-2`,
+        ]) {
+          await cancelTask(key)
+        }
 
-        // Move lead to "responded" stage (stage 6)
+        // Move lead to "contacted" (customer engaged via phone)
         await client
           .from('leads')
           .update({
@@ -280,10 +313,30 @@ async function processLeadFollowup(
           })
           .eq('id', leadId)
 
-        console.log(`[lead-followup] Lead ${leadId} moved to stage 6 (responded) after successful call`)
+        console.log(`[lead-followup] Lead ${leadId} moved to stage 6 (responded) after previous answered call`)
         return
       }
-      console.log(`[lead-followup] Lead ${leadId} call 1 was not answered (outcome: ${lastCall.outcome}), proceeding with call 2`)
+      console.log(`[lead-followup] Lead ${leadId} last call was not answered (outcome: ${lastCall.outcome}), proceeding with ${action}`)
+    }
+  }
+
+  // Also check if customer has been texting recently (inbound SMS engagement)
+  // If they're actively texting, don't call — they prefer SMS
+  if (action === 'call' || action === 'double_call') {
+    const smsWindow = new Date(Date.now() - 30 * 60 * 1000).toISOString() // 30 minutes
+    const { data: recentInbound } = await client
+      .from('messages')
+      .select('id')
+      .eq('phone_number', leadPhone)
+      .eq('tenant_id', tenant?.id)
+      .eq('direction', 'inbound')
+      .gte('timestamp', smsWindow)
+      .limit(1)
+      .maybeSingle()
+
+    if (recentInbound) {
+      console.log(`[lead-followup] Lead ${leadId} has recent inbound SMS (within 30 min), skipping call stage ${stage} — customer engaged via text`)
+      return
     }
   }
 
@@ -434,7 +487,8 @@ async function processLeadFollowup(
     if (tenant) {
       smsResult = await sendSMS(tenant, leadPhone, message)
     } else {
-      smsResult = await sendSMS(leadPhone, message)
+      console.error(`[lead-followup] No tenant for lead ${leadId} — skipping SMS`)
+      smsResult = { success: false, error: 'No tenant' }
     }
 
     // Save the outbound message to the database so it shows in the UI
@@ -531,12 +585,10 @@ async function processJobBroadcast(
   } else if (phase === 'escalate') {
     // Escalate to owner
     const ownerPhone = tenant?.owner_phone || process.env.OWNER_PHONE
-    if (ownerPhone) {
-      if (tenant) {
-        await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
-      } else {
-        await sendSMS(ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
-      }
+    if (ownerPhone && tenant) {
+      await sendSMS(tenant, ownerPhone, `URGENT: Job ${jobId} needs manual assignment. All cleaners are unavailable.`)
+    } else if (!tenant) {
+      console.error(`[cleaner-retry] No tenant for job ${jobId} — cannot send escalation SMS`)
     }
   }
 }
@@ -566,7 +618,8 @@ async function processDayBeforeReminder(
   if (tenant) {
     smsResult = await sendSMS(tenant, customerPhone, message)
   } else {
-    smsResult = await sendSMS(customerPhone, message)
+    console.error(`[day-before-reminder] No tenant for job ${jobId} — skipping reminder SMS`)
+    smsResult = { success: false, error: 'No tenant' }
   }
 
   // Save the outbound message to the database
@@ -599,6 +652,40 @@ async function processJobReminder(
 
   // This would send a Telegram notification to the cleaner
   // Implementation depends on having cleaner info loaded
+}
+
+/**
+ * Retry a failed SMS send.
+ * Payload: { phone, message, messageId? }
+ */
+async function processSmsRetry(
+  payload: Record<string, unknown>,
+  tenant: any
+) {
+  const phone = String(payload.phone || '')
+  const message = String(payload.message || '')
+  const messageId = payload.messageId as number | undefined
+
+  if (!phone || !message) {
+    console.warn('[sms-retry] Missing phone or message in payload')
+    return
+  }
+
+  console.log(`[sms-retry] Retrying SMS to ${phone.slice(-4)} for tenant ${tenant?.slug}`)
+
+  const result = await sendSMS(tenant, phone, message)
+
+  if (result.success && messageId) {
+    // Update the stored failed message to sent status
+    const client = getSupabaseServiceClient()
+    await client
+      .from('messages')
+      .update({ status: 'sent', metadata: { retried: true, retry_message_id: result.messageId } })
+      .eq('id', messageId)
+    console.log(`[sms-retry] Successfully sent retry SMS to ${phone.slice(-4)}`)
+  } else if (!result.success) {
+    console.error(`[sms-retry] Retry failed for ${phone.slice(-4)}: ${result.error}`)
+  }
 }
 
 // POST method for compatibility

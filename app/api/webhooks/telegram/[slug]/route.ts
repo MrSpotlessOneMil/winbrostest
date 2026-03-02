@@ -5,9 +5,7 @@ import {
   getSupabaseServiceClient,
   getJobById,
   getCustomerByPhone,
-  getCleanerById,
   getCleanerAssignmentById,
-  updateCleanerAssignment,
   updateJob,
 } from "@/lib/supabase"
 import { answerCallbackQuery, sendTelegramMessage, logTelegramMessage } from "@/lib/telegram"
@@ -208,15 +206,25 @@ const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 const JOIN_PATTERNS = [
   /^(join|register|sign\s*up)/i,
-  /^new\s+cleaner/i,
-  /i[''`"']m\s+a\s+(new\s+)?cleaner/i,
-  /i\s+am\s+a\s+(new\s+)?cleaner/i,
-  /^i\s+want\s+to\s+(join|work|clean)/i,
+  /^new\s+(cleaner|salesman|sales\s*man)/i,
+  /i[''`"']m\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /i\s+am\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /^i\s+want\s+to\s+(join|work|clean|sell)/i,
   /^(onboard|enroll)/i,
   /new\s+(here|employee|hire|team\s*member)/i,
   /how\s+(do\s+i|can\s+i|to)\s+(join|register|sign\s*up)/i,
 ]
 const PHONE_PATTERN = /^[\d\s\-\(\)\+]{10,}$/
+
+/** Check if this tenant uses estimate/salesman flow (vs cleaning/technician) */
+function isEstimateFlow(tenant: Tenant): boolean {
+  return tenant.slug === 'winbros' || tenantUsesFeature(tenant, 'use_route_optimization')
+}
+
+/** Get the role label for this tenant's field staff */
+function getRoleLabel(tenant: Tenant): string {
+  return isEstimateFlow(tenant) ? 'salesman' : 'cleaner'
+}
 
 /** Send a Telegram message using the tenant's bot token */
 async function sendMsg(chatId: string, text: string, tenant: Tenant): Promise<void> {
@@ -270,12 +278,10 @@ async function handleAcceptCallback(
     // Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
     const { data: claimed, error: claimErr } = await client
       .from('cleaner_assignments')
-      .update({
-        status: 'confirmed',
-        responded_at: new Date().toISOString(),
-      })
+      .update({ status: 'confirmed', responded_at: new Date().toISOString() })
       .eq('id', assignmentId)
-      .eq('status', 'pending')  // atomic guard — only one concurrent request succeeds
+      .eq('status', 'pending')
+      .eq('tenant_id', tenant.id)
       .select('*')
       .maybeSingle()
 
@@ -291,7 +297,7 @@ async function handleAcceptCallback(
     const assignment = claimed
 
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== tenant.id) {
       await sendMsg(chatId, "Sorry, this job could not be found.", tenant)
       return NextResponse.json({ success: false, error: "Job not found" })
     }
@@ -413,7 +419,7 @@ async function handleAcceptCallback(
       console.log(`[Telegram/${tenant.slug}] Job ${jobId}: ${confirmedCount}/${cleanersNeeded} cleaners filled — waiting for more`)
     }
 
-    const slotsMsg = cleanersNeeded > 1 ? ` (${confirmedCount}/${cleanersNeeded} cleaners assigned)` : ''
+    const slotsMsg = cleanersNeeded > 1 ? ` (${confirmedCount}/${cleanersNeeded} ${getRoleLabel(tenant)}s assigned)` : ''
     await sendMsg(chatId, `<b>Job Accepted!</b>${slotsMsg}\n\nYou have been assigned to this job.${allCleanersFilled ? ' The customer has been notified.' : ''}\n\nPlease make sure to:\n- Arrive on time\n- Bring all necessary supplies\n- Contact us if you have any issues\n\nWhen you finish the job, type <b>done job ${jobId}</b> to mark it complete.\n\nThank you!`, tenant)
 
     await logSystemEvent({
@@ -449,12 +455,10 @@ async function handleDeclineCallback(
     const client = getSupabaseServiceClient()
     const { data: claimed, error: claimErr } = await client
       .from('cleaner_assignments')
-      .update({
-        status: 'declined',
-        responded_at: new Date().toISOString(),
-      })
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
       .eq('id', assignmentId)
-      .eq('status', 'pending')  // atomic guard
+      .eq('status', 'pending')
+      .eq('tenant_id', tenant.id)
       .select('*')
       .maybeSingle()
 
@@ -470,12 +474,11 @@ async function handleDeclineCallback(
     const assignment = claimed
 
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== tenant.id) {
       await sendMsg(chatId, "Sorry, this job could not be found.", tenant)
       return NextResponse.json({ success: false, error: "Job not found" })
     }
-
-    await sendMsg(chatId, "No problem! We'll find another cleaner for this job.", tenant)
+    await sendMsg(chatId, `No problem! We'll find another ${getRoleLabel(tenant)} for this job.`, tenant)
 
     // Check if this tenant uses broadcast mode
     const isBroadcast = tenantUsesFeature(tenant, 'use_broadcast_assignment')
@@ -486,7 +489,6 @@ async function handleDeclineCallback(
     let nextAssigned = false
 
     if (isBroadcast) {
-      const client = getSupabaseServiceClient()
       const { data: remainingPending } = await client
         .from("cleaner_assignments")
         .select("id")
@@ -520,7 +522,7 @@ async function handleDeclineCallback(
       if (ownerChatId) {
         await sendMsg(
           String(ownerChatId),
-          `<b>URGENT: No Cleaners Available</b>\n\nJob ID: ${jobId}\nDate: ${job.date || "N/A"}\nTime: ${job.scheduled_at || "N/A"}\nAddress: ${job.address || "N/A"}\nCustomer Phone: ${job.phone_number || "N/A"}\n\nAll available cleaners have declined. Manual assignment required.`,
+          `<b>URGENT: No ${getRoleLabel(tenant).charAt(0).toUpperCase() + getRoleLabel(tenant).slice(1)}s Available</b>\n\nJob ID: ${jobId}\nDate: ${job.date || "N/A"}\nTime: ${job.scheduled_at || "N/A"}\nAddress: ${job.address || "N/A"}\nCustomer Phone: ${job.phone_number || "N/A"}\n\nAll available ${getRoleLabel(tenant)}s have declined. Manual assignment required.`,
           tenant
         )
       }
@@ -585,17 +587,17 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
   }
 
-  // Validate Telegram secret_token header (if configured)
+  // Validate Telegram secret_token (set during setWebhook registration)
   if (tenant.telegram_webhook_secret) {
-    const secretHeader = request.headers.get("x-telegram-bot-api-secret-token")
-    if (!secretHeader) {
-      console.error(`[Telegram/${slug}] Missing secret token header`)
+    const secretToken = request.headers.get("x-telegram-bot-api-secret-token")
+    if (!secretToken) {
+      console.error(`[Telegram/${slug}] Missing secret_token header`)
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
-    const headerBuf = Buffer.from(secretHeader)
-    const storedBuf = Buffer.from(tenant.telegram_webhook_secret)
-    if (headerBuf.length !== storedBuf.length || !timingSafeEqual(headerBuf, storedBuf)) {
-      console.error(`[Telegram/${slug}] Invalid secret token`)
+    const expected = Buffer.from(tenant.telegram_webhook_secret)
+    const received = Buffer.from(secretToken)
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+      console.error(`[Telegram/${slug}] Invalid secret_token`)
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
     }
   }
@@ -631,13 +633,16 @@ export async function POST(
       content: text,
       source: 'telegram_webhook',
       messageId: update.message.message_id,
+      tenantId: tenant.id,
     }).catch(() => {})
 
     // /start command
     if (text.toLowerCase() === "/start") {
+      const roleLabel = getRoleLabel(tenant)
+      const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
       await sendMsg(
         chatId,
-        `<b>Welcome to the Cleaning Team Bot!</b>\n\n<b>For New Cleaners:</b>\nSend "join" or "I'm a new cleaner" to register.\n\n<b>For Existing Cleaners:</b>\n• Report tips: "tip job 123 - $20"\n• Report upsells: "upsell job 123 - deep clean"\n• Accept/decline jobs via buttons\n\n<b>Your Chat ID:</b> <code>${chatId}</code>`,
+        `<b>Welcome to the ${tenant.business_name_short || tenant.name} Team Bot!</b>\n\n<b>For New ${roleCap}s:</b>\nSend "join" or "I'm a new ${roleLabel}" to register.\n\n<b>For Existing ${roleCap}s:</b>\n• Report tips: "tip job 123 - $20"\n• Report upsells: "upsell job 123 - deep clean"\n• Accept/decline jobs via buttons\n\n<b>Your Chat ID:</b> <code>${chatId}</code>`,
         tenant
       )
       return NextResponse.json({ success: true, action: "start_sent" })
@@ -735,7 +740,7 @@ export async function POST(
       if (!result.success) {
         return NextResponse.json({ success: false, error: "Failed to store tip" }, { status: 500 })
       }
-      const splitNote = result.splitCount > 1 ? ` (split $${result.amountEach.toFixed(2)} each among ${result.splitCount} cleaners)` : ''
+      const splitNote = result.splitCount > 1 ? ` (split $${result.amountEach.toFixed(2)} each among ${result.splitCount} ${getRoleLabel(tenant)}s)` : ''
       await sendMsg(chatId, `<b>Tip Recorded!</b>\n\nJob #${jobId}: $${amount}${splitNote}\n\nThank you for reporting this tip.`, tenant)
       return NextResponse.json({ success: true, action: "tip_recorded" })
     }
@@ -777,7 +782,7 @@ export async function POST(
 
       // Verify this cleaner is actually assigned to this job
       if (!cleaner?.id) {
-        await sendMsg(chatId, `You're not registered as a cleaner. Send "join" to register.`, tenant)
+        await sendMsg(chatId, `You're not registered as a ${getRoleLabel(tenant)}. Send "join" to register.`, tenant)
         return NextResponse.json({ success: true })
       }
 
@@ -891,7 +896,7 @@ export async function POST(
 
     // Schedule query
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, tenant.id, tenant.timezone)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, tenant.id, getRoleLabel(tenant))
       await sendMsg(chatId, scheduleMsg, tenant)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
@@ -1020,7 +1025,8 @@ async function handleOnboardingStep(
             home_lng: homeLng,
             availability: availabilityData,
             active: true,
-            is_team_lead: false
+            is_team_lead: false,
+            employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician',
           })
           .select("id, name")
           .single()
@@ -1066,10 +1072,10 @@ async function handleOnboardingStep(
         await logSystemEvent({
           source: "telegram",
           event_type: "CLEANER_BROADCAST",
-          message: `New cleaner registered via Telegram: ${state.data.name}`,
+          message: `New ${getRoleLabel(tenant)} registered via Telegram: ${state.data.name}`,
           cleaner_id: newCleaner.id,
           phone_number: state.data.phone,
-          metadata: { telegram_id: telegramUserId, registration_method: "telegram_onboarding" }
+          metadata: { telegram_id: telegramUserId, registration_method: "telegram_onboarding", employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician' }
         })
 
         return NextResponse.json({ success: true, action: "cleaner_registered", cleaner_id: newCleaner.id })
@@ -1088,13 +1094,13 @@ async function handleOnboardingStep(
   }
 }
 
-async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string, tenantId?: string, tenantTimezone?: string): Promise<string> {
+async function buildScheduleResponse(userMessage: string, cleanerId: string | null, cleanerName: string, tenantId?: string, roleLabel: string = 'cleaner'): Promise<string> {
   if (!cleanerId) {
-    return `Hi! You're not registered as a cleaner yet. Send "join" to get set up.`
+    return `Hi! You're not registered as a ${roleLabel} yet. Send "join" to get set up.`
   }
 
   const supabase = getSupabaseServiceClient()
-  const tz = tenantTimezone || 'America/Chicago'
+  const tz = 'America/Chicago'
   const nowLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz })
   const tomorrowLocal = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: tz })
 
@@ -1190,13 +1196,14 @@ async function handleCleanerAI(
   tenant: Tenant
 ): Promise<{ response: string; action?: string }> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!anthropicKey) return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
+  if (!anthropicKey) return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead, getRoleLabel(tenant)) }
 
   try {
     const supabase = getSupabaseServiceClient()
     const userName = cleaner?.name || firstName
 
     // Build job context for this cleaner
+    const roleLabel = getRoleLabel(tenant)
     let jobContext = ""
     let cleanerInfoContext = ""
     if (cleaner?.id) {
@@ -1211,7 +1218,7 @@ async function handleCleanerAI(
         const availStr = avail?.rules?.[0]
           ? `${(avail.rules[0].days || []).join(', ')} ${avail.rules[0].start || ''}-${avail.rules[0].end || ''}`
           : 'Not set'
-        cleanerInfoContext = `\n\nCLEANER'S CURRENT INFO:\nName: ${cleanerData.name}\nPhone: ${cleanerData.phone || 'Not set'}\nEmail: ${cleanerData.email || 'Not set'}\nHome Address: ${cleanerData.home_address || 'Not set'}\nAvailability: ${availStr}`
+        cleanerInfoContext = `\n\n${roleLabel.toUpperCase()}'S CURRENT INFO:\nName: ${cleanerData.name}\nPhone: ${cleanerData.phone || 'Not set'}\nEmail: ${cleanerData.email || 'Not set'}\nHome Address: ${cleanerData.home_address || 'Not set'}\nAvailability: ${availStr}`
       }
 
       const today = new Date().toLocaleDateString('en-CA', { timeZone: tenant.timezone || 'America/Chicago' })
@@ -1243,13 +1250,13 @@ async function handleCleanerAI(
         jobContext = `\n\nNo upcoming jobs assigned.`
       }
     } else {
-      jobContext = `\n\nThis user is NOT registered as a cleaner. Tell them to send "join" to register.`
+      jobContext = `\n\nThis user is NOT registered as a ${getRoleLabel(tenant)}. Tell them to send "join" to register.`
     }
 
     const tools: Anthropic.Tool[] = cleaner?.id ? [
       {
         name: "update_cleaner_info",
-        description: "Update the cleaner's personal information in the system. Use this when they ask to change their phone number, email, name, or home address.",
+        description: "Update the team member's personal information in the system. Use this when they ask to change their phone number, email, name, or home address.",
         input_schema: {
           type: "object" as const,
           properties: {
@@ -1261,7 +1268,7 @@ async function handleCleanerAI(
       },
       {
         name: "update_availability",
-        description: "Update the cleaner's work availability schedule. Use this when they want to change what days/hours they work.",
+        description: "Update the team member's work availability schedule. Use this when they want to change what days/hours they work.",
         input_schema: {
           type: "object" as const,
           properties: {
@@ -1275,7 +1282,10 @@ async function handleCleanerAI(
     ] : []
 
     const client = new Anthropic({ apiKey: anthropicKey })
-    const systemPrompt = `You are a helpful, friendly assistant for ${tenant.business_name_short || tenant.name}'s cleaning team Telegram bot. The user's name is ${userName}.${cleaner?.is_team_lead ? " They are a team lead." : ""}${cleanerInfoContext}${jobContext}
+    const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
+    const systemPrompt = `You are a helpful, friendly assistant for ${tenant.business_name_short || tenant.name}'s team Telegram bot. The user's name is ${userName}. They are a ${roleLabel}.${cleaner?.is_team_lead ? " They are also a team lead." : ""}${cleanerInfoContext}${jobContext}
+
+IMPORTANT: This person's role is "${roleLabel}". Always refer to them and their colleagues as "${roleLabel}s", never as "cleaners" or "technicians".
 
 CAPABILITIES:
 - Answer questions about their assigned jobs (dates, times, addresses, service type, notes)
@@ -1286,7 +1296,7 @@ CAPABILITIES:
 STRICT RULES - NEVER VIOLATE:
 - NEVER reveal the price/revenue of any job. If asked "how much does this job pay" or "what's the job price", tell them their pay was shown in the job notification and to check that message.
 - NEVER discuss pay percentages, commission splits, or business revenue.
-- NEVER share other cleaners' personal info, pay, or schedules.
+- NEVER share other ${roleLabel}s' personal info, pay, or schedules.
 - If asked about pay structure, say "Your pay is shown on each job notification when it's offered to you."
 - Keep responses concise (2-4 sentences). Use plain text, no markdown.
 - When updating info, use the tools provided. Confirm the update to the user after.
@@ -1294,8 +1304,6 @@ STRICT RULES - NEVER VIOLATE:
 
     let messages: Anthropic.MessageParam[] = [{ role: "user", content: userMessage }]
 
-    const aiAbort = new AbortController()
-    const aiTimeout = setTimeout(() => aiAbort.abort(), 15_000)
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 500,
@@ -1303,7 +1311,6 @@ STRICT RULES - NEVER VIOLATE:
       system: systemPrompt,
       tools: tools.length > 0 ? tools : undefined,
     })
-    clearTimeout(aiTimeout)
 
     // Process tool calls if any
     const toolUseBlocks = response.content.filter(b => b.type === "tool_use")
@@ -1384,8 +1391,6 @@ STRICT RULES - NEVER VIOLATE:
         { role: "user", content: toolResultContents }
       ]
 
-      const followAbort = new AbortController()
-      const followTimeout = setTimeout(() => followAbort.abort(), 15_000)
       const followUp = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 300,
@@ -1393,7 +1398,6 @@ STRICT RULES - NEVER VIOLATE:
         system: systemPrompt,
         tools,
       })
-      clearTimeout(followTimeout)
 
       const followUpText = followUp.content.find(b => b.type === "text")
       if (followUpText?.type === "text" && followUpText.text) {
@@ -1410,13 +1414,13 @@ STRICT RULES - NEVER VIOLATE:
     if (textBlocks.length > 0 && textBlocks[0].type === "text") {
       return { response: textBlocks[0].text.trim() }
     }
-    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead, roleLabel) }
   } catch (error) {
     console.error(`[Telegram/${tenant.slug}] AI response error:`, error)
-    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead) }
+    return { response: getDefaultFallbackResponse(!!cleaner?.is_team_lead, getRoleLabel(tenant)) }
   }
 }
 
-function getDefaultFallbackResponse(isTeamLead: boolean): string {
-  return `I didn't quite understand that. Here's what I can help with:\n\n• New cleaner? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Check your schedule: "my schedule"\n• Update your info: "update my phone to 555-123-4567"\n• Need help? Send /start`
+function getDefaultFallbackResponse(isTeamLead: boolean, roleLabel: string = 'cleaner'): string {
+  return `I didn't quite understand that. Here's what I can help with:\n\n• New ${roleLabel}? Send "join" to register\n• Report a tip: "tip job 123 - $20"\n• Report an upsell: "upsell job 123 - deep clean"\n• Check your schedule: "my schedule"\n• Update your info: "update my phone to 555-123-4567"\n• Need help? Send /start`
 }

@@ -5,7 +5,7 @@ import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getDefaultTenant, getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
+import { getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { sendTelegramMessage } from '@/lib/telegram'
 import { maskPhone } from '@/lib/phone-utils'
@@ -231,6 +231,7 @@ async function handleDepositPayment(
           { email: custEmail, phone_number: updatedJob.phone_number } as any,
           jobId,
           jobTenantId,
+          tenant?.stripe_secret_key || undefined,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -679,6 +680,15 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         .eq('phone_number', phone_number)
         .eq('tenant_id', tenant.id)
         .maybeSingle()
+
+      // Mark customer as having card on file
+      if (customer?.id) {
+        await client.from('customers').update({
+          card_on_file_at: new Date().toISOString(),
+          stripe_customer_id: typeof session.customer === 'string' ? session.customer : (session.customer as any)?.id || null,
+        }).eq('id', customer.id)
+        console.log(`[Stripe Webhook] Marked customer ${customer.id} as card-on-file`)
+      }
 
       await client.from('messages').insert({
         tenant_id: tenant.id,

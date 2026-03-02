@@ -80,8 +80,9 @@ export async function syncNewJobToHCP(params: {
     const phone = params.phone ?? (jobRow as any)?.phone_number ?? customer?.phone_number ?? ''
     const address = params.address ?? (jobRow as any)?.address ?? customer?.address ?? undefined
     const serviceType = params.serviceType ?? (jobRow as any)?.service_type ?? 'Cleaning Service'
-    const scheduledDate = params.scheduledDate ?? (jobRow as any)?.date ?? undefined
-    const scheduledTime = params.scheduledTime ?? (jobRow as any)?.scheduled_at ?? undefined
+    // Use || (not ??) so null falls through to DB values (null ?? x returns null in JS)
+    const scheduledDate = params.scheduledDate || (jobRow as any)?.date || undefined
+    const scheduledTime = params.scheduledTime || (jobRow as any)?.scheduled_at || undefined
     const price = params.price ?? (jobRow as any)?.price ?? undefined
     const durationHours = params.durationHours ?? (jobRow as any)?.hours ?? undefined
     const baseNotes = params.notes ?? (jobRow as any)?.notes ?? null
@@ -195,13 +196,24 @@ export async function syncNewJobToHCP(params: {
       .limit(1)
       .maybeSingle()
 
+    // Verify existing HCP lead ID still exists
+    if (localLead?.housecall_pro_lead_id) {
+      const { verifyHCPResource } = await import('./housecall-pro-api')
+      const leadExists = await verifyHCPResource(tenant, `/leads/${localLead.housecall_pro_lead_id}`)
+      if (!leadExists) {
+        console.warn(`[HCP Sync] HCP lead ${localLead.housecall_pro_lead_id} no longer exists, clearing stale ID`)
+        await client.from('leads').update({ housecall_pro_lead_id: null }).eq('id', localLead.id)
+        localLead.housecall_pro_lead_id = null
+      }
+    }
+
     if (localLead && !localLead.housecall_pro_lead_id) {
       const hcpLead = await createHCPLead(tenant, {
         firstName,
         lastName,
         phone,
         email,
-        address,
+        // address omitted — HCP expects a hash object, not a string (causes 422)
         notes: `OSIRIS Job ID: ${jobId}`,
         source: 'api',
       })
@@ -247,25 +259,35 @@ export async function syncNewJobToHCP(params: {
         : undefined
 
     if (existingHcpJobId) {
-      const updated = await updateHCPJob(tenant, existingHcpJobId, {
-        scheduledDate,
-        scheduledTime,
-        address,
-        serviceType,
-        price: price == null ? undefined : Number(price),
-        durationHours: durationHours == null ? undefined : Number(durationHours),
-        notes,
-        lineItems,
-        assignedEmployeeIds,
-        tags,
-        description,
-      })
-      if (!updated.success) {
-        console.error(`[HCP Sync] Failed updating HCP job ${existingHcpJobId} for local job ${jobId}: ${updated.error}`)
-      } else {
-        console.log(`[HCP Sync] Updated HCP job ${existingHcpJobId} from local job ${jobId}`)
+      // Verify the HCP job still exists — it may have been deleted from HCP dashboard
+      const { verifyHCPResource } = await import('./housecall-pro-api')
+      const jobExists = await verifyHCPResource(tenant, `/jobs/${existingHcpJobId}`)
+
+      if (jobExists) {
+        const updated = await updateHCPJob(tenant, existingHcpJobId, {
+          scheduledDate,
+          scheduledTime,
+          address,
+          serviceType,
+          price: price == null ? undefined : Number(price),
+          durationHours: durationHours == null ? undefined : Number(durationHours),
+          notes,
+          lineItems,
+          assignedEmployeeIds,
+          tags,
+          description,
+        })
+        if (!updated.success) {
+          console.error(`[HCP Sync] Failed updating HCP job ${existingHcpJobId} for local job ${jobId}: ${updated.error}`)
+        } else {
+          console.log(`[HCP Sync] Updated HCP job ${existingHcpJobId} from local job ${jobId}`)
+        }
+        return
       }
-      return
+
+      // Job was deleted from HCP — clear stale ID and fall through to create a new one
+      console.warn(`[HCP Sync] HCP job ${existingHcpJobId} no longer exists, clearing stale ID and recreating`)
+      await client.from('jobs').update({ housecall_pro_job_id: null }).eq('id', jobId)
     }
 
     if (!hcpAddressId) {
@@ -402,6 +424,17 @@ export async function syncCustomerToHCP(params: {
 
     let hcpCustomerId = custRow?.housecall_pro_customer_id as string | null
 
+    // Verify stored HCP customer ID still exists (may have been deleted from HCP dashboard)
+    if (hcpCustomerId) {
+      const { verifyHCPResource } = await import('./housecall-pro-api')
+      const customerExists = await verifyHCPResource(tenant, `/customers/${hcpCustomerId}`)
+      if (!customerExists) {
+        console.warn(`[HCP Sync] HCP customer ${hcpCustomerId} no longer exists, clearing stale ID`)
+        await client.from('customers').update({ housecall_pro_customer_id: null }).eq('id', params.customerId)
+        hcpCustomerId = null
+      }
+    }
+
     if (!hcpCustomerId) {
       // Find or create customer in HCP by phone
       const result = await findOrCreateHCPCustomer(tenant, {
@@ -421,7 +454,7 @@ export async function syncCustomerToHCP(params: {
         .eq('id', params.customerId)
     }
 
-    // Push current OSIRIS data to HCP
+    // Push current OSIRIS data to HCP customer
     await updateHCPCustomer(tenant, hcpCustomerId, {
       firstName: params.firstName || undefined,
       lastName: params.lastName || undefined,
@@ -429,6 +462,10 @@ export async function syncCustomerToHCP(params: {
       address: params.address || undefined,
     })
     console.log(`[HCP Sync] Customer ${params.customerId} synced to HCP customer ${hcpCustomerId}`)
+
+    // Note: HCP does NOT support updating lead names via API (PATCH/PUT both return 404).
+    // Lead names are cached at creation time. Only the linked customer name can be updated,
+    // which we already did above. Skipping lead update to avoid noisy 404 errors in logs.
   } catch (err) {
     console.error(`[HCP Sync] Failed to sync customer ${params.customerId} to HCP:`, err)
   }

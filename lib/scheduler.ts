@@ -21,6 +21,7 @@ export type TaskType =
   | 'day_before_reminder'
   | 'job_reminder'
   | 'post_cleaning_followup'
+  | 'sms_retry'
 
 export interface ScheduledTask {
   id: string

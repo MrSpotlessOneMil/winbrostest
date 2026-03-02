@@ -95,7 +95,8 @@ export async function POST(request: NextRequest) {
 
     const invoiceResult = await createInvoice(
       { ...job, price: jobPrice },
-      { ...customer, email: customerEmail }
+      { ...customer, email: customerEmail },
+      tenant
     )
 
     if (!invoiceResult.success) {
@@ -130,7 +131,7 @@ export async function POST(request: NextRequest) {
     const smsMessage = SMS_TEMPLATES.invoiceSent(customerEmail, invoiceResult.invoiceUrl)
     const smsResult = tenant
       ? await sendSMS(tenant, job.phone_number, smsMessage)
-      : await sendSMS(job.phone_number, smsMessage)
+      : { success: false, error: 'No tenant' }
     if (!smsResult.success) {
       await alertOwner('Failed to send invoice SMS to customer.', {
         jobId,

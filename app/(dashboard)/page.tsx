@@ -52,10 +52,10 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Command Center</h1>
-          <p className="text-sm text-muted-foreground">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground truncate">Command Center</h1>
+          <p className="text-xs md:text-sm text-muted-foreground hidden sm:block">
             Real-time overview of operations
           </p>
         </div>
@@ -102,30 +102,30 @@ export default function DashboardPage() {
       <StatsCards />
 
       {/* Charts Row */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="md:col-span-2">
           <RevenueChart />
         </div>
         <LeadSourceChart />
       </div>
 
       {/* Today's Jobs + Team Status */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="md:col-span-2 lg:col-span-2">
           <TodaysJobs />
         </div>
         <TeamStatus />
       </div>
 
       {/* Funnel, Earnings, Top Performer */}
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-4 md:gap-6 sm:grid-cols-2 lg:grid-cols-3">
         <FunnelSummary />
         <EarningsSummary />
         <TopPerformer />
       </div>
 
       {/* Recent Leads + Exceptions */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2">
         <RecentLeads />
         <ExceptionsList />
       </div>

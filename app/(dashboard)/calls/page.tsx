@@ -62,7 +62,7 @@ export default function CallsPage() {
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="Filter by phone (E.164)"
-                className="w-64 pl-10"
+                className="w-full sm:w-64 pl-10"
               />
             </div>
             <Button variant="outline" onClick={load} disabled={loading}>

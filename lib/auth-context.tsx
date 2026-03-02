@@ -59,14 +59,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
 
   // Load accounts from localStorage on mount
-  // Filter out any accounts without session tokens (stale data from before multi-account update)
+  // Filter out stale data and deduplicate by username (not user.id, which can change across DB recreations)
   useEffect(() => {
     const stored = localStorage.getItem(ACCOUNTS_STORAGE_KEY)
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as StoredAccount[]
         // Only keep accounts that have valid session tokens
-        const validAccounts = parsed.filter((a) => a.sessionToken)
+        const withTokens = parsed.filter((a) => a.sessionToken)
+        // Deduplicate by display label (tenantSlug || username) — keeps the latest entry
+        // This handles stale entries from DB recreations where username may have changed
+        const seen = new Map<string, StoredAccount>()
+        for (const account of withTokens) {
+          const label = account.user.tenantSlug || account.user.username
+          seen.set(label, account)
+        }
+        const validAccounts = Array.from(seen.values())
         setAccounts(validAccounts)
         // Update localStorage if we filtered any out
         if (validAccounts.length !== parsed.length) {
@@ -100,14 +108,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const sessionToken = data.data.sessionToken
 
         // Add to accounts list if not already there, including session token
+        // Deduplicate by display label (tenantSlug || username) to catch stale entries from DB recreations
+        const newLabel = data.data.user.tenantSlug || data.data.user.username
         setAccounts((prev) => {
-          const exists = prev.some((a) => a.user.id === data.data.user.id)
+          const exists = prev.some((a) => (a.user.tenantSlug || a.user.username) === newLabel)
           if (!exists) {
             return [...prev, { user: data.data.user, sessionToken }]
           }
-          // Update user info and token if it changed
+          // Update user info (including id) and token if it changed
           return prev.map((a) =>
-            a.user.id === data.data.user.id
+            (a.user.tenantSlug || a.user.username) === newLabel
               ? { ...a, user: data.data.user, sessionToken: sessionToken || a.sessionToken }
               : a
           )
@@ -134,12 +144,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
-    // Remove current user from accounts
+    // Remove current user from accounts by username (stable across DB recreations)
     if (user) {
-      setAccounts((prev) => prev.filter((a) => a.user.id !== user.id))
+      const currentLabel = user.tenantSlug || user.username
+      setAccounts((prev) => prev.filter((a) => (a.user.tenantSlug || a.user.username) !== currentLabel))
       localStorage.setItem(
         ACCOUNTS_STORAGE_KEY,
-        JSON.stringify(accounts.filter((a) => a.user.id !== user.id))
+        JSON.stringify(accounts.filter((a) => (a.user.tenantSlug || a.user.username) !== currentLabel))
       )
     }
     setAuthenticated(false)
@@ -170,10 +181,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
 
-          // Update the stored account with fresh user data (fixes stale slug)
+          // Update the stored account with fresh user data, matching by username
+          // (handles case where user.id changed across DB recreations)
           setAccounts((prev) =>
             prev.map((a) =>
-              a.user.id === data.data.user.id
+              a.user.username === data.data.user.username
                 ? { ...a, user: data.data.user }
                 : a
             )
@@ -201,16 +213,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (data.success && data.data?.user) {
         // Add to accounts list with session token
+        // Login response may not have tenantSlug, so match by username + label
         const newUser = data.data.user
         const sessionToken = data.data.sessionToken
+        const newLabel = newUser.tenantSlug || newUser.username
         setAccounts((prev) => {
-          const exists = prev.some((a) => a.user.id === newUser.id)
+          const exists = prev.some((a) => (a.user.tenantSlug || a.user.username) === newLabel)
           if (!exists) {
             return [...prev, { user: newUser, sessionToken }]
           }
-          // Update existing account with new token
+          // Update existing account with new token and fresh user data
           return prev.map((a) =>
-            a.user.id === newUser.id ? { ...a, user: newUser, sessionToken } : a
+            (a.user.tenantSlug || a.user.username) === newLabel ? { ...a, user: newUser, sessionToken } : a
           )
         })
 

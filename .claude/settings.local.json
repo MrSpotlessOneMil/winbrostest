@@ -3,12 +3,16 @@
     "allow": [
       "Bash(find:*)",
       "Bash(wc -l:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "WebFetch(domain:www.crhousecleaners.com)",
+      "WebFetch(domain:www.spotlessscrubbers.com)",
+      "WebFetch(domain:spotlessscrubbers.com)",
+      "Bash(git:*)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "supabase",
     "vercel"
-  ],
-  "enableAllProjectMcpServers": true
+  ]
 }

@@ -6,7 +6,7 @@ import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
+import { tenantUsesFeature, getAllActiveTenants } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
@@ -25,40 +25,56 @@ export async function POST(request: NextRequest) {
   try {
     // Get raw body for signature verification
     const rawBody = await request.text()
-
-    // Verify webhook signature
     const signature = request.headers.get("X-HousecallPro-Signature")
-    const secret = getApiKey("housecallProWebhookSecret") || process.env.HOUSECALL_PRO_WEBHOOK_SECRET
 
-    if (secret) {
-      if (!signature) {
-        console.error("[OSIRIS] HCP Webhook: Missing signature header")
-        return NextResponse.json(
-          { success: false, error: "Missing signature" },
-          { status: 401 }
-        )
+    // Resolve tenant by matching webhook signature against per-tenant secrets.
+    // This correctly routes webhooks in multi-tenant: each tenant has its own HCP webhook secret.
+    const allTenants = await getAllActiveTenants()
+    const hcpTenants = allTenants.filter(t => t.housecall_pro_api_key)
+
+    let tenant: typeof hcpTenants[0] | null = null
+
+    if (signature) {
+      // Try each tenant's webhook secret to find the matching one
+      for (const t of hcpTenants) {
+        const secret = t.housecall_pro_webhook_secret
+        if (!secret) continue
+        const expected = createHmac("sha256", secret).update(rawBody).digest("hex")
+        const sigLower = signature.toLowerCase()
+        const expLower = expected.toLowerCase()
+        if (sigLower.length === expLower.length && timingSafeEqual(Buffer.from(sigLower), Buffer.from(expLower))) {
+          tenant = t
+          break
+        }
       }
 
-      const expectedSignature = createHmac("sha256", secret)
-        .update(rawBody)
-        .digest("hex")
-
-      // Use timingSafeEqual to prevent timing attacks
-      const signatureLower = signature.toLowerCase()
-      const expectedLower = expectedSignature.toLowerCase()
-
-      if (
-        signatureLower.length !== expectedLower.length ||
-        !timingSafeEqual(Buffer.from(signatureLower), Buffer.from(expectedLower))
-      ) {
-        console.error("[OSIRIS] HCP Webhook: Invalid signature")
-        return NextResponse.json(
-          { success: false, error: "Invalid signature" },
-          { status: 401 }
-        )
+      // Fallback: try global secret (backward compat for single-tenant setups)
+      if (!tenant) {
+        const globalSecret = getApiKey("housecallProWebhookSecret") || process.env.HOUSECALL_PRO_WEBHOOK_SECRET
+        if (globalSecret) {
+          const expected = createHmac("sha256", globalSecret).update(rawBody).digest("hex")
+          const sigLower = signature.toLowerCase()
+          const expLower = expected.toLowerCase()
+          if (sigLower.length === expLower.length && timingSafeEqual(Buffer.from(sigLower), Buffer.from(expLower))) {
+            tenant = hcpTenants[0] || null
+          } else {
+            console.error("[OSIRIS] HCP Webhook: Invalid signature — no tenant secret matched")
+            return NextResponse.json({ success: false, error: "Invalid signature" }, { status: 401 })
+          }
+        } else {
+          console.error("[OSIRIS] HCP Webhook: Signature present but no secrets configured")
+          return NextResponse.json({ success: false, error: "Invalid signature" }, { status: 401 })
+        }
       }
     } else {
-      console.warn("[OSIRIS] HCP Webhook: No webhook secret configured, skipping signature validation")
+      // No signature header — fall back to first HCP tenant (dev/unconfigured environments)
+      console.warn("[OSIRIS] HCP Webhook: No signature header, falling back to first HCP tenant")
+      tenant = hcpTenants[0] || null
+    }
+
+    if (!tenant) {
+      console.error('[HCP Webhook] No tenant with HCP API key configured — cannot process webhook')
+      return NextResponse.json({ success: false, error: "No HCP tenant configured" }, { status: 401 })
     }
 
     const payload: HousecallProWebhookPayload = JSON.parse(rawBody)
@@ -71,6 +87,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] HCP Webhook received: ${event}`, {
       timestamp,
+      tenant: tenant.slug,
       hasLead: !!lead,
       hasJob: !!job,
       hasCustomer: !!customer,
@@ -78,7 +95,6 @@ export async function POST(request: NextRequest) {
     })
 
     const client = getSupabaseServiceClient()
-    const tenant = await getDefaultTenant()
 
     // Best-effort field extraction (HCP payload shapes vary by event)
     // For leads, phone is often in lead.customer.mobile_number
@@ -162,7 +178,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] HCP Webhook phone extracted, normalized=${phone ? 'yes' : 'no'}`)
 
-    const address =
+    const rawAddress =
       lead?.address ||
       job?.address ||
       customer?.address ||
@@ -170,6 +186,10 @@ export async function POST(request: NextRequest) {
       (data as any)?.address ||
       (data as any)?.customer?.address ||
       null
+    // Format HCP address objects to a clean string; pass through if already a string
+    const address = rawAddress && typeof rawAddress === 'object'
+      ? formatHCPAddress(rawAddress)
+      : rawAddress
 
     // Helper: check if OSIRIS is actively managing this customer (recent lead or outbound message)
     // Used to prevent HCP webhooks from overwriting fresh OSIRIS data with stale HCP data
@@ -179,7 +199,7 @@ export async function POST(request: NextRequest) {
         .from("leads")
         .select("id")
         .eq("phone_number", phoneNumber)
-        .eq("tenant_id", tenant?.id)
+        .eq("tenant_id", tenant!.id)
         .gte("created_at", sixtySecondsAgo)
         .limit(1)
         .maybeSingle()
@@ -188,7 +208,7 @@ export async function POST(request: NextRequest) {
         .from("messages")
         .select("id")
         .eq("phone_number", phoneNumber)
-        .eq("tenant_id", tenant?.id)
+        .eq("tenant_id", tenant!.id)
         .eq("role", "assistant")
         .gte("timestamp", sixtySecondsAgo)
         .limit(1)
@@ -210,7 +230,7 @@ export async function POST(request: NextRequest) {
               .from("customers")
               .select("id")
               .eq("phone_number", phone)
-              .eq("tenant_id", tenant?.id)
+              .eq("tenant_id", tenant.id)
               .maybeSingle()
             customer = existing
             if (!customer) {
@@ -218,7 +238,7 @@ export async function POST(request: NextRequest) {
               const { data: created } = await client
                 .from("customers")
                 .upsert(
-                  { phone_number: phone, tenant_id: tenant?.id },
+                  { phone_number: phone, tenant_id: tenant.id },
                   { onConflict: "tenant_id,phone_number" }
                 )
                 .select("id")
@@ -230,7 +250,7 @@ export async function POST(request: NextRequest) {
             const { data: upserted } = await client
               .from("customers")
               .upsert(
-                { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+                { phone_number: phone, tenant_id: tenant.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: hcpCustomerId ? String(hcpCustomerId) : undefined },
                 { onConflict: "tenant_id,phone_number" }
               )
               .select("id")
@@ -238,19 +258,38 @@ export async function POST(request: NextRequest) {
             customer = upserted
           }
 
-          // Extract schedule from top-level job object (HCP sends scheduled_start)
-          // then fallback to nested data paths
-          const scheduledStart = (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
-          const scheduledDate =
+          // HCP webhook sends schedule as a nested object, NOT as scheduled_start
+          const scheduleObj = (job as any)?.schedule || (data as any)?.job?.schedule
+          const scheduledStart =
+            scheduleObj?.scheduled_start ||
+            scheduleObj?.start_time ||
+            scheduleObj?.start ||
+            scheduleObj?.start_at ||
+            (job as any)?.scheduled_start ||  // fallback to flat field
+            (data as any)?.job?.scheduled_start
+          let scheduledDate =
             (scheduledStart ? new Date(scheduledStart).toISOString().split('T')[0] : null) ||
             (data as any)?.job?.scheduled_date ||
             (data as any)?.job?.date ||
             null
-          const scheduledTime =
-            (scheduledStart ? new Date(scheduledStart).toTimeString().slice(0, 5) : null) ||
-            (data as any)?.job?.scheduled_time ||
-            (data as any)?.job?.scheduled_at ||
-            null
+          // Store full ISO for consistency; fall back to raw text only if no parseable start
+          const scheduledTime = scheduledStart
+            ? new Date(scheduledStart).toISOString()
+            : (data as any)?.job?.scheduled_time || (data as any)?.job?.scheduled_at || null
+
+          // Calculate hours from schedule end - start
+          const scheduledEnd =
+            scheduleObj?.scheduled_end ||
+            scheduleObj?.end_time ||
+            scheduleObj?.end ||
+            scheduleObj?.end_at ||
+            (job as any)?.scheduled_end ||
+            (data as any)?.job?.scheduled_end
+          let jobHours: number | null = null
+          if (scheduledStart && scheduledEnd) {
+            const diffMs = new Date(scheduledEnd).getTime() - new Date(scheduledStart).getTime()
+            if (diffMs > 0) jobHours = Math.round((diffMs / 3_600_000) * 100) / 100
+          }
 
           const hcpJobId = (job as any)?.id || (data as any)?.job?.id
           const jobAddress = address || ((job as any)?.address ? formatHCPAddress((job as any).address) : null)
@@ -275,7 +314,7 @@ export async function POST(request: NextRequest) {
           const jobType = isEstimateJob ? 'estimate' : 'cleaning'
 
           const { data: newHcpJob } = await client.from("jobs").insert({
-            tenant_id: tenant?.id,
+            tenant_id: tenant.id,
             customer_id: customer?.id,
             phone_number: phone,
             address: jobAddress,
@@ -285,17 +324,16 @@ export async function POST(request: NextRequest) {
             status: "scheduled",
             booked: true,
             housecall_pro_job_id: hcpJobId || null,
-            housecall_pro_customer_id: hcpCustomerId || null,
-            price: (job as any)?.total_amount || null,
+            price: (job as any)?.total_amount ?? null,
+            hours: jobHours,
             notes: jobNotes || null,
-            brand: 'winbros',
             job_type: jobType,
           }).select("id").single()
 
           console.log(`[OSIRIS] HCP Webhook: Job mirrored to Supabase (HCP job: ${hcpJobId}, phone: ${maskPhone(phone)}, type: ${jobType})`)
 
           // WinBros: If this is a real cleaning job (NOT an estimate), auto-assign a technician
-          if (tenant?.slug === 'winbros' && !isEstimateJob && scheduledDate && newHcpJob?.id) {
+          if (tenant.slug === 'winbros' && !isEstimateJob && scheduledDate && newHcpJob?.id) {
             try {
               const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
               const { dispatchRoutes } = await import("@/lib/dispatch")
@@ -331,7 +369,7 @@ export async function POST(request: NextRequest) {
               }
 
               await logSystemEvent({
-                tenant_id: tenant?.id,
+                tenant_id: tenant.id,
                 source: "housecall_pro_webhook",
                 event_type: "TECHNICIAN_AUTO_ASSIGNED",
                 message: `Technician auto-assigned for HCP job ${hcpJobId} (OSIRIS job ${newHcpJob.id})`,
@@ -355,18 +393,60 @@ export async function POST(request: NextRequest) {
       case "job.updated":
         console.log("[OSIRIS] Job updated in HCP, syncing to Supabase")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (hcpJobId != null) {
-            let updateQuery = client
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
               .from("jobs")
-              .update({
-                status: (data as any)?.job?.status || (data as any)?.status || null,
-                paid: Boolean((data as any)?.job?.paid || (data as any)?.paid),
-                address,
-              })
+              .select("id, status")
               .eq("housecall_pro_job_id", String(hcpJobId))
-            if (tenant?.id) updateQuery = updateQuery.eq("tenant_id", tenant.id)
-            await updateQuery
+              .maybeSingle()
+
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
+              // Status: check both work_status (HCP API field name) and status
+              const hcpStatus = (job as any)?.work_status || (data as any)?.job?.work_status
+                || (job as any)?.status || (data as any)?.job?.status || (data as any)?.status
+              const validStatuses: Record<string, string> = {
+                unscheduled: 'pending', scheduled: 'scheduled', dispatched: 'in_progress', in_progress: 'in_progress',
+                complete: 'completed', completed: 'completed', canceled: 'cancelled', cancelled: 'cancelled',
+              }
+              const mappedStatus = hcpStatus ? validStatuses[hcpStatus.toLowerCase()] : undefined
+
+              // Schedule extraction (same logic as job.created)
+              const updScheduleObj = (job as any)?.schedule || (data as any)?.job?.schedule
+              const updScheduledStart =
+                updScheduleObj?.scheduled_start || updScheduleObj?.start_time ||
+                updScheduleObj?.start || updScheduleObj?.start_at ||
+                (job as any)?.scheduled_start || (data as any)?.job?.scheduled_start
+              const updScheduledEnd =
+                updScheduleObj?.scheduled_end || updScheduleObj?.end_time ||
+                updScheduleObj?.end || updScheduleObj?.end_at ||
+                (job as any)?.scheduled_end || (data as any)?.job?.scheduled_end
+
+              // Price and service type
+              const updPrice = (job as any)?.total_amount ?? (data as any)?.job?.total_amount
+              const updLineItemName = (job as any)?.line_items?.[0]?.name || (data as any)?.job?.line_items?.[0]?.name
+
+              const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+              if (mappedStatus) updates.status = mappedStatus
+              if ((data as any)?.job?.paid || (data as any)?.paid) updates.paid = true
+              if (address) updates.address = address
+              if (updScheduledStart) {
+                updates.date = new Date(updScheduledStart).toISOString().split('T')[0]
+                updates.scheduled_at = new Date(updScheduledStart).toISOString()
+              }
+              if (updScheduledStart && updScheduledEnd) {
+                const diffMs = new Date(updScheduledEnd).getTime() - new Date(updScheduledStart).getTime()
+                if (diffMs > 0) updates.hours = Math.round((diffMs / 3_600_000) * 100) / 100
+              }
+              if (updPrice !== undefined && updPrice !== null) updates.price = updPrice
+              if (updLineItemName) updates.service_type = updLineItemName
+
+              // Only write if there are meaningful updates beyond just updated_at
+              if (Object.keys(updates).length > 1) {
+                await client.from("jobs").update(updates).eq("id", localJob.id)
+                console.log(`[OSIRIS] HCP job.updated: Updated local job ${localJob.id} from HCP job ${hcpJobId}`, Object.keys(updates))
+              }
+            }
           }
         }
         break
@@ -374,84 +454,109 @@ export async function POST(request: NextRequest) {
       case "job.completed":
         console.log("[OSIRIS] Job completed, triggering post-job automations")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.id
-
-          // Try to find job by HCP job ID or our internal ID
-          let internalJobId = jobId
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
           if (hcpJobId) {
-            const { data: existingJob } = await client
+            const { data: localJob } = await client
               .from("jobs")
-              .select("id")
+              .select("id, status, phone_number")
               .eq("housecall_pro_job_id", String(hcpJobId))
               .maybeSingle()
 
-            if (existingJob) {
-              internalJobId = existingJob.id
-            }
-          }
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
+              await client
+                .from("jobs")
+                .update({ status: "completed", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+                .eq("id", localJob.id)
 
-          if (internalJobId != null) {
-            const { data: updatedJob } = await client
-              .from("jobs")
-              .update({
-                status: "completed",
-                completed_at: new Date().toISOString()
+              console.log(`[OSIRIS] HCP job.completed: Updated local job ${localJob.id} from HCP job ${hcpJobId}`)
+
+              await logSystemEvent({
+                tenant_id: tenant.id,
+                source: "housecall_pro",
+                event_type: "JOB_COMPLETED",
+                message: `Job ${localJob.id} marked completed via HCP`,
+                job_id: String(localJob.id),
+                phone_number: localJob.phone_number || phone,
+                metadata: { hcp_job_id: hcpJobId },
               })
-              .eq("id", Number(internalJobId))
-              .select("phone_number")
-              .single()
-
-            await logSystemEvent({
-              source: "housecall_pro",
-              event_type: "JOB_COMPLETED",
-              message: `Job ${internalJobId} marked completed via HCP`,
-              job_id: String(internalJobId),
-              phone_number: updatedJob?.phone_number || phone,
-              metadata: { hcp_job_id: hcpJobId },
-            })
+            } else if (!localJob) {
+              console.log(`[OSIRIS] HCP job.completed: No local job found for HCP job ${hcpJobId}`)
+            }
           }
         }
         break
 
       case "job.cancelled":
-        console.log("[OSIRIS] Job cancelled, sending notifications")
+        console.log("[OSIRIS] Job cancelled in HCP")
         {
-          const hcpJobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (hcpJobId != null) {
-            let cancelQuery = client.from("jobs").update({ status: "cancelled" }).eq("housecall_pro_job_id", String(hcpJobId))
-            if (tenant?.id) cancelQuery = cancelQuery.eq("tenant_id", tenant.id)
-            await cancelQuery
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
+              .from("jobs")
+              .select("id, status, paid")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .maybeSingle()
+
+            if (localJob && !['completed', 'cancelled'].includes(localJob.status) && !localJob.paid) {
+              await client.from("jobs").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", localJob.id)
+              console.log(`[OSIRIS] HCP job.cancelled: Cancelled local job ${localJob.id} from HCP job ${hcpJobId}`)
+            } else if (localJob?.paid) {
+              console.warn(`[OSIRIS] HCP job.cancelled: Ignoring cancel for paid job ${localJob.id}`)
+            }
           }
         }
         break
 
       case "customer.created":
-        console.log("[OSIRIS] New customer created in HCP")
-        if (phone) {
-          // Don't overwrite fresh OSIRIS data with stale HCP data
-          if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.created: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
-          } else {
-            await client.from("customers").upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
-          }
-        }
-        break
-
       case "customer.updated":
-        console.log("[OSIRIS] Customer updated in HCP")
-        if (phone) {
-          // Don't overwrite fresh OSIRIS data with stale HCP data
-          if (await isOsirisActivelyEngaged(phone)) {
-            console.log(`[OSIRIS] HCP customer.updated: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
-          } else {
-            await client.from("customers").upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
-              { onConflict: "tenant_id,phone_number" }
-            )
+        console.log(`[OSIRIS] Customer ${event === 'customer.created' ? 'created' : 'updated'} in HCP`)
+        {
+          const hcpCustId = customer?.id || (data as any)?.customer?.id || (data as any)?.id
+          const updateFields: Record<string, unknown> = {}
+          if (phone) updateFields.phone_number = phone
+          if (firstName) updateFields.first_name = firstName
+          if (lastName) updateFields.last_name = lastName
+          if (email) updateFields.email = email
+          if (address) updateFields.address = address
+
+          // Strategy: look up by HCP customer ID first (handles phone/email changes correctly)
+          // Fall back to phone-based upsert only for genuinely new customers
+          let matched = false
+
+          if (hcpCustId && tenant.id) {
+            const { data: existing } = await client
+              .from("customers")
+              .select("id, phone_number")
+              .eq("housecall_pro_customer_id", String(hcpCustId))
+              .eq("tenant_id", tenant.id)
+              .maybeSingle()
+
+            if (existing) {
+              // Don't overwrite fresh OSIRIS data with stale HCP data
+              const checkPhone = phone || existing.phone_number
+              if (checkPhone && await isOsirisActivelyEngaged(checkPhone)) {
+                console.log(`[OSIRIS] HCP ${event}: OSIRIS active for ${maskPhone(checkPhone)}, skipping data overwrite`)
+              } else if (Object.keys(updateFields).length > 0) {
+                await client.from("customers").update(updateFields).eq("id", existing.id)
+                console.log(`[OSIRIS] HCP ${event}: Updated customer ${existing.id} by HCP ID ${hcpCustId}`)
+              }
+              matched = true
+            }
+          }
+
+          // Fallback: no HCP ID match — upsert by phone (new customer or missing HCP ID)
+          if (!matched && phone) {
+            if (await isOsirisActivelyEngaged(phone)) {
+              console.log(`[OSIRIS] HCP ${event}: OSIRIS active for ${maskPhone(phone)}, skipping data overwrite`)
+            } else {
+              await client.from("customers").upsert(
+                { ...updateFields, phone_number: phone, tenant_id: tenant.id, housecall_pro_customer_id: hcpCustId ? String(hcpCustId) : undefined },
+                { onConflict: "tenant_id,phone_number" }
+              )
+              console.log(`[OSIRIS] HCP ${event}: Upserted customer by phone ${maskPhone(phone)}${hcpCustId ? ` (HCP ID: ${hcpCustId})` : ''}`)
+            }
+          } else if (!matched && !phone) {
+            console.warn(`[OSIRIS] HCP ${event}: No phone and no HCP ID match — cannot process customer`)
           }
         }
         break
@@ -460,12 +565,22 @@ export async function POST(request: NextRequest) {
       case "invoice.paid":
         console.log("[OSIRIS] Payment received for job")
         {
-          const jobId = (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
-          if (jobId != null) {
-            await client.from("jobs").update({
-              paid: true,
-              payment_status: 'fully_paid'
-            }).eq("id", Number(jobId))
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.job_id || (data as any)?.id
+          if (hcpJobId) {
+            const { data: localJob } = await client
+              .from("jobs")
+              .select("id")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .maybeSingle()
+
+            if (localJob) {
+              await client.from("jobs").update({
+                paid: true,
+                payment_status: 'fully_paid',
+                updated_at: new Date().toISOString(),
+              }).eq("id", localJob.id)
+              console.log(`[OSIRIS] HCP payment: Marked local job ${localJob.id} as paid from HCP job ${hcpJobId}`)
+            }
           }
         }
         break
@@ -484,7 +599,7 @@ export async function POST(request: NextRequest) {
             .from("leads")
             .select("id, source")
             .eq("phone_number", phone)
-            .eq("tenant_id", tenant?.id)
+            .eq("tenant_id", tenant.id)
             .gte("created_at", sixtySecondsAgo)
             .limit(1)
             .maybeSingle()
@@ -493,7 +608,7 @@ export async function POST(request: NextRequest) {
             .from("messages")
             .select("id")
             .eq("phone_number", phone)
-            .eq("tenant_id", tenant?.id)
+            .eq("tenant_id", tenant.id)
             .eq("role", "assistant")
             .gte("timestamp", sixtySecondsAgo)
             .limit(1)
@@ -504,7 +619,7 @@ export async function POST(request: NextRequest) {
             .from("leads")
             .select("id, source")
             .eq("phone_number", phone)
-            .eq("tenant_id", tenant?.id)
+            .eq("tenant_id", tenant.id)
             .eq("source", "housecall_pro")
             .gte("created_at", twentyFourHoursAgo)
             .limit(1)
@@ -537,7 +652,7 @@ export async function POST(request: NextRequest) {
             }
 
             await client.from("system_events").insert({
-              tenant_id: tenant?.id,
+              tenant_id: tenant.id,
               source: "housecall_pro",
               event_type: "HCP_LEAD_DEDUPED",
               message: `HCP lead.created for ${maskPhone(phone)} skipped — OSIRIS already engaged`,
@@ -548,18 +663,40 @@ export async function POST(request: NextRequest) {
           }
 
           // No existing conversation — this is a genuinely new HCP-sourced lead
+
+          // Check if this phone was recently reset — if so, HCP's customer record is stale
+          // (OSIRIS reset only clears our DB, not HCP's cached customer with old names)
+          const fiveMinutesAgo = new Date(Date.now() - 5 * 60_000).toISOString()
+          const serviceClient = getSupabaseServiceClient()
+          const { data: recentReset } = await serviceClient
+            .from("system_events")
+            .select("id")
+            .eq("phone_number", phone)
+            .eq("event_type", "SYSTEM_RESET")
+            .gte("created_at", fiveMinutesAgo)
+            .limit(1)
+            .maybeSingle()
+
+          if (recentReset) {
+            console.log(`[OSIRIS] HCP Webhook: Recent SYSTEM_RESET detected for ${maskPhone(phone)} — discarding stale HCP name`)
+            firstName = null
+            lastName = null
+            email = null
+          }
+
           // Upsert customer now (only for non-deduped leads so stale HCP data doesn't overwrite OSIRIS state)
+          const leadHcpCustId = lead?.customer?.id || customer?.id || (data as any)?.customer?.id
           const { data: customerRecord } = await client
             .from("customers")
             .upsert(
-              { phone_number: phone, tenant_id: tenant?.id, first_name: firstName, last_name: lastName, email, address },
+              { phone_number: phone, tenant_id: tenant.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: leadHcpCustId ? String(leadHcpCustId) : undefined },
               { onConflict: "tenant_id,phone_number" }
             )
             .select("id")
             .single()
           const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
           const { data: leadRecord } = await client.from("leads").insert({
-            tenant_id: tenant?.id,
+            tenant_id: tenant.id,
             source_id: String(hcpSourceId),
             phone_number: phone,
             customer_id: customerRecord?.id ?? null,
@@ -575,7 +712,7 @@ export async function POST(request: NextRequest) {
 
           // Log system event
           await client.from("system_events").insert({
-            tenant_id: tenant?.id,
+            tenant_id: tenant.id,
             source: "housecall_pro",
             event_type: "HCP_LEAD_RECEIVED",
             message: `New lead from HousecallPro: ${firstName || 'Unknown'} ${lastName || ''}`.trim(),
@@ -585,7 +722,11 @@ export async function POST(request: NextRequest) {
 
           // Send the first text IMMEDIATELY (don't wait for cron)
           const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
-          const businessName = tenant?.business_name_short || tenant?.name || 'Our team'
+          const businessName = tenant.business_name_short || tenant.name || 'Our team'
+
+          // NOTE: Service area validation is handled by the AI during conversation (via [OUT_OF_AREA] tag).
+          // HCP addresses are often stale/wrong from its customer DB, so we don't reject at webhook level —
+          // the initial greeting asks to confirm address, giving the customer a chance to correct it.
 
           try {
             // Window cleaning tenants (WinBros) use the estimate flow — just collect info for a free estimate visit
@@ -597,16 +738,16 @@ export async function POST(request: NextRequest) {
             if (tenant) {
               smsResult = await sendSMS(tenant, phone, initialMessage)
             } else {
-              console.warn("[OSIRIS] HCP Webhook: No tenant found, skipping SMS for lead")
-              smsResult = { success: false, error: "No tenant" }
+              console.error(`[HCP Webhook] No tenant for lead — cannot send initial SMS to ${phone}`)
+              smsResult = { success: false, error: 'No tenant' }
             }
 
             if (smsResult.success) {
               console.log(`[OSIRIS] HCP Webhook: Sent immediate first text to ${maskPhone(phone)}`)
 
-              console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${maskPhone(phone)}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant?.id}`)
+              console.log(`[OSIRIS] HCP Webhook: Saving message to DB - phone: ${maskPhone(phone)}, customer_id: ${customerRecord?.id}, tenant_id: ${tenant.id}`)
               const { error: msgError } = await client.from("messages").insert({
-                tenant_id: tenant?.id,
+                tenant_id: tenant.id,
                 customer_id: customerRecord?.id,
                 phone_number: phone,
                 role: "assistant",
@@ -639,9 +780,25 @@ export async function POST(request: NextRequest) {
               })
             } else {
               console.error("[OSIRIS] HCP Webhook: Failed to send first text:", smsResult.error)
+              await logSystemEvent({
+                tenant_id: tenant.id,
+                source: "housecall_pro",
+                event_type: "LEAD_FOLLOWUP_ERROR",
+                message: `Failed to send initial SMS to ${maskPhone(phone)}: ${smsResult.error || 'unknown'}`,
+                phone_number: phone,
+                metadata: { leadId: leadRecord?.id, stage: 1, error: smsResult.error },
+              })
             }
           } catch (smsError) {
             console.error("[OSIRIS] HCP Webhook: Error sending first text:", smsError)
+            await logSystemEvent({
+              tenant_id: tenant.id,
+              source: "housecall_pro",
+              event_type: "LEAD_FOLLOWUP_ERROR",
+              message: `Error sending initial SMS to ${maskPhone(phone)}`,
+              phone_number: phone,
+              metadata: { leadId: leadRecord?.id, stage: 1, error: String(smsError) },
+            })
           }
 
           // Schedule stages 2-5 for the follow-up sequence
@@ -658,7 +815,7 @@ export async function POST(request: NextRequest) {
               try {
                 const scheduledFor = new Date(now.getTime() + delayMinutes * 60 * 1000)
                 await scheduleTask({
-                  tenantId: tenant?.id,
+                  tenantId: tenant.id,
                   taskType: 'lead_followup',
                   taskKey: `lead-${leadRecord.id}-stage-${stage}`,
                   scheduledFor,
@@ -681,6 +838,45 @@ export async function POST(request: NextRequest) {
         }
         break
 
+      case "job.scheduled":
+        // HCP fires this when a job is scheduled (often after we create one via API).
+        // Sync the schedule data to our local job record if it exists.
+        console.log("[OSIRIS] Job scheduled in HCP, syncing schedule to Supabase")
+        {
+          const hcpJobId = (job as any)?.id || (data as any)?.job?.id || (data as any)?.id
+          const schedObj = (job as any)?.schedule || (data as any)?.job?.schedule
+          const scheduledStart =
+            schedObj?.scheduled_start ||
+            schedObj?.start_time ||
+            schedObj?.start ||
+            schedObj?.start_at ||
+            (job as any)?.scheduled_start ||
+            (data as any)?.job?.scheduled_start
+          if (hcpJobId) {
+            // Use service client to bypass RLS (webhook has no user session)
+            const svcClient = getSupabaseServiceClient()
+            const { data: existingJob } = await svcClient
+              .from("jobs")
+              .select("id")
+              .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant.id)
+              .maybeSingle()
+
+            if (existingJob) {
+              const updates: Record<string, unknown> = { status: "scheduled" }
+              if (scheduledStart) {
+                updates.date = new Date(scheduledStart).toISOString().split('T')[0]
+                updates.scheduled_at = new Date(scheduledStart).toISOString()
+              }
+              await svcClient.from("jobs").update(updates).eq("id", existingJob.id)
+              console.log(`[OSIRIS] HCP job.scheduled: Updated local job ${existingJob.id} from HCP job ${hcpJobId}`)
+            } else {
+              console.log(`[OSIRIS] HCP job.scheduled: No local job found for HCP job ${hcpJobId} — ignoring (may be externally created)`)
+            }
+          }
+        }
+        break
+
       case "lead.updated":
         console.log("[OSIRIS] Lead updated in HCP")
         {
@@ -696,12 +892,10 @@ export async function POST(request: NextRequest) {
             }
 
             if (status) {
-              let leadQuery = client
+              await client
                 .from("leads")
                 .update({ status, form_data: data })
                 .eq("source_id", String(leadId))
-              if (tenant?.id) leadQuery = leadQuery.eq("tenant_id", tenant.id)
-              await leadQuery
             }
           }
         }
@@ -736,3 +930,4 @@ function formatHCPAddress(addr: { street?: string; street_line_2?: string; city?
   }
   return parts.join(', ')
 }
+

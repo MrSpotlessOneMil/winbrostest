@@ -1,6 +1,6 @@
 /**
  * OpenPhone API client for sending and receiving SMS
- * Multi-tenant version - supports both old (env var) and new (tenant) calling patterns
+ * Multi-tenant: tenant is REQUIRED for all SMS operations
  *
  * API Documentation: https://www.openphone.com/docs/api
  */
@@ -8,7 +8,6 @@
 import { createHmac } from 'crypto'
 import { toE164, normalizePhoneNumber } from './phone-utils'
 import type { Tenant } from './tenant'
-import { getDefaultTenant } from './tenant'
 
 // Re-export for dashboard compatibility
 export { normalizePhoneNumber }
@@ -23,29 +22,13 @@ interface SendSMSResponse {
 
 /**
  * Send an SMS message via OpenPhone
- * Backwards compatible - can be called with (to, message) or (tenant, to, message)
+ * Tenant is REQUIRED — no more fallback to WinBros default tenant.
  */
 export async function sendSMS(
-  tenantOrTo: Tenant | string,
-  toOrMessage: string,
-  messageOrUndefined?: string
+  tenant: Tenant,
+  to: string,
+  message: string
 ): Promise<SendSMSResponse> {
-  // Determine if called with tenant or without (backwards compat)
-  let tenant: Tenant | null
-  let to: string
-  let message: string
-
-  if (typeof tenantOrTo === 'string') {
-    // Old calling pattern: sendSMS(to, message)
-    tenant = await getDefaultTenant()
-    to = tenantOrTo
-    message = toOrMessage
-  } else {
-    // New calling pattern: sendSMS(tenant, to, message)
-    tenant = tenantOrTo
-    to = toOrMessage
-    message = messageOrUndefined || ''
-  }
 
   if (!tenant) {
     console.error('No tenant found - cannot send SMS')
@@ -105,10 +88,7 @@ export async function sendSMS(
     }
 
     const data = await response.json()
-
-    // Log successful send
     console.log(`[${tenant.slug}] SMS sent to ${toE164Format}: ${message.slice(0, 50)}...`)
-
     return {
       success: true,
       messageId: data.data?.id || data.id

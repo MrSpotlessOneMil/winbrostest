@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { extractMessageFromOpenPhonePayload, normalizePhoneNumber, validateOpenPhoneWebhook, sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
 import { normalizePhone, maskPhone, maskEmail } from "@/lib/phone-utils"
-import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
-import { generateAutoResponse, type KnownCustomerInfo } from "@/lib/auto-response"
+import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
-import { scheduleLeadFollowUp } from "@/lib/scheduler"
+import { scheduleLeadFollowUp, scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
+import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     const toPhone = normalizePhoneNumber(toE164)
 
     if (toPhone) {
-      const client = getSupabaseServiceClient()
+      const client = getSupabaseClient()
 
       // Route to correct tenant
       let tenant = await getTenantByPhoneNumber(extracted.from)
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         tenant = await getTenantByOpenPhoneId(extracted.from)
       }
       if (!tenant) {
-        tenant = await getDefaultTenant()
+        console.error(`[OpenPhone] OUTBOUND: Could not find tenant for from=${extracted.from} — message will be logged without tenant context`)
       }
 
       // Find customer
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ignored: true })
   }
 
-  const client = getSupabaseServiceClient()
+  const client = getSupabaseClient()
 
   // Log extracted data for debugging
   console.log(`[OpenPhone] Extracted message data: direction=${extracted.direction}, eventType=${extracted.eventType}`)
@@ -165,10 +165,22 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fall back to default tenant if we couldn't route
+  // If we couldn't route, log an error but DON'T fall back to WinBros
+  // This prevents cross-tenant bleed (Bug: Spotless texts getting WinBros responses)
   if (!tenant) {
-    tenant = await getDefaultTenant()
-    console.log(`[OpenPhone] Using default tenant '${tenant?.slug}' (to: ${extracted.to || 'not provided'})`)
+    console.error(`[OpenPhone] CRITICAL: Could not route inbound SMS to any tenant. to=${extracted.to}, from=${extracted.from}. Message will be dropped — no auto-response sent.`)
+    await logSystemEvent({
+      source: "openphone",
+      event_type: "TENANT_ROUTING_FAILED",
+      message: `Could not route inbound SMS to any tenant — no auto-response sent`,
+      phone_number: phone,
+      metadata: {
+        from: extracted.from,
+        to: extracted.to,
+        content_preview: extracted.content?.slice(0, 100),
+      },
+    })
+    return NextResponse.json({ success: false, error: "Could not determine tenant for this phone number" }, { status: 200 })
   }
 
   // Log routing decision as system event for debugging
@@ -202,6 +214,74 @@ export async function POST(request: NextRequest) {
     console.log(`[OpenPhone] SMS auto-response disabled for tenant '${tenant?.slug}' - storing message but not responding`)
   }
 
+  // ============================================
+  // INTERNAL NUMBER FILTER
+  // Block auto-responses to owner, cleaners, and blocklisted numbers.
+  // Messages are still stored for dashboard visibility.
+  // ============================================
+  const senderDigits = normalizePhone(phone)
+
+  // Check 1: Owner phone
+  if (tenant?.owner_phone && normalizePhone(tenant.owner_phone) === senderDigits) {
+    // Store message for dashboard, skip all AI logic
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "owner_phone" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is owner of '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "owner_phone" })
+  }
+
+  // Check 2: SMS blocklist (from workflow_config)
+  const smsBlocklist: string[] = (tenant?.workflow_config as any)?.sms_blocklist || []
+  if (smsBlocklist.some((b: string) => normalizePhone(b) === senderDigits)) {
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "blocklisted" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is blocklisted for '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "blocklisted" })
+  }
+
+  // Check 3: Cleaner phone
+  const { data: tenantCleaners } = await client
+    .from("cleaners")
+    .select("id, phone")
+    .eq("tenant_id", tenant?.id)
+    .eq("active", true)
+  if ((tenantCleaners || []).some((c: any) => c.phone && normalizePhone(c.phone) === senderDigits)) {
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone" },
+    })
+    console.log(`[OpenPhone] Sender ${phone} is a cleaner for '${tenant?.slug}' — message stored, auto-response skipped`)
+    return NextResponse.json({ success: true, stored: true, filtered: "cleaner_phone" })
+  }
+
   // Upsert customer by phone_number (composite unique: tenant_id, phone_number)
   const { data: customer, error: custErr } = await client
     .from("customers")
@@ -211,6 +291,25 @@ export async function POST(request: NextRequest) {
 
   if (custErr) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
+  }
+
+  // Per-customer auto-response kill switch
+  if (customer?.auto_response_paused === true) {
+    console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — storing message, skipping AI`)
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: extracted.direction || "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "customer_paused" },
+    })
+    return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
   }
 
   // Extract OpenPhone message ID for dedup (v3: data.object.id, v2: data.id, fallback: root id)
@@ -512,6 +611,20 @@ export async function POST(request: NextRequest) {
 
       // WinBros estimate jobs: NO payment link — send confirmation + assign salesman
       if (job?.job_type === 'estimate' && tenant) {
+        // Dedup guard: skip if salesman already assigned to this job
+        const { data: existingAssignment } = await client
+          .from("cleaner_assignments")
+          .select("id")
+          .eq("job_id", job.id)
+          .not("status", "in", '("cancelled","declined")')
+          .limit(1)
+          .maybeSingle()
+
+        if (existingAssignment) {
+          console.log(`[OpenPhone] Estimate job ${jobId} already has assignment ${existingAssignment.id} — skipping duplicate`)
+          return NextResponse.json({ success: true, flow: "phone_call_estimate_already_confirmed", leadId: bookedLead.id })
+        }
+
         console.log(`[OpenPhone] Estimate job ${jobId} — sending confirmation and assigning salesman (no payment link)`)
 
         // Save email to lead form_data
@@ -588,6 +701,12 @@ export async function POST(request: NextRequest) {
           console.error("[OpenPhone] Failed to assign salesman for estimate:", estimateErr)
         }
 
+        // Move lead out of "booked" so subsequent messages don't re-trigger this flow
+        await client
+          .from("leads")
+          .update({ status: "assigned" })
+          .eq("id", bookedLead.id)
+
         await logSystemEvent({
           tenant_id: tenant.id,
           source: "openphone",
@@ -603,13 +722,13 @@ export async function POST(request: NextRequest) {
       // ──────────────────────────────────────────────────────────────────────
       // TENANT ISOLATION — PAYMENT FLOW AFTER EMAIL CAPTURE:
       // WinBros (use_team_routing=true): Skip deposit, card-on-file only
-      // Cedar Rapids (use_team_routing=false): Wave invoice + Stripe deposit link
+      // Cedar Rapids (use_team_routing=false): Invoice (Stripe or Wave) + Stripe deposit link
       //   → Customer pays deposit → Stripe webhook → cleaner broadcast assignment
       // Do NOT change the deposit flow without testing Cedar Rapids end-to-end.
       // ──────────────────────────────────────────────────────────────────────
       const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_team_routing') : false
 
-      // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+      // Non-WinBros: Invoice (Stripe or Wave) + Stripe deposit link flow (house cleaning)
       if (!isWinBros && tenant) {
         let phoneCallServicePrice = job?.price || job?.estimated_value || null
         const depositFlowResult = await sendDepositPaymentFlow({
@@ -636,6 +755,7 @@ export async function POST(request: NextRequest) {
           { ...customer, email: providedEmail } as any,
           jobId || `lead-${bookedLead.id}`,
           tenant?.id,
+          tenant?.stripe_secret_key || undefined,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -707,6 +827,7 @@ export async function POST(request: NextRequest) {
                 customer: { ...customer, email: providedEmail },
                 job,
                 stripeDepositUrl: cardResult.url,
+                tenant: tenant as any,
               })
               console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(providedEmail)}`)
             } catch (emailErr) {
@@ -913,12 +1034,12 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("phone_number", phone)
       .eq("tenant_id", tenant?.id)
-      .in("source", ["card_on_file", "deposit", "invoice"])
+      .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked", "vapi_booking_confirmation"])
       .limit(1)
       .maybeSingle()
 
     if (existingPaymentFallback) {
-      console.log(`[OpenPhone] Fallback post-booking: payment links already sent for ${maskPhone(phone)}, using post-booking AI`)
+      console.log(`[OpenPhone] Fallback post-booking: booking confirmation already sent for ${maskPhone(phone)}, using post-booking AI`)
       const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
       const sdrName = tenant?.sdr_persona || 'Mary'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
@@ -990,7 +1111,7 @@ export async function POST(request: NextRequest) {
         const resp = await anthropicClient.messages.create({
           model: 'claude-sonnet-4-5-20250929',
           max_tokens: 200,
-          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking and has already received their pricing and payment links. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
+          system: `You are ${sdrName} from ${businessName}. The customer (${customerName}) has a confirmed booking. Respond naturally and helpfully to their questions. You have access to their account info below — share it if they ask.\n\nCustomer info:\n${customerCtx || 'No additional details on file.'}${jobCtx}\n\nRules:\n- Keep it to 1-3 sentences (this is SMS)\n- Do NOT re-ask booking questions or ask for their email\n- Answer their questions directly and warmly\n- For estimate appointments: pricing is determined on-site by the team member who visits. If the customer asks about price, explain that a team member will provide an on-site quote at their appointment.\n- If you don't have the info they're asking about, say so honestly\n- If they say thanks, say you're welcome and let them know to reach out if they need anything\n- Do NOT use emojis unless the customer uses them first\n- Do NOT use markdown formatting`,
           messages: [{ role: 'user', content: `Conversation:\n${historyCtx}\n\nCustomer: "${combinedMessage}"\n\nRespond as ${sdrName}. SMS text only.` }],
         })
         const txt = resp.content.find(b => b.type === 'text')
@@ -1019,6 +1140,324 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json({ success: true, flow: "fallback_post_booking_ai" })
+    }
+  }
+
+  // ============================================
+  // STAGE 1.5: ASSIGNED LEAD — Post-booking corrections & questions
+  // Customer already has a booking assigned (salesman dispatched / cleaner confirmed).
+  // Handle info corrections (address, name, time), questions about their appointment,
+  // and general conversation. Do NOT re-trigger booking flow or create a new lead.
+  // ============================================
+  if (smsEnabled && tenant?.id) {
+    const { data: assignedLeads } = await client
+      .from("leads")
+      .select("id, status, form_data, converted_to_job_id, source")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant.id)
+      .in("status", ["assigned", "scheduled"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+
+    const assignedLead = assignedLeads?.[0] ?? null
+
+    if (assignedLead) {
+      console.log(`[OpenPhone] Assigned lead ${assignedLead.id} found for ${maskPhone(phone)}, handling post-booking message`)
+
+      // Update last contact time
+      await client
+        .from("leads")
+        .update({ last_contact_at: new Date().toISOString() })
+        .eq("id", assignedLead.id)
+        .eq("tenant_id", tenant.id)
+
+      // Check if auto-response is paused for this lead
+      const assignedFormData = parseFormData(assignedLead.form_data)
+      if (assignedFormData.followup_paused === true) {
+        console.log(`[OpenPhone] Auto-response paused for assigned lead ${assignedLead.id}, skipping`)
+        return NextResponse.json({ success: true, autoResponsePaused: true, leadId: assignedLead.id })
+      }
+
+      // Load the linked job
+      let assignedJob: any = null
+      if (assignedLead.converted_to_job_id) {
+        const { data: jobData } = await client
+          .from("jobs")
+          .select("*")
+          .eq("id", assignedLead.converted_to_job_id)
+          .maybeSingle()
+        assignedJob = jobData
+      }
+
+      // Fallback: find most recent scheduled/in_progress job for this phone
+      if (!assignedJob) {
+        const { data: recentJob } = await client
+          .from("jobs")
+          .select("*")
+          .eq("phone_number", phone)
+          .eq("tenant_id", tenant.id)
+          .in("status", ["scheduled", "in_progress"])
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        assignedJob = recentJob
+      }
+
+      // Load customer context for AI (active bookings, service history)
+      let postBookingCtx = null
+      try {
+        postBookingCtx = await loadCustomerContext(client, tenant.id, phone, customer?.id)
+      } catch (err) {
+        console.error('[OpenPhone] Failed to load customer context for assigned lead:', err)
+      }
+
+      // Build known customer info for the AI
+      const knownInfo: KnownCustomerInfo = {
+        firstName: customer.first_name || null,
+        lastName: customer.last_name || null,
+        address: customer.address || assignedJob?.address || null,
+        email: customer.email || null,
+        phone: phone,
+        source: assignedLead.source || null,
+      }
+
+      // Generate AI response with full booking context
+      const quickIntent = await analyzeBookingIntent(combinedMessage, conversationHistory)
+      const autoResponse = await generateAutoResponse(
+        combinedMessage,
+        quickIntent,
+        tenant,
+        conversationHistory,
+        knownInfo,
+        { isReturningCustomer: false, customerContext: postBookingCtx }
+      )
+
+      // Send AI response (strip [BOOKING_COMPLETE] — never re-trigger for assigned leads)
+      if (autoResponse.shouldSend && autoResponse.response) {
+        const cleanedResponse = autoResponse.response
+          .replace(/\[BOOKING_COMPLETE\]/gi, '')
+          .replace(/\[BOOKING_COMPLETE:[^\]]*\]/gi, '')
+          .trim()
+
+        if (cleanedResponse) {
+          const sendResult = await sendSMS(tenant, phone, cleanedResponse)
+          if (sendResult.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: cleanedResponse,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: true,
+              timestamp: new Date().toISOString(),
+              source: "openphone",
+              metadata: {
+                auto_response: true,
+                assigned_lead_id: assignedLead.id,
+                job_id: assignedJob?.id || null,
+                reason: "post_booking_assigned",
+              },
+            })
+          }
+        }
+      }
+
+      // Extract corrections from conversation (address, name, email, date/time)
+      try {
+        const isWindowCleaningTenant = tenantUsesFeature(tenant, 'use_hcp_mirror')
+        let correctedData: any = {}
+
+        if (isWindowCleaningTenant) {
+          const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+          correctedData = await extractBookingData(conversationHistory)
+        } else {
+          const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
+          correctedData = await extractHouseCleaningBookingData(conversationHistory)
+        }
+
+        // Build update payloads only for fields that changed
+        const customerUpdates: Record<string, string | null> = {}
+        if (correctedData.firstName && correctedData.firstName !== customer.first_name) {
+          customerUpdates.first_name = correctedData.firstName
+        }
+        if (correctedData.lastName && correctedData.lastName !== customer.last_name) {
+          customerUpdates.last_name = correctedData.lastName
+        }
+        if (correctedData.address && correctedData.address !== customer.address) {
+          customerUpdates.address = correctedData.address
+        }
+        if (correctedData.email && correctedData.email !== customer.email) {
+          customerUpdates.email = correctedData.email
+        }
+
+        // Update customer record
+        const hasCustomerChanges = Object.keys(customerUpdates).length > 0
+        if (hasCustomerChanges) {
+          await client.from("customers").update(customerUpdates).eq("id", customer.id)
+          console.log(`[OpenPhone] Updated customer ${customer.id} with corrections:`, Object.keys(customerUpdates))
+        }
+
+        // Always sync customer corrections to HCP (regardless of job existence)
+        if (hasCustomerChanges) {
+          try {
+            const syncFirstName = correctedData.firstName || customer.first_name
+            const syncLastName = correctedData.lastName || customer.last_name
+            console.log(`[OpenPhone] Pushing customer correction to HCP: firstName=${syncFirstName}, lastName=${syncLastName}`)
+            await syncCustomerToHCP({
+              tenantId: tenant.id,
+              customerId: customer.id,
+              phone,
+              firstName: syncFirstName,
+              lastName: syncLastName,
+              email: correctedData.email || customer.email,
+              address: correctedData.address || customer.address,
+            })
+          } catch (syncErr) {
+            console.error(`[OpenPhone] HCP customer sync failed for corrections:`, syncErr)
+          }
+        }
+
+        // Update job record (address, date, time)
+        if (assignedJob) {
+          const jobUpdates: Record<string, string | null> = {}
+          if (correctedData.address && correctedData.address !== assignedJob.address) {
+            jobUpdates.address = correctedData.address
+          }
+          if (correctedData.preferredDate && correctedData.preferredDate !== assignedJob.date) {
+            jobUpdates.date = correctedData.preferredDate
+          }
+          if (correctedData.preferredTime && correctedData.preferredTime !== assignedJob.scheduled_at) {
+            jobUpdates.scheduled_at = correctedData.preferredTime
+          }
+
+          if (Object.keys(jobUpdates).length > 0) {
+            await client.from("jobs").update(jobUpdates).eq("id", assignedJob.id)
+            console.log(`[OpenPhone] Updated job ${assignedJob.id} with corrections:`, Object.keys(jobUpdates))
+          }
+
+          // Always sync job to HCP — catches both corrections AND missing initial sync.
+          // If the job already exists in HCP, syncNewJobToHCP updates it; otherwise creates it.
+          const needsHcpSync = Object.keys(jobUpdates).length > 0 || !assignedJob.housecall_pro_job_id || hasCustomerChanges
+          if (needsHcpSync) {
+            try {
+              console.log(`[OpenPhone] Syncing job ${assignedJob.id} to HCP (hcp_job_id=${assignedJob.housecall_pro_job_id || 'NONE'}, jobUpdates=${Object.keys(jobUpdates).length}, customerChanges=${hasCustomerChanges})`)
+              await syncNewJobToHCP({
+                tenant,
+                jobId: assignedJob.id,
+                phone,
+                firstName: correctedData.firstName || customer.first_name,
+                lastName: correctedData.lastName || customer.last_name,
+                email: correctedData.email || customer.email,
+                address: correctedData.address || assignedJob.address,
+                serviceType: assignedJob.service_type,
+                scheduledDate: correctedData.preferredDate || assignedJob.date,
+                scheduledTime: correctedData.preferredTime || assignedJob.scheduled_at,
+                price: assignedJob.price,
+                notes: assignedJob.notes,
+                source: 'sms_correction',
+                isEstimate: assignedJob.job_type === 'estimate',
+              })
+              console.log(`[OpenPhone] Synced job ${assignedJob.id} to HCP`)
+            } catch (syncErr) {
+              console.error(`[OpenPhone] HCP job sync failed for job ${assignedJob.id}:`, syncErr)
+            }
+          }
+        }
+      } catch (extractErr) {
+        console.error("[OpenPhone] Error extracting corrections for assigned lead:", extractErr)
+      }
+
+      // Handle escalation if AI flagged it (cancel requests, complaints)
+      if (autoResponse.escalation?.shouldEscalate && tenant.owner_phone) {
+        try {
+          const recentEscCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+          const { data: recentEsc } = await client
+            .from("system_events")
+            .select("id")
+            .eq("event_type", "LEAD_ESCALATED")
+            .eq("phone_number", phone)
+            .gte("created_at", recentEscCutoff)
+            .limit(1)
+
+          if (!recentEsc || recentEsc.length === 0) {
+            const { buildOwnerEscalationMessage } = await import("@/lib/winbros-sms-prompt")
+            const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
+              || extractNameFromConversation(conversationHistory)
+              || "Unknown"
+            const fullTranscript = [
+              ...conversationHistory,
+              { role: 'assistant' as const, content: autoResponse.response || '' },
+            ]
+            const ownerMsg = buildOwnerEscalationMessage(
+              phone,
+              customerName,
+              autoResponse.escalation.reasons,
+              fullTranscript
+            )
+            const escSendResult = await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+
+            if (escSendResult.success) {
+              await logSystemEvent({
+                tenant_id: tenant.id,
+                source: "openphone",
+                event_type: "LEAD_ESCALATED",
+                message: `Assigned lead ${assignedLead.id} escalated: ${autoResponse.escalation.reasons.join(", ")}`,
+                phone_number: phone,
+                metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id, reasons: autoResponse.escalation.reasons },
+              })
+
+              await client
+                .from("leads")
+                .update({
+                  status: "escalated",
+                  form_data: {
+                    ...assignedFormData,
+                    followup_paused: true,
+                    escalation_reasons: autoResponse.escalation.reasons,
+                    previous_status: "assigned",
+                  },
+                })
+                .eq("id", assignedLead.id)
+                .eq("tenant_id", tenant.id)
+            } else {
+              console.error(`[OpenPhone] Escalation SMS failed for lead ${assignedLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
+            }
+          }
+        } catch (escErr) {
+          console.error("[OpenPhone] Failed to send escalation for assigned lead:", escErr)
+        }
+      }
+
+      await logSystemEvent({
+        tenant_id: tenant.id,
+        source: "openphone",
+        event_type: "POST_BOOKING_MESSAGE_HANDLED",
+        message: `Post-booking message handled for assigned lead ${assignedLead.id}`,
+        phone_number: phone,
+        metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id },
+      })
+
+      return NextResponse.json({
+        success: true,
+        flow: "assigned_lead_post_booking",
+        leadId: assignedLead.id,
+        jobId: assignedJob?.id || null,
+      })
+    }
+  }
+
+  // ============================================
+  // LOAD CUSTOMER CONTEXT for AI situation awareness
+  // Active jobs, service history, profile — so the AI knows who's texting
+  // ============================================
+  let customerCtx = null
+  if (smsEnabled && tenant?.id) {
+    try {
+      customerCtx = await loadCustomerContext(client, tenant.id, phone, customer?.id)
+    } catch (err) {
+      console.error('[OpenPhone] Failed to load customer context, proceeding without:', err)
     }
   }
 
@@ -1054,41 +1493,64 @@ export async function POST(request: NextRequest) {
       .update(statusUpdate)
       .eq("id", existingLead.id)
 
-    // Reschedule pending follow-up tasks to 30 min from now (don't cancel them — just push them forward)
+    // Cancel pending CALL follow-up tasks (customer is engaged via SMS — don't call them).
+    // Reschedule pending TEXT follow-up tasks 30 min forward (continues SMS conversation).
     try {
       const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
       const now = Date.now()
 
       const { data: pendingTasks } = await client
         .from("scheduled_tasks")
-        .select("id, scheduled_for, task_key")
+        .select("id, scheduled_for, task_key, payload")
         .eq("status", "pending")
         .eq("task_type", "lead_followup")
         .eq("tenant_id", tenant?.id)
         .order("scheduled_for", { ascending: true })
 
       const leadTasks = (pendingTasks || []).filter(
-        (t: { id: string; scheduled_for: string; task_key: string }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
+        (t: { id: string; scheduled_for: string; task_key: string; payload: any }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
       )
 
-      if (leadTasks.length > 0) {
-        // Shift the soonest task to 30 min from now, preserve relative gaps
-        const firstMs = new Date(leadTasks[0].scheduled_for).getTime()
+      // Separate call vs text tasks
+      const callTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
+        const action = t.payload?.action
+        return action === 'call' || action === 'double_call' || t.task_key.includes('double-call')
+      })
+      const textTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
+        const action = t.payload?.action
+        return action === 'text' && !t.task_key.includes('double-call')
+      })
+
+      // Cancel call tasks — customer is already texting, no need to call
+      if (callTasks.length > 0) {
+        for (const task of callTasks) {
+          await client
+            .from("scheduled_tasks")
+            .update({ status: "cancelled" })
+            .eq("id", task.id)
+        }
+        console.log(`[OpenPhone] Cancelled ${callTasks.length} call follow-up tasks for lead ${existingLead.id} (customer responded via SMS)`)
+      }
+
+      // Reschedule text tasks 30 min forward
+      if (textTasks.length > 0) {
+        const firstMs = new Date(textTasks[0].scheduled_for).getTime()
         const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
-        for (const task of leadTasks) {
+        for (const task of textTasks) {
           const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
           await client
             .from("scheduled_tasks")
             .update({ scheduled_for: newTime.toISOString() })
             .eq("id", task.id)
         }
-        console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
-      } else {
-        // All 5 follow-up stages already fired — sequence is complete, nothing to reschedule
+        console.log(`[OpenPhone] Rescheduled ${textTasks.length} text follow-up tasks 30 min forward for lead ${existingLead.id}`)
+      }
+
+      if (leadTasks.length === 0) {
         console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
       }
     } catch (rescheduleErr) {
-      console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
+      console.error("[OpenPhone] Error managing follow-up tasks:", rescheduleErr)
     }
 
     console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${maskPhone(phone)}`)
@@ -1117,24 +1579,30 @@ export async function POST(request: NextRequest) {
           tenant,
           conversationHistory,
           knownInfo,
-          { isReturningCustomer: isSeasonalReply }
+          { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
         )
 
-        if (autoResponse.shouldSend && autoResponse.response) {
-          console.log(`[OpenPhone] Sending auto-response to existing lead: "${autoResponse.response.slice(0, 50)}..."`)
+        if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
+          // Skip sending the AI message if it's just the [BOOKING_COMPLETE] tag —
+          // the system sends its own confirmation message with invoice/deposit links
+          const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
 
-          const sendResult = await sendSMS(tenant!, phone, autoResponse.response)
+          if (cleanedResponse) {
+            console.log(`[OpenPhone] Sending auto-response to existing lead: "${cleanedResponse.slice(0, 50)}..."`)
 
-          if (sendResult.success) {
-            await client.from("messages").insert({
+            const sendResult = await sendSMS(tenant!, phone, cleanedResponse)
+
+            // Store message in DB regardless of send success (preserves conversation context)
+            const { data: msgRow } = await client.from("messages").insert({
               tenant_id: tenant?.id,
               customer_id: customer.id,
               phone_number: phone,
               role: "assistant",
-              content: autoResponse.response,
+              content: cleanedResponse,
               direction: "outbound",
               message_type: "sms",
               ai_generated: true,
+              status: sendResult.success ? "sent" : "failed",
               timestamp: new Date().toISOString(),
               source: "openphone",
               metadata: {
@@ -1143,8 +1611,23 @@ export async function POST(request: NextRequest) {
                 reason: autoResponse.reason,
                 combined_message: combinedMessage,
                 openphone_message_id: sendResult.messageId,
+                ...(sendResult.success ? {} : { send_error: sendResult.error }),
               },
-            })
+            }).select("id").single()
+            if (!sendResult.success) {
+              console.error(`[OpenPhone] Failed to send auto-response to existing lead:`, sendResult.error)
+              // Schedule a retry in 60 seconds
+              await scheduleTask({
+                tenantId: tenant?.id,
+                taskType: 'sms_retry',
+                taskKey: `sms-retry-${phone}-${Date.now()}`,
+                scheduledFor: new Date(Date.now() + 60_000),
+                payload: { phone, message: cleanedResponse, messageId: msgRow?.id },
+                maxAttempts: 2,
+              })
+            }
+          } else {
+            console.log(`[OpenPhone] Skipping AI response (booking complete tag only) — system will send confirmation`)
           }
 
           // Handle escalation — notify the owner if the AI flagged this customer
@@ -1177,34 +1660,39 @@ export async function POST(request: NextRequest) {
                   autoResponse.escalation.reasons,
                   fullTranscript
                 )
-                await sendSMS(tenant, tenant.owner_phone, ownerMsg)
+                const escSendResult = await sendSMS(tenant, tenant.owner_phone, ownerMsg)
 
-                await logSystemEvent({
-                  tenant_id: tenant?.id,
-                  source: "openphone",
-                  event_type: "LEAD_ESCALATED",
-                  message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
-                  phone_number: phone,
-                  metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
-                })
+                if (escSendResult.success) {
+                  await logSystemEvent({
+                    tenant_id: tenant?.id,
+                    source: "openphone",
+                    event_type: "LEAD_ESCALATED",
+                    message: `Lead escalated to owner: ${autoResponse.escalation.reasons.join(", ")}`,
+                    phone_number: phone,
+                    metadata: { lead_id: existingLead.id, reasons: autoResponse.escalation.reasons },
+                  })
 
-                console.log(`[OpenPhone] Escalation notification sent to owner for ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
+                  console.log(`[OpenPhone] Escalation notification sent to owner for ${maskPhone(phone)}: ${autoResponse.escalation.reasons.join(", ")}`)
+
+                  // Only pause auto-response if escalation SMS was actually delivered
+                  await client
+                    .from("leads")
+                    .update({
+                      status: "escalated",
+                      form_data: {
+                        ...parseFormData(existingLead.form_data),
+                        followup_paused: true,
+                        escalation_reasons: autoResponse.escalation.reasons,
+                      },
+                    })
+                    .eq("id", existingLead.id)
+                    .eq("tenant_id", tenant.id)
+                } else {
+                  console.error(`[OpenPhone] Escalation SMS failed for lead ${existingLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
+                }
               } else {
                 console.log(`[OpenPhone] Escalation already sent recently for ${maskPhone(phone)}, skipping duplicate`)
               }
-
-              // Pause auto-response for this lead — owner is taking over
-              await client
-                .from("leads")
-                .update({
-                  status: "escalated",
-                  form_data: {
-                    ...parseFormData(existingLead.form_data),
-                    followup_paused: true,
-                    escalation_reasons: autoResponse.escalation.reasons,
-                  },
-                })
-                .eq("id", existingLead.id)
             } catch (escErr) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
             }
@@ -1431,8 +1919,8 @@ export async function POST(request: NextRequest) {
                   email: finalEmail || customer.email || null,
                   address: bookingData.address || customer.address || null,
                   serviceType: bookingData.serviceType || null,
-                  scheduledDate: bookingData.preferredDate || null,
-                  scheduledTime: bookingData.preferredTime || null,
+                  scheduledDate: jobDate,
+                  scheduledTime: bookingData.preferredTime || '09:00',
                   price: servicePrice,
                   notes: isWindowCleaningTenant ? 'Estimate Visit | Booked via SMS' : 'Booked via SMS',
                   source: 'sms',
@@ -1453,7 +1941,7 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", existingLead.id)
 
-              // Non-WinBros: Wave invoice + Stripe deposit link flow (house cleaning)
+              // Non-WinBros: Invoice (Stripe or Wave) + Stripe deposit link flow (house cleaning)
               if (!isWindowCleaningTenant && tenant) {
                 const depositFlowResult = await sendDepositPaymentFlow({
                   tenant,
@@ -1639,7 +2127,7 @@ export async function POST(request: NextRequest) {
         tenant,
         conversationHistory,
         knownInfoNew,
-        { isReturningCustomer: isSeasonalReply }
+        { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {
@@ -1731,12 +2219,66 @@ export async function POST(request: NextRequest) {
           }
         } else {
           console.error(`[OpenPhone] Failed to send auto-response:`, sendResult.error)
+          // Store the failed message so conversation context is preserved for future AI interactions
+          const { data: failedMsg } = await client.from("messages").insert({
+            tenant_id: tenant?.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: autoResponse.response,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: true,
+            status: "failed",
+            timestamp: new Date().toISOString(),
+            source: "openphone",
+            metadata: {
+              auto_response: true,
+              reason: autoResponse.reason,
+              intent_analysis: intentResult,
+              combined_message: combinedMessage,
+              send_error: sendResult.error,
+            },
+          }).select("id").single()
+          // Schedule a retry in 60 seconds via scheduled_tasks cron
+          await scheduleTask({
+            tenantId: tenant?.id,
+            taskType: 'sms_retry',
+            taskKey: `sms-retry-${phone}-${Date.now()}`,
+            scheduledFor: new Date(Date.now() + 60_000),
+            payload: { phone, message: autoResponse.response, messageId: failedMsg?.id },
+            maxAttempts: 2,
+          })
+          await logSystemEvent({
+            tenant_id: tenant?.id,
+            source: "openphone",
+            event_type: "AUTO_RESPONSE_SEND_FAILED",
+            message: `Auto-response SMS send failed for ${phone}: ${sendResult.error || 'unknown'} — retry scheduled`,
+            phone_number: phone,
+            metadata: { error: sendResult.error, response_preview: autoResponse.response?.slice(0, 100) },
+          })
         }
       } else {
-        console.log(`[OpenPhone] Auto-response skipped: ${autoResponse.reason}`)
+        console.log(`[OpenPhone] Auto-response skipped: shouldSend=${autoResponse.shouldSend}, hasResponse=${!!autoResponse.response}, reason=${autoResponse.reason}`)
+        await logSystemEvent({
+          tenant_id: tenant?.id,
+          source: "openphone",
+          event_type: "AUTO_RESPONSE_SKIPPED",
+          message: `Auto-response skipped for ${phone}: shouldSend=${autoResponse.shouldSend}, hasResponse=${!!autoResponse.response}, reason=${autoResponse.reason}`,
+          phone_number: phone,
+          metadata: { shouldSend: autoResponse.shouldSend, hasResponse: !!autoResponse.response, reason: autoResponse.reason },
+        })
       }
     } catch (autoResponseErr) {
       console.error("[OpenPhone] Auto-response error:", autoResponseErr)
+      await logSystemEvent({
+        tenant_id: tenant?.id,
+        source: "openphone",
+        event_type: "AUTO_RESPONSE_ERROR",
+        message: `Auto-response error for ${phone}: ${autoResponseErr instanceof Error ? autoResponseErr.message : 'unknown'}`,
+        phone_number: phone,
+        metadata: { error: autoResponseErr instanceof Error ? autoResponseErr.message : String(autoResponseErr) },
+      }).catch(() => {})
     }
   }
 
@@ -1802,17 +2344,24 @@ export async function POST(request: NextRequest) {
 
       if (hcpResult.success) {
         console.log(`[OpenPhone] Lead synced to HCP: ${hcpResult.leadId}`)
-        // Update lead with HCP ID and HCP customer ID
-        const updateData: Record<string, string> = {
-          source_id: hcpResult.leadId || `sms-${Date.now()}`,
+        // Update lead with HCP lead ID (housecall_pro_lead_id column)
+        const updateData: Record<string, string> = {}
+        if (hcpResult.leadId) {
+          updateData.housecall_pro_lead_id = hcpResult.leadId
         }
-        if (hcpResult.customerId) {
-          updateData.hcp_customer_id = hcpResult.customerId
+        if (Object.keys(updateData).length > 0) {
+          await client
+            .from("leads")
+            .update(updateData)
+            .eq("id", lead.id)
         }
-        await client
-          .from("leads")
-          .update(updateData)
-          .eq("id", lead.id)
+        // Store HCP customer ID on the customer record (not leads table)
+        if (hcpResult.customerId && customer?.id) {
+          await client
+            .from("customers")
+            .update({ housecall_pro_customer_id: hcpResult.customerId })
+            .eq("id", customer.id)
+        }
       } else {
         console.warn("[OpenPhone] Failed to sync lead to HCP:", hcpResult.error)
       }
@@ -1896,10 +2445,11 @@ function extractNameFromConversation(
 }
 
 /**
- * Send Wave invoice + Stripe deposit link for remote cleaning businesses
+ * Send invoice + Stripe deposit link for house cleaning businesses.
  * (Cedar Rapids, Spotless Scrubbers, etc. — NOT WinBros window cleaning)
  *
- * Flow: Wave invoice SMS → short delay → Stripe deposit link SMS → confirmation email
+ * Invoice provider is tenant-aware: routes to Stripe or Wave based on workflow_config.
+ * Flow: Invoice SMS → short delay → Stripe deposit link SMS → confirmation email
  */
 async function sendDepositPaymentFlow(params: {
   tenant: { id: string; slug: string; workflow_config?: any; [key: string]: any },
@@ -1910,7 +2460,7 @@ async function sendDepositPaymentFlow(params: {
   jobId: string | null,
   leadId: string,
   servicePrice: number | null,
-  client: ReturnType<typeof getSupabaseServiceClient>,
+  client: ReturnType<typeof getSupabaseClient>,
 }): Promise<{ success: boolean; invoiceUrl?: string; depositUrl?: string }> {
   const { tenant, phone, email, customer, job, jobId, leadId, client } = params
   let { servicePrice } = params
@@ -1935,41 +2485,100 @@ async function sendDepositPaymentFlow(params: {
     return { success: false }
   }
 
-  // 1. Create Wave invoice (if Wave is configured for this tenant)
-  try {
-    const { createInvoice } = await import("@/lib/invoices")
-    const invoiceResult = await createInvoice(
-      { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { ...customer, email } as any
-    )
+  // 1. Send booking confirmation (Stripe tenants get SMS summary; Wave tenants get invoice link)
+  const wc = tenant.workflow_config
+  const isStripeOnly = wc?.use_stripe && !wc?.use_wave
 
-    if (invoiceResult.success && invoiceResult.invoiceUrl) {
-      invoiceUrl = invoiceResult.invoiceUrl
+  if (isStripeOnly) {
+    // Stripe-only tenants: send informational booking confirmation SMS
+    // (skip Stripe invoice — avoids confusing "Already Paid" status)
+    try {
+      const serviceLabel = job?.service_type || 'Cleaning Service'
+      const propertyParts: string[] = []
+      const bed = customer.bedrooms ?? job?.bedrooms
+      const bath = customer.bathrooms ?? job?.bathrooms
+      const sqft = customer.square_footage ?? job?.square_footage
+      if (bed) propertyParts.push(`${bed} bed`)
+      if (bath) propertyParts.push(`${bath} bath`)
+      if (sqft) propertyParts.push(`${Number(sqft).toLocaleString()} sqft`)
+      const propertyLine = propertyParts.length > 0 ? `\n${propertyParts.join(' / ')}` : ''
 
-      // Send invoice SMS
-      const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
-      const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
-      if (invoiceSms.success) {
+      const dateLine = job?.date
+        ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        : 'TBD'
+      const timeLine = job?.scheduled_at || ''
+      const dateTimeStr = timeLine ? `${dateLine} at ${timeLine}` : dateLine
+      const addressLine = job?.address || customer.address || ''
+
+      const confirmMsg = [
+        `Booking Confirmed!`,
+        ``,
+        serviceLabel,
+        propertyLine ? propertyLine.trim() : null,
+        dateTimeStr,
+        addressLine,
+        `Total: $${servicePrice.toFixed(2)}`,
+        ``,
+        `Full service details sent to your email. Deposit link coming next!`,
+      ].filter(line => line !== null).join('\n')
+
+      const confirmSms = await sendSMS(tenant as any, phone, confirmMsg)
+      if (confirmSms.success) {
         await client.from("messages").insert({
           tenant_id: tenant.id,
           customer_id: customer.id,
           phone_number: phone,
           role: "assistant",
-          content: invoiceMsg,
+          content: confirmMsg,
           direction: "outbound",
           message_type: "sms",
           ai_generated: false,
           timestamp: new Date().toISOString(),
           source: "invoice",
-          metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
+          metadata: { lead_id: leadId, job_id: jobId },
         })
       }
-      console.log(`[OpenPhone] invoice sent to ${maskPhone(phone)}`)
-    } else {
-      console.warn(`[OpenPhone] Wave invoice creation failed: ${invoiceResult.error}`)
+      console.log(`[OpenPhone] Booking confirmation SMS sent to ${maskPhone(phone)}`)
+    } catch (confirmErr) {
+      console.error("[OpenPhone] Booking confirmation SMS error:", confirmErr)
     }
-  } catch (invoiceErr) {
-    console.error("[OpenPhone] Wave invoice error:", invoiceErr)
+  } else {
+    // Wave tenants: create proper invoice with rich description
+    try {
+      const { createInvoice } = await import("@/lib/invoices")
+      const invoiceResult = await createInvoice(
+        { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
+        { ...customer, email } as any,
+        tenant
+      )
+
+      if (invoiceResult.success && invoiceResult.invoiceUrl) {
+        invoiceUrl = invoiceResult.invoiceUrl
+
+        const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
+        const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
+        if (invoiceSms.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: invoiceMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "invoice",
+            metadata: { lead_id: leadId, job_id: jobId, invoice_url: invoiceUrl },
+          })
+        }
+        console.log(`[OpenPhone] Invoice sent to ${maskPhone(phone)}`)
+      } else {
+        console.warn(`[OpenPhone] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
+      }
+    } catch (invoiceErr) {
+      console.error("[OpenPhone] Invoice error:", invoiceErr)
+    }
   }
 
   // Small delay between invoice and deposit messages
@@ -1982,7 +2591,8 @@ async function sendDepositPaymentFlow(params: {
       { ...customer, email } as any,
       { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
       { lead_id: leadId },
-      tenant.id
+      tenant.id,
+      tenant.stripe_secret_key || undefined
     )
 
     if (depositResult.success && depositResult.url) {
@@ -2031,6 +2641,7 @@ async function sendDepositPaymentFlow(params: {
       job: job || {} as any,
       waveInvoiceUrl: invoiceUrl,
       stripeDepositUrl: depositUrl || '',
+      tenant: tenant as any,
     })
     console.log(`[OpenPhone] Confirmation email sent to ${maskEmail(email)}`)
   } catch (emailErr) {

@@ -199,16 +199,6 @@ function InlineText({ text }: { text: string }) {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
-const SUGGESTION_CHIPS = [
-  "What's on the schedule today?",
-  "Look up a customer",
-  "Create a new job",
-  "Get a price estimate",
-  "Generate a payment link",
-  "How do I use the calendar?",
-  "Add a new cleaner",
-  "Compose a booking confirmation",
-]
 
 export default function AssistantPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -567,20 +557,6 @@ export default function AssistantPage() {
                     I can look up customers, create jobs, generate payment links, compose messages,
                     manage your team, and more.
                   </p>
-                </div>
-                <div className="flex flex-wrap gap-2 justify-center max-w-lg">
-                  {SUGGESTION_CHIPS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      onClick={() => {
-                        setInput(suggestion)
-                        inputRef.current?.focus()
-                      }}
-                      className="px-3 py-1.5 text-xs rounded-lg bg-zinc-800 border border-zinc-700/40 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
                 </div>
               </div>
             )}

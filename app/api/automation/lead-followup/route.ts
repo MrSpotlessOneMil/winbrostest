@@ -7,7 +7,7 @@ import { createDepositPaymentLink } from "@/lib/stripe-client"
 import { getClientConfig } from "@/lib/client-config"
 import { logSystemEvent } from "@/lib/system-events"
 import { toE164 } from "@/lib/phone-utils"
-import { getDefaultTenant, getTenantById, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
+import { getTenantById, getTenantBySlug, getTenantBusinessName } from "@/lib/tenant"
 import type { Tenant } from "@/lib/tenant"
 
 interface LeadFollowupPayload {
@@ -73,6 +73,12 @@ export async function POST(request: NextRequest) {
   if (lead.status === "lost" || lead.status === "unqualified") {
     console.log(`[lead-followup] Lead ${leadId} is ${lead.status}, skipping`)
     return NextResponse.json({ success: true, skipped: true, reason: `Lead ${lead.status}` })
+  }
+
+  // Skip if lead has already been converted to a job (even if status wasn't updated to 'booked')
+  if (lead.converted_to_job_id) {
+    console.log(`[lead-followup] Lead ${leadId} already converted to job ${lead.converted_to_job_id}, skipping`)
+    return NextResponse.json({ success: true, skipped: true, reason: "Lead already converted to job" })
   }
 
   // Resolve tenant from DB-sourced tenant_id (preferred) with brand slug fallback
@@ -189,7 +195,11 @@ async function executeStage1(
   customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupInitial(name, businessName)
-  const result = tenant ? await sendSMS(tenant, phone, message) : await sendSMS(phone, message)
+  if (!tenant) {
+    console.error(`[lead-followup] Stage has no tenant — skipping SMS to ${phone}`)
+    return { success: false, error: 'No tenant for SMS' }
+  }
+  const result = await sendSMS(tenant, phone, message)
 
   // Save to messages table
   if (result.success) {
@@ -287,7 +297,11 @@ async function executeStage4(
   customerId?: string
 ): Promise<{ success: boolean; error?: string; details?: Record<string, unknown> }> {
   const message = leadFollowupSecond(name)
-  const result = tenant ? await sendSMS(tenant, phone, message) : await sendSMS(phone, message)
+  if (!tenant) {
+    console.error(`[lead-followup] Stage has no tenant — skipping SMS to ${phone}`)
+    return { success: false, error: 'No tenant for SMS' }
+  }
+  const result = await sendSMS(tenant, phone, message)
 
   // Save to messages table
   if (result.success) {
@@ -334,7 +348,7 @@ async function executeStage5(
     const job = await getJobById(lead.job_id)
 
     if (job && customer.email) {
-      paymentLinkResult = await createDepositPaymentLink(customer, job)
+      paymentLinkResult = await createDepositPaymentLink(customer, job, undefined, tenant?.id, tenant?.stripe_secret_key || undefined)
 
       if (paymentLinkResult.success && paymentLinkResult.url) {
         // Send SMS with payment link
@@ -343,7 +357,10 @@ async function executeStage5(
           paymentLinkResult.amount || 0,
           paymentLinkResult.url
         )
-        const smsResult = tenant ? await sendSMS(tenant, phone, paymentMessage) : await sendSMS(phone, paymentMessage)
+        if (!tenant) {
+          console.error(`[lead-followup] Stage 5 has no tenant — skipping payment link SMS to ${phone}`)
+        }
+        const smsResult = tenant ? await sendSMS(tenant, phone, paymentMessage) : { success: false, error: 'No tenant' }
 
         if (smsResult.success) {
           // Save to messages table
@@ -438,11 +455,14 @@ async function saveOutboundMessage(
 ): Promise<void> {
   try {
     const client = getSupabaseClient()
-    const effectiveTenant = tenant || await getDefaultTenant()
+    if (!tenant) {
+      console.error('[lead-followup] saveOutboundMessage called without tenant — skipping DB save')
+      return
+    }
     const e164Phone = toE164(phone)
 
     const { error } = await client.from("messages").insert({
-      tenant_id: effectiveTenant?.id,
+      tenant_id: tenant.id,
       customer_id: customerId || null,
       phone_number: e164Phone,
       role: "assistant",

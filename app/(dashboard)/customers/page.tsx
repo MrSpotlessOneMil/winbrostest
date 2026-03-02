@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2, Trash2, Copy, Check } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -27,6 +27,9 @@ interface Customer {
   email?: string
   address?: string
   notes?: string
+  auto_response_paused?: boolean
+  card_on_file_at?: string | null
+  stripe_customer_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -48,10 +51,17 @@ interface Job {
   service_type?: string
   address?: string
   date?: string
+  scheduled_at?: string
   price?: number
+  hours?: number
   status?: string
   paid?: boolean
   payment_status?: string
+  notes?: string
+  bedrooms?: number
+  bathrooms?: number
+  sqft?: number
+  frequency?: string
   created_at: string
 }
 
@@ -113,7 +123,17 @@ export default function CustomersPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
-  const [activeTab, setActiveTab] = useState<TabType>("messages")
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("customers_active_tab")
+      if (saved === "messages" || saved === "jobs" || saved === "invoices") return saved
+    }
+    return "messages"
+  })
+  const switchTab = (tab: TabType) => {
+    setActiveTab(tab)
+    localStorage.setItem("customers_active_tab", tab)
+  }
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
   const [smsMessage, setSmsMessage] = useState("")
@@ -121,6 +141,10 @@ export default function CustomersPage() {
   const [deletingCustomer, setDeletingCustomer] = useState(false)
   const deletingRef = useRef(false) // ref to skip polling during delete
   const [copied, setCopied] = useState(false)
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
+  const [savingCustomer, setSavingCustomer] = useState(false)
+  const [editingJob, setEditingJob] = useState<Job | null>(null)
+  const [savingJob, setSavingJob] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Initial data fetch
@@ -164,11 +188,8 @@ export default function CustomersPage() {
           const prevCount = messages.length
           const newMessages = json.data.messages || []
 
-          // Update customers list - shows new contacts without reload
-          const newCustomers = json.data.customers || []
-          if (newCustomers.length !== customers.length) {
-            setCustomers(newCustomers)
-          }
+          // Update customers list - always sync to catch new/updated records
+          setCustomers(json.data.customers || [])
           // Update jobs
           setJobs(json.data.jobs || [])
           // Update messages - this shows new incoming/outgoing texts immediately
@@ -193,7 +214,7 @@ export default function CustomersPage() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [messages.length, customers.length])
+  }, [messages.length])
 
   const getCustomerName = (customer: Customer) => {
     if (customer.first_name || customer.last_name) {
@@ -337,6 +358,79 @@ export default function CustomersPage() {
     }
   }
 
+  // Handle save customer edits
+  const handleSaveCustomer = async () => {
+    if (!editingCustomer) return
+    setSavingCustomer(true)
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingCustomer.id,
+          first_name: editingCustomer.first_name || "",
+          last_name: editingCustomer.last_name || "",
+          email: editingCustomer.email || "",
+          phone_number: editingCustomer.phone_number,
+          address: editingCustomer.address || "",
+          notes: editingCustomer.notes || "",
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // Update local state
+        const updated = json.data
+        setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)))
+        setSelectedCustomer(updated)
+        setEditingCustomer(null)
+      } else {
+        alert(json.error || "Failed to update customer")
+      }
+    } catch (error) {
+      console.error("Failed to update customer:", error)
+      alert("Failed to update customer")
+    } finally {
+      setSavingCustomer(false)
+    }
+  }
+
+  // Handle save job edits
+  const handleSaveJob = async () => {
+    if (!editingJob) return
+    setSavingJob(true)
+    try {
+      const res = await fetch("/api/jobs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editingJob.id,
+          service_type: editingJob.service_type || "",
+          address: editingJob.address || "",
+          date: editingJob.date || "",
+          scheduled_at: editingJob.scheduled_at || "",
+          price: editingJob.price != null ? Number(editingJob.price) : undefined,
+          hours: editingJob.hours != null ? Number(editingJob.hours) : undefined,
+          status: editingJob.status || "",
+          notes: editingJob.notes || "",
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        // The jobs PATCH returns the full row — update local state
+        const updated = json.data
+        setJobs((prev) => prev.map((j) => (j.id === updated.id ? { ...j, ...updated } : j)))
+        setEditingJob(null)
+      } else {
+        alert(json.error || "Failed to update job")
+      }
+    } catch (error) {
+      console.error("Failed to update job:", error)
+      alert("Failed to update job")
+    } finally {
+      setSavingJob(false)
+    }
+  }
+
   // Handle toggle auto-response on/off - with optimistic update
   const handleToggleFollowup = async (paused: boolean) => {
     if (!selectedCustomer) return
@@ -402,6 +496,64 @@ export default function CustomersPage() {
       )
       console.error("Failed to toggle auto-response:", error)
       alert("Failed to toggle auto-response")
+    }
+  }
+
+  // Per-customer auto-response toggle (stored on customers table)
+  const handleToggleCustomerAutoResponse = async (customer: Customer) => {
+    const newPaused = !customer.auto_response_paused
+
+    // Optimistic update
+    setCustomers((prev) =>
+      prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: newPaused } : c)
+    )
+    if (selectedCustomer?.id === customer.id) {
+      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: newPaused } : prev)
+    }
+
+    try {
+      // Update customer flag
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: customer.id, auto_response_paused: newPaused }),
+      })
+      const json = await res.json()
+      if (!json.success) {
+        // Rollback
+        setCustomers((prev) =>
+          prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+        )
+        if (selectedCustomer?.id === customer.id) {
+          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+        }
+        return
+      }
+
+      // Also sync lead followup_paused (fire-and-forget, don't refresh full data)
+      const lead = getCustomerLead(customer.phone_number)
+      if (lead) {
+        fetch(`/api/leads/${lead.id}/actions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "toggle_followup", paused: newPaused }),
+        }).catch(() => {})
+        // Optimistic lead update
+        const parsedFormData = parseFormData(lead.form_data)
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newPaused } } : l
+          )
+        )
+      }
+    } catch {
+      // Rollback
+      setCustomers((prev) =>
+        prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+      )
+      if (selectedCustomer?.id === customer.id) {
+        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+      }
     }
   }
 
@@ -553,12 +705,12 @@ export default function CustomersPage() {
   }
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col overflow-hidden">
+    <div className="h-[calc(100dvh-8rem)] flex flex-col overflow-hidden">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Main Layout */}
         <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
-          {/* Customer List Sidebar - Fixed height, doesn't scroll with page */}
-          <div className="w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden">
+          {/* Customer List Sidebar - Hidden on mobile when a customer is selected */}
+          <div className={`w-full md:w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden ${selectedCustomer ? "hidden md:flex" : "flex"}`}>
             <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col h-full overflow-hidden">
               <div className="p-3 border-b border-zinc-800">
                 <div className="relative">
@@ -600,7 +752,7 @@ export default function CustomersPage() {
                         onClick={() => {
                           setSelectedCustomer(customer)
                           if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
-                          setActiveTab("messages")
+                          switchTab("messages")
                         }}
                         className={`w-full text-left px-4 py-3 border-b border-zinc-800/50 ${
                           isSelected ? "bg-zinc-800/80" : "hover:bg-zinc-800/40"
@@ -617,7 +769,14 @@ export default function CustomersPage() {
                             {name.charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-zinc-200 truncate">{name}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
+                              {customer.card_on_file_at && (
+                                <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                                  Card
+                                </span>
+                              )}
+                            </div>
                             <div className="text-xs text-zinc-500">
                               {jobCount} {jobCount === 1 ? "job" : "jobs"} · ${revenue.toLocaleString()}
                             </div>
@@ -632,9 +791,18 @@ export default function CustomersPage() {
           </div>
 
           {/* Customer Detail - Scrollable content area */}
-          <div className="flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto">
+          <div className={`flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
             {selectedCustomer ? (
               <>
+                {/* Mobile back button */}
+                <button
+                  onClick={() => setSelectedCustomer(null)}
+                  className="md:hidden flex items-center gap-2 text-sm text-zinc-400 hover:text-zinc-200 py-1"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                  Back to customers
+                </button>
+
                 {/* Lead Flow Progress */}
                 <LeadFlowProgress
                   lead={getCustomerLead(selectedCustomer.phone_number)}
@@ -660,6 +828,15 @@ export default function CustomersPage() {
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
                       </div>
+                      {/* Edit Customer */}
+                      <button
+                        onClick={() => setEditingCustomer({ ...selectedCustomer })}
+                        className="p-1.5 rounded text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10 transition-colors"
+                        title="Edit customer"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+
                       {/* Copy Transcript */}
                       <button
                         onClick={handleCopyTranscript}
@@ -679,29 +856,27 @@ export default function CustomersPage() {
                         {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
 
-                      {/* Auto-Response Toggle */}
-                      {getCustomerLead(selectedCustomer.phone_number) && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-400">Auto-response</span>
-                          <button
-                            onClick={() => handleToggleFollowup(!isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)))}
-                            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                              isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
-                                ? "bg-zinc-600"
-                                : "bg-emerald-500"
+                      {/* Per-Customer Auto-Response Toggle */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-400">Auto-text</span>
+                        <button
+                          onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
+                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                            selectedCustomer.auto_response_paused
+                              ? "bg-zinc-600"
+                              : "bg-emerald-500"
+                          }`}
+                          title={selectedCustomer.auto_response_paused ? "Enable auto-texting for this customer" : "Pause auto-texting for this customer"}
+                        >
+                          <span
+                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                              selectedCustomer.auto_response_paused
+                                ? "translate-x-1"
+                                : "translate-x-[18px]"
                             }`}
-                            title={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number)) ? "Enable auto-response" : "Pause auto-response"}
-                          >
-                            <span
-                              className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                                isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))
-                                  ? "translate-x-1"
-                                  : "translate-x-[18px]"
-                              }`}
-                            />
-                          </button>
-                        </div>
-                      )}
+                          />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Tab navigation */}
@@ -709,7 +884,7 @@ export default function CustomersPage() {
                       {tabs.map((tab) => (
                         <button
                           key={tab.id}
-                          onClick={() => setActiveTab(tab.id)}
+                          onClick={() => switchTab(tab.id)}
                           className={`px-3 py-2 text-sm font-medium border-b-2 ${
                             activeTab === tab.id
                               ? "border-purple-400 text-zinc-100"
@@ -832,6 +1007,13 @@ export default function CustomersPage() {
                                   <span className="text-sm font-semibold text-zinc-200">
                                     ${job.price || 0}
                                   </span>
+                                  <button
+                                    onClick={() => setEditingJob({ ...job })}
+                                    className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                                    title="Edit job"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
                               </div>
                             ))}
@@ -850,6 +1032,220 @@ export default function CustomersPage() {
           </div>
         </div>
       </div>
+
+      {/* Edit Customer Modal */}
+      {editingCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingCustomer(null)}>
+          <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">Edit Customer</h3>
+              <button onClick={() => setEditingCustomer(null)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    value={editingCustomer.first_name || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, first_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="First name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    value={editingCustomer.last_name || ""}
+                    onChange={(e) => setEditingCustomer({ ...editingCustomer, last_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="Last name"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Phone</label>
+                <input
+                  type="text"
+                  value={editingCustomer.phone_number || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, phone_number: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="+1 (555) 123-4567"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={editingCustomer.email || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, email: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="email@example.com"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={editingCustomer.address || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, address: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="123 Main St, City, ST 12345"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                <textarea
+                  value={editingCustomer.notes || ""}
+                  onChange={(e) => setEditingCustomer({ ...editingCustomer, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
+                  placeholder="Private notes..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button
+                onClick={() => setEditingCustomer(null)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveCustomer}
+                disabled={savingCustomer}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {savingCustomer ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Job Modal */}
+      {editingJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingJob(null)}>
+          <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">Edit Job</h3>
+              <button onClick={() => setEditingJob(null)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Service Type</label>
+                  <input
+                    type="text"
+                    value={editingJob.service_type || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, service_type: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="Window cleaning"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Status</label>
+                  <select
+                    value={editingJob.status || "scheduled"}
+                    onChange={(e) => setEditingJob({ ...editingJob, status: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="assigned">Assigned</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={editingJob.date || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, date: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editingJob.scheduled_at || ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, scheduled_at: e.target.value })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Price ($)</label>
+                  <input
+                    type="number"
+                    value={editingJob.price ?? ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, price: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Hours</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editingJob.hours ?? ""}
+                    onChange={(e) => setEditingJob({ ...editingJob, hours: e.target.value ? Number(e.target.value) : undefined })}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                    placeholder="2"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Address</label>
+                <input
+                  type="text"
+                  value={editingJob.address || ""}
+                  onChange={(e) => setEditingJob({ ...editingJob, address: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+                  placeholder="123 Main St, City, ST 12345"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                <textarea
+                  value={editingJob.notes || ""}
+                  onChange={(e) => setEditingJob({ ...editingJob, notes: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
+                  placeholder="Job notes..."
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button
+                onClick={() => setEditingJob(null)}
+                className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveJob}
+                disabled={savingJob}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {savingJob ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

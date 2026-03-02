@@ -621,9 +621,11 @@ async function handleLeadCreated(
     const firstName = leadFirstName || 'there'
     const initialMessage = `Hey ${firstName}! This is ${hcpSdrName} from ${hcpBusinessName}. Thanks for reaching out! When would be a good time to get your windows sparkling clean?`
 
-    const smsResult = winbrosTenant
-      ? await sendSMS(winbrosTenant, phoneNumber, initialMessage)
-      : await sendSMS(phoneNumber, initialMessage, 'winbros')
+    if (!winbrosTenant) {
+      console.error('[HCP webhook-handler] No WinBros tenant found — cannot send initial SMS')
+      return { success: false, message: 'No WinBros tenant found — cannot send initial SMS' }
+    }
+    const smsResult = await sendSMS(winbrosTenant, phoneNumber, initialMessage)
 
     if (smsResult.success) {
       // Update lead status

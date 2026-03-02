@@ -141,10 +141,10 @@ export function TodaysJobs() {
                   <span className="text-sm font-mono text-muted-foreground">{job.id}</span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-1">
-                    <MapPin className="h-4 w-4" />
-                    <span>{job.address}</span>
+                <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1 min-w-0">
+                    <MapPin className="h-4 w-4 shrink-0" />
+                    <span className="truncate max-w-[180px] sm:max-w-none">{job.address}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <Clock className="h-4 w-4" />

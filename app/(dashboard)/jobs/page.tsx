@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useAuth } from "@/lib/auth-context"
 import FullCalendar from "@fullcalendar/react"
 import dayGridPlugin from "@fullcalendar/daygrid"
 import timeGridPlugin from "@fullcalendar/timegrid"
@@ -50,6 +51,7 @@ type CalendarEventDetails = {
   service: string
   notes: string
   hours: number
+  cardOnFile: boolean
 }
 
 type PendingMove = {
@@ -67,6 +69,13 @@ type PendingMove = {
   source: "drag" | "edit"
 }
 
+type AddonOption = {
+  addon_key: string
+  label: string
+  flat_price: number | null
+  minutes: number
+}
+
 type CreateForm = {
   customer_phone: string
   customer_name: string
@@ -78,6 +87,13 @@ type CreateForm = {
   duration_minutes: string
   price: string
   notes: string
+  bedrooms: string
+  bathrooms: string
+  sqft: string
+  frequency: string
+  cleaner_id: string
+  is_quote: boolean
+  selected_addons: string[]
 }
 
 type RainDayPreview = {
@@ -276,6 +292,7 @@ function eventClassForStatus(status?: string) {
   if (normalized === "confirmed") return "event-confirmed"
   if (normalized === "in-progress") return "event-in-progress"
   if (normalized === "rescheduled") return "event-rescheduled"
+  if (normalized === "quoted") return "event-quoted"
   return "event-scheduled"
 }
 
@@ -284,7 +301,10 @@ const STORAGE_KEY_DATE = "calendar-date"
 
 function getSavedView(): string {
   if (typeof window === "undefined") return "dayGridMonth"
-  return localStorage.getItem(STORAGE_KEY_VIEW) || "dayGridMonth"
+  const saved = localStorage.getItem(STORAGE_KEY_VIEW)
+  if (saved) return saved
+  // Default to list view on mobile for better readability
+  return window.innerWidth < 768 ? "listMonth" : "dayGridMonth"
 }
 
 function getSavedDate(): string | undefined {
@@ -293,6 +313,8 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
+  const { user } = useAuth()
+  const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
@@ -308,9 +330,128 @@ export default function JobsPage() {
     duration_minutes: "120",
     price: "",
     notes: "",
+    bedrooms: "",
+    bathrooms: "",
+    sqft: "",
+    frequency: "one-time",
+    cleaner_id: "",
+    is_quote: false,
+    selected_addons: [],
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+  const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  const [basePrice, setBasePrice] = useState<number>(0)
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+  const [phoneLookedUp, setPhoneLookedUp] = useState("")
+
+  // Auto-populate price when property details change (house cleaning only)
+  useEffect(() => {
+    if (!isHouseCleaning) return
+    const { bedrooms, bathrooms, sqft, service_type } = createForm
+    if (!bedrooms || !bathrooms) return
+
+    const params = new URLSearchParams({
+      bedrooms,
+      bathrooms,
+      service_type,
+      ...(sqft ? { sqft } : {}),
+    })
+
+    let cancelled = false
+    fetch(`/api/pricing/estimate?${params}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (cancelled) return
+        if (res.success && res.data?.price != null) {
+          const base = Number(res.data.price)
+          setBasePrice(base)
+          // Add addon prices
+          const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            return sum + (addon?.flat_price || 0)
+          }, 0)
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+        }
+      })
+      .catch(() => {})
+
+    return () => { cancelled = true }
+  }, [createForm.bedrooms, createForm.bathrooms, createForm.sqft, createForm.service_type])
+
+  // Recalculate price when add-ons change
+  useEffect(() => {
+    if (!isHouseCleaning || !basePrice) return
+    const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+      const addon = addonsList.find((a) => a.addon_key === key)
+      return sum + (addon?.flat_price || 0)
+    }, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
+  }, [createForm.selected_addons])
+
+  // Fetch add-ons when create modal opens
+  useEffect(() => {
+    if (!createOpen || !isHouseCleaning) return
+    fetch("/api/pricing/addons")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && Array.isArray(res.data)) {
+          setAddonsList(res.data)
+        }
+      })
+      .catch(() => {})
+  }, [createOpen])
+
+  // Auto-populate from phone number (debounced)
+  useEffect(() => {
+    if (!createOpen) return
+    const digits = createForm.customer_phone.replace(/\D/g, "")
+    if (digits.length < 10 || digits === phoneLookedUp) return
+
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (!res.success || !res.data?.length) return
+          const c = res.data[0]
+          setPhoneLookedUp(digits)
+          setCreateForm((prev) => ({
+            ...prev,
+            customer_name: prev.customer_name || [c.first_name, c.last_name].filter(Boolean).join(" "),
+            email: prev.email || c.email || "",
+            address: prev.address || c.address || "",
+            bedrooms: prev.bedrooms || (c.bedrooms ? String(c.bedrooms) : ""),
+            bathrooms: prev.bathrooms || (c.bathrooms ? String(c.bathrooms) : ""),
+            sqft: prev.sqft || (c.sqft ? String(c.sqft) : ""),
+          }))
+        })
+        .catch(() => {})
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [createForm.customer_phone, createOpen])
+
+  // Address suggestions via Google Places Autocomplete (debounced)
+  useEffect(() => {
+    if (!createOpen || !createForm.address || createForm.address.length < 3) {
+      setAddressSuggestions([])
+      return
+    }
+
+    const timer = setTimeout(() => {
+      fetch(`/api/places/autocomplete?input=${encodeURIComponent(createForm.address)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) {
+            setAddressSuggestions(res.data)
+          }
+        })
+        .catch(() => {})
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [createForm.address, createOpen])
 
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
@@ -374,6 +515,7 @@ export default function JobsPage() {
       const teamName = resolveTeamName(job)
       const jobNotes = resolveNotes(job)
       const customerName = resolveCustomerName(job)
+      const customer = resolveCustomer(job)
       const title = cleanerName
         ? `${customerName} (${cleanerName})`
         : job.title || job.service_type || customerName
@@ -403,6 +545,7 @@ export default function JobsPage() {
           status: job.status || "scheduled",
           jobId: String(job.id),
           hours: job.hours ? Number(job.hours) : 2,
+          cardOnFile: !!customer?.card_on_file_at,
         },
       }
     })
@@ -428,9 +571,38 @@ export default function JobsPage() {
       duration_minutes: duration,
       price: "",
       notes: "",
+      bedrooms: "",
+      bathrooms: "",
+      sqft: "",
+      frequency: "one-time",
+      cleaner_id: "",
+      is_quote: false,
+      selected_addons: [],
     })
     setCreateError("")
+    setPhoneLookedUp("")
+    setBasePrice(0)
+    setAddressSuggestions([])
     setCreateOpen(true)
+
+    // Fetch cleaners list if not already loaded
+    if (cleanersList.length === 0) {
+      fetch("/api/teams")
+        .then((r) => r.json())
+        .then((data) => {
+          const all: { id: string; name: string }[] = []
+          for (const team of data.data || []) {
+            for (const member of team.members || []) {
+              all.push({ id: String(member.id), name: member.name })
+            }
+          }
+          for (const c of data.unassigned_cleaners || []) {
+            all.push({ id: String(c.id), name: c.name })
+          }
+          setCleanersList(all)
+        })
+        .catch(() => {})
+    }
     info.view.calendar.unselect()
   }
 
@@ -454,6 +626,7 @@ export default function JobsPage() {
       service: info.event.extendedProps.service || "",
       notes: info.event.extendedProps.notes || "",
       hours: info.event.extendedProps.hours || 2,
+      cardOnFile: !!info.event.extendedProps.cardOnFile,
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -747,6 +920,20 @@ export default function JobsPage() {
       setCreateError("Date is required")
       return
     }
+    if (isHouseCleaning) {
+      if (!createForm.bedrooms) {
+        setCreateError("Number of bedrooms is required")
+        return
+      }
+      if (!createForm.bathrooms) {
+        setCreateError("Number of bathrooms is required")
+        return
+      }
+      if (!createForm.sqft) {
+        setCreateError("Square footage is required")
+        return
+      }
+    }
 
     setCreateSaving(true)
     setCreateError("")
@@ -766,6 +953,16 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: createForm.price ? Number(createForm.price) : undefined,
           notes: createForm.notes.trim() || undefined,
+          bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
+          bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
+          sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
+          frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
+          cleaner_id: createForm.cleaner_id || undefined,
+          status: createForm.is_quote ? "quoted" : "scheduled",
+          addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
+          }) : undefined,
         }),
       })
 
@@ -825,11 +1022,11 @@ export default function JobsPage() {
               initialView={getSavedView()}
               initialDate={getSavedDate()}
               height="100%"
-              headerToolbar={{
-                left: "prev,next today",
-                center: "title",
-                right: "dayGridMonth,timeGridWeek,listMonth",
-              }}
+              headerToolbar={
+                typeof window !== "undefined" && window.innerWidth < 768
+                  ? { left: "prev,next", center: "title", right: "listMonth,dayGridMonth" }
+                  : { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,listMonth" }
+              }
               events={baseEvents}
               editable
               selectable
@@ -859,6 +1056,70 @@ export default function JobsPage() {
         </div>
       </div>
 
+      {/* Mobile FAB — Create Job */}
+      <button
+        className="md:hidden"
+        onClick={() => {
+          const now = new Date()
+          const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+          setCreateForm({
+            customer_phone: "",
+            customer_name: "",
+            email: "",
+            address: "",
+            service_type: "Standard cleaning",
+            date,
+            time: "09:00",
+            duration_minutes: "120",
+            price: "",
+            notes: "",
+            bedrooms: "",
+            bathrooms: "",
+            sqft: "",
+            frequency: "one-time",
+            cleaner_id: "",
+            is_quote: false,
+            selected_addons: [],
+          })
+          setCreateError("")
+          setPhoneLookedUp("")
+          setBasePrice(0)
+          setAddressSuggestions([])
+          setCreateOpen(true)
+          if (cleanersList.length === 0) {
+            fetch("/api/teams")
+              .then((r) => r.json())
+              .then((data) => {
+                if (data.cleaners) setCleanersList(data.cleaners.map((c: any) => ({ id: c.id, name: c.name })))
+              })
+              .catch(() => {})
+          }
+        }}
+        style={{
+          position: "fixed",
+          bottom: "1.5rem",
+          right: "1.5rem",
+          zIndex: 50,
+          width: 56,
+          height: 56,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #7c3aed, #6d28d9)",
+          border: "none",
+          boxShadow: "0 4px 16px rgba(124, 58, 237, 0.4)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: "#fff",
+          fontSize: "1.75rem",
+          fontWeight: 300,
+          lineHeight: 1,
+        }}
+        aria-label="Create Job"
+      >
+        +
+      </button>
+
       {/* Event Details Modal */}
       <div
         className={`cal-modal-backdrop${selectedEvent ? " open" : ""}`}
@@ -883,8 +1144,21 @@ export default function JobsPage() {
                   <strong>When:</strong>{" "}
                   {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
+                <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
                   <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+                  {selectedEvent?.cardOnFile && (
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      fontSize: "0.65rem",
+                      fontWeight: 600,
+                      background: "rgba(16, 185, 129, 0.12)",
+                      color: "#34d399",
+                      border: "1px solid rgba(16, 185, 129, 0.2)",
+                    }}>Card on file</span>
+                  )}
                 </div>
                 {selectedEvent?.service && (
                   <div style={{ marginBottom: "0.5rem" }}>
@@ -1302,33 +1576,210 @@ export default function JobsPage() {
                 <label className="cal-form-label">Service Type</label>
                 <select
                   className="cal-form-control"
-                  value={createForm.service_type}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                  }
+                  value={["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) ? createForm.service_type : "__custom__"}
+                  onChange={(e) => {
+                    if (e.target.value === "__custom__") {
+                      setCreateForm((prev) => ({ ...prev, service_type: "" }))
+                    } else {
+                      setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                    }
+                  }}
+                  style={!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru","__custom__"].includes(createForm.service_type) ? { display: "none" } : undefined}
                 >
-                  <option value="Standard cleaning">Standard Cleaning</option>
-                  <option value="Deep cleaning">Deep Cleaning</option>
-                  <option value="Move-in/move-out">Move-in/Move-out</option>
-                  <option value="Window cleaning">Window Cleaning</option>
-                  <option value="Pressure washing">Pressure Washing</option>
-                  <option value="Gutter cleaning">Gutter Cleaning</option>
+                  {isHouseCleaning ? (
+                    <>
+                      <option value="Standard cleaning">Standard Cleaning</option>
+                      <option value="Deep cleaning">Deep Cleaning</option>
+                      <option value="Move-in/move-out">Move-in/Move-out</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="Window cleaning">Window Cleaning</option>
+                      <option value="Pressure washing">Pressure Washing</option>
+                      <option value="Gutter cleaning">Gutter Cleaning</option>
+                      <option value="Walkthru">Walkthru</option>
+                    </>
+                  )}
+                  <option value="__custom__">Other (type your own)</option>
                 </select>
+                {!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) && (
+                  <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
+                    <input
+                      type="text"
+                      className="cal-form-control"
+                      placeholder="Type service name..."
+                      autoFocus
+                      value={createForm.service_type}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                      }
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="cal-form-control"
+                      style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
+                      onClick={() => setCreateForm((prev) => ({ ...prev, service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning" }))}
+                      title="Back to list"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Address */}
-            <div style={{ marginBottom: "0.5rem" }}>
+            {/* Address with autocomplete */}
+            <div style={{ marginBottom: "0.5rem", position: "relative" }}>
               <label className="cal-form-label">Address</label>
               <input
                 type="text"
                 className="cal-form-control"
                 placeholder="123 Main St, City, State"
                 value={createForm.address}
-                onChange={(e) =>
+                onChange={(e) => {
                   setCreateForm((prev) => ({ ...prev, address: e.target.value }))
-                }
+                  setShowAddressSuggestions(true)
+                }}
+                onFocus={() => setShowAddressSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
               />
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  right: 0,
+                  zIndex: 100,
+                  background: "#1e1e21",
+                  border: "1px solid rgba(63, 63, 70, 0.6)",
+                  borderRadius: 8,
+                  marginTop: 2,
+                  maxHeight: 200,
+                  overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  {addressSuggestions.map((s) => (
+                    <button
+                      key={s.place_id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setCreateForm((prev) => ({ ...prev, address: s.description }))
+                        setShowAddressSuggestions(false)
+                      }}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "0.5rem 0.75rem",
+                        background: "transparent",
+                        border: "none",
+                        borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                        color: "#e4e4e7",
+                        fontSize: "0.8rem",
+                        cursor: "pointer",
+                      }}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(63, 63, 70, 0.3)")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      {s.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Property Details — house cleaning tenants only */}
+            {isHouseCleaning && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                <div>
+                  <label className="cal-form-label">Bedrooms *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.bedrooms}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
+                    }
+                  >
+                    <option value="">Select</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                    <option value="6">6+</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="cal-form-label">Bathrooms *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.bathrooms}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
+                    }
+                  >
+                    <option value="">Select</option>
+                    <option value="1">1</option>
+                    <option value="1.5">1.5</option>
+                    <option value="2">2</option>
+                    <option value="2.5">2.5</option>
+                    <option value="3">3</option>
+                    <option value="3.5">3.5</option>
+                    <option value="4">4+</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="cal-form-label">Sqft *</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="1500"
+                    min="0"
+                    value={createForm.sqft}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Frequency (house cleaning) & Cleaner (all tenants) */}
+            <div style={{ display: "grid", gridTemplateColumns: isHouseCleaning ? "1fr 1fr" : "1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              {isHouseCleaning && (
+                <div>
+                  <label className="cal-form-label">Frequency *</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.frequency}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
+                    }
+                  >
+                    <option value="one-time">One-time</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="bi-weekly">Bi-weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="cal-form-label">Assign Cleaner</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.cleaner_id}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, cleaner_id: e.target.value }))
+                  }
+                >
+                  <option value="">— Auto-broadcast —</option>
+                  {cleanersList.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Date, Time, Duration */}
@@ -1376,20 +1827,93 @@ export default function JobsPage() {
               </div>
             </div>
 
-            {/* Price */}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Price ($)</label>
-              <input
-                type="number"
-                className="cal-form-control"
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                value={createForm.price}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, price: e.target.value }))
-                }
-              />
+            {/* Add-ons — house cleaning only */}
+            {isHouseCleaning && addonsList.length > 0 && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <label className="cal-form-label">Add-ons</label>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "0.25rem",
+                  background: "rgba(39, 39, 42, 0.3)",
+                  borderRadius: 8,
+                  border: "1px solid rgba(63, 63, 70, 0.4)",
+                  padding: "0.5rem",
+                  maxHeight: 160,
+                  overflowY: "auto",
+                }}>
+                  {addonsList.map((addon) => (
+                    <label
+                      key={addon.addon_key}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "0.35rem",
+                        cursor: "pointer",
+                        padding: "0.2rem 0.25rem",
+                        borderRadius: 4,
+                        fontSize: "0.8rem",
+                        color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
+                        background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={createForm.selected_addons.includes(addon.addon_key)}
+                        onChange={(e) => {
+                          setCreateForm((prev) => ({
+                            ...prev,
+                            selected_addons: e.target.checked
+                              ? [...prev.selected_addons, addon.addon_key]
+                              : prev.selected_addons.filter((k) => k !== addon.addon_key),
+                          }))
+                        }}
+                        style={{ accentColor: "#8b5cf6" }}
+                      />
+                      <span style={{ flex: 1 }}>{addon.label}</span>
+                      {addon.flat_price != null && addon.flat_price > 0 && (
+                        <span style={{ color: "#71717a", fontSize: "0.7rem" }}>+${addon.flat_price}</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Price + Quote toggle */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "0.5rem", alignItems: "end", marginBottom: "0.5rem" }}>
+              <div>
+                <label className="cal-form-label">Price ($)</label>
+                <input
+                  type="number"
+                  className="cal-form-control"
+                  placeholder="0.00"
+                  min="0"
+                  step="0.01"
+                  value={createForm.price}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, price: e.target.value }))
+                  }
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setCreateForm((prev) => ({ ...prev, is_quote: !prev.is_quote }))}
+                style={{
+                  padding: "0.5rem 0.75rem",
+                  borderRadius: 8,
+                  border: `1px solid ${createForm.is_quote ? "rgba(6, 182, 212, 0.4)" : "rgba(63, 63, 70, 0.6)"}`,
+                  background: createForm.is_quote ? "rgba(6, 182, 212, 0.15)" : "rgba(39, 39, 42, 0.5)",
+                  color: createForm.is_quote ? "#22d3ee" : "#a1a1aa",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                  fontWeight: 500,
+                  whiteSpace: "nowrap",
+                  height: "fit-content",
+                }}
+              >
+                {createForm.is_quote ? "Quote" : "Scheduled"}
+              </button>
             </div>
 
             {/* Notes */}
@@ -1423,7 +1947,7 @@ export default function JobsPage() {
               onClick={handleCreateSave}
               disabled={createSaving}
             >
-              {createSaving ? <><span className="saving-spinner" /> Creating...</> : "Create Job"}
+              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Send Quote" : "Create Job"}
             </button>
           </div>
         </div>

@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     }
 
     // sendTelegramMessage auto-logs to messages table via logTelegramMessage
-    const result = await sendTelegramMessage(telegram_id, message.trim())
+    const result = await sendTelegramMessage(tenant, telegram_id, message.trim())
 
     if (!result.success) {
       return NextResponse.json({ success: false, error: result.error }, { status: 500 })

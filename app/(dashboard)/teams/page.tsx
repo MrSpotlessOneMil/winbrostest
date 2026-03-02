@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,9 @@ import {
   Wrench,
   Briefcase,
   GripVertical,
+  ChevronDown,
+  ChevronUp,
+  Calendar,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
@@ -111,6 +114,52 @@ export default function TeamsPage() {
   const [sendText, setSendText] = useState("")
   const [sending, setSending] = useState(false)
   const chatScrollRef = useRef<HTMLDivElement>(null)
+
+  // Earnings state
+  type EarningsPeriod = "week" | "month" | "custom"
+  type CleanerEarning = {
+    cleaner_id: number
+    name: string
+    phone: string
+    employee_type: string
+    total: number
+    job_count: number
+  }
+  type EarningsSummary = { grand_total: number; total_jobs: number; period: string; start_date: string; end_date: string }
+
+  const [earningsOpen, setEarningsOpen] = useState(false)
+  const [earningsPeriod, setEarningsPeriod] = useState<EarningsPeriod>("week")
+  const [earningsCustomStart, setEarningsCustomStart] = useState("")
+  const [earningsCustomEnd, setEarningsCustomEnd] = useState("")
+  const [earningsData, setEarningsData] = useState<CleanerEarning[]>([])
+  const [earningsSummary, setEarningsSummary] = useState<EarningsSummary | null>(null)
+  const [earningsLoading, setEarningsLoading] = useState(false)
+
+  const loadEarnings = useCallback(async (period: EarningsPeriod, start?: string, end?: string) => {
+    setEarningsLoading(true)
+    try {
+      const params = new URLSearchParams({ period })
+      if (period === "custom" && start) params.set("start", start)
+      if (period === "custom" && end) params.set("end", end)
+      const res = await fetch(`/api/teams/earnings?${params.toString()}`)
+      const json = await res.json()
+      if (json.success) {
+        setEarningsData(json.data.cleaners || [])
+        setEarningsSummary(json.data.summary || null)
+      }
+    } catch {
+      setEarningsData([])
+      setEarningsSummary(null)
+    } finally {
+      setEarningsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (earningsOpen) {
+      loadEarnings(earningsPeriod, earningsCustomStart, earningsCustomEnd)
+    }
+  }, [earningsOpen, earningsPeriod, earningsCustomStart, earningsCustomEnd, loadEarnings])
 
   // Drag and drop state
   const [draggingMemberId, setDraggingMemberId] = useState<string | null>(null)
@@ -372,7 +421,7 @@ export default function TeamsPage() {
       </div>
 
       {/* Summary Stats - compact row */}
-      <div className="grid gap-3 grid-cols-3 shrink-0">
+      <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 shrink-0">
         <Card>
           <CardContent className="p-4 flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10 shrink-0">
@@ -408,8 +457,120 @@ export default function TeamsPage() {
         </Card>
       </div>
 
+      {/* Earnings Section — collapsible */}
+      <Card className="shrink-0">
+        <button
+          onClick={() => setEarningsOpen(!earningsOpen)}
+          className="w-full flex items-center justify-between p-4 hover:bg-muted/30 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-5 w-5 text-green-500" />
+            <span className="text-base font-semibold text-foreground">Cleaner Earnings</span>
+            {earningsSummary && (
+              <Badge variant="outline" className="text-xs ml-1">
+                ${earningsSummary.grand_total.toLocaleString()} from {earningsSummary.total_jobs} jobs
+              </Badge>
+            )}
+          </div>
+          {earningsOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+        </button>
+        {earningsOpen && (
+          <CardContent className="pt-0 pb-4 px-4">
+            {/* Period toggles + date filter */}
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+                {(["week", "month", "custom"] as EarningsPeriod[]).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setEarningsPeriod(p)}
+                    className={cn(
+                      "px-3 py-1.5 text-sm font-medium rounded-md transition-colors capitalize",
+                      earningsPeriod === p
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {p === "week" ? "This Week" : p === "month" ? "This Month" : "Custom"}
+                  </button>
+                ))}
+              </div>
+              {earningsPeriod === "custom" && (
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Input
+                      type="date"
+                      value={earningsCustomStart}
+                      onChange={(e) => setEarningsCustomStart(e.target.value)}
+                      className="h-8 w-36 text-xs"
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">to</span>
+                  <Input
+                    type="date"
+                    value={earningsCustomEnd}
+                    onChange={(e) => setEarningsCustomEnd(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                  />
+                </div>
+              )}
+              {earningsSummary && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {earningsSummary.start_date} — {earningsSummary.end_date}
+                </span>
+              )}
+            </div>
+
+            {earningsLoading ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">Loading earnings...</p>
+            ) : earningsData.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No earnings data for this period.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="text-left py-2 px-2 font-medium text-muted-foreground">Cleaner</th>
+                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Jobs</th>
+                      <th className="text-right py-2 px-2 font-medium text-muted-foreground">Earnings</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {earningsData.filter((c) => c.total > 0 || c.job_count > 0).map((c) => (
+                      <tr key={c.cleaner_id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <td className="py-2 px-2">
+                          <span className="font-medium text-foreground">{c.name}</span>
+                        </td>
+                        <td className="text-right py-2 px-2 text-muted-foreground">{c.job_count}</td>
+                        <td className="text-right py-2 px-2 font-semibold text-green-500">${c.total.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-border">
+                      <td className="py-2 px-2 font-semibold text-foreground">Total</td>
+                      <td className="text-right py-2 px-2 font-semibold text-foreground">
+                        {earningsSummary?.total_jobs || 0}
+                      </td>
+                      <td className="text-right py-2 px-2 font-bold text-green-500">
+                        ${earningsSummary?.grand_total.toLocaleString() || "0"}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+                {earningsData.filter((c) => c.total === 0 && c.job_count === 0).length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {earningsData.filter((c) => c.total === 0).length} cleaners with no completed jobs in this period
+                  </p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
       {/* Two-column layout: teams left, chat right */}
-      <div className="flex gap-6 flex-1 min-h-0">
+      <div className="flex flex-col md:flex-row gap-4 md:gap-6 flex-1 min-h-0">
         {/* LEFT: Team list with inline members */}
         <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
           {teams.map((team) => {
@@ -648,7 +809,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}
-        <div className="relative w-[420px] shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20" data-no-splat>
+        <div className="relative w-full md:w-[420px] shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20 min-h-[300px] md:min-h-0" data-no-splat>
           <VelocityFluidBackground className="z-0" />
 
           <div className="relative z-10 flex flex-col h-full">

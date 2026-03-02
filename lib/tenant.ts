@@ -61,6 +61,7 @@ export interface WorkflowConfig {
 
   // Kill switches
   sms_auto_response_enabled: boolean
+  sms_blocklist?: string[]  // Phone numbers that never get auto-responses
 
   // Lifecycle messaging
   seasonal_reminders_enabled?: boolean
@@ -149,6 +150,10 @@ export interface Tenant {
   stripe_webhook_error_at: string | null
   openphone_webhook_error: string | null
   openphone_webhook_error_at: string | null
+
+  // Gmail credentials (per-tenant email bot)
+  gmail_user: string | null
+  gmail_app_password: string | null
 
   // Workflow configuration
   workflow_config: WorkflowConfig
@@ -594,11 +599,14 @@ let defaultTenantCacheTime = 0
 const CACHE_TTL = 60000 // 1 minute
 
 /**
- * Get the default tenant (winbros) for backwards compatibility
- * This is used during the migration period when some code paths
- * don't have tenant context yet.
+ * @deprecated DO NOT USE — returns hardcoded "winbros" tenant, causing cross-tenant bleed.
+ * Every caller should resolve tenant explicitly via getTenantByPhoneNumber / getTenantByOpenPhoneId / getTenantById.
+ * This function exists only for compile compatibility during migration — it logs an error on every call.
  */
 export async function getDefaultTenant(): Promise<Tenant | null> {
+  console.error('[TENANT] WARNING: getDefaultTenant() called — this falls back to WinBros and causes cross-tenant bleed. Fix the caller!')
+  console.trace('[TENANT] getDefaultTenant() stack trace')
+
   const now = Date.now()
 
   // Return cached if valid

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import { timingSafeEqual } from "crypto"
 import type { ApiResponse, Tip, Upsell } from "@/lib/types"
 import {
   getSupabaseServiceClient,
@@ -15,7 +14,8 @@ import { assignNextAvailableCleaner } from "@/lib/cleaner-assignment"
 import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getDefaultTenant, getTenantById, tenantUsesFeature } from "@/lib/tenant"
+import type { Tenant } from "@/lib/tenant"
 import { geocodeAddress } from "@/lib/google-maps"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
@@ -154,16 +154,14 @@ interface OnboardingState {
   startedAt: number
 }
 
-async function getOnboardingState(chatId: string, tenantId?: string): Promise<OnboardingState | null> {
+async function getOnboardingState(chatId: string): Promise<OnboardingState | null> {
   const client = getSupabaseServiceClient()
-  let query = client
+  const { data } = await client
     .from('system_events')
     .select('metadata')
     .eq('event_type', 'TELEGRAM_ONBOARDING')
     .eq('source', 'telegram')
     .eq('metadata->>chat_id', chatId)
-  if (tenantId) query = query.eq('tenant_id', tenantId)
-  const { data } = await query
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -173,26 +171,23 @@ async function getOnboardingState(chatId: string, tenantId?: string): Promise<On
   if (!state) return null
   // Timeout: 30 minutes
   if (Date.now() - state.startedAt > 30 * 60 * 1000) {
-    await deleteOnboardingState(chatId, tenantId)
+    await deleteOnboardingState(chatId)
     return null
   }
   return state
 }
 
-async function setOnboardingState(chatId: string, state: OnboardingState, tenantId?: string): Promise<void> {
+async function setOnboardingState(chatId: string, state: OnboardingState): Promise<void> {
   const client = getSupabaseServiceClient()
   // Delete any existing onboarding state for this chat
-  let delQuery = client
+  await client
     .from('system_events')
     .delete()
     .eq('event_type', 'TELEGRAM_ONBOARDING')
     .eq('source', 'telegram')
     .eq('metadata->>chat_id', chatId)
-  if (tenantId) delQuery = delQuery.eq('tenant_id', tenantId)
-  await delQuery
   // Insert new state
   await client.from('system_events').insert({
-    tenant_id: tenantId || null,
     event_type: 'TELEGRAM_ONBOARDING',
     source: 'telegram',
     message: `Onboarding step: ${state.step}`,
@@ -201,16 +196,14 @@ async function setOnboardingState(chatId: string, state: OnboardingState, tenant
   })
 }
 
-async function deleteOnboardingState(chatId: string, tenantId?: string): Promise<void> {
+async function deleteOnboardingState(chatId: string): Promise<void> {
   const client = getSupabaseServiceClient()
-  let query = client
+  await client
     .from('system_events')
     .delete()
     .eq('event_type', 'TELEGRAM_ONBOARDING')
     .eq('source', 'telegram')
     .eq('metadata->>chat_id', chatId)
-  if (tenantId) query = query.eq('tenant_id', tenantId)
-  await query
 }
 
 interface TelegramMessage {
@@ -253,13 +246,13 @@ const CONFIRM_PATTERN = /confirm\s+job\s+(\d+)/i
 const REVIEW_PATTERN = /^(?:review|google\s+review)\s+job\s+(\d+)$/i
 const SCHEDULE_PATTERN = /\b(schedule|my\s+jobs?|my\s+shift|my\s+work|today|tomorrow|this\s+week|upcoming\s+jobs?|when\s+(am\s+i|do\s+i\s+work)|what\s+(time|day)\s+(am\s+i|do\s+i))\b/i
 
-// Patterns for new cleaner onboarding (handles smart quotes, curly apostrophes, etc.)
+// Patterns for new team member onboarding (handles smart quotes, curly apostrophes, etc.)
 const JOIN_PATTERNS = [
   /^(join|register|sign\s*up)/i,
-  /^new\s+cleaner/i,
-  /i[''`"']m\s+a\s+(new\s+)?cleaner/i,
-  /i\s+am\s+a\s+(new\s+)?cleaner/i,
-  /^i\s+want\s+to\s+(join|work|clean)/i,
+  /^new\s+(cleaner|salesman|sales\s*man)/i,
+  /i[''`"']m\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /i\s+am\s+a\s+(new\s+)?(cleaner|salesman|sales\s*man)/i,
+  /^i\s+want\s+to\s+(join|work|clean|sell)/i,
   /^(onboard|enroll)/i,
   /new\s+(here|employee|hire|team\s*member)/i,
   /how\s+(do\s+i|can\s+i|to)\s+(join|register|sign\s*up)/i,
@@ -268,21 +261,25 @@ const JOIN_PATTERNS = [
 // Phone number validation
 const PHONE_PATTERN = /^[\d\s\-\(\)\+]{10,}$/
 
+/** Check if this tenant uses estimate/salesman flow (vs cleaning/technician) */
+function isEstimateFlow(tenant: Tenant): boolean {
+  return tenant.slug === 'winbros' || tenantUsesFeature(tenant, 'use_route_optimization')
+}
+
+/** Get the role label for this tenant's field staff */
+function getRoleLabel(tenant: Tenant): string {
+  return isEstimateFlow(tenant) ? 'salesman' : 'cleaner'
+}
+
 // Owner/ops Telegram chat ID for escalations
 const OWNER_TELEGRAM_CHAT_ID = process.env.OWNER_TELEGRAM_CHAT_ID
 const OWNER_PHONE = process.env.OWNER_PHONE
-
-// Helper: send Telegram message using tenant bot token when available, else env var fallback
-type MaybeTenant = Awaited<ReturnType<typeof getDefaultTenant>>
-function sendMsg(tenant: MaybeTenant, chatId: string, text: string) {
-  return tenant ? sendTelegramMessage(tenant, chatId, text) : sendTelegramMessage(chatId, text)
-}
 
 /**
  * Handle callback queries from inline keyboard buttons
  * Supports accept/decline callbacks for cleaner job assignments
  */
-async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, tenant: Awaited<ReturnType<typeof getDefaultTenant>>): Promise<NextResponse> {
+async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery): Promise<NextResponse> {
   const { id: callbackQueryId, from, data: callbackData, message } = callbackQuery
   const telegramUserId = from.id.toString()
   const chatId = message?.chat.id.toString() || telegramUserId
@@ -305,12 +302,12 @@ async function handleCallbackQuery(callbackQuery: TelegramCallbackQuery, tenant:
 
   // Handle accept callback
   if (action === "accept") {
-    return await handleAcceptCallback(callbackQueryId, chatId, telegramUserId, jobId, assignmentId, tenant)
+    return await handleAcceptCallback(callbackQueryId, chatId, telegramUserId, jobId, assignmentId)
   }
 
   // Handle decline callback
   if (action === "decline") {
-    return await handleDeclineCallback(callbackQueryId, chatId, telegramUserId, jobId, assignmentId, tenant)
+    return await handleDeclineCallback(callbackQueryId, chatId, telegramUserId, jobId, assignmentId)
   }
 
   // Unknown action
@@ -326,16 +323,15 @@ async function handleAcceptCallback(
   chatId: string,
   telegramUserId: string,
   jobId: string,
-  assignmentId: string,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  assignmentId: string
 ): Promise<NextResponse> {
   try {
     // 1. Answer the callback query immediately
     await answerCallbackQuery(callbackQueryId, "Processing your acceptance...")
 
-    // 2. Atomic claim: UPDATE only if still pending + tenant-scoped (prevents TOCTOU race + cross-tenant)
+    // 2. Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
     const serviceClient = getSupabaseServiceClient()
-    let claimQuery = serviceClient
+    const { data: claimed, error: claimErr } = await serviceClient
       .from('cleaner_assignments')
       .update({
         status: 'confirmed',
@@ -343,29 +339,31 @@ async function handleAcceptCallback(
       })
       .eq('id', assignmentId)
       .eq('status', 'pending')  // atomic guard — only one concurrent request succeeds
-    if (tenant) claimQuery = claimQuery.eq('tenant_id', tenant.id)
-    const { data: claimed, error: claimErr } = await claimQuery
       .select('*')
       .maybeSingle()
 
     if (claimErr || !claimed) {
-      // Assignment doesn't exist, wrong tenant, or was already claimed
-      await sendMsg(tenant, chatId, "Sorry, this assignment could not be found or has already been processed.")
+      // Assignment doesn't exist, or was already claimed by another click
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendTelegramMessage(chatId, statusMsg)
       return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
     // Use the claimed assignment data going forward
     const assignment = claimed
 
-    // 3. Fetch the job — verify it belongs to this tenant
+    // 3. Fetch the job
     const job = await getJobById(jobId)
-    if (!job || (tenant && job.tenant_id !== tenant.id)) {
-      await sendMsg(tenant, chatId, "Sorry, this job could not be found.")
+    if (!job) {
+      await sendTelegramMessage(chatId, "Sorry, this job could not be found.")
       return NextResponse.json({ success: false, error: "Job not found" })
     }
 
-    // 5. Update job status to assigned + cleaner_confirmed
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
+    // 5. Update job status to scheduled + cleaner_confirmed
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'scheduled', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
 
     // 6. Get customer info and send notification SMS
     let customerNotified = false
@@ -390,11 +388,11 @@ async function handleAcceptCallback(
           timeStr
         )
 
-        if (!tenant) {
-          console.warn("[Telegram] No tenant available for sendSMS in accept callback — skipping customer notification")
-          return NextResponse.json({ success: true, action: "cleaner_accepted_no_tenant" })
-        }
-        const smsResult = await sendSMS(tenant, job.phone_number, smsMessage)
+        // Look up tenant from job for SMS routing
+        const { getTenantById: getTenantByIdForSms } = await import("@/lib/tenant")
+        const jobTenant = job.tenant_id ? await getTenantByIdForSms(job.tenant_id) : null
+        const smsResult = jobTenant ? await sendSMS(jobTenant, job.phone_number, smsMessage) : { success: false, error: 'No tenant' }
+        if (!jobTenant) console.error(`[Telegram] No tenant for job ${jobId} — cannot send cleaner-assigned SMS`)
         customerNotified = smsResult.success
 
         // 7. Update job.customer_notified = true
@@ -402,6 +400,7 @@ async function handleAcceptCallback(
           await updateJob(jobId, { customer_notified: true } as Record<string, unknown>)
 
           // Log the outbound message to the database
+          const tenant = jobTenant
           if (tenant) {
             const client = getSupabaseServiceClient()
             client.from("messages").insert({
@@ -438,7 +437,7 @@ Please make sure to:
 Thank you!
 `.trim()
 
-    await sendMsg(tenant, chatId, confirmationMessage)
+    await sendTelegramMessage(chatId, confirmationMessage)
 
     // 9. Log system event
     await logSystemEvent({
@@ -465,7 +464,7 @@ Thank you!
     })
   } catch (error) {
     console.error("[OSIRIS] Error handling accept callback:", error)
-    await sendMsg(tenant, chatId, "An error occurred. Please try again or contact support.")
+    await sendTelegramMessage(chatId, "An error occurred. Please try again or contact support.")
     return NextResponse.json({ success: false, error: "Accept callback processing failed" }, { status: 500 })
   }
 }
@@ -478,16 +477,15 @@ async function handleDeclineCallback(
   chatId: string,
   telegramUserId: string,
   jobId: string,
-  assignmentId: string,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  assignmentId: string
 ): Promise<NextResponse> {
   try {
     // 1. Answer the callback query immediately
     await answerCallbackQuery(callbackQueryId, "Processing your response...")
 
-    // 2. Atomic claim: UPDATE only if still pending + tenant-scoped (prevents TOCTOU race + cross-tenant)
+    // 2. Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
     const serviceClient = getSupabaseServiceClient()
-    let claimQuery = serviceClient
+    const { data: claimed, error: claimErr } = await serviceClient
       .from('cleaner_assignments')
       .update({
         status: 'declined',
@@ -495,29 +493,33 @@ async function handleDeclineCallback(
       })
       .eq('id', assignmentId)
       .eq('status', 'pending')  // atomic guard — only one concurrent request succeeds
-    if (tenant) claimQuery = claimQuery.eq('tenant_id', tenant.id)
-    const { data: claimed, error: claimErr } = await claimQuery
       .select('*')
       .maybeSingle()
 
     if (claimErr || !claimed) {
-      // Assignment doesn't exist, wrong tenant, or was already claimed
-      await sendMsg(tenant, chatId, "Sorry, this assignment could not be found or has already been processed.")
+      // Assignment doesn't exist, or was already claimed by another click
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendTelegramMessage(chatId, statusMsg)
       return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
     // Use the claimed assignment data going forward
     const assignment = claimed
 
-    // 3. Fetch the job — verify it belongs to this tenant
+    // 3. Fetch the job
     const job = await getJobById(jobId)
-    if (!job || (tenant && job.tenant_id !== tenant.id)) {
-      await sendMsg(tenant, chatId, "Sorry, this job could not be found.")
+    if (!job) {
+      await sendTelegramMessage(chatId, "Sorry, this job could not be found.")
       return NextResponse.json({ success: false, error: "Job not found" })
     }
 
     // 4. Send acknowledgment to cleaner
-    await sendMsg(tenant, chatId, "No problem! We'll find another cleaner for this job.")
+    const declineTenant = job.tenant_id ? await (async () => { const { getTenantById } = await import("@/lib/tenant"); return getTenantById(job.tenant_id!); })() : await getDefaultTenant()
+    const declineRoleLabel = declineTenant ? getRoleLabel(declineTenant) : 'cleaner'
+    await sendTelegramMessage(chatId, `No problem! We'll find another ${declineRoleLabel} for this job.`)
 
     // 6. Try to assign next available cleaner (excluding the declined cleaner)
     const assignResult = await assignNextAvailableCleaner(jobId, [assignment.cleaner_id])
@@ -536,8 +538,12 @@ async function handleDeclineCallback(
           : "your requested date"
 
         const smsMessage = noCleanersAvailable(customer?.first_name || "there", dateStr)
-        if (tenant) {
-          await sendSMS(tenant, job.phone_number, smsMessage)
+        const { getTenantById: getTenantByIdForExhausted } = await import("@/lib/tenant")
+        const exhaustedTenant = job.tenant_id ? await getTenantByIdForExhausted(job.tenant_id) : null
+        if (exhaustedTenant) {
+          await sendSMS(exhaustedTenant, job.phone_number, smsMessage)
+        } else {
+          console.error(`[Telegram] No tenant for job ${jobId} — cannot send no-cleaners SMS`)
         }
       }
 
@@ -557,10 +563,16 @@ Customer Phone: ${job.phone_number || "N/A"}
 All available cleaners have declined or are unavailable. Manual assignment required.
 `.trim()
 
-        await sendMsg(tenant, OWNER_TELEGRAM_CHAT_ID, escalationMessage)
-      } else if (OWNER_PHONE && tenant) {
-        // Fallback: send SMS to owner phone
-        await sendSMS(tenant, OWNER_PHONE, escalationText)
+        await sendTelegramMessage(OWNER_TELEGRAM_CHAT_ID, escalationMessage)
+      } else if (OWNER_PHONE) {
+        // Fallback: send SMS to owner phone — need tenant for this too
+        const { getTenantById: getTenantByIdForOwner } = await import("@/lib/tenant")
+        const ownerTenant = job.tenant_id ? await getTenantByIdForOwner(job.tenant_id) : null
+        if (ownerTenant) {
+          await sendSMS(ownerTenant, OWNER_PHONE, escalationText)
+        } else {
+          console.error(`[Telegram] No tenant for job ${jobId} — cannot send owner escalation SMS`)
+        }
         console.log("[OSIRIS] Escalation sent via SMS to owner (no Telegram chat ID configured)")
       } else {
         console.error("[OSIRIS] No escalation channel configured - set OWNER_TELEGRAM_CHAT_ID or OWNER_PHONE")
@@ -608,34 +620,18 @@ All available cleaners have declined or are unavailable. Manual assignment requi
     })
   } catch (error) {
     console.error("[OSIRIS] Error handling decline callback:", error)
-    await sendMsg(tenant, chatId, "An error occurred. Please try again or contact support.")
+    await sendTelegramMessage(chatId, "An error occurred. Please try again or contact support.")
     return NextResponse.json({ success: false, error: "Decline callback processing failed" }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    // Validate Telegram secret_token header (if configured for default tenant)
-    const tenant = await getDefaultTenant()
-    if (tenant?.telegram_webhook_secret) {
-      const secretHeader = request.headers.get("x-telegram-bot-api-secret-token")
-      if (!secretHeader) {
-        console.error("[OSIRIS] Telegram default route: Missing secret token header")
-        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
-      }
-      const headerBuf = Buffer.from(secretHeader)
-      const storedBuf = Buffer.from(tenant.telegram_webhook_secret)
-      if (headerBuf.length !== storedBuf.length || !timingSafeEqual(headerBuf, storedBuf)) {
-        console.error("[OSIRIS] Telegram default route: Invalid secret token")
-        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
-      }
-    }
-
     const update: TelegramUpdate = await request.json()
 
     // Handle callback queries from inline keyboard buttons
     if (update.callback_query) {
-      return await handleCallbackQuery(update.callback_query, tenant)
+      return await handleCallbackQuery(update.callback_query)
     }
 
     if (!update.message?.text) {
@@ -648,6 +644,26 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] Telegram message from telegram_id=${telegramUserId}, chat_id=${chatId}, length=${text?.length || 0}`)
 
+    // LEGACY ROUTE: resolve tenant from cleaner's tenant_id when possible.
+    // Falls back to getDefaultTenant() (WinBros) for unregistered users.
+    // New tenants should use /api/webhooks/telegram/[slug] instead.
+    let tenant: Tenant | null = null
+    const client = getSupabaseServiceClient()
+    const { data: tenantLookupRows } = await client
+      .from("cleaners")
+      .select("tenant_id")
+      .eq("telegram_id", telegramUserId)
+      .eq("active", true)
+      .limit(1)
+    if (tenantLookupRows?.[0]?.tenant_id) {
+      tenant = await getTenantById(tenantLookupRows[0].tenant_id)
+    }
+    if (!tenant) {
+      tenant = await getDefaultTenant()
+    }
+    const roleLabel = tenant ? getRoleLabel(tenant) : 'cleaner'
+    const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
+
     // Log inbound message to DB (fire-and-forget)
     logTelegramMessage({
       telegramChatId: chatId,
@@ -655,17 +671,20 @@ export async function POST(request: NextRequest) {
       content: text,
       source: 'telegram_webhook',
       messageId: update.message.message_id,
+      tenantId: tenant?.id,
     }).catch(() => {})
 
     // Handle /start command - different response based on context
     if (text.toLowerCase() === "/start") {
-      await sendMsg(tenant, chatId,
-        `<b>Welcome to the Cleaning Team Bot!</b>
+      const businessName = tenant?.business_name_short || tenant?.name || 'Team'
+      await sendTelegramMessage(
+        chatId,
+        `<b>Welcome to the ${businessName} Team Bot!</b>
 
-<b>For New Cleaners:</b>
-Send "join" or "I'm a new cleaner" to register.
+<b>For New ${roleCap}s:</b>
+Send "join" or "I'm a new ${roleLabel}" to register.
 
-<b>For Existing Cleaners:</b>
+<b>For Existing ${roleCap}s:</b>
 • Report tips: "tip job 123 - $20"
 • Report upsells: "upsell job 123 - deep clean"
 • Accept/decline jobs via buttons
@@ -682,38 +701,36 @@ Send "join" or "I'm a new cleaner" to register.
 
     // Handle /myid command
     if (text.toLowerCase() === "/myid") {
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `Your Telegram Chat ID is: <code>${chatId}</code>\n\nProvide this to your manager to complete your registration.`
       )
       return NextResponse.json({ success: true, action: "chat_id_sent", chat_id: chatId })
     }
 
-    const client = getSupabaseServiceClient()
-    const defaultTenant = tenant // already fetched at top of POST for secret validation
-
     // Check if user is in onboarding flow (stored in DB, not memory)
-    const onboardingState = await getOnboardingState(chatId, defaultTenant?.id)
+    const onboardingState = await getOnboardingState(chatId)
     if (onboardingState) {
-      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState, defaultTenant)
+      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState, roleLabel, tenant)
     }
 
     // Check if this is a new cleaner trying to join
     const isJoinRequest = JOIN_PATTERNS.some(pattern => pattern.test(text))
     if (isJoinRequest) {
-      // Check if they're already registered (only active, non-deleted cleaners for this tenant)
-      let existingCleanerQuery = client
+      // Check if they're already registered (only active, non-deleted cleaners)
+      // Use .limit(1) — same telegram_id can exist across multiple tenants
+      const { data: existingCleanerRows } = await client
         .from("cleaners")
         .select("id, name")
         .eq("telegram_id", telegramUserId)
         .eq("active", true)
         .is("deleted_at", null)
         .limit(1)
-      if (defaultTenant) existingCleanerQuery = existingCleanerQuery.eq("tenant_id", defaultTenant.id)
-      const { data: existingCleanerRows } = await existingCleanerQuery
       const existingCleaner = existingCleanerRows?.[0] || null
 
       if (existingCleaner) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `<b>You're already registered!</b>\n\nHi ${existingCleaner.name}, you're already in our system. You'll receive job notifications here.\n\nNeed help? Contact your team lead.`
         )
         return NextResponse.json({ success: true, action: "already_registered" })
@@ -724,23 +741,24 @@ Send "join" or "I'm a new cleaner" to register.
         step: 'name',
         data: {},
         startedAt: Date.now()
-      }, defaultTenant?.id)
+      })
 
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Welcome to the team!</b> 🎉\n\nLet's get you set up. I'll need a few details.\n\n<b>Step 1/5:</b> What's your full name?`
       )
       return NextResponse.json({ success: true, action: "onboarding_started" })
     }
 
-    // Best-effort lookup: map telegram user to cleaner by telegram_id (scoped to tenant)
-    let cleanerLookupQuery = client
+    // Best-effort lookup: map telegram user to cleaner by telegram_id
+    // Use .limit(1) instead of .maybeSingle() because the same telegram_id
+    // can exist across multiple tenants, and maybeSingle() errors on >1 row
+    const { data: cleanerRows, error: cleanerLookupError } = await client
       .from("cleaners")
       .select("id,name,active,is_team_lead,phone,email")
       .eq("telegram_id", telegramUserId)
       .eq("active", true)
       .limit(1)
-    if (defaultTenant) cleanerLookupQuery = cleanerLookupQuery.eq("tenant_id", defaultTenant.id)
-    const { data: cleanerRows, error: cleanerLookupError } = await cleanerLookupQuery
     const cleaner = cleanerRows?.[0] || null
 
     if (cleanerLookupError) {
@@ -764,35 +782,34 @@ Send "join" or "I'm a new cleaner" to register.
 
     // Handle team lead commands
     if (text.toLowerCase() === "/team" && cleaner?.is_team_lead) {
-      return await handleTeamCommand(chatId, cleaner, client, defaultTenant)
+      return await handleTeamCommand(chatId, cleaner, client, tenant)
     }
 
     if (text.toLowerCase() === "/leaderboard" && cleaner?.is_team_lead) {
-      return await handleLeaderboardCommand(chatId, cleaner, client, defaultTenant)
+      return await handleLeaderboardCommand(chatId, cleaner, client, tenant)
     }
 
     if (text.toLowerCase() === "/briefing" && cleaner?.is_team_lead) {
-      return await handleBriefingCommand(chatId, cleaner, client, defaultTenant)
+      return await handleBriefingCommand(chatId, cleaner, client, tenant)
     }
 
     // Parse review confirmation from team leads: "review job 123"
     const reviewMatch = text.match(REVIEW_PATTERN)
     if (reviewMatch) {
       if (!cleaner?.is_team_lead) {
-        await sendMsg(tenant, chatId, `Review confirmation is only available to team leads.`)
+        await sendTelegramMessage(chatId, `Review confirmation is only available to team leads.`)
         return NextResponse.json({ success: true, action: "not_team_lead" })
       }
 
       const reviewJobId = Number(reviewMatch[1])
-      let reviewJobQuery = client
+      const { data: reviewJob } = await client
         .from("jobs")
         .select("id, phone_number, team_id")
         .eq("id", reviewJobId)
-      if (defaultTenant) reviewJobQuery = reviewJobQuery.eq("tenant_id", defaultTenant.id)
-      const { data: reviewJob } = await reviewJobQuery.single()
+        .single()
 
       if (!reviewJob?.phone_number) {
-        await sendMsg(tenant, chatId, `❌ Job #${reviewJobId} not found or has no customer phone. Check the job ID and try again.`)
+        await sendTelegramMessage(chatId, `❌ Job #${reviewJobId} not found or has no customer phone. Check the job ID and try again.`)
         return NextResponse.json({ success: false, error: "Job not found" })
       }
 
@@ -800,12 +817,12 @@ Send "join" or "I'm a new cleaner" to register.
 
       if (!reviewResult.success) {
         // No attribution found — still record directly
-        await sendMsg(tenant, chatId, `⚠️ Review logged for Job #${reviewJobId}, but no follow-up attribution was found for this customer. The $10 credit may need to be applied manually.`)
+        await sendTelegramMessage(chatId, `⚠️ Review logged for Job #${reviewJobId}, but no follow-up attribution was found for this customer. The $10 credit may need to be applied manually.`)
         return NextResponse.json({ success: true, action: "review_logged_no_attribution" })
       }
 
       const bonusDollars = reviewResult.bonusCents ? (reviewResult.bonusCents / 100).toFixed(2) : "10.00"
-      await sendMsg(tenant, chatId, `✅ Review confirmed for Job #${reviewJobId} — $${bonusDollars} credit added to the crew leaderboard.`)
+      await sendTelegramMessage(chatId, `✅ Review confirmed for Job #${reviewJobId} — $${bonusDollars} credit added to the crew leaderboard.`)
 
       console.log(`[OSIRIS] Review confirmed by team lead for job ${reviewJobId}`)
       return NextResponse.json({ success: true, action: "review_confirmed", job_id: reviewJobId })
@@ -813,7 +830,8 @@ Send "join" or "I'm a new cleaner" to register.
 
     // Non-team lead trying team lead commands
     if (["/team", "/leaderboard", "/briefing"].includes(text.toLowerCase()) && !cleaner?.is_team_lead) {
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `This command is only available to team leads. Contact your manager if you believe this is an error.`
       )
       return NextResponse.json({ success: true, action: "not_team_lead" })
@@ -827,7 +845,7 @@ Send "join" or "I'm a new cleaner" to register.
       const tipAmount = parseFloat(amount)
 
       if (!Number.isFinite(numericJobId) || !Number.isFinite(tipAmount)) {
-        await sendMsg(tenant, chatId, `Invalid tip format. Use: tip job 123 - $20`)
+        await sendTelegramMessage(chatId, `Invalid tip format. Use: tip job 123 - $20`)
         return NextResponse.json({ success: false, error: "Invalid tip format" })
       }
 
@@ -851,7 +869,8 @@ Send "join" or "I'm a new cleaner" to register.
         ? ` (split $${result.amountEach.toFixed(2)} each among ${result.splitCount} cleaners)`
         : ''
 
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Tip Recorded!</b>\n\nJob #${jobId}: $${amount}${splitNote}\n\nThank you for reporting this tip.`
       )
 
@@ -888,7 +907,8 @@ Send "join" or "I'm a new cleaner" to register.
       console.log(`[OSIRIS] Upsell recorded: Job ${jobId}, Type: ${upsellType}`)
 
       // Send confirmation back to chat
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Upsell Recorded!</b>\n\nJob #${jobId}: ${upsellType.trim()}\n\nGreat work on the upsell!`
       )
 
@@ -903,12 +923,10 @@ Send "join" or "I'm a new cleaner" to register.
       // Mark job assigned to this cleaner's team (if we can resolve it)
       const numericJobId = Number(jobId)
       if (teamId != null && Number.isFinite(numericJobId)) {
-        let confirmJobQuery = client
+        const { error: jobErr } = await client
           .from("jobs")
           .update({ team_id: teamId })
           .eq("id", numericJobId)
-        if (defaultTenant) confirmJobQuery = confirmJobQuery.eq("tenant_id", defaultTenant.id)
-        const { error: jobErr } = await confirmJobQuery
         if (jobErr) {
           console.error("[OSIRIS] Failed to assign team to job:", jobErr)
         }
@@ -921,17 +939,17 @@ Send "join" or "I'm a new cleaner" to register.
 
     // Schedule query — directly fetch and format the cleaner's jobs without AI
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, defaultTenant?.timezone || 'America/Chicago', defaultTenant?.id)
-      await sendMsg(tenant, chatId, scheduleMsg)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, roleLabel, tenant)
+      await sendTelegramMessage(chatId, scheduleMsg)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
 
     // Unknown message format - use AI to provide helpful response
     console.log(`[OSIRIS] Unrecognized message — routing to AI. cleanerId=${cleaner?.id || 'NULL'}, length=${text?.length || 0}`)
 
-    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null, defaultTenant?.timezone || 'America/Chicago', defaultTenant?.id)
+    const aiResponse = await generateAIResponse(text, cleaner?.name || from.first_name, !!cleaner?.is_team_lead, cleaner?.id || null, roleLabel)
     console.log(`[OSIRIS] AI response generated, length=${aiResponse.length}`)
-    await sendMsg(tenant, chatId, aiResponse)
+    await sendTelegramMessage(chatId, aiResponse)
 
     return NextResponse.json({ success: true, action: "ai_response" })
 
@@ -953,15 +971,16 @@ async function handleOnboardingStep(
   from: { first_name: string; username?: string },
   text: string,
   state: OnboardingState,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  roleLabel: string = 'cleaner',
+  tenant: Tenant | null = null
 ): Promise<NextResponse> {
   const client = getSupabaseServiceClient()
-  const tenantId = tenant?.id
 
   // Handle cancel
   if (text.toLowerCase() === "cancel" || text.toLowerCase() === "/cancel") {
-    await deleteOnboardingState(chatId, tenantId)
-    await sendMsg(tenant, chatId,
+    await deleteOnboardingState(chatId)
+    await sendTelegramMessage(
+      chatId,
       `Registration cancelled. Send "join" anytime to start again.`
     )
     return NextResponse.json({ success: true, action: "onboarding_cancelled" })
@@ -971,7 +990,8 @@ async function handleOnboardingStep(
     case 'name':
       // Validate name (at least 2 characters, letters and spaces only)
       if (text.length < 2 || !/^[a-zA-Z\s]+$/.test(text)) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `Please enter a valid name (letters only, at least 2 characters).`
         )
         return NextResponse.json({ success: true, action: "invalid_name" })
@@ -979,9 +999,10 @@ async function handleOnboardingStep(
 
       state.data.name = text.trim()
       state.step = 'phone'
-      await setOnboardingState(chatId, state, tenantId)
+      await setOnboardingState(chatId, state)
 
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Step 2/5:</b> What's your phone number?\n\n(Format: 123-456-7890 or similar)`
       )
       return NextResponse.json({ success: true, action: "name_collected" })
@@ -990,7 +1011,8 @@ async function handleOnboardingStep(
       // Validate phone
       const cleanPhone = text.replace(/[\s\-\(\)]/g, '')
       if (!PHONE_PATTERN.test(text) || cleanPhone.length < 10) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `Please enter a valid phone number (at least 10 digits).`
         )
         return NextResponse.json({ success: true, action: "invalid_phone" })
@@ -998,9 +1020,10 @@ async function handleOnboardingStep(
 
       state.data.phone = cleanPhone.startsWith('+') ? cleanPhone : `+1${cleanPhone}`
       state.step = 'address'
-      await setOnboardingState(chatId, state, tenantId)
+      await setOnboardingState(chatId, state)
 
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Step 3/5:</b> What's your home address?\n\nThis is where you'll be starting your day from. We use it to plan efficient routes.\n\n(e.g., "123 Main St, Cedar Rapids, IA 52401")`
       )
       return NextResponse.json({ success: true, action: "phone_collected" })
@@ -1008,7 +1031,8 @@ async function handleOnboardingStep(
     case 'address':
       // Validate address has some substance
       if (text.trim().length < 5) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `Please enter a valid street address (e.g., "123 Main St, Cedar Rapids, IA 52401").`
         )
         return NextResponse.json({ success: true, action: "invalid_address" })
@@ -1016,9 +1040,10 @@ async function handleOnboardingStep(
 
       state.data.home_address = text.trim()
       state.step = 'days'
-      await setOnboardingState(chatId, state, tenantId)
+      await setOnboardingState(chatId, state)
 
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Step 4/5:</b> Which days are you available to work?\n\n` +
         `Examples:\n` +
         `• "Weekdays" (Mon-Fri)\n` +
@@ -1031,7 +1056,8 @@ async function handleOnboardingStep(
     case 'days': {
       const parsedDays = parseDaysInput(text)
       if (!parsedDays || parsedDays.length === 0) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `I couldn't understand that. Please enter your available days.\n\n` +
           `Examples: "Weekdays", "Mon-Fri", "Mon, Wed, Fri", "Every day"`
         )
@@ -1040,10 +1066,11 @@ async function handleOnboardingStep(
 
       state.data.availableDays = parsedDays
       state.step = 'hours'
-      await setOnboardingState(chatId, state, tenantId)
+      await setOnboardingState(chatId, state)
 
       const daysList = parsedDays.map(d => DAY_LABELS[d]).join(', ')
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `Got it: <b>${daysList}</b>\n\n` +
         `<b>Step 5/5:</b> What hours are you available on those days?\n\n` +
         `Examples:\n` +
@@ -1057,7 +1084,8 @@ async function handleOnboardingStep(
     case 'hours': {
       const timeRange = parseTimeRange(text)
       if (!timeRange) {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `I couldn't understand that time range. Please enter your hours like:\n\n` +
           `• "8am-5pm"\n` +
           `• "9:00am-6:00pm"\n` +
@@ -1069,10 +1097,11 @@ async function handleOnboardingStep(
       state.data.startTime = timeRange[0]
       state.data.endTime = timeRange[1]
       state.step = 'confirm'
-      await setOnboardingState(chatId, state, tenantId)
+      await setOnboardingState(chatId, state)
 
       const daysList = (state.data.availableDays || []).map(d => DAY_LABELS[d]).join(', ')
-      await sendMsg(tenant, chatId,
+      await sendTelegramMessage(
+        chatId,
         `<b>Please confirm your details:</b>\n\n` +
         `Name: ${state.data.name}\n` +
         `Phone: ${state.data.phone}\n` +
@@ -1086,10 +1115,11 @@ async function handleOnboardingStep(
 
     case 'confirm':
       if (text.toLowerCase() === 'yes' || text.toLowerCase() === 'y') {
-        // Use tenant passed from the POST handler
+        // Legacy route: tenant resolved from cleaner lookup or getDefaultTenant() fallback
+        // New tenants should use /api/webhooks/telegram/[slug] instead
         if (!tenant) {
-          await sendMsg(tenant, chatId, `Registration error. Please contact support.`)
-          await deleteOnboardingState(chatId, tenantId)
+          await sendTelegramMessage(chatId, `Registration error. Please contact support.`)
+          await deleteOnboardingState(chatId)
           return NextResponse.json({ success: false, error: "No tenant configured" })
         }
 
@@ -1134,17 +1164,19 @@ async function handleOnboardingStep(
             home_lng: homeLng,
             availability: availabilityData,
             active: true,
-            is_team_lead: false
+            is_team_lead: false,
+            employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician',
           })
           .select("id, name")
           .single()
 
         if (insertError) {
           console.error("[OSIRIS] Error creating cleaner:", insertError)
-          await sendMsg(tenant, chatId,
+          await sendTelegramMessage(
+            chatId,
             `There was an error registering you. Please try again or contact support.`
           )
-          await deleteOnboardingState(chatId, tenantId)
+          await deleteOnboardingState(chatId)
           return NextResponse.json({ success: false, error: "Failed to create cleaner" })
         }
 
@@ -1191,9 +1223,10 @@ async function handleOnboardingStep(
           .eq("metadata->>telegram_chat_id", chatId)
           .is("phone_number", null)
 
-        await deleteOnboardingState(chatId, tenantId)
+        await deleteOnboardingState(chatId)
 
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `<b>Welcome aboard, ${state.data.name}!</b> 🎉\n\n` +
           `You're now registered and will receive job notifications here.\n\n` +
           `<b>Quick tips:</b>\n` +
@@ -1207,12 +1240,13 @@ async function handleOnboardingStep(
         await logSystemEvent({
           source: "telegram",
           event_type: "CLEANER_BROADCAST",
-          message: `New cleaner registered via Telegram: ${state.data.name}`,
+          message: `New ${roleLabel} registered via Telegram: ${state.data.name}`,
           cleaner_id: newCleaner.id,
           phone_number: state.data.phone,
           metadata: {
             telegram_id: telegramUserId,
-            registration_method: "telegram_onboarding"
+            registration_method: "telegram_onboarding",
+            employee_type: isEstimateFlow(tenant) ? 'salesman' : 'technician',
           }
         })
 
@@ -1223,21 +1257,23 @@ async function handleOnboardingStep(
           step: 'name',
           data: {},
           startedAt: Date.now()
-        }, tenantId)
+        })
 
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `No problem, let's start over.\n\n<b>Step 1/5:</b> What's your full name?`
         )
         return NextResponse.json({ success: true, action: "onboarding_restart" })
       } else {
-        await sendMsg(tenant, chatId,
+        await sendTelegramMessage(
+          chatId,
           `Please type <b>YES</b> to confirm or <b>NO</b> to start over.`
         )
         return NextResponse.json({ success: true, action: "invalid_confirmation" })
       }
 
     default:
-      await deleteOnboardingState(chatId, tenantId)
+      await deleteOnboardingState(chatId)
       return NextResponse.json({ success: true, action: "invalid_state" })
   }
 }
@@ -1249,24 +1285,20 @@ async function handleTeamCommand(
   chatId: string,
   cleaner: { id: string; name: string; is_team_lead?: boolean },
   client: ReturnType<typeof getSupabaseServiceClient>,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  tenant: Tenant | null
 ): Promise<NextResponse> {
-  if (!tenant) {
-    await sendMsg(tenant, chatId, `Service temporarily unavailable. Please try again later.`)
-    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
-  }
-
   // Get all cleaners (team members) scoped to tenant
-  const { data: teamMembers, error } = await client
+  let query = client
     .from("cleaners")
     .select("id, name, phone, is_team_lead, active, telegram_id")
     .eq("active", true)
-    .eq("tenant_id", tenant.id)
+  if (tenant?.id) query = query.eq("tenant_id", tenant.id)
+  const { data: teamMembers, error } = await query
     .order("is_team_lead", { ascending: false })
     .order("name")
 
   if (error || !teamMembers) {
-    await sendMsg(tenant, chatId, `Error fetching team data. Please try again.`)
+    await sendTelegramMessage(chatId, `Error fetching team data. Please try again.`)
     return NextResponse.json({ success: false, error: "Failed to fetch team" })
   }
 
@@ -1276,7 +1308,8 @@ async function handleTeamCommand(
     return `${i + 1}. ${m.name}${leadBadge}\n   📱 ${m.phone || 'No phone'}\n   Telegram: ${telegramStatus}`
   }).join("\n\n")
 
-  await sendMsg(tenant, chatId,
+  await sendTelegramMessage(
+    chatId,
     `<b>Your Team (${teamMembers.length} members)</b>\n\n${teamList}\n\n⭐ = Team Lead\n✅ = Telegram connected`
   )
 
@@ -1290,18 +1323,13 @@ async function handleLeaderboardCommand(
   chatId: string,
   cleaner: { id: string; name: string },
   client: ReturnType<typeof getSupabaseServiceClient>,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  tenant: Tenant | null
 ): Promise<NextResponse> {
-  if (!tenant) {
-    await sendMsg(tenant, chatId, `Service temporarily unavailable. Please try again later.`)
-    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
-  }
-
-  // Get job completion stats for the past 30 days
+  // Get job completion stats for the past 30 days, scoped to tenant
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-  const { data: assignments, error } = await client
+  let query = client
     .from("cleaner_assignments")
     .select(`
       cleaner_id,
@@ -1310,10 +1338,11 @@ async function handleLeaderboardCommand(
     `)
     .gte("created_at", thirtyDaysAgo.toISOString())
     .eq("status", "confirmed")
-    .eq("tenant_id", tenant.id)
+  if (tenant?.id) query = query.eq("tenant_id", tenant.id)
+  const { data: assignments, error } = await query
 
   if (error) {
-    await sendMsg(tenant, chatId, `Error fetching leaderboard. Please try again.`)
+    await sendTelegramMessage(chatId, `Error fetching leaderboard. Please try again.`)
     return NextResponse.json({ success: false, error: "Failed to fetch leaderboard" })
   }
 
@@ -1332,7 +1361,8 @@ async function handleLeaderboardCommand(
     .slice(0, 10)
 
   if (sorted.length === 0) {
-    await sendMsg(tenant, chatId,
+    await sendTelegramMessage(
+      chatId,
       `<b>Leaderboard (Last 30 Days)</b>\n\nNo completed jobs in the last 30 days.`
     )
     return NextResponse.json({ success: true, action: "leaderboard_empty" })
@@ -1344,7 +1374,8 @@ async function handleLeaderboardCommand(
     return `${medal} ${data.name} - ${data.count} jobs`
   }).join("\n")
 
-  await sendMsg(tenant, chatId,
+  await sendTelegramMessage(
+    chatId,
     `<b>🏆 Leaderboard (Last 30 Days)</b>\n\n${leaderboard}`
   )
 
@@ -1358,17 +1389,12 @@ async function handleBriefingCommand(
   chatId: string,
   cleaner: { id: string; name: string },
   client: ReturnType<typeof getSupabaseServiceClient>,
-  tenant: Awaited<ReturnType<typeof getDefaultTenant>>
+  tenant: Tenant | null
 ): Promise<NextResponse> {
-  if (!tenant) {
-    await sendMsg(tenant, chatId, `Service temporarily unavailable. Please try again later.`)
-    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
-  }
-
   const today = new Date().toISOString().split('T')[0]
 
-  // Get today's jobs scoped to tenant
-  const { data: todaysJobs, error: jobsError } = await client
+  // Get today's jobs, scoped to tenant
+  let jobsQuery = client
     .from("jobs")
     .select(`
       id,
@@ -1383,22 +1409,22 @@ async function handleBriefingCommand(
       )
     `)
     .eq("date", today)
-    .eq("tenant_id", tenant.id)
-    .order("scheduled_at")
+  if (tenant?.id) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const { data: todaysJobs, error: jobsError } = await jobsQuery.order("scheduled_at")
 
   if (jobsError) {
-    await sendMsg(tenant, chatId, `Error fetching briefing. Please try again.`)
+    await sendTelegramMessage(chatId, `Error fetching briefing. Please try again.`)
     return NextResponse.json({ success: false, error: "Failed to fetch briefing" })
   }
 
-  // Get pending jobs needing assignment scoped to tenant
-  const { data: pendingJobs } = await client
+  // Get pending jobs needing assignment, scoped to tenant
+  let pendingQuery = client
     .from("jobs")
     .select("id, date, address")
     .gte("date", today)
-    .eq("tenant_id", tenant.id)
     .is("cleaner_confirmed", null)
-    .limit(5)
+  if (tenant?.id) pendingQuery = pendingQuery.eq("tenant_id", tenant.id)
+  const { data: pendingJobs } = await pendingQuery.limit(5)
 
   // Build briefing message
   let briefing = `<b>📋 Daily Briefing for ${cleaner.name}</b>\n\n`
@@ -1425,17 +1451,16 @@ async function handleBriefingCommand(
     }
   }
 
-  // Quick stats scoped to tenant
+  // Quick stats
   const { count: weekJobs } = await client
     .from("jobs")
     .select("*", { count: "exact", head: true })
     .gte("date", today)
     .lte("date", new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
-    .eq("tenant_id", tenant.id)
 
   briefing += `\n<b>📊 This Week:</b> ${weekJobs || 0} jobs scheduled`
 
-  await sendMsg(tenant, chatId, briefing)
+  await sendTelegramMessage(chatId, briefing)
 
   return NextResponse.json({ success: true, action: "briefing_sent" })
 }
@@ -1452,15 +1477,15 @@ async function buildScheduleResponse(
   userMessage: string,
   cleanerId: string | null,
   cleanerName: string,
-  tenantTimezone: string = 'America/Chicago',
-  tenantId?: string
+  roleLabel: string = 'cleaner',
+  tenant: Tenant | null = null
 ): Promise<string> {
   if (!cleanerId) {
-    return `Hi! You're not registered as a cleaner yet. Send "join" to get set up and start receiving job assignments.`
+    return `Hi! You're not registered as a ${roleLabel} yet. Send "join" to get set up and start receiving job assignments.`
   }
 
   const supabase = getSupabaseServiceClient()
-  const tz = tenantTimezone
+  const tz = tenant?.timezone || 'America/Chicago'
   const nowLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz })
   const tomorrowLocal = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: tz })
 
@@ -1474,13 +1499,11 @@ async function buildScheduleResponse(
   const dateLabel = askingTomorrow ? 'tomorrow' : askingToday ? 'today' : 'upcoming'
 
   // Get cleaner's confirmed/pending assignments
-  let assignQuery = supabase
+  const { data: assignments } = await supabase
     .from('cleaner_assignments')
     .select('job_id')
     .eq('cleaner_id', cleanerId)
     .in('status', ['confirmed', 'pending'])
-  if (tenantId) assignQuery = assignQuery.eq('tenant_id', tenantId)
-  const { data: assignments } = await assignQuery
 
   const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
 
@@ -1496,7 +1519,6 @@ async function buildScheduleResponse(
     .neq('status', 'cancelled')
     .order('date', { ascending: true })
     .order('scheduled_at', { ascending: true })
-  if (tenantId) jobQuery = jobQuery.eq('tenant_id', tenantId)
 
   if (askingWeek) {
     const weekEnd = new Date(Date.now() + 7 * 86400000).toLocaleDateString('en-CA', { timeZone: tz })
@@ -1555,8 +1577,7 @@ async function generateAIResponse(
   userName: string,
   isTeamLead: boolean,
   cleanerId: string | null,
-  tenantTimezone: string = 'America/Chicago',
-  tenantId?: string
+  roleLabel: string = 'cleaner'
 ): Promise<string> {
   const anthropicKey = process.env.ANTHROPIC_API_KEY
 
@@ -1565,7 +1586,7 @@ async function generateAIResponse(
   // Fallback if no API key
   if (!anthropicKey) {
     console.log(`[OSIRIS] No ANTHROPIC_API_KEY set — returning fallback response`)
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   }
 
   try {
@@ -1573,23 +1594,21 @@ async function generateAIResponse(
     let jobContext = ""
     if (cleanerId) {
       const supabase = getSupabaseServiceClient()
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: tenantTimezone })
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 
       // Get job IDs assigned to this cleaner
-      let aiAssignQuery = supabase
+      const { data: assignments } = await supabase
         .from("cleaner_assignments")
         .select("job_id")
         .eq("cleaner_id", cleanerId)
         .in("status", ["confirmed", "pending"])
-      if (tenantId) aiAssignQuery = aiAssignQuery.eq("tenant_id", tenantId)
-      const { data: assignments } = await aiAssignQuery
 
       const jobIds = (assignments || []).map((a: any) => a.job_id).filter(Boolean)
       console.log(`[OSIRIS] Cleaner ${cleanerId} has ${jobIds.length} assignment(s) with status confirmed/pending. jobIds=${JSON.stringify(jobIds)}`)
 
       if (jobIds.length > 0) {
         // Fetch actual job details
-        let aiJobQuery = supabase
+        const { data: jobs } = await supabase
           .from("jobs")
           .select("id, date, scheduled_at, address, service_type, notes, status, phone_number")
           .in("id", jobIds)
@@ -1597,8 +1616,6 @@ async function generateAIResponse(
           .not("status", "in", '("completed","cancelled")')
           .order("date", { ascending: true })
           .limit(10)
-        if (tenantId) aiJobQuery = aiJobQuery.eq("tenant_id", tenantId)
-        const { data: jobs } = await aiJobQuery
 
         console.log(`[OSIRIS] Jobs query returned ${jobs?.length || 0} upcoming jobs for cleaner ${cleanerId} (today=${today})`)
 
@@ -1619,7 +1636,7 @@ async function generateAIResponse(
         jobContext = `\n\nThis cleaner has NO upcoming jobs assigned to them right now. Tell them directly that they have no upcoming jobs currently scheduled. If they think this is wrong, suggest they contact their team lead or supervisor.`
       }
     } else {
-      jobContext = `\n\nIMPORTANT: This user is NOT registered as a cleaner in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a cleaner so they can receive job assignments and view their schedule.`
+      jobContext = `\n\nIMPORTANT: This user is NOT registered as a ${roleLabel} in our system. You do NOT have access to any job data for them. Tell them to send "join" to register as a ${roleLabel} so they can receive job assignments and view their schedule.`
     }
 
     const client = new Anthropic({ apiKey: anthropicKey })
@@ -1631,7 +1648,10 @@ async function generateAIResponse(
 - /briefing - Get your daily briefing`
       : ""
 
-    const systemPrompt = `You are a helpful assistant for a cleaning company's Telegram bot. You can answer questions about upcoming jobs and direct users to the right commands.
+    const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
+    const systemPrompt = `You are a helpful assistant for a service company's Telegram bot. The user is a ${roleLabel}. You can answer questions about upcoming jobs and direct users to the right commands.
+
+IMPORTANT: Always refer to this person and their colleagues as "${roleLabel}s", never as "cleaners" or "technicians".
 
 Available commands:
 - "tip job [number] - $[amount]" - Report a tip
@@ -1645,8 +1665,6 @@ Respond in a friendly, concise way (2-4 sentences max). If they're asking about 
 
     console.log(`[OSIRIS] Job context status: ${cleanerId ? (jobContext.includes('UPCOMING JOBS') ? 'HAS_JOBS' : jobContext.includes('NO upcoming') ? 'NO_JOBS' : 'NOT_REGISTERED') : 'NO_CLEANER_ID'}`)
 
-    const aiAbort = new AbortController()
-    const aiTimeout = setTimeout(() => aiAbort.abort(), 15_000)
     const response = await client.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 300,
@@ -1657,32 +1675,31 @@ Respond in a friendly, concise way (2-4 sentences max). If they're asking about 
         },
       ],
       system: systemPrompt,
-    }, { signal: aiAbort.signal })
-    clearTimeout(aiTimeout)
+    })
 
     const textContent = response.content.find((block) => block.type === "text")
     if (textContent?.type === "text" && textContent.text) {
       return textContent.text.trim()
     }
 
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   } catch (error) {
     console.error("[OSIRIS] AI response error:", error)
-    return getDefaultFallbackResponse(isTeamLead)
+    return getDefaultFallbackResponse(isTeamLead, roleLabel)
   }
 }
 
 /**
  * Default fallback when AI is unavailable
  */
-function getDefaultFallbackResponse(isTeamLead: boolean): string {
+function getDefaultFallbackResponse(isTeamLead: boolean, roleLabel: string = 'cleaner'): string {
   const teamLeadPart = isTeamLead
     ? "\n\nTeam lead commands: /team, /leaderboard, /briefing"
     : ""
 
   return `I didn't quite understand that. Here's what I can help with:
 
-• New cleaner? Send "join" to register
+• New ${roleLabel}? Send "join" to register
 • Report a tip: "tip job 123 - $20"
 • Report an upsell: "upsell job 123 - deep clean"
 • Need help? Send /start${teamLeadPart}`

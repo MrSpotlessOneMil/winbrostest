@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 import type { Job, ApiResponse, PaginatedResponse } from "@/lib/types"
 import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
-import { getTenantById } from "@/lib/tenant"
+import { getTenantById, tenantUsesFeature } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
+import { sendTelegramMessage } from "@/lib/telegram"
+import { cleanerAssigned } from "@/lib/sms-templates"
+import { triggerCleanerAssignment } from "@/lib/cleaner-assignment"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -18,7 +21,7 @@ function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
     case "scheduled":
       return "scheduled"
     case "quoted":
-      return "confirmed"
+      return "quoted"
     case "lead":
       return "scheduled"
     default:
@@ -170,6 +173,11 @@ export async function PATCH(request: NextRequest) {
     if (date !== undefined) updates.date = date
     if (scheduled_at !== undefined) updates.scheduled_at = scheduled_at
     if (hours !== undefined) updates.hours = hours
+    if (body.service_type !== undefined) updates.service_type = body.service_type
+    if (body.address !== undefined) updates.address = body.address
+    if (body.price !== undefined) updates.price = body.price
+    if (body.status !== undefined) updates.status = body.status
+    if (body.notes !== undefined) updates.notes = body.notes
 
     // Handle cleaner reassignment
     const { cleaner_id } = body
@@ -187,6 +195,80 @@ export async function PATCH(request: NextRequest) {
             assigned_at: new Date().toISOString(),
             responded_at: new Date().toISOString(),
           })
+
+          // Notify cleaner via Telegram + send customer confirmation SMS (fire-and-forget)
+          const assignTenant = tenant || (tenantId ? await getTenantById(tenantId) : null)
+          if (assignTenant) {
+            const svc = getSupabaseServiceClient()
+            const { data: cleaner } = await svc
+              .from("cleaners")
+              .select("id, name, telegram_id")
+              .eq("id", Number(cleaner_id))
+              .single()
+
+            if (cleaner) {
+              // Telegram info message to cleaner (no accept/decline — owner made the decision)
+              if (cleaner.telegram_id) {
+                const jobDate = date || oldJob?.date || "TBD"
+                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
+                const jobAddress = body.address || oldJob?.address || "TBD"
+                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+                let timeDisplay = ""
+                if (timeParts) {
+                  const h = parseInt(timeParts[1])
+                  const m = timeParts[2]
+                  const ampm = h >= 12 ? "PM" : "AM"
+                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                  timeDisplay = ` at ${h12}:${m} ${ampm}`
+                }
+                const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
+                sendTelegramMessage(assignTenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
+                  console.error("[Jobs PATCH] Failed to send Telegram to cleaner:", err)
+                )
+              }
+
+              // Customer confirmation SMS
+              const customer = Array.isArray(oldJob?.customers) ? oldJob.customers[0] : oldJob?.customers
+              const customerPhone = customer?.phone_number || oldJob?.phone_number
+              const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
+              if (customerPhone) {
+                const jobDate = date || oldJob?.date
+                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
+                const dateFormatted = jobDate
+                  ? new Date(jobDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+                  : "your scheduled date"
+                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+                let timeFormatted = "your scheduled time"
+                if (timeParts) {
+                  const h = parseInt(timeParts[1])
+                  const m = timeParts[2]
+                  const ampm = h >= 12 ? "PM" : "AM"
+                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+                  timeFormatted = `${h12}:${m} ${ampm}`
+                }
+                const smsMsg = cleanerAssigned(customerName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
+                sendSMS(assignTenant as any, customerPhone, smsMsg).catch((err) =>
+                  console.error("[Jobs PATCH] Failed to send assignment SMS:", err)
+                )
+                // Log outbound SMS
+                svc.from("messages").insert({
+                  tenant_id: assignTenant.id,
+                  customer_id: customer?.id || oldJob?.customer_id || null,
+                  phone_number: customerPhone,
+                  role: "assistant",
+                  content: smsMsg,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  source: "calendar_assign",
+                  job_id: Number(id),
+                  timestamp: new Date().toISOString(),
+                }).then(({ error: logErr }) => {
+                  if (logErr) console.error("[Jobs PATCH] Failed to log assignment message:", logErr)
+                })
+              }
+            }
+          }
         }
       }
     }
@@ -348,6 +430,14 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
       if (!existing.error && existing.data?.id != null) {
         customerId = Number(existing.data.id)
+        // Update customer property details if provided
+        const custUpdates: Record<string, any> = {}
+        if (body.bedrooms != null) custUpdates.bedrooms = Number(body.bedrooms)
+        if (body.bathrooms != null) custUpdates.bathrooms = Number(body.bathrooms)
+        if (body.sqft != null) custUpdates.sqft = Number(body.sqft)
+        if (Object.keys(custUpdates).length > 0) {
+          await client.from("customers").update(custUpdates).eq("id", customerId)
+        }
       } else {
         const created = await client
           .from("customers")
@@ -358,6 +448,9 @@ export async function POST(request: NextRequest) {
             last_name,
             email: body.email || undefined,
             address: body.address || undefined,
+            bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+            bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+            sqft: body.sqft != null ? Number(body.sqft) : undefined,
           })
           .select("*")
           .single()
@@ -381,8 +474,13 @@ export async function POST(request: NextRequest) {
         hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
         price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
         notes: body.notes || undefined,
-        status: "scheduled",
-        booked: true,
+        status: body.status === "quoted" ? "quoted" : "scheduled",
+        booked: body.status !== "quoted",
+        addons: body.addons ? JSON.stringify(body.addons) : undefined,
+        bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+        bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+        sqft: body.sqft != null ? Number(body.sqft) : undefined,
+        frequency: body.frequency || "one-time",
       })
       .select("*, customers (*)")
       .single()
@@ -427,6 +525,112 @@ export async function POST(request: NextRequest) {
       source: 'dashboard',
     })
 
+    // Handle cleaner assignment at creation time
+    if (body.cleaner_id) {
+      // Manual assignment — create confirmed assignment + notify
+      const svc = getSupabaseServiceClient()
+      await svc.from("cleaner_assignments").insert({
+        job_id: Number(row.id),
+        cleaner_id: Number(body.cleaner_id),
+        status: "confirmed",
+        tenant_id: tenant.id,
+        assigned_at: new Date().toISOString(),
+        responded_at: new Date().toISOString(),
+      })
+
+      // Notify cleaner via Telegram + customer SMS (fire-and-forget)
+      const { data: cleaner } = await svc
+        .from("cleaners")
+        .select("id, name, telegram_id")
+        .eq("id", Number(body.cleaner_id))
+        .single()
+
+      if (cleaner) {
+        if (cleaner.telegram_id) {
+          const jobAddress = body.address || "TBD"
+          const jobDate = scheduledDate || "TBD"
+          const jobTime = scheduledAt || ""
+          const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+          let timeDisplay = ""
+          if (timeParts) {
+            const h = parseInt(timeParts[1])
+            const m = timeParts[2]
+            const ampm = h >= 12 ? "PM" : "AM"
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+            timeDisplay = ` at ${h12}:${m} ${ampm}`
+          }
+          const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
+          sendTelegramMessage(tenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
+            console.error("[Jobs POST] Failed to send Telegram to cleaner:", err)
+          )
+        }
+
+        // Customer confirmation SMS
+        if (phone) {
+          const custName = [first_name, last_name].filter(Boolean).join(" ").trim() || "there"
+          const dateFormatted = scheduledDate
+            ? new Date(scheduledDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+            : "your scheduled date"
+          const timeParts = String(scheduledAt || "").match(/^(\d{1,2}):(\d{2})/)
+          let timeFormatted = "your scheduled time"
+          if (timeParts) {
+            const h = parseInt(timeParts[1])
+            const m = timeParts[2]
+            const ampm = h >= 12 ? "PM" : "AM"
+            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+            timeFormatted = `${h12}:${m} ${ampm}`
+          }
+          const smsMsg = cleanerAssigned(custName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
+          sendSMS(tenant as any, phone, smsMsg).catch((err) =>
+            console.error("[Jobs POST] Failed to send assignment SMS:", err)
+          )
+          svc.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customerId,
+            phone_number: phone,
+            role: "assistant",
+            content: smsMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            source: "calendar_assign",
+            job_id: Number(row.id),
+            timestamp: new Date().toISOString(),
+          }).then(({ error: logErr }) => {
+            if (logErr) console.error("[Jobs POST] Failed to log assignment message:", logErr)
+          })
+        }
+      }
+    } else if (tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+      // No cleaner picked — auto-broadcast to available cleaners
+      triggerCleanerAssignment(String(row.id)).catch((err) =>
+        console.error("[Jobs POST] Auto-broadcast failed:", err)
+      )
+    }
+
+    // Generate recurring instances if frequency is not one-time
+    const freq = body.frequency || "one-time"
+    if (freq !== "one-time" && scheduledDate) {
+      generateRecurringInstances({
+        parentJobId: Number(row.id),
+        tenantId: tenant.id,
+        customerId,
+        phone,
+        address: body.address || undefined,
+        serviceType: body.service_type || "Standard cleaning",
+        scheduledAt,
+        hours: body.duration_minutes ? Number(body.duration_minutes) / 60 : undefined,
+        price: body.estimated_value != null ? Number(body.estimated_value) : undefined,
+        notes: body.notes || undefined,
+        bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
+        bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
+        sqft: body.sqft != null ? Number(body.sqft) : undefined,
+        frequency: freq,
+        startDate: scheduledDate,
+        addons: body.addons ? JSON.stringify(body.addons) : undefined,
+      }).catch((err) => console.error("[Jobs POST] Failed to generate recurring instances:", err))
+    }
+
     const response: ApiResponse<Job> = { success: true, data: createdJob, message: "Job created successfully" }
     return NextResponse.json(response, { status: 201 })
   } catch (error) {
@@ -436,4 +640,101 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json(response, { status: 400 })
   }
+}
+
+// ─── Recurring Job Generation ───────────────────────────────────────────────
+
+const RECURRING_HORIZON_WEEKS = 12 // Generate 3 months of future instances
+
+function calculateNextDate(dateStr: string, frequency: string): string {
+  const d = new Date(dateStr + "T12:00:00")
+  switch (frequency) {
+    case "weekly":
+      d.setDate(d.getDate() + 7)
+      break
+    case "bi-weekly":
+      d.setDate(d.getDate() + 14)
+      break
+    case "monthly":
+      d.setMonth(d.getMonth() + 1)
+      break
+    default:
+      return dateStr
+  }
+  return d.toISOString().split("T")[0]
+}
+
+function getIntervalDays(frequency: string): number {
+  switch (frequency) {
+    case "weekly": return 7
+    case "bi-weekly": return 14
+    case "monthly": return 30
+    default: return 0
+  }
+}
+
+async function generateRecurringInstances(opts: {
+  parentJobId: number
+  tenantId: string
+  customerId: number | null
+  phone: string
+  address?: string
+  serviceType: string
+  scheduledAt?: string
+  hours?: number
+  price?: number
+  notes?: string
+  bedrooms?: number
+  bathrooms?: number
+  sqft?: number
+  frequency: string
+  startDate: string
+  addons?: string
+}) {
+  const client = getSupabaseServiceClient()
+  const horizonDays = RECURRING_HORIZON_WEEKS * 7
+  const maxDate = new Date()
+  maxDate.setDate(maxDate.getDate() + horizonDays)
+  const maxDateStr = maxDate.toISOString().split("T")[0]
+
+  const instances: any[] = []
+  let nextDate = calculateNextDate(opts.startDate, opts.frequency)
+
+  while (nextDate <= maxDateStr) {
+    instances.push({
+      tenant_id: opts.tenantId,
+      customer_id: opts.customerId,
+      phone_number: opts.phone,
+      address: opts.address,
+      service_type: opts.serviceType,
+      date: nextDate,
+      scheduled_at: opts.scheduledAt,
+      hours: opts.hours,
+      price: opts.price,
+      notes: opts.notes,
+      bedrooms: opts.bedrooms,
+      bathrooms: opts.bathrooms,
+      sqft: opts.sqft,
+      frequency: opts.frequency,
+      status: "scheduled",
+      booked: true,
+      parent_job_id: opts.parentJobId,
+      addons: opts.addons,
+    })
+    nextDate = calculateNextDate(nextDate, opts.frequency)
+  }
+
+  if (instances.length === 0) return
+
+  const { error } = await client.from("jobs").insert(instances)
+  if (error) {
+    console.error(`[Recurring Jobs] Failed to insert ${instances.length} instances:`, error.message)
+    return
+  }
+
+  // Update parent with last generated date
+  const lastDate = instances[instances.length - 1].date
+  await client.from("jobs").update({ last_generated_date: lastDate }).eq("id", opts.parentJobId)
+
+  console.log(`[Recurring Jobs] Generated ${instances.length} ${opts.frequency} instances from job ${opts.parentJobId} through ${lastDate}`)
 }

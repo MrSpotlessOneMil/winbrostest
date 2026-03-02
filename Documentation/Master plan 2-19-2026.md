@@ -16,6 +16,18 @@
 ## Live Tenants
 - [ ] Collect live tenant data
 
+## WinBros — HouseCall Pro Problems
+
+### Customer sync broken on phone/email change — fixed (2-27)
+- [x] `customer.created`/`customer.updated` upserted by `tenant_id,phone_number` — phone changes created NEW customer records, job stayed linked to old one
+- [x] Fix: Look up by `housecall_pro_customer_id` first, update in-place. Phone-based upsert only for genuinely new customers
+- [x] All 3 customer creation paths (`job.created`, `lead.created`, `customer.created`) now store `housecall_pro_customer_id` for future lookups
+
+### Job status sync — fixed (2-27)
+- [x] `job.created` failed on every HCP job — insert referenced non-existent `housecall_pro_customer_id` and `brand` columns on `jobs` table
+- [x] `job.updated/completed/cancelled/payment.received` all silently matched zero rows — `Number("job_uuid_string")` = NaN, and handlers used wrong column name `hcp_job_id` instead of `housecall_pro_job_id`
+- [x] Job ID extraction missed top-level `job` variable — HCP sends job at payload root, handlers only checked `data.job.id`
+
 ## Medium Priority Bugs (from Passes 4-6 audit)
 - [ ] Weak password validation (4 chars min)
 - [ ] No pagination limits on GET /leads, /jobs (`per_page=999999` possible)

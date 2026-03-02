@@ -17,6 +17,10 @@ DISCLAIMER: This checks known patterns only. Novel auth flows, new integrations,
 3. Run the appropriate checklist below.
 4. Output a structured report with PASS/FAIL/WARN for each check.
 
+## Supabase Client Context
+
+`getSupabaseClient()` and `getSupabaseServiceClient()` are identical aliases — both return service role. Using either is fine. Prefer `getSupabaseServiceClient()` in new code for intent clarity, but do NOT flag `getSupabaseClient()` as a bug. The real risk: `getTenantScopedClient()` used without a valid tenant_id.
+
 ## Checklist: Action Routes (`app/api/actions/*/route.ts`)
 
 - [ ] `requireAuthWithTenant(request)` is called at the top of the POST handler
@@ -32,7 +36,7 @@ DISCLAIMER: This checks known patterns only. Novel auth flows, new integrations,
 
 - [ ] `verifyCronAuth(request)` from `@/lib/cron-auth` is called at the top of the GET handler
 - [ ] Returns `NextResponse.json({ error: 'Unauthorized' }, { status: 401 })` when auth fails
-- [ ] Uses `getSupabaseServiceClient()` — NOT `getSupabaseClient()`. Even though currently aliased, explicit service client signals intent and is future-proof.
+- [ ] Uses service client (`getSupabaseServiceClient()` or `getSupabaseClient()` — both are service role)
 - [ ] Calls `getAllActiveTenants()` and loops over tenants
 - [ ] Uses `tenantUsesFeature(tenant, 'feature_name')` to skip tenants that don't need this cron
 - [ ] Row claiming uses RPC function with `FOR UPDATE SKIP LOCKED` pattern (not SELECT-then-UPDATE)
@@ -45,7 +49,7 @@ DISCLAIMER: This checks known patterns only. Novel auth flows, new integrations,
 - [ ] Does NOT use `requireAuthWithTenant()` — webhooks have no user session
 - [ ] Does NOT use `requireAuth()` — same reason
 - [ ] Tenant is determined from the payload: phone number lookup, URL slug (`[slug]` parameter), or Stripe metadata
-- [ ] Uses `getSupabaseServiceClient()` for database access
+- [ ] Uses service client for database access
 - [ ] For Stripe webhooks: checks `stripe_processed_events` table for idempotency before processing
 - [ ] Validates webhook signature where applicable (Stripe: `validateStripeWebhook`, OpenPhone: `validateOpenPhoneWebhook`, Telegram: `X-Telegram-Bot-Api-Secret-Token` header)
 - [ ] Signature/secret comparison uses `timingSafeEqual` from `crypto` — NOT `===` or `!==` (timing attack risk)
@@ -107,7 +111,7 @@ DISCLAIMER: This checks known patterns only. Novel auth flows, new integrations,
 
 Historical bugs that informed the checklists above. Provides context on WHY each check exists.
 
-- **2-19-2026**: All crons used `getSupabaseClient()` (anon key) instead of `getSupabaseServiceClient()` — RLS silently returned zero rows for every cron. Went undetected for days.
+- **2-19-2026**: All crons used anon client instead of service client — RLS silently returned zero rows for every cron. Went undetected for days. (Note: `getSupabaseClient()` is now aliased to service role, so this specific bug class is resolved, but the pattern of verifying correct client usage remains important.)
 - **2-19-2026**: `post-job-followup` referenced `stripe_payment_link` column (doesn't exist on jobs table, it's on leads). Fixed to `stripe_payment_intent_id`.
 - **2-23-2026**: 10 dashboard action routes had no cross-tenant validation — any authenticated user could act on any tenant's jobs.
 - **2-23-2026**: `lead-followup` resolved tenant from `lead.brand` (slug) instead of `lead.tenant_id` (UUID) — fragile and incorrect.
@@ -136,4 +140,3 @@ _(No entries yet — this section will be populated as the agent is used.)_
 Counter tracking times this security-auditor has been called.
 
 1
-

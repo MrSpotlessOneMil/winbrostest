@@ -1,6 +1,69 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
-import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
+import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
+
+export async function PATCH(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
+
+  const client = await getTenantScopedClient(tenant.id)
+  const body = await request.json()
+  const { id, ...fields } = body
+
+  if (!id) {
+    return NextResponse.json({ success: false, error: "Missing customer id" }, { status: 400 })
+  }
+
+  // Whitelist updatable fields
+  const allowed = ["first_name", "last_name", "email", "phone_number", "address", "notes", "auto_response_paused"]
+  const updates: Record<string, unknown> = {}
+  for (const key of allowed) {
+    if (fields[key] !== undefined) {
+      updates[key] = typeof fields[key] === "string" ? fields[key].trim() : fields[key]
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ success: false, error: "No valid fields to update" }, { status: 400 })
+  }
+
+  try {
+    const { data, error } = await client
+      .from("customers")
+      .update(updates)
+      .eq("id", id)
+      .select("*")
+      .single()
+
+    if (error) {
+      console.error("[customers] PATCH failed:", error.message)
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    }
+
+    // Sync changes to HouseCall Pro
+    if (tenant.housecall_pro_api_key) {
+      syncCustomerToHCP({
+        tenantId: tenant.id,
+        customerId: data.id,
+        phone: data.phone_number,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        email: data.email,
+        address: data.address,
+      }).catch((err) => console.error("[customers] HCP sync error:", err))
+    }
+
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error("[customers] PATCH error:", error)
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    )
+  }
+}
 
 export async function DELETE(request: NextRequest) {
   const authResult = await requireAuth(request)

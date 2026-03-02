@@ -63,13 +63,17 @@ async function apiFetch<T>(
 
   for (let attempt = 0; attempt < HCP_API_CONFIG.MAX_RETRIES; attempt++) {
     try {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15_000)
       const response = await fetch(url, {
         ...options,
         headers: {
           ...getHeaders(),
           ...(options.headers || {}),
         },
+        signal: controller.signal,
       })
+      clearTimeout(timeout)
 
       if (response.status === 429) {
         // Rate limited, wait and retry

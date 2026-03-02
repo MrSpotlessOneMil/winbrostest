@@ -1,15 +1,36 @@
 "use client"
 
-import { Search, PanelLeft } from "lucide-react"
+import { useState } from "react"
+import { Search, PanelLeft, Menu, MessageSquare } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/auth-context"
 
 interface TopNavProps {
   onToggleSidebar?: () => void
+  onToggleMobileMenu?: () => void
 }
 
-export function TopNav({ onToggleSidebar }: TopNavProps) {
-  const { tenantStatus, isAdmin } = useAuth()
+export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
+  const { tenantStatus, isAdmin, refresh } = useAuth()
+  const [toggling, setToggling] = useState(false)
+
+  const smsOn = tenantStatus?.smsEnabled !== false
+
+  async function handleToggleSms() {
+    setToggling(true)
+    try {
+      await fetch("/api/tenant/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sms_auto_response_enabled: !smsOn }),
+      })
+      await refresh()
+    } catch {
+      // silently fail
+    } finally {
+      setToggling(false)
+    }
+  }
 
   // Determine status indicator
   const getStatus = () => {
@@ -47,17 +68,27 @@ export function TopNav({ onToggleSidebar }: TopNavProps) {
   const colors = colorMap[status.color] || colorMap.emerald
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-4">
-      {/* Sidebar Toggle */}
+    <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-3 md:px-4">
+      {/* Mobile hamburger menu */}
+      {onToggleMobileMenu && (
+        <button
+          onClick={onToggleMobileMenu}
+          className="md:hidden w-9 h-9 flex items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      )}
+
+      {/* Desktop sidebar toggle */}
       {onToggleSidebar && (
         <>
           <button
             onClick={onToggleSidebar}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="hidden md:flex w-7 h-7 items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             <PanelLeft className="w-4 h-4" />
           </button>
-          <div className="h-4 w-px bg-zinc-800" />
+          <div className="hidden md:block h-4 w-px bg-zinc-800" />
         </>
       )}
 
@@ -65,13 +96,30 @@ export function TopNav({ onToggleSidebar }: TopNavProps) {
       <div className="relative flex-1 max-w-md">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
         <Input
-          placeholder="Search jobs, leads, teams..."
-          className="pl-10 bg-zinc-800/80 border-zinc-700/50 text-zinc-300 placeholder-zinc-600 focus:border-zinc-600"
+          placeholder="Search..."
+          className="pl-10 bg-zinc-800/80 border-zinc-700/50 text-zinc-300 placeholder-zinc-600 focus:border-zinc-600 text-sm"
         />
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {/* Auto-Texting Toggle — non-admin only */}
+        {!isAdmin && (
+          <button
+            onClick={handleToggleSms}
+            disabled={toggling}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              smsOn
+                ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                : "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+            } ${toggling ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            title={smsOn ? "Auto-texting is ON — click to disable" : "Auto-texting is OFF — click to enable"}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            {toggling ? "..." : smsOn ? "Auto-Text ON" : "Auto-Text OFF"}
+          </button>
+        )}
+
         {/* Status Indicator */}
         <div className={`hidden sm:flex items-center gap-2 rounded-lg ${colors.bg} px-3 py-1.5`}>
           <span className="relative flex h-2 w-2">

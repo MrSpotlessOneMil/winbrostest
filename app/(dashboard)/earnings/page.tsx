@@ -185,7 +185,7 @@ export default function EarningsPage() {
       </Card>
 
       {/* Team Breakdown & Recent Activity */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2">
         {/* Team Breakdown */}
         <Card>
           <CardHeader>

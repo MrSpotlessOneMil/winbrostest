@@ -23,12 +23,52 @@ type WaveConfig = {
 
 const WAVE_API_URL = 'https://gql.waveapps.com/graphql/public'
 
-export async function createInvoice(job: Job, customer: Customer): Promise<InvoiceResult> {
-  const waveConfig = getWaveConfig()
+/**
+ * Create an invoice for a job using the appropriate provider.
+ *
+ * Multi-tenant routing:
+ *   - tenant.use_stripe && !tenant.use_wave → Stripe invoice (via tenant's stripe_secret_key)
+ *   - tenant.use_wave → Wave invoice (via tenant's wave credentials or env vars)
+ *   - No tenant provided → legacy fallback to Wave env vars
+ */
+export async function createInvoice(
+  job: Job,
+  customer: Customer,
+  tenant?: { workflow_config?: any; stripe_secret_key?: string; wave_api_token?: string; wave_business_id?: string; wave_income_account_id?: string } | null
+): Promise<InvoiceResult> {
+  const wc = tenant?.workflow_config
+
+  // Route to Stripe invoicing when tenant explicitly uses Stripe (not Wave)
+  if (wc?.use_stripe && !wc?.use_wave && tenant?.stripe_secret_key) {
+    try {
+      const { createAndSendInvoice } = await import('./stripe-client')
+      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key)
+      return {
+        success: result.success,
+        provider: 'stripe',
+        invoiceId: result.invoiceId,
+        invoiceUrl: result.invoiceUrl,
+        error: result.error,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown Stripe error'
+      console.error('[Invoice] Stripe invoice failed:', message)
+      return { success: false, provider: 'stripe', error: message }
+    }
+  }
+
+  // Wave invoicing — prefer tenant-specific credentials, fall back to env vars
+  const waveConfig = tenant?.wave_api_token
+    ? {
+        token: tenant.wave_api_token.replace(/[\r\n]/g, '').trim().replace(/^Bearer\s+/i, ''),
+        businessId: tenant.wave_business_id!,
+        incomeAccountId: tenant.wave_income_account_id!,
+      }
+    : getWaveConfig()
 
   if (!waveConfig) {
-    const error = 'Wave invoice is not configured. Set WAVE_API_TOKEN, WAVE_BUSINESS_ID, and WAVE_INCOME_ACCOUNT_ID.'
-    console.error(error)
+    const error = 'No invoicing provider configured. Enable Stripe or Wave in workflow settings.'
+    console.error('[Invoice]', error)
     return { success: false, error }
   }
 
@@ -40,7 +80,7 @@ export async function createInvoice(job: Job, customer: Customer): Promise<Invoi
     return { ...waveResult, provider: 'wave', success: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Wave error'
-    console.error('Wave invoice failed:', message)
+    console.error('[Invoice] Wave invoice failed:', message)
     return { success: false, error: message }
   }
 }
@@ -359,7 +399,7 @@ function buildInvoiceSummaryLines(job: Job, customer: Customer): string[] {
   return lines
 }
 
-function buildStaticCleaningDescription(job: Job, customer: Customer): string {
+export function buildStaticCleaningDescription(job: Job, customer: Customer): string {
   const tier = resolveCleaningTier(job.service_type)
   const propertyLine = buildPropertyLine(job, customer)
 
@@ -367,41 +407,64 @@ function buildStaticCleaningDescription(job: Job, customer: Customer): string {
     const lines = [
       'Deep Cleaning',
       '',
-      '(Detailed top-to-bottom cleaning for neglected or first-time jobs)',
+      '(Comprehensive top-to-bottom cleaning — recommended for first-time clients, move-ready prep, or homes that need extra attention)',
     ]
     if (propertyLine) {
       lines.push(propertyLine, '')
     }
     lines.push(
-      'General Areas & Bedrooms',
+      '--- All Living Areas, Hallways & Bedrooms ---',
       '',
-      'Dust all surfaces, baseboards, shelves, and light fixtures',
-      'Vacuum and mop floors',
-      'Empty trash bins and replace liners',
-      'Clean mirrors and glass surfaces',
-      'Wipe light switches, door handles, and high-touch areas',
+      'Dust and wipe all surfaces including shelves, mantels, windowsills, and decorative items',
+      'Hand-wipe all baseboards, door frames, and crown molding',
+      'Dust and clean ceiling fans, light fixtures, and lamp shades',
+      'Vacuum all carpeted areas including edges and corners',
+      'Mop and sanitize all hard floors (tile, hardwood, laminate, vinyl)',
+      'Vacuum under furniture and along baseboards',
+      'Vacuum upholstered furniture and cushions',
+      'Clean all mirrors and glass surfaces streak-free',
+      'Wipe and sanitize all light switches, door handles, and high-touch surfaces',
+      'Dust air vents, return registers, and accessible ductwork covers',
+      'Empty all trash bins and replace liners',
+      'Spot-clean walls, scuff marks, and fingerprints',
+      'Spot-clean interior windows and window tracks',
+      'Organize and tidy visible surfaces',
       '',
-      'Kitchen',
+      '--- Kitchen ---',
       '',
-      'Wipe countertops and backsplash',
-      'Clean exterior of appliances (fridge, oven, microwave, dishwasher)',
-      'Clean sink and polish faucet',
-      'Wipe cabinet exteriors and handles',
-      'Sweep and mop floors',
+      'Clean and sanitize all countertops and backsplash',
+      'Clean exterior of all appliances (refrigerator, oven, microwave, dishwasher)',
+      'Clean interior of microwave (remove food splatter and grease)',
+      'Clean interior of oven (degrease racks and interior walls)',
+      'Clean interior of refrigerator (wipe shelves, drawers, and door seals)',
+      'Deep clean sink basin, faucet, and handles — polish to shine',
+      'Wipe down all cabinet fronts, handles, and hardware',
+      'Clean range hood and exhaust fan exterior',
+      'Degrease stovetop, burners, and drip pans',
+      'Sweep and mop floors including under movable appliances',
+      'Clean and sanitize garbage disposal area',
+      'Wipe down small appliance exteriors (toaster, coffee maker, etc.)',
       '',
-      'Bathrooms',
+      '--- Bathrooms ---',
       '',
-      'Scrub and sanitize toilet, sink, and shower/tub',
-      'Wipe mirrors and glass',
-      'Clean countertops and fixtures',
-      'Mop floors and empty trash',
+      'Scrub and sanitize toilet inside and out (bowl, base, seat, lid, tank exterior)',
+      'Deep clean shower/tub — remove soap scum, hard water stains, and mildew',
+      'Scrub tile grout lines and caulking',
+      'Clean and polish all fixtures, faucets, and shower heads',
+      'Clean and sanitize sink basin and vanity countertop',
+      'Clean all mirrors and glass streak-free',
+      'Wipe down cabinet fronts, handles, and shelving',
+      'Clean and sanitize towel bars, toilet paper holders, and hooks',
       'Hand-wipe all baseboards, doors, and door frames',
-      'Clean vents, switch plates, and ceiling fans',
-      'Remove grime from walls, corners, and light fixtures',
-      'Scrub tile grout and soap scum buildup',
-      'Clean interior of microwave, oven, and refrigerator',
-      'Vacuum under furniture and cushions',
-      'Spot-clean interior windows and window tracks'
+      'Clean exhaust fan cover and light fixtures',
+      'Sweep and mop floors including behind toilet and in corners',
+      'Empty trash and replace liners',
+      '',
+      '--- Laundry Area (if accessible) ---',
+      '',
+      'Wipe down exterior of washer and dryer',
+      'Clean lint trap area and surrounding surfaces',
+      'Sweep and mop laundry room floor',
     )
     return lines.join('\n')
   }
@@ -410,80 +473,128 @@ function buildStaticCleaningDescription(job: Job, customer: Customer): string {
     const lines = [
       'Move-In / Move-Out Cleaning',
       '',
-      '(Full vacancy cleaning to prepare property for new tenants or sale)',
+      '(Complete vacancy cleaning to prepare the property for new occupants or final inspection)',
     ]
     if (propertyLine) {
       lines.push(propertyLine, '')
     }
     lines.push(
-      'General Areas & Bedrooms',
+      '--- All Rooms, Hallways & Closets ---',
       '',
-      'Dust all surfaces, baseboards, shelves, and light fixtures',
-      'Vacuum and mop floors',
-      'Empty trash bins and replace liners',
-      'Clean mirrors and glass surfaces',
-      'Wipe light switches, door handles, and high-touch areas',
-      '',
-      'Kitchen',
-      '',
-      'Wipe countertops and backsplash',
-      'Clean exterior of appliances (fridge, oven, microwave, dishwasher)',
-      'Clean sink and polish faucet',
-      'Wipe cabinet exteriors and handles',
-      'Sweep and mop floors',
-      '',
-      'Bathrooms',
-      '',
-      'Scrub and sanitize toilet, sink, and shower/tub',
-      'Wipe mirrors and glass',
-      'Clean countertops and fixtures',
-      'Mop floors and empty trash',
-      'Clean inside all cabinets, drawers, and closets',
-      'Clean inside oven, refrigerator, and dishwasher',
-      'Wipe down all doors, trim, and interior windows thoroughly',
-      'Dust and clean blinds',
+      'Dust and wipe all surfaces including shelves, windowsills, and ledges',
+      'Hand-wipe all baseboards, door frames, crown molding, and trim',
+      'Dust and clean ceiling fans, light fixtures, and recessed lighting',
+      'Vacuum all carpeted areas including edges, corners, and closets',
+      'Mop and sanitize all hard floors (tile, hardwood, laminate, vinyl)',
+      'Clean all mirrors and glass surfaces streak-free',
+      'Wipe and sanitize all light switches, outlet covers, and door handles',
+      'Dust air vents, return registers, and ductwork covers',
+      'Clean interior of all closets — wipe shelves, rods, and baseboards',
+      'Spot-clean walls, scuff marks, and fingerprints throughout',
+      'Clean interior windows, window tracks, and window ledges',
+      'Dust and clean blinds and window treatments',
       'Remove all trash and debris left behind',
-      'Final walk-through for property readiness'
+      '',
+      '--- Kitchen ---',
+      '',
+      'Clean and sanitize all countertops and backsplash',
+      'Clean exterior and interior of all major appliances:',
+      '  - Refrigerator (shelves, drawers, door seals, exterior)',
+      '  - Oven/range (interior walls, racks, stovetop, burners, drip pans)',
+      '  - Microwave (interior and exterior)',
+      '  - Dishwasher (interior racks, door, and gasket)',
+      'Deep clean sink basin, faucet, and garbage disposal area',
+      'Wipe down all cabinet fronts, interiors, handles, and hardware',
+      'Clean inside all drawers and shelving',
+      'Clean range hood, exhaust fan, and filter',
+      'Sweep and mop floors including under and behind appliances',
+      '',
+      '--- Bathrooms ---',
+      '',
+      'Scrub and sanitize toilet inside and out (bowl, base, seat, lid, tank)',
+      'Deep clean shower/tub — remove soap scum, hard water stains, and mildew',
+      'Scrub tile grout lines and recaulk areas if needed',
+      'Clean and polish all fixtures, faucets, and shower heads',
+      'Clean and sanitize sink basin, vanity, and countertop',
+      'Clean all mirrors and glass streak-free',
+      'Wipe down all cabinets inside and out, handles, and shelving',
+      'Clean and sanitize towel bars, hooks, and toilet paper holders',
+      'Hand-wipe baseboards, doors, door frames, and trim',
+      'Clean exhaust fan cover and light fixtures',
+      'Sweep and mop floors including behind toilet and in all corners',
+      '',
+      '--- Laundry Area ---',
+      '',
+      'Wipe down exterior of washer and dryer',
+      'Clean lint trap area and surrounding surfaces',
+      'Wipe down shelving and cabinets',
+      'Sweep and mop floor',
+      '',
+      '--- Final Walkthrough ---',
+      '',
+      'Full property walk-through to ensure every room meets move-out standards',
     )
     return lines.join('\n')
   }
 
+  // Standard cleaning
   const lines = [
     'Standard Cleaning',
     '',
-    '(Maintenance-level service for homes or offices)',
+    '(Professional maintenance cleaning to keep your home fresh and comfortable)',
   ]
   if (propertyLine) {
     lines.push(propertyLine, '')
   }
   lines.push(
-    'General Areas & Bedrooms',
+    '--- All Living Areas, Hallways & Bedrooms ---',
     '',
-    'Dust all surfaces, shelves, and light fixtures',
-    'Vacuum and mop floors',
-    'Empty trash bins and replace liners',
-    'Clean mirrors and glass surfaces',
-    'Wipe light switches, door handles, and high-touch areas',
+    'Dust and wipe all accessible surfaces including shelves, mantels, and windowsills',
+    'Dust ceiling fans and light fixtures (within safe reach)',
+    'Vacuum all carpeted areas including edges and corners',
+    'Mop and sanitize all hard floors (tile, hardwood, laminate, vinyl)',
+    'Clean all mirrors and glass surfaces streak-free',
+    'Wipe and sanitize light switches, door handles, and high-touch surfaces',
+    'Dust air vents and return registers',
+    'Empty all trash bins and replace liners',
+    'Make beds and straighten pillows (linens must be on the bed)',
+    'General tidying of visible surfaces',
     '',
-    'Kitchen',
+    '--- Kitchen ---',
     '',
-    'Wipe countertops and backsplash',
-    'Clean exterior of appliances (fridge, oven, microwave, dishwasher)',
-    'Clean sink and polish faucet',
-    'Wipe cabinet exteriors and handles',
+    'Clean and sanitize all countertops and backsplash',
+    'Clean exterior of all appliances (refrigerator, oven, microwave, dishwasher)',
+    'Clean and degrease stovetop, burners, and drip pans',
+    'Deep clean sink basin, faucet, and handles — polish to shine',
+    'Wipe down all cabinet fronts and handles',
+    'Clean range hood exterior',
+    'Wipe down small appliance exteriors (toaster, coffee maker, etc.)',
     'Sweep and mop floors',
+    'Empty trash and replace liner',
     '',
-    'Bathrooms',
+    '--- Bathrooms ---',
     '',
-    'Scrub and sanitize toilet, sink, and shower/tub',
-    'Wipe mirrors and glass',
-    'Clean countertops and fixtures',
-    'Mop floors and empty trash'
+    'Scrub and sanitize toilet inside and out (bowl, base, seat, lid, tank exterior)',
+    'Clean shower/tub — remove soap scum and surface buildup',
+    'Clean and polish all fixtures, faucets, and shower heads',
+    'Clean and sanitize sink basin and vanity countertop',
+    'Clean all mirrors and glass streak-free',
+    'Wipe down cabinet fronts and handles',
+    'Clean and sanitize towel bars, toilet paper holders, and hooks',
+    'Wipe baseboards around toilet and tub',
+    'Sweep and mop floors',
+    'Empty trash and replace liner',
+    '',
+    '--- Additional Details ---',
+    '',
+    'All cleaning products and equipment provided by our team',
+    'Pet-friendly and eco-conscious products available upon request',
+    'Please secure valuables and clear clutter from surfaces for best results',
   )
   return lines.join('\n')
 }
 
-function buildPropertyLine(job: Job, customer: Customer): string | null {
+export function buildPropertyLine(job: Job, customer: Customer): string | null {
   const bedrooms = resolveNumber(customer.bedrooms, job.bedrooms)
   const bathrooms = resolveNumber(customer.bathrooms, job.bathrooms)
   const squareFootage = resolveNumber(customer.square_footage, job.square_footage)

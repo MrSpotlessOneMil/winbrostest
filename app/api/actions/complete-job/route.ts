@@ -19,24 +19,11 @@ import {
   getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain } from '@/lib/stripe-client'
+import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain, getStripeClientForTenant } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
-
-function getStripeClient(): Stripe {
-  const rawKey = process.env.STRIPE_SECRET_KEY
-  const secretKey = rawKey ? rawKey.replace(/[\r\n]/g, '').trim() : ''
-
-  if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY not configured')
-  }
-
-  return new Stripe(secretKey, {
-    apiVersion: '2025-02-24.acacia',
-  })
-}
 
 /**
  * Core complete-job logic — callable from both the API route (with auth) and the cron (without auth).
@@ -152,11 +139,12 @@ export async function executeCompleteJob(jobId: string): Promise<{
   )
   const chargeAmount = chargeAmountCents / 100
 
-  // Create Stripe payment link for remaining amount
-  const stripe = getStripeClient()
+  // Create Stripe payment link for remaining amount (using tenant's Stripe key)
+  const stripeKey = tenant?.stripe_secret_key || undefined
+  const stripe = getStripeClientForTenant(stripeKey)
 
   // Ensure customer exists in Stripe so payment is associated correctly
-  await findOrCreateStripeCustomer(customer)
+  await findOrCreateStripeCustomer(customer, stripeKey)
 
   // First create a price for this specific payment
   const price = await stripe.prices.create({
@@ -212,9 +200,12 @@ export async function executeCompleteJob(jobId: string): Promise<{
   // Send SMS with payment link
   const smsMessage = `Hi! Thanks so much for choosing ${businessName}. Here's the link for your remaining balance: ${paymentLink.url}`
 
+  if (!tenant) {
+    console.error(`[complete-job] No tenant for job ${jobId} — cannot send final payment SMS`)
+  }
   const sendResult = tenant
     ? await sendSMS(tenant, customer.phone_number, smsMessage)
-    : await sendSMS(customer.phone_number, smsMessage)
+    : { success: false, error: 'No tenant' }
 
   if (sendResult.success) {
     const timestamp = new Date().toISOString()

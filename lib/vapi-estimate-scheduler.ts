@@ -5,11 +5,14 @@
  * The customer does NOT choose a preferred date — the system picks optimally.
  *
  * Priority algorithm:
- * 1. Fill 8:00 AM slots first — every salesman should start their day
- *    with an 8am estimate so they can doorknock nearby afterwards.
- *    Fills 3 days in advance for all salesmen.
- * 2. Once all 8am slots are filled, slot remaining jobs in the most
- *    travel-optimized way using Google Maps distance calculations.
+ * 1. Tiered time slots — offer 3 options from a cascading priority:
+ *      8:00 AM → 11:00 AM → 2:00 PM → 5:00 PM
+ *    For each tier, check the next 3 days. Fill from 8 AM first, then
+ *    cascade to later tiers only for days where the earlier tier is taken.
+ *    Example: if day 1 & 2 have 8 AM filled but day 3 is open:
+ *      → 8 AM day 3, 11 AM day 1, 11 AM day 2
+ * 2. Fallback: travel-optimized slotting using Google Maps distance
+ *    calculations for any remaining available time.
  */
 
 import { getSupabaseServiceClient } from './supabase'
@@ -21,11 +24,18 @@ import { getCleanerBlockedDates } from './supabase'
 const TIMEZONE = 'America/Los_Angeles'
 const ESTIMATE_DURATION_MINUTES = 30
 const SLOT_START_MINUTES = 8 * 60 // 8:00 AM = 480
-const LAST_SLOT_MINUTES = 15 * 60 // 3:00 PM = 900
+const LAST_SLOT_MINUTES = 17 * 60 // 5:00 PM = 1020
 const SLOT_STEP_MINUTES = 30
 const PRIORITY_LOOKAHEAD_DAYS = 3
 const MAX_LOOKAHEAD_DAYS = 7
-const EIGHT_AM_MINUTES = 480
+
+/** Cascading time tiers — fill 8 AM first, then 11 AM, 2 PM, 5 PM */
+const TIME_TIERS = [
+  { minutes: 480, label: '8:00 AM' },
+  { minutes: 660, label: '11:00 AM' },
+  { minutes: 840, label: '2:00 PM' },
+  { minutes: 1020, label: '5:00 PM' },
+] as const
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -353,69 +363,71 @@ export async function scheduleEstimate(
   const todayStr = `${pacific.year}-${String(pacific.month).padStart(2, '0')}-${String(pacific.day).padStart(2, '0')}`
   const nowMinutes = pacific.hour * 60 + pacific.minute
 
-  // ── Phase 1: Fill 8am slots ──────────────────────────────────
+  // ── Phase 1: Tiered time slots (8 AM → 11 AM → 2 PM → 5 PM) ──
 
-  console.log(`${LOG} Phase 1: Checking 8am slots for ${priorityDates.length} days...`)
+  console.log(`${LOG} Phase 1: Checking tiered slots for ${priorityDates.length} days...`)
 
-  type Missing8am = { salesman: Salesman; date: string; driveMinutes: number }
-  const missing8am: Missing8am[] = []
+  const tieredOptions: EstimateOption[] = []
+  const usedSlots = new Set<string>() // "date|timeMinutes" — dedup
 
-  for (const date of priorityDates) {
-    // Skip if today and it's past 8:30 AM (8am slot is gone)
-    if (date === todayStr && nowMinutes >= EIGHT_AM_MINUTES + ESTIMATE_DURATION_MINUTES) {
-      continue
-    }
+  for (const tier of TIME_TIERS) {
+    if (tieredOptions.length >= 3) break
 
-    for (const salesman of salesmen) {
-      // Check blocked dates
-      if (blockedDatesMap.get(salesman.id)?.has(date)) continue
+    for (const date of priorityDates) {
+      if (tieredOptions.length >= 3) break
 
-      const dayJobs = scheduleMap.get(salesman.id)?.get(date) || []
-      const has8am = dayJobs.some((j) => j.timeMinutes === EIGHT_AM_MINUTES)
+      const slotKey = `${date}|${tier.minutes}`
+      if (usedSlots.has(slotKey)) continue
 
-      if (!has8am) {
+      // Skip if today and past this tier's time
+      if (date === todayStr && nowMinutes >= tier.minutes + ESTIMATE_DURATION_MINUTES) continue
+
+      // Find best available salesman for this date + tier (shortest drive)
+      let bestSalesman: Salesman | null = null
+      let bestDrive = Infinity
+
+      for (const salesman of salesmen) {
+        if (blockedDatesMap.get(salesman.id)?.has(date)) continue
+
+        const dayJobs = scheduleMap.get(salesman.id)?.get(date) || []
+        if (dayJobs.length >= salesman.maxJobsPerDay) continue
+
+        // Check if this salesman already has a job at this exact time
+        const hasConflict = dayJobs.some((j) => j.timeMinutes === tier.minutes)
+        if (hasConflict) continue
+
         const driveMinutes = haversineMinutes(
           salesman.homeLat,
           salesman.homeLng,
           customerLat,
           customerLng
         )
-        missing8am.push({ salesman, date, driveMinutes })
+
+        if (driveMinutes < bestDrive) {
+          bestDrive = driveMinutes
+          bestSalesman = salesman
+        }
+      }
+
+      if (bestSalesman) {
+        usedSlots.add(slotKey)
+        tieredOptions.push({
+          date,
+          time: tier.label,
+          salesman_name: bestSalesman.name,
+        })
       }
     }
   }
 
-  if (missing8am.length > 0) {
-    // Sort by: earliest date first, then shortest drive time
-    missing8am.sort((a, b) => {
-      const dateCompare = a.date.localeCompare(b.date)
-      if (dateCompare !== 0) return dateCompare
-      return a.driveMinutes - b.driveMinutes
-    })
-
-    // Return up to 3 8am options — keep filling 8am until every salesman has one
-    const seen = new Set<string>() // dedup by "date|salesmanId"
-    const options: EstimateOption[] = []
-    for (const entry of missing8am) {
-      const key = `${entry.date}|${entry.salesman.id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      options.push({
-        date: entry.date,
-        time: '8:00 AM',
-        salesman_name: entry.salesman.name,
-      })
-      if (options.length >= 3) break
-    }
-
+  if (tieredOptions.length > 0) {
     console.log(
-      `${LOG} Phase 1: Returning ${options.length} 8am options: ${options.map((o) => `${o.date} with ${o.salesman_name}`).join(', ')}`
+      `${LOG} Phase 1: Returning ${tieredOptions.length} tiered options: ${tieredOptions.map((o) => `${o.date} ${o.time}`).join(', ')}`
     )
-
-    return { scheduled: true, options }
+    return { scheduled: true, options: tieredOptions }
   }
 
-  console.log(`${LOG} Phase 1: All 8am slots filled. Moving to Phase 2...`)
+  console.log(`${LOG} Phase 1: No tiered slots available. Moving to Phase 2...`)
 
   // ── Phase 2: Travel-optimized slotting (no gaps) ─────────────
   //
@@ -541,10 +553,19 @@ export async function scheduleEstimate(
     c.score = c.driveTimeMinutes + dayOffset * 60 + c.timeMinutes * 0.1
   }
 
-  // Sort by score ascending and return top 3
+  // Sort by score ascending, then dedup by date+time so customer never sees the same slot twice
   candidates.sort((a, b) => (a.score ?? Infinity) - (b.score ?? Infinity))
 
-  const top3 = candidates.slice(0, 3)
+  const seenSlots = new Set<string>()
+  const top3: CandidateSlot[] = []
+  for (const c of candidates) {
+    const slotKey = `${c.date}|${c.timeMinutes}`
+    if (seenSlots.has(slotKey)) continue
+    seenSlots.add(slotKey)
+    top3.push(c)
+    if (top3.length >= 3) break
+  }
+
   const options: EstimateOption[] = top3.map((c) => ({
     date: c.date,
     time: formatTimeFromMinutes(c.timeMinutes),

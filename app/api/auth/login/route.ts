@@ -4,6 +4,7 @@ import {
   createSession,
   setSessionCookie,
 } from '@/lib/auth'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,6 +29,18 @@ export async function POST(request: NextRequest) {
 
     const token = await createSession(user.id)
 
+    // Look up tenant slug for account switcher dedup
+    let tenantSlug: string | null = null
+    if (user.tenant_id) {
+      const client = getSupabaseServiceClient()
+      const { data: tenant } = await client
+        .from('tenants')
+        .select('slug')
+        .eq('id', user.tenant_id)
+        .single()
+      if (tenant) tenantSlug = tenant.slug
+    }
+
     const response = NextResponse.json({
       success: true,
       data: {
@@ -36,6 +49,7 @@ export async function POST(request: NextRequest) {
           username: user.username,
           display_name: user.display_name,
           email: user.email,
+          tenantSlug,
         },
         sessionToken: token, // Return token for multi-account support
       },
