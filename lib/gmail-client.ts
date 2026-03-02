@@ -129,15 +129,6 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     ? `"${fromName}" <${creds.user}>`
     : creds.user
 
-  // Build threading headers to keep in same email thread
-  const headers: Record<string, string> = {}
-  if (params.inReplyTo) {
-    headers['In-Reply-To'] = params.inReplyTo
-  }
-  if (params.references && params.references.length > 0) {
-    headers['References'] = params.references.join(' ')
-  }
-
   const subject = params.subjectOverride || `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`
 
   try {
@@ -146,7 +137,10 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
       to: customer.email,
       subject,
       html: htmlBody,
-      headers: Object.keys(headers).length > 0 ? headers : undefined,
+      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+      ...(params.references && params.references.length > 0
+        ? { references: params.references.join(' ') }
+        : {}),
     })
 
     console.log(`Confirmation email sent to ${customer.email} from ${creds.user}`)
@@ -202,26 +196,20 @@ export async function sendReplyEmail(params: {
     ? `"${params.fromName}" <${creds.user}>`
     : creds.user
 
-  // Build threading headers
-  const headers: Record<string, string> = {}
-  if (params.inReplyTo) {
-    headers['In-Reply-To'] = params.inReplyTo
-  }
-  if (params.references && params.references.length > 0) {
-    headers['References'] = params.references.join(' ')
-  }
-
   try {
     const info = await transporter.sendMail({
       from,
       to: params.to,
       subject: params.subject,
       html: htmlBody,
-      headers,
+      ...(params.inReplyTo ? { inReplyTo: params.inReplyTo } : {}),
+      ...(params.references && params.references.length > 0
+        ? { references: params.references.join(' ') }
+        : {}),
     })
 
     const messageId = info.messageId || ''
-    console.log(`[Email Bot] Reply sent to ${params.to}, Message-ID: ${messageId}`)
+    console.log(`[Email Bot] Reply sent to ${params.to}, Message-ID: ${messageId}, In-Reply-To: ${params.inReplyTo || 'none'}, References: ${params.references?.length || 0} IDs, Subject: ${params.subject}`)
     return { success: true, messageId }
   } catch (error) {
     console.error('[Email Bot] Send reply error:', error)
