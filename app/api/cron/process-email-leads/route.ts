@@ -387,10 +387,10 @@ async function processIncomingEmail(
       await client.from('leads').update({ followup_paused: true }).eq('id', lead.id)
     }
 
-    // Send reply — use business name in subject for first reply, keep Re: for threads
+    // Send reply — keep original subject with Re: prefix for threading
     const subject = email.subject.startsWith('Re:')
       ? email.subject
-      : `Re: ${businessName} - Booking Inquiry`
+      : `Re: ${email.subject}`
     const replyRefs = [...email.references]
     if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
 
@@ -493,10 +493,10 @@ async function processIncomingEmail(
     return { replied: true }
   }
 
-  // ── Send reply email — use business name in subject for first reply, keep Re: for threads ──
+  // ── Send reply email — keep original subject with Re: prefix for threading ──
   const subject = email.subject.startsWith('Re:')
     ? email.subject
-    : `Re: ${businessName} - Booking Inquiry`
+    : `Re: ${email.subject}`
   const replyRefs = [...email.references]
   if (email.messageId && !replyRefs.includes(email.messageId)) {
     replyRefs.push(email.messageId)
@@ -779,7 +779,7 @@ async function handleEmailBookingCompletion(
   }
   const confirmSubject = originalEmail.subject.startsWith('Re:')
     ? originalEmail.subject
-    : `Re: ${businessName} - Booking Inquiry`
+    : `Re: ${originalEmail.subject}`
 
   // ── Payment flow: WinBros gets card-on-file, house cleaning gets Wave invoice + deposit ──
   let paymentUrl = ''
