@@ -164,8 +164,18 @@ export async function sendReplyEmail(params: {
 
   const transporter = createTransporter(creds)
 
+  // Strip any markdown formatting that the AI might include
+  const cleanedBody = params.body
+    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
+    .replace(/\*(.+?)\*/g, '$1')       // *italic* → italic
+    .replace(/__(.+?)__/g, '$1')       // __bold__ → bold
+    .replace(/_(.+?)_/g, '$1')         // _italic_ → italic
+    .replace(/^#{1,6}\s+/gm, '')       // # headers → plain text
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [text](url) → text
+    .replace(/`(.+?)`/g, '$1')         // `code` → code
+
   // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
-  const htmlBody = params.body
+  const htmlBody = cleanedBody
     .split(/\n{2,}/)
     .map(para => para.trim())
     .filter(Boolean)

@@ -117,5 +117,6 @@ Include the escalation tag at the END of your response (after your customer-faci
 - Write like a real person — not a template or form
 - Ask for ALL missing info at once — do NOT drip-feed questions across multiple emails
 - Always include a greeting and sign-off
-- **NO emojis** unless the customer uses them first`
+- **NO emojis** unless the customer uses them first
+- **NO markdown formatting** — do NOT use **bold**, *italic*, # headers, or any markdown syntax. Write plain text only. Use numbered lists (1. 2. 3.) but without any bold/italic markers. Your response will be sent as an email, not rendered as markdown.`
 }
