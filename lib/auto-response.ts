@@ -853,6 +853,72 @@ async function getEstimateTimeOptions(
 // =====================================================================
 
 /**
+ * Look up 3 available cleaning time slots for a tenant.
+ * Checks existing jobs over the next 10 business days, picks the 3 least-busy
+ * days, and suggests morning/afternoon slots. Returns a formatted string the
+ * AI can present in the email, or null if lookup fails.
+ */
+async function getAvailableCleaningSlots(
+  tenantId: string,
+  timezone: string
+): Promise<string | null> {
+  try {
+    const { getSupabaseServiceClient } = await import('./supabase')
+    const client = getSupabaseServiceClient()
+
+    // Build next 10 business days (Mon-Sat, skip Sun)
+    const now = new Date()
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone }).format(now)
+    const cursor = new Date(todayStr + 'T12:00:00')
+    cursor.setDate(cursor.getDate() + 1) // start tomorrow
+
+    const candidates: string[] = []
+    while (candidates.length < 10) {
+      if (cursor.getDay() !== 0) { // skip Sunday
+        const dateStr = cursor.toISOString().split('T')[0]
+        candidates.push(dateStr)
+      }
+      cursor.setDate(cursor.getDate() + 1)
+    }
+
+    // Count existing jobs per date
+    const { data: jobs } = await client
+      .from('jobs')
+      .select('date')
+      .eq('tenant_id', tenantId)
+      .in('date', candidates)
+      .neq('status', 'cancelled')
+
+    const countByDate: Record<string, number> = {}
+    for (const d of candidates) countByDate[d] = 0
+    for (const j of (jobs || [])) {
+      if (j.date) countByDate[j.date] = (countByDate[j.date] || 0) + 1
+    }
+
+    // Pick 3 least-busy days, then re-sort chronologically
+    const bestDates = [...candidates]
+      .sort((a, b) => countByDate[a] - countByDate[b])
+      .slice(0, 3)
+      .sort()
+
+    // Alternate morning (9 AM) and afternoon (1 PM)
+    const timeSlots = ['9:00 AM', '1:00 PM', '9:00 AM']
+    const formatted = bestDates.map((date, i) => {
+      const d = new Date(date + 'T12:00:00')
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+      const monthDay = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })
+      return `${dayName}, ${monthDay} at ${timeSlots[i]}`
+    })
+
+    if (formatted.length === 0) return null
+    return formatted.join(' / ')
+  } catch (err) {
+    console.error('[Email Bot] Failed to look up available cleaning slots:', err)
+    return null
+  }
+}
+
+/**
  * Generate an email response for house cleaning booking conversations.
  * Same flow as SMS but adapted: batches 2-3 questions per email,
  * professional tone, and email address is already known.
@@ -888,12 +954,19 @@ export async function generateEmailResponse(
 
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
+  // Look up available cleaning slots so the AI can suggest specific times
+  const tz = tenant.timezone || 'America/Chicago'
+  const availableSlots = await getAvailableCleaningSlots(tenant.id, tz)
+  const slotsBlock = availableSlots
+    ? `\n\nAVAILABLE TIME SLOTS (suggest these to the customer for date/time):\n${availableSlots}\nPresent these naturally — e.g. "We have a few openings coming up — [slot 1], [slot 2], or [slot 3]. Which works best for you?"\n`
+    : ''
+
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: tenant.timezone || 'America/Chicago',
+    timeZone: tz,
   })
 
-  const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text (and escalation/booking-complete tag if needed). Nothing else.`
+  const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${slotsBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
