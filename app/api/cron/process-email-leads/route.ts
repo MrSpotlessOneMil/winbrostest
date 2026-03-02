@@ -29,6 +29,26 @@ import type { IncomingEmail } from '@/lib/gmail-imap'
 
 export const maxDuration = 60
 
+/**
+ * Generate a sensible subject line when the customer's email has no subject.
+ * Uses the tenant's business name for a professional-looking reply subject.
+ */
+function getReplySubject(originalSubject: string, businessName: string): string {
+  const trimmed = (originalSubject || '').trim()
+
+  // Already has a Re: prefix — use as-is (ongoing thread)
+  if (trimmed.startsWith('Re:')) return trimmed
+
+  // Empty, generic, or meaningless subject — generate one
+  const isEmpty = !trimmed || /^(no subject|none|\(no subject\))$/i.test(trimmed)
+  if (isEmpty) {
+    return `Re: Your ${businessName} Inquiry`
+  }
+
+  // Normal subject — just prepend Re:
+  return `Re: ${trimmed}`
+}
+
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
@@ -388,9 +408,7 @@ async function processIncomingEmail(
     }
 
     // Send reply — keep original subject with Re: prefix for threading
-    const subject = email.subject.startsWith('Re:')
-      ? email.subject
-      : `Re: ${email.subject}`
+    const subject = getReplySubject(email.subject, businessName)
     const replyRefs = [...email.references]
     if (email.messageId && !replyRefs.includes(email.messageId)) replyRefs.push(email.messageId)
 
@@ -494,9 +512,7 @@ async function processIncomingEmail(
   }
 
   // ── Send reply email — keep original subject with Re: prefix for threading ──
-  const subject = email.subject.startsWith('Re:')
-    ? email.subject
-    : `Re: ${email.subject}`
+  const subject = getReplySubject(email.subject, businessName)
   const replyRefs = [...email.references]
   if (email.messageId && !replyRefs.includes(email.messageId)) {
     replyRefs.push(email.messageId)
@@ -777,9 +793,7 @@ async function handleEmailBookingCompletion(
   if (originalEmail.messageId && !replyRefs.includes(originalEmail.messageId)) {
     replyRefs.push(originalEmail.messageId)
   }
-  const confirmSubject = originalEmail.subject.startsWith('Re:')
-    ? originalEmail.subject
-    : `Re: ${originalEmail.subject}`
+  const confirmSubject = getReplySubject(originalEmail.subject, tenant.business_name || tenant.name || 'Our Team')
 
   // ── Payment flow: WinBros gets card-on-file, house cleaning gets Wave invoice + deposit ──
   let paymentUrl = ''
@@ -968,7 +982,7 @@ async function handleEmailBookingCompletion(
       job_id: newJob.id,
       booking_data: bookingData,
       email: finalEmail,
-      deposit_url: depositUrl || null,
+      deposit_url: paymentUrl || null,
       service_price: servicePrice,
     },
   })
