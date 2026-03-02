@@ -41,6 +41,10 @@ interface ConfirmationEmailParams {
   stripeDepositUrl: string
   cleanerName?: string
   tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null; openphone_phone_number?: string | null; owner_phone?: string | null }
+  // Threading headers — keep confirmation in the same email thread
+  inReplyTo?: string
+  references?: string[]
+  subjectOverride?: string
 }
 
 export async function sendConfirmationEmail(params: ConfirmationEmailParams): Promise<{
@@ -125,12 +129,24 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     ? `"${fromName}" <${creds.user}>`
     : creds.user
 
+  // Build threading headers to keep in same email thread
+  const headers: Record<string, string> = {}
+  if (params.inReplyTo) {
+    headers['In-Reply-To'] = params.inReplyTo
+  }
+  if (params.references && params.references.length > 0) {
+    headers['References'] = params.references.join(' ')
+  }
+
+  const subject = params.subjectOverride || `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`
+
   try {
     await transporter.sendMail({
       from,
       to: customer.email,
-      subject: `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`,
+      subject,
       html: htmlBody,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
     })
 
     console.log(`Confirmation email sent to ${customer.email} from ${creds.user}`)

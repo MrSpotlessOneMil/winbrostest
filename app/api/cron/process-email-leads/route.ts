@@ -738,6 +738,31 @@ async function handleEmailBookingCompletion(
     }
   }
 
+  // ── Create Wave invoice for Wave tenants ──
+  let waveInvoiceUrl: string | undefined
+  const wc = tenant.workflow_config
+  const isStripeOnly = wc?.use_stripe && !wc?.use_wave
+
+  if (!isStripeOnly && servicePrice && servicePrice > 0) {
+    try {
+      const { createInvoice } = await import('@/lib/invoices')
+      const invoiceResult = await createInvoice(
+        { ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number }, service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType } as any,
+        { ...customer, email: finalEmail } as any,
+        tenant
+      )
+
+      if (invoiceResult.success && invoiceResult.invoiceUrl) {
+        waveInvoiceUrl = invoiceResult.invoiceUrl
+        console.log(`[Email Cron] Wave invoice created: ${waveInvoiceUrl}`)
+      } else {
+        console.warn(`[Email Cron] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
+      }
+    } catch (invoiceErr) {
+      console.error('[Email Cron] Invoice creation error:', invoiceErr)
+    }
+  }
+
   // Create Stripe deposit link
   let depositUrl = ''
   if (servicePrice && tenant.stripe_secret_key) {
@@ -771,6 +796,15 @@ async function handleEmailBookingCompletion(
     }
   }
 
+  // ── Build threading headers so confirmation lands in same email thread ──
+  const replyRefs = [...originalEmail.references]
+  if (originalEmail.messageId && !replyRefs.includes(originalEmail.messageId)) {
+    replyRefs.push(originalEmail.messageId)
+  }
+  const confirmSubject = originalEmail.subject.startsWith('Re:')
+    ? originalEmail.subject
+    : `Re: ${businessName} - Booking Inquiry`
+
   // ── Send confirmation email with payment link ──
   if (depositUrl) {
     await sendConfirmationEmail({
@@ -781,8 +815,12 @@ async function handleEmailBookingCompletion(
         service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
         address: bookingData.address || customer.address || null,
       } as any,
+      waveInvoiceUrl,
       stripeDepositUrl: depositUrl,
       tenant,
+      inReplyTo: originalEmail.messageId,
+      references: replyRefs,
+      subjectOverride: confirmSubject,
     })
 
     // Store confirmation as a message for conversation history
@@ -801,6 +839,7 @@ async function handleEmailBookingCompletion(
       email_thread_id: threadId,
       metadata: {
         deposit_url: depositUrl,
+        wave_invoice_url: waveInvoiceUrl || null,
         job_id: newJob.id,
         service_price: servicePrice,
       },
