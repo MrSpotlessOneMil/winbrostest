@@ -70,7 +70,7 @@ export async function getTenantRedirectDomain(tenantId?: string): Promise<string
   return getClientDomain()
 }
 
-type StripePaymentType = 'DEPOSIT' | 'ADDON' | 'FINAL'
+type StripePaymentType = 'DEPOSIT' | 'ADDON' | 'FINAL' | 'CUSTOM'
 
 function resolveStripeTestChargeCents(): number | null {
   if (process.env.ENABLE_STRIPE_TEST_CHARGES !== 'true') {
@@ -505,6 +505,79 @@ export async function createDepositPaymentLink(
     }
   } catch (error) {
     console.error('Error creating deposit session:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Create a payment link for any custom dollar amount.
+ * Used by the assistant to generate ad-hoc payment links for tenants.
+ */
+export async function createCustomPaymentLink(
+  customer: Customer,
+  amount: number,
+  description: string,
+  tenantId?: string,
+  stripeSecretKey?: string,
+  jobId?: string
+): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
+  if (!customer.email) {
+    return { success: false, error: 'Customer email required' }
+  }
+
+  if (!amount || amount <= 0) {
+    return { success: false, error: 'Amount must be greater than $0' }
+  }
+
+  try {
+    const stripe = getStripeClientForTenant(stripeSecretKey)
+    const domain = await getTenantRedirectDomain(tenantId)
+    const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
+
+    const defaultAmountCents = Math.round(amount * 100)
+    const { amountCents, testChargeCents } = resolveStripeChargeCents(defaultAmountCents, 'CUSTOM')
+
+    const metadata: Record<string, string> = {
+      phone_number: customer.phone_number,
+      payment_type: 'CUSTOM',
+      custom_amount: amount.toFixed(2),
+      description,
+    }
+    if (jobId) metadata.job_id = jobId
+    if (testChargeCents) metadata.test_charge_cents = String(testChargeCents)
+
+    const session = await stripe.checkout.sessions.create({
+      customer: stripeCustomer.id,
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: description || 'Payment',
+            },
+            unit_amount: amountCents,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: domain,
+      cancel_url: domain,
+      metadata,
+    })
+
+    console.log(`Created custom payment session: ${session.id} for $${(amountCents / 100).toFixed(2)}`)
+
+    return {
+      success: true,
+      url: session.url || undefined,
+      amount: amountCents / 100,
+    }
+  } catch (error) {
+    console.error('Error creating custom payment session:', error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
