@@ -990,7 +990,7 @@ export async function generateEmailResponse(
   customerContext?: CustomerContext | null
 ): Promise<AutoResponseResult> {
   const { buildEmailBotSystemPrompt, buildWinBrosEmailPrompt } = await import('./email-bot-prompt')
-  const { detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } = await import('./winbros-sms-prompt')
+  const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
   const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
   const systemPrompt = isWinBros ? buildWinBrosEmailPrompt(tenant) : buildEmailBotSystemPrompt(tenant)
@@ -1014,24 +1014,19 @@ export async function generateEmailResponse(
 
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
-  // Look up available cleaning slots for house cleaning tenants (not WinBros — it uses [SCHEDULE_READY] → estimate scheduler)
+  // Look up available time slots so the AI can suggest specific times in the first email
   const tz = tenant.timezone || 'America/Chicago'
-  let slotsBlock = ''
-  if (!isWinBros) {
-    const availableSlots = await getAvailableCleaningSlots(tenant.id, tz)
-    slotsBlock = availableSlots
-      ? `\n\nAVAILABLE TIME SLOTS (suggest these to the customer for date/time):\n${availableSlots}\nPresent these naturally — e.g. "We have a few openings coming up — [slot 1], [slot 2], or [slot 3]. Which works best for you?"\n`
-      : ''
-  }
+  const availableSlots = await getAvailableCleaningSlots(tenant.id, tz)
+  const slotsBlock = availableSlots
+    ? `\n\nAVAILABLE TIME SLOTS (present these to the customer when asking about date/time):\n${availableSlots}\nPresent these naturally — e.g. "We have a few openings coming up — [slot 1], [slot 2], or [slot 3]. Which works best for you?"\n`
+    : ''
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
     timeZone: tz,
   })
 
-  const tagHint = isWinBros
-    ? '(and tags like [SCHEDULE_READY], [BOOKING_COMPLETE], or [ESCALATE:reason] if needed)'
-    : '(and escalation/booking-complete tag if needed)'
+  const tagHint = '(and tags like [BOOKING_COMPLETE] or [ESCALATE:reason] if needed)'
   const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${slotsBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text ${tagHint}. Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
@@ -1055,25 +1050,7 @@ export async function generateEmailResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const isScheduleReady = isWinBros ? detectScheduleReady(rawText) : false
-    let cleanResponse = stripEscalationTags(rawText)
-
-    // WinBros estimate flow: when AI says it's ready to schedule,
-    // fetch available time slots and append them (same as SMS flow)
-    if (isScheduleReady) {
-      const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
-      if (timeOptions) {
-        cleanResponse = cleanResponse + '\n\n' + timeOptions
-      } else {
-        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
-        return {
-          response: cleanResponse,
-          shouldSend: true,
-          reason: 'Email bot — scheduler failed, escalating',
-          escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
-        }
-      }
-    }
+    const cleanResponse = stripEscalationTags(rawText)
 
     return {
       response: cleanResponse,
@@ -1107,23 +1084,7 @@ export async function generateEmailResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const isScheduleReady = isWinBros ? detectScheduleReady(rawText) : false
-    let cleanResponse = stripEscalationTags(rawText)
-
-    if (isScheduleReady) {
-      const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
-      if (timeOptions) {
-        cleanResponse = cleanResponse + '\n\n' + timeOptions
-      } else {
-        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
-        return {
-          response: cleanResponse,
-          shouldSend: true,
-          reason: 'Email bot — scheduler failed, escalating (OpenAI)',
-          escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
-        }
-      }
-    }
+    const cleanResponse = stripEscalationTags(rawText)
 
     return {
       response: cleanResponse,
