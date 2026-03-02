@@ -115,7 +115,7 @@ export function LeadSourceChart() {
               <div className="flex flex-1 items-center justify-between gap-2">
                 <span className="text-xs text-muted-foreground">{source.label}</span>
                 <span className="text-xs font-medium text-foreground">
-                  {source.jobs} job{source.jobs !== 1 ? "s" : ""} &middot;{" "}
+                  {source.value} lead{source.value !== 1 ? "s" : ""} &middot;{" "}
                   {totalLeads ? Math.round((source.value / totalLeads) * 100) : 0}%
                 </span>
               </div>
