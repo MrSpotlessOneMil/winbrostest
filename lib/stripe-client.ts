@@ -226,6 +226,10 @@ export async function createAndSendInvoice(
 
       const staticDesc = buildStaticCleaningDescription(job as any, customer as any)
       description = summaryParts.join('\n') + '\n\n' + staticDesc + '\n\nGuarantee: If anything is missed, we will return within 24 hours to make it right.'
+      // Stripe invoice item descriptions have a 500 character limit
+      if (description.length > 500) {
+        description = description.slice(0, 497) + '...'
+      }
     } catch {
       description = buildInvoiceDescription(job)
     }

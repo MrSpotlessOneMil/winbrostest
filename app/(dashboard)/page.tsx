@@ -17,7 +17,7 @@ export default function DashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 stagger-1">
         <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold text-foreground truncate page-title-gradient">Command Center</h1>
+          <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">Command Center</h1>
           <p className="text-xs md:text-sm text-zinc-500 hidden sm:block">
             Real-time overview of operations
           </p>
