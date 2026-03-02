@@ -801,7 +801,14 @@ async function handleEmailBookingCompletion(
     const dateDisplay = jobDate_
       ? jobDate_.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
       : 'a date we\'ll confirm shortly'
-    const timeDisplay = preferredTime || '9:00 AM'
+    // Convert 24h time (e.g. "08:00") to 12h display (e.g. "8:00 AM")
+    let timeDisplay = '9:00 AM'
+    if (preferredTime) {
+      const [h, m] = preferredTime.split(':').map(Number)
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+      timeDisplay = `${h12}:${(m || 0).toString().padStart(2, '0')} ${ampm}`
+    }
     const addrDisplay = address || customer.address || 'your home'
 
     const confirmBody = [

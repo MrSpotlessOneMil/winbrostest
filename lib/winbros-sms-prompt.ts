@@ -712,7 +712,7 @@ For propertyType: If gutter cleaning, "single_story", "two_story", or "larger_tw
 For gutterConditions: If gutter cleaning, "heavy_clogging" if heavy clogging/overflowing mentioned, "none" otherwise. null if not gutter cleaning.
 
 IMPORTANT: If the customer corrects ANY information that was previously stated, always return the CORRECTED version, not the original.
-IMPORTANT: Today's date is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}. Use this to resolve relative dates like "tomorrow", "next Monday", etc. For preferredDate, return the resolved date in YYYY-MM-DD format when possible (e.g. "tomorrow" → "${(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()}").
+IMPORTANT: Today's date is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}. Use this to resolve relative dates like "tomorrow", "next Monday", etc. For preferredDate, include BOTH the date AND time if the customer specified a time. Format: "YYYY-MM-DD at H:MM AM/PM" (e.g. "tomorrow at 8am" → "${(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()} at 8:00 AM"). If no time was mentioned, return just the date "YYYY-MM-DD".
 
 CONVERSATION:
 ${transcript}
