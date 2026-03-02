@@ -814,34 +814,18 @@ export default function JobsPage() {
     setSaving(true)
     try {
       if (mode === "future") {
-        const parentId = selectedEvent.parentJobId || selectedEvent.jobId
-        const selectedDate = selectedEvent.start
-          ? selectedEvent.start.toISOString().split("T")[0]
-          : new Date().toISOString().split("T")[0]
-
-        // Cancel the recurring series via API (cancels parent + all future children)
-        await fetch("/api/actions/recurring", {
+        // Server-side handles finding all related jobs (children + orphaned siblings by customer_id)
+        const res = await fetch("/api/actions/recurring", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "cancel", parent_job_id: Number(parentId) }),
-        }).catch(() => {})
-
-        // Also hard-delete all future sibling jobs from this date forward
-        const futureJobs = jobs.filter((j) => {
-          const isChild = String(j.parent_job_id) === String(parentId)
-          const isFuture = j.date && j.date >= selectedDate
-          const isDeletable = j.status !== "completed"
-          return isChild && isFuture && isDeletable
+          body: JSON.stringify({ action: "delete-future", job_id: Number(selectedEvent.jobId) }),
         })
-
-        for (const fj of futureJobs) {
-          await fetch(`/api/jobs?id=${fj.id}`, { method: "DELETE" })
+        const data = await res.json()
+        if (!res.ok) {
+          console.error("Delete future failed:", data.error)
+          return
         }
-
-        // Delete the clicked job itself if it wasn't already covered
-        await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" }).catch(() => {})
       } else {
-        // Single delete
         const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
         const data = await res.json()
         if (!data.success) return
