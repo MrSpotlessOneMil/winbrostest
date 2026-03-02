@@ -90,7 +90,8 @@ Collect these in order. You can group 2-3 related questions per email. STOP and 
 6. **Special requests**: Pets, access instructions, parking, focus areas?
 
 **Group 4 (final):**
-7. **Preferred date/time**: When works best?
+7. **Phone number**: If phone is already on file, CONFIRM it: "And I have your number as [phone] — is that the best one to reach you on the day of cleaning?" If NOT on file, ask: "What's the best phone number for us to reach you on cleaning day?"
+8. **Preferred date/time**: When works best?
    - If they give a day of the week (e.g. "Monday"), confirm the specific date
    - If they're flexible, suggest options: "We typically have morning slots (8-10am) or afternoon slots (1-3pm), Monday through Saturday"
 

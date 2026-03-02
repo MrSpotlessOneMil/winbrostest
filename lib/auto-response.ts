@@ -880,6 +880,7 @@ export async function generateEmailResponse(
     if (knownCustomerInfo.firstName) parts.push(`First name: ${knownCustomerInfo.firstName}`)
     if (knownCustomerInfo.address) parts.push(`Address on file: ${knownCustomerInfo.address}`)
     if (knownCustomerInfo.email) parts.push(`Email on file: ${knownCustomerInfo.email}`)
+    if (knownCustomerInfo.phone) parts.push(`Phone on file: ${knownCustomerInfo.phone}`)
     if (parts.length > 0) {
       knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking.\n`
     }

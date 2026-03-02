@@ -171,8 +171,8 @@ async function processIncomingEmail(
     .limit(1)
     .maybeSingle()
 
-  // If the existing lead is booked and its job is completed, allow re-booking
-  // by creating a fresh lead (same pattern as SMS returning customers)
+  // If the existing lead is booked and its job is completed, reset the lead
+  // for re-booking. Same customer, same lead, new job.
   if (lead && lead.status === 'booked' && lead.converted_to_job_id) {
     const { data: linkedJob } = await client
       .from('jobs')
@@ -181,8 +181,15 @@ async function processIncomingEmail(
       .maybeSingle()
 
     if (linkedJob?.status === 'completed') {
-      console.log(`[Email Cron] Previous booking (job ${lead.converted_to_job_id}) is completed — allowing re-booking for ${senderEmail}`)
-      lead = null // force new lead creation below
+      console.log(`[Email Cron] Previous booking (job ${lead.converted_to_job_id}) is completed — resetting lead for re-booking`)
+      await client.from('leads').update({
+        status: 'contacted',
+        converted_to_job_id: null,
+        followup_stage: 0,
+        followup_started_at: new Date().toISOString(),
+      }).eq('id', lead.id)
+      lead.status = 'contacted'
+      lead.converted_to_job_id = null
     }
   }
 
@@ -293,6 +300,7 @@ async function processIncomingEmail(
     lastName: customer.last_name,
     address: customer.address,
     email: senderEmail,
+    phone: customer.phone_number || null,
   }
 
   // ── Load customer context (active jobs, history) for AI awareness ──
@@ -524,13 +532,31 @@ async function handleEmailBookingCompletion(
 
   const finalEmail = bookingData.email || senderEmail
 
+  // Extract phone number from conversation (customer may have provided it via email)
+  let phoneNumber = customer.phone_number || null
+  if (!phoneNumber) {
+    const phoneRegex = /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/
+    for (const msg of [...conversationHistory].reverse()) {
+      if (msg.role === 'client') {
+        const phoneMatch = msg.content.match(phoneRegex)
+        if (phoneMatch) {
+          // Normalize to digits only
+          const digits = phoneMatch[0].replace(/\D/g, '')
+          phoneNumber = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : phoneMatch[0]
+          console.log(`[Email Cron] Phone extracted from conversation: ${phoneNumber}`)
+          break
+        }
+      }
+    }
+  }
+
   // Update customer with extracted data
   await client.from('customers').update({
     email: finalEmail,
     first_name: bookingData.firstName || customer.first_name,
     last_name: bookingData.lastName || customer.last_name,
     address: bookingData.address || customer.address,
-    phone_number: customer.phone_number || null,
+    phone_number: phoneNumber || customer.phone_number || null,
   }).eq('id', customer.id)
 
   // Sync to HouseCall Pro if enabled
@@ -539,7 +565,7 @@ async function handleEmailBookingCompletion(
     await syncCustomerToHCP({
       tenantId: tenant.id,
       customerId: customer.id,
-      phone: customer.phone_number || '',
+      phone: phoneNumber || customer.phone_number || '',
       firstName: bookingData.firstName || customer.first_name,
       lastName: bookingData.lastName || customer.last_name,
       email: finalEmail,
@@ -603,7 +629,7 @@ async function handleEmailBookingCompletion(
   const { data: newJob, error: jobError } = await client.from('jobs').insert({
     tenant_id: tenant.id,
     customer_id: customer.id,
-    phone_number: customer.phone_number || null,
+    phone_number: phoneNumber || customer.phone_number || null,
     service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
     address: bookingData.address || customer.address || null,
     price: servicePrice || null,
