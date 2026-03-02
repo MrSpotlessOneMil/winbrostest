@@ -551,7 +551,10 @@ async function handleEmailBookingCompletion(
 
   console.log(`[Email Cron] Extracted booking: service=${bookingData.serviceType}, beds=${bookingData.bedrooms}, baths=${bookingData.bathrooms}, date=${bookingData.preferredDate}`)
 
-  const finalEmail = bookingData.email || senderEmail
+  // For email leads, the customer's email is always senderEmail.
+  // Never use bookingData.email — the AI extractor can accidentally pick up
+  // the business's own Gmail address from the conversation transcript.
+  const finalEmail = senderEmail
 
   // Extract phone number from conversation (customer may have provided it via email)
   let phoneNumber = customer.phone_number || null
