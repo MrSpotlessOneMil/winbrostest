@@ -605,6 +605,19 @@ export function parseNaturalDate(input: string): { date: string | null; time: st
 
   if (!targetDate) return { date: null, time }
 
+  // Sanity check: if the date is more than 6 months in the future, the year is likely wrong.
+  // Snap to the current year (or next year if that would put it in the past).
+  const sixMonthsFromNow = new Date(centralNow)
+  sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6)
+  if (targetDate > sixMonthsFromNow) {
+    const corrected = new Date(centralNow.getFullYear(), targetDate.getMonth(), targetDate.getDate())
+    if (corrected < centralNow) {
+      corrected.setFullYear(corrected.getFullYear() + 1)
+    }
+    console.log(`[parseNaturalDate] Clamped far-future date ${targetDate.toISOString().split('T')[0]} → ${corrected.toISOString().split('T')[0]}`)
+    targetDate = corrected
+  }
+
   const yyyy = targetDate.getFullYear()
   const mm = (targetDate.getMonth() + 1).toString().padStart(2, '0')
   const dd = targetDate.getDate().toString().padStart(2, '0')
@@ -699,6 +712,7 @@ For propertyType: If gutter cleaning, "single_story", "two_story", or "larger_tw
 For gutterConditions: If gutter cleaning, "heavy_clogging" if heavy clogging/overflowing mentioned, "none" otherwise. null if not gutter cleaning.
 
 IMPORTANT: If the customer corrects ANY information that was previously stated, always return the CORRECTED version, not the original.
+IMPORTANT: Today's date is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}. Use this to resolve relative dates like "tomorrow", "next Monday", etc. For preferredDate, return the resolved date in YYYY-MM-DD format when possible (e.g. "tomorrow" → "${(() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0] })()}").
 
 CONVERSATION:
 ${transcript}
@@ -714,6 +728,8 @@ Return ONLY the JSON object, nothing else.`
       const jsonStr = raw.replace(/```json?\n?/g, '').replace(/```/g, '').trim()
       const parsed = JSON.parse(jsonStr)
 
+      const dateResult = parsed.preferredDate ? parseNaturalDate(parsed.preferredDate) : { date: null, time: null }
+
       return {
         serviceType: parsed.serviceType || null,
         scope: parsed.scope || null,
@@ -727,8 +743,8 @@ Return ONLY the JSON object, nothing else.`
         lastName: parsed.lastName || null,
         address: parsed.address || null,
         referralSource: parsed.referralSource || null,
-        preferredDate: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).date : null,
-        preferredTime: parsed.preferredDate ? parseNaturalDate(parsed.preferredDate).time : null,
+        preferredDate: dateResult.date,
+        preferredTime: dateResult.time,
         email: parsed.email || null,
         // Pressure washing fields
         pressureWashingSurfaces: Array.isArray(parsed.pressureWashingSurfaces) ? parsed.pressureWashingSurfaces : null,
