@@ -67,10 +67,10 @@ export async function fetchUnreadEmails(
 
     const lock = await client.getMailboxLock('INBOX')
     try {
-      // Search for emails from today — dedup by Message-ID happens in the cron
-      // Using SINCE (date-only) to get all today's emails, read or unread
-      const sinceDate = new Date()
-      sinceDate.setHours(0, 0, 0, 0)
+      // Search for emails from the last 24h — IMAP SINCE is date-only and uses
+      // the email's Date header timezone, so we go back a full day to avoid
+      // timezone mismatches between server (UTC) and email senders
+      const sinceDate = new Date(Date.now() - 24 * 60 * 60 * 1000)
       const uids = await client.search({ since: sinceDate }, { uid: true })
 
       if (!uids || uids.length === 0) {
