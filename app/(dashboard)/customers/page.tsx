@@ -1143,7 +1143,10 @@ export default function CustomersPage() {
                         </button>
 
                         {paymentOpen && (
-                          <div className="absolute right-0 top-9 z-50 w-72 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+                          <>
+                          {/* Backdrop for mobile */}
+                          <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => { setPaymentOpen(false); setPaymentType(null); setPaymentResult(null) }} />
+                          <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
                             {!paymentType && !paymentResult && (
                               <div className="p-2 space-y-0.5">
                                 <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
@@ -1314,6 +1317,7 @@ export default function CustomersPage() {
                               </div>
                             )}
                           </div>
+                          </>
                         )}
                       </div>
 
