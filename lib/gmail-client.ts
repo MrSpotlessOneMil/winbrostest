@@ -145,6 +145,65 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
 }
 
 /**
+ * Send a threaded reply email with proper threading headers.
+ * Keeps the conversation in the same Gmail thread.
+ */
+export async function sendReplyEmail(params: {
+  to: string
+  subject: string
+  body: string        // plain text body (converted to HTML paragraphs)
+  fromName?: string
+  inReplyTo?: string  // Message-ID of the email being replied to
+  references?: string[] // Reference chain for threading
+  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }
+}): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
+    return { success: false, error: 'Gmail credentials not configured' }
+  }
+
+  const transporter = createTransporter(creds)
+
+  const htmlBody = params.body
+    .split('\n')
+    .map(line => `<p>${line || '&nbsp;'}</p>`)
+    .join('\n')
+
+  const from = params.fromName
+    ? `"${params.fromName}" <${creds.user}>`
+    : creds.user
+
+  // Build threading headers
+  const headers: Record<string, string> = {}
+  if (params.inReplyTo) {
+    headers['In-Reply-To'] = params.inReplyTo
+  }
+  if (params.references && params.references.length > 0) {
+    headers['References'] = params.references.join(' ')
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from,
+      to: params.to,
+      subject: params.subject,
+      html: htmlBody,
+      headers,
+    })
+
+    const messageId = info.messageId || ''
+    console.log(`[Email Bot] Reply sent to ${params.to}, Message-ID: ${messageId}`)
+    return { success: true, messageId }
+  } catch (error) {
+    console.error('[Email Bot] Send reply error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+/**
  * Send a custom email with plain text body (wrapped in simple HTML).
  * Checks tenant Gmail creds first, falls back to env vars.
  */

@@ -15,6 +15,7 @@ export type SystemEventSource =
   | 'lead_followup'
   | 'scheduler'
   | 'lead_actions'
+  | 'email_cron'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -113,6 +114,7 @@ export type SystemEventType =
   | 'SMS_ESTIMATE_BOOKED'
   | 'LEAD_ESCALATED'
   | 'SMS_BOOKING_COMPLETED'
+  | 'EMAIL_BOOKING_COMPLETED'
   // Telegram Onboarding
   | 'TELEGRAM_ONBOARDING'
 

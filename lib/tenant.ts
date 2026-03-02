@@ -136,6 +136,10 @@ export interface Tenant {
   wave_business_id: string | null
   wave_income_account_id: string | null
 
+  // Gmail credentials (per-tenant email bot)
+  gmail_user: string | null
+  gmail_app_password: string | null
+
   // Workflow configuration
   workflow_config: WorkflowConfig
 

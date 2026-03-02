@@ -849,6 +849,127 @@ async function getEstimateTimeOptions(
 }
 
 // =====================================================================
+// EMAIL BOT RESPONSE (house cleaning via email)
+// =====================================================================
+
+/**
+ * Generate an email response for house cleaning booking conversations.
+ * Same flow as SMS but adapted: batches 2-3 questions per email,
+ * professional tone, and email address is already known.
+ */
+export async function generateEmailResponse(
+  message: string,
+  tenant: Tenant,
+  conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  knownCustomerInfo?: KnownCustomerInfo,
+  customerContext?: CustomerContext | null
+): Promise<AutoResponseResult> {
+  const { buildEmailBotSystemPrompt } = await import('./email-bot-prompt')
+  const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
+
+  const systemPrompt = buildEmailBotSystemPrompt(tenant)
+  const sdrName = tenant.sdr_persona || 'Sarah'
+
+  const historyContext = conversationHistory?.length
+    ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
+    : '(No prior messages — this is a new email conversation.)'
+
+  let knownInfoBlock = ''
+  if (knownCustomerInfo) {
+    const parts: string[] = []
+    if (knownCustomerInfo.firstName) parts.push(`First name: ${knownCustomerInfo.firstName}`)
+    if (knownCustomerInfo.address) parts.push(`Address on file: ${knownCustomerInfo.address}`)
+    if (knownCustomerInfo.email) parts.push(`Email on file: ${knownCustomerInfo.email}`)
+    if (parts.length > 0) {
+      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking.\n`
+    }
+  }
+
+  const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
+
+  const today = new Date().toLocaleDateString('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    timeZone: tenant.timezone || 'America/Chicago',
+  })
+
+  const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text (and escalation/booking-complete tag if needed). Nothing else.`
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (anthropicKey) {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default
+    const client = new Anthropic({ apiKey: anthropicKey })
+
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-5-20250929',
+      max_tokens: 800,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    })
+
+    const textContent = response.content.find(block => block.type === 'text')
+    const rawText = textContent?.type === 'text' ? textContent.text.trim() : ''
+
+    if (!rawText) {
+      throw new Error('Empty response from Claude (EmailBot)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'Email bot AI-generated response',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
+    }
+  }
+
+  // OpenAI fallback
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (openaiKey) {
+    const OpenAI = (await import('openai')).default
+    const client = new OpenAI({ apiKey: openaiKey })
+
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      max_tokens: 800,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+    })
+
+    const rawText = response.choices[0]?.message?.content?.trim() || ''
+
+    if (!rawText) {
+      throw new Error('Empty response from OpenAI (EmailBot)')
+    }
+
+    const escalation = detectEscalation(rawText, conversationHistory)
+    const isBookingComplete = detectBookingComplete(rawText)
+    const cleanResponse = stripEscalationTags(rawText)
+
+    return {
+      response: cleanResponse,
+      shouldSend: true,
+      reason: 'Email bot AI-generated response (OpenAI)',
+      escalation: escalation.shouldEscalate ? escalation : undefined,
+      bookingComplete: isBookingComplete || undefined,
+    }
+  }
+
+  // Template fallback
+  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  return {
+    response: `Hi there!\n\nThank you for reaching out to ${businessName}! We'd love to help you with your cleaning needs.\n\nTo get started, could you let us know:\n- Are you looking for a Standard Cleaning, Deep Cleaning, or Move-in/Move-out Cleaning?\n- What's your full name?\n\nLooking forward to hearing from you!\n\nBest,\n${sdrName}`,
+    shouldSend: true,
+    reason: 'Email bot template fallback',
+  }
+}
+
+// =====================================================================
 // HOUSE CLEANING SMS RESPONSE (non-WinBros tenants)
 // =====================================================================
 
