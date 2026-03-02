@@ -1491,41 +1491,64 @@ export async function POST(request: NextRequest) {
       .update(statusUpdate)
       .eq("id", existingLead.id)
 
-    // Reschedule pending follow-up tasks to 30 min from now (don't cancel them — just push them forward)
+    // Cancel pending CALL follow-up tasks (customer is engaged via SMS — don't call them).
+    // Reschedule pending TEXT follow-up tasks 30 min forward (continues SMS conversation).
     try {
       const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
       const now = Date.now()
 
       const { data: pendingTasks } = await client
         .from("scheduled_tasks")
-        .select("id, scheduled_for, task_key")
+        .select("id, scheduled_for, task_key, payload")
         .eq("status", "pending")
         .eq("task_type", "lead_followup")
         .eq("tenant_id", tenant?.id)
         .order("scheduled_for", { ascending: true })
 
       const leadTasks = (pendingTasks || []).filter(
-        (t: { id: string; scheduled_for: string; task_key: string }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
+        (t: { id: string; scheduled_for: string; task_key: string; payload: any }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
       )
 
-      if (leadTasks.length > 0) {
-        // Shift the soonest task to 30 min from now, preserve relative gaps
-        const firstMs = new Date(leadTasks[0].scheduled_for).getTime()
+      // Separate call vs text tasks
+      const callTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
+        const action = t.payload?.action
+        return action === 'call' || action === 'double_call' || t.task_key.includes('double-call')
+      })
+      const textTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
+        const action = t.payload?.action
+        return action === 'text' && !t.task_key.includes('double-call')
+      })
+
+      // Cancel call tasks — customer is already texting, no need to call
+      if (callTasks.length > 0) {
+        for (const task of callTasks) {
+          await client
+            .from("scheduled_tasks")
+            .update({ status: "cancelled" })
+            .eq("id", task.id)
+        }
+        console.log(`[OpenPhone] Cancelled ${callTasks.length} call follow-up tasks for lead ${existingLead.id} (customer responded via SMS)`)
+      }
+
+      // Reschedule text tasks 30 min forward
+      if (textTasks.length > 0) {
+        const firstMs = new Date(textTasks[0].scheduled_for).getTime()
         const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
-        for (const task of leadTasks) {
+        for (const task of textTasks) {
           const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
           await client
             .from("scheduled_tasks")
             .update({ scheduled_for: newTime.toISOString() })
             .eq("id", task.id)
         }
-        console.log(`[OpenPhone] Rescheduled ${leadTasks.length} follow-up tasks 30 min forward for lead ${existingLead.id}`)
-      } else {
-        // All 5 follow-up stages already fired — sequence is complete, nothing to reschedule
+        console.log(`[OpenPhone] Rescheduled ${textTasks.length} text follow-up tasks 30 min forward for lead ${existingLead.id}`)
+      }
+
+      if (leadTasks.length === 0) {
         console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
       }
     } catch (rescheduleErr) {
-      console.error("[OpenPhone] Error rescheduling follow-up tasks:", rescheduleErr)
+      console.error("[OpenPhone] Error managing follow-up tasks:", rescheduleErr)
     }
 
     console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${maskPhone(phone)}`)
