@@ -40,26 +40,15 @@ export async function GET(request: NextRequest) {
   let totalProcessed = 0
   let totalReplied = 0
   const errors: string[] = []
-  const debug: string[] = []
-
-  debug.push(`tenants: ${tenants.map(t => t.slug).join(', ')}`)
 
   for (const tenant of tenants) {
     // Only process tenants with Gmail credentials
     const hasCreds = (tenant.gmail_user && tenant.gmail_app_password) ||
                      (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
-    if (!hasCreds) {
-      debug.push(`${tenant.slug}: skipped (no creds)`)
-      continue
-    }
+    if (!hasCreds) continue
 
     // Only process house cleaning tenants (not WinBros window cleaning)
-    if (tenantUsesFeature(tenant, 'use_hcp_mirror')) {
-      debug.push(`${tenant.slug}: skipped (hcp_mirror)`)
-      continue
-    }
-
-    debug.push(`${tenant.slug}: processing (gmail: ${tenant.gmail_user || 'env_fallback'})`)
+    if (tenantUsesFeature(tenant, 'use_hcp_mirror')) continue
 
     try {
       const { emails, error: imapError } = await fetchUnreadEmails(tenant)
@@ -67,13 +56,7 @@ export async function GET(request: NextRequest) {
       if (imapError) {
         console.error(`[Email Cron] IMAP error for tenant ${tenant.slug}:`, imapError)
         errors.push(`${tenant.slug}: ${imapError}`)
-        debug.push(`${tenant.slug}: IMAP error: ${imapError}`)
         continue
-      }
-
-      debug.push(`${tenant.slug}: fetched ${emails.length} email(s)`)
-      if (emails.length > 0) {
-        debug.push(`${tenant.slug}: emails from: ${emails.map(e => e.from).join(', ')}`)
       }
 
       if (emails.length === 0) continue
@@ -111,7 +94,6 @@ export async function GET(request: NextRequest) {
     processed: totalProcessed,
     replied: totalReplied,
     errors: errors.length > 0 ? errors : undefined,
-    debug,
   })
 }
 
