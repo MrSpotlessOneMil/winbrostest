@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
         .eq("tenant_id", tenant.id)
         .neq("frequency", "one-time")
         .is("parent_job_id", null) // Only look at parent jobs
+        .is("paused_at", null) // Skip paused recurring series
         .in("status", ["scheduled", "completed", "in_progress"])
         .or(`last_generated_date.is.null,last_generated_date.lt.${cutoff}`)
 

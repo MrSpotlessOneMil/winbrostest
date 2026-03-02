@@ -375,7 +375,7 @@ export async function recordToolUsage(
     .eq("tenant_id", tenantId)
     .eq("user_id", userId)
     .eq("stat_key", statKey)
-    .single()
+    .maybeSingle()
 
   if (existing) {
     await client

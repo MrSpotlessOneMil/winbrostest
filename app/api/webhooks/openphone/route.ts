@@ -379,6 +379,30 @@ export async function POST(request: NextRequest) {
   // ============================================
   const messageContent = extracted.content || ""
 
+  // ============================================
+  // RECURRING INTENT DETECTION (cleaning tenants only)
+  // Detect "weekly", "bi-weekly", "every Monday" etc. and persist preference
+  // ============================================
+  if (tenant?.slug === "spotless-scrubbers" || tenant?.slug === "cedar-rapids") {
+    try {
+      const { detectRecurringIntent } = await import("@/lib/recurring-detection")
+      const recurringIntent = detectRecurringIntent(messageContent)
+      if (recurringIntent.frequency) {
+        const updates: Record<string, unknown> = {
+          preferred_frequency: recurringIntent.frequency,
+          recurring_notes: `[Auto-detected ${new Date().toISOString().split("T")[0]}]: wants ${recurringIntent.frequency} cleaning${recurringIntent.preferredDay ? ` on ${recurringIntent.preferredDay}` : ""}`,
+        }
+        if (recurringIntent.preferredDay) {
+          updates.preferred_day = recurringIntent.preferredDay
+        }
+        await client.from("customers").update(updates).eq("id", customer.id)
+        console.log(`[OpenPhone] Recurring intent detected for customer ${customer.id}: ${recurringIntent.frequency}${recurringIntent.preferredDay ? ` (${recurringIntent.preferredDay})` : ""}`)
+      }
+    } catch (err) {
+      console.error("[OpenPhone] Recurring detection error:", err)
+    }
+  }
+
   // Quick check - skip obvious non-booking messages (don't waste the debounce delay)
   if (isObviouslyNotBooking(messageContent)) {
     console.log(`[OpenPhone] Message is obviously not booking intent (length=${messageContent.length})`)
@@ -2516,7 +2540,7 @@ async function sendDepositPaymentFlow(params: {
         addressLine,
         `Total: $${servicePrice.toFixed(2)}`,
         ``,
-        `Full service details sent to your email. Deposit link coming next!`,
+        `Full service details sent to your email. Card-on-file link coming next to confirm your appointment!`,
       ].filter(line => line !== null).join('\n')
 
       const confirmSms = await sendSMS(tenant as any, phone, confirmMsg)
@@ -2581,43 +2605,42 @@ async function sendDepositPaymentFlow(params: {
   // Small delay between invoice and deposit messages
   await new Promise(resolve => setTimeout(resolve, 3000))
 
-  // 2. Create Stripe deposit link (50% + 3% fee)
+  // 2. Create Stripe card-on-file link (save card for later charging)
   try {
-    const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-    const depositResult = await createDepositPaymentLink(
+    const { createCardOnFileLink } = await import("@/lib/stripe-client")
+    const cardResult = await createCardOnFileLink(
       { ...customer, email } as any,
-      { ...job, price: servicePrice, id: jobId, phone_number: phone } as any,
-      { lead_id: leadId },
+      jobId || `lead-${leadId}`,
       tenant.id,
       tenant.stripe_secret_key || undefined
     )
 
-    if (depositResult.success && depositResult.url) {
-      depositUrl = depositResult.url
+    if (cardResult.success && cardResult.url) {
+      depositUrl = cardResult.url
 
-      const depositMsg = `Please pay the 50% deposit to confirm your appointment: ${depositResult.url}`
-      const depositSms = await sendSMS(tenant as any, phone, depositMsg)
-      if (depositSms.success) {
+      const cardMsg = `Please save your card on file to confirm your appointment: ${cardResult.url}`
+      const cardSms = await sendSMS(tenant as any, phone, cardMsg)
+      if (cardSms.success) {
         await client.from("messages").insert({
           tenant_id: tenant.id,
           customer_id: customer.id,
           phone_number: phone,
           role: "assistant",
-          content: depositMsg,
+          content: cardMsg,
           direction: "outbound",
           message_type: "sms",
           ai_generated: false,
           timestamp: new Date().toISOString(),
-          source: "deposit",
-          metadata: { lead_id: leadId, job_id: jobId, deposit_url: depositResult.url, deposit_amount: depositResult.amount },
+          source: "card_on_file",
+          metadata: { lead_id: leadId, job_id: jobId, card_on_file_url: cardResult.url },
         })
       }
-      console.log(`[OpenPhone] Deposit link sent to ${maskPhone(phone)}`)
+      console.log(`[OpenPhone] Card-on-file link sent to ${maskPhone(phone)}`)
     } else {
-      console.error(`[OpenPhone] Deposit link creation failed: ${depositResult.error}`)
+      console.error(`[OpenPhone] Card-on-file link creation failed: ${cardResult.error}`)
     }
-  } catch (depositErr) {
-    console.error("[OpenPhone] Deposit link error:", depositErr)
+  } catch (cardErr) {
+    console.error("[OpenPhone] Card-on-file link error:", cardErr)
   }
 
   // 3. Mark job as invoiced/quoted (not booked yet — booked after deposit paid)

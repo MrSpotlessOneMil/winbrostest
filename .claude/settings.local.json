@@ -7,7 +7,8 @@
       "WebFetch(domain:www.crhousecleaners.com)",
       "WebFetch(domain:www.spotlessscrubbers.com)",
       "WebFetch(domain:spotlessscrubbers.com)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(cd /c/Users/dal02/Downloads/Telegram\\\\ Desktop/winbrostest && ls -la app/api/cron/ | grep recurring)"
     ]
   },
   "enableAllProjectMcpServers": true,

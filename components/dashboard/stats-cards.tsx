@@ -1,10 +1,10 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Users, Phone } from "lucide-react"
+import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Clock, Phone } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useEffect, useMemo, useState } from "react"
-import type { ApiResponse, DailyMetrics, Team } from "@/lib/types"
+import type { ApiResponse, DailyMetrics } from "@/lib/types"
 
 function pct(n: number, d: number): number {
   if (!d) return 0
@@ -13,8 +13,6 @@ function pct(n: number, d: number): number {
 
 export function StatsCards() {
   const [metrics, setMetrics] = useState<DailyMetrics | null>(null)
-  const [activeTeams, setActiveTeams] = useState<number>(0)
-
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -24,15 +22,6 @@ export function StatsCards() {
         if (!cancelled) setMetrics((mJson as any).data || null)
       } catch {
         if (!cancelled) setMetrics(null)
-      }
-      try {
-        const today = new Date().toISOString().slice(0, 10)
-        const tRes = await fetch(`/api/teams?include_metrics=false&date=${today}`, { cache: "no-store" })
-        const tJson = (await tRes.json()) as ApiResponse<Team[]>
-        const teams = Array.isArray((tJson as any).data) ? ((tJson as any).data as Team[]) : []
-        if (!cancelled) setActiveTeams(teams.filter((t) => t.is_active && t.status !== "off").length)
-      } catch {
-        if (!cancelled) setActiveTeams(0)
       }
     }
     load()
@@ -79,13 +68,13 @@ export function StatsCards() {
         progress: pct(jobsCompleted, jobsScheduled || 0),
       },
       {
-        name: "Active Crews",
-        value: `${activeTeams}`,
-        target: `${activeTeams}`,
+        name: "Time Saved",
+        value: `${(jobsCompleted * 0.75).toFixed(1)}h`,
+        target: `${(jobsScheduled * 0.75).toFixed(1)}h`,
         change: "—",
-        trend: "neutral",
-        icon: Users,
-        progress: activeTeams ? 100 : 0,
+        trend: jobsCompleted > 0 ? "up" : "neutral",
+        icon: Clock,
+        progress: pct(jobsCompleted, jobsScheduled || 0),
       },
       {
         name: "Calls Handled",
@@ -97,7 +86,7 @@ export function StatsCards() {
         progress: callsHandled ? 100 : 0,
       },
     ]
-  }, [metrics, activeTeams])
+  }, [metrics])
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

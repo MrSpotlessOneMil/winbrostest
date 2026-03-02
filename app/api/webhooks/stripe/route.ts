@@ -718,6 +718,22 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
       console.error(`[Stripe Webhook] Job not found for card-on-file: ${job_id}`)
     } else {
       console.log(`[Stripe Webhook] Job found: ${job_id} — service: ${job.service_type}, date: ${job.date}, address: ${job.address}, price: ${job.price}`)
+
+      // Card-on-file saved → transition quoted jobs to scheduled (cleaning tenant flow)
+      if (job.status === 'quoted') {
+        const { error: transitionErr } = await client
+          .from('jobs')
+          .update({ status: 'scheduled', booked: true })
+          .eq('id', job_id)
+          .eq('status', 'quoted') // atomic: only transition if still quoted
+        if (transitionErr) {
+          console.error(`[Stripe Webhook] Failed to transition job ${job_id} quoted→scheduled:`, transitionErr.message)
+        } else {
+          console.log(`[Stripe Webhook] Job ${job_id} transitioned quoted→scheduled after card saved`)
+          // Refresh job object so downstream assignment logic sees updated status
+          job = await getJobById(job_id, client)
+        }
+      }
     }
   } else if (job_id && job_id.startsWith('lead-')) {
     // Job creation failed during booking — retry from lead data
@@ -813,7 +829,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
   //
   // Cedar Rapids (use_broadcast_assignment=true):
   //   Broadcast to ALL cleaners → first to accept wins → customer notified
-  //   Assignment triggered in handleDepositPayment (after deposit paid), NOT here.
+  //   Assignment triggered here after card-on-file saved (quoted→scheduled transition above).
   //
   // If deposit was already paid, cleaner assignment was already triggered — skip here.
   // ──────────────────────────────────────────────────────────────────────
@@ -1044,7 +1060,44 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const metadata = setupIntent.metadata || {}
   const { job_id, phone_number, purpose } = metadata
 
-  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${maskPhone(phone_number)}, purpose: ${purpose} — skipping (checkout.session.completed handles processing)`)
+  console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${maskPhone(phone_number)}, purpose: ${purpose}`)
+
+  // Persist card-on-file: extract Stripe customer ID and update local customer
+  const stripeCustomerId = typeof setupIntent.customer === 'string'
+    ? setupIntent.customer
+    : (setupIntent.customer as any)?.id || null
+
+  if (phone_number) {
+    const client = getSupabaseServiceClient()
+
+    // Find tenant from job if available, otherwise try by phone
+    let tenantId: string | null = null
+    if (job_id && !job_id.startsWith('lead-')) {
+      const { data: jobRow } = await client
+        .from('jobs')
+        .select('tenant_id')
+        .eq('id', job_id)
+        .maybeSingle()
+      tenantId = jobRow?.tenant_id || null
+    }
+
+    if (tenantId) {
+      const { data: customer } = await client
+        .from('customers')
+        .select('id')
+        .eq('phone_number', phone_number)
+        .eq('tenant_id', tenantId)
+        .maybeSingle()
+
+      if (customer?.id) {
+        await client.from('customers').update({
+          card_on_file_at: new Date().toISOString(),
+          stripe_customer_id: stripeCustomerId,
+        }).eq('id', customer.id)
+        console.log(`[Stripe Webhook] Card-on-file persisted for customer ${customer.id} via setup_intent`)
+      }
+    }
+  }
 }
 
 /**

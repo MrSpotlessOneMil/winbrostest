@@ -224,6 +224,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         }
       }
 
+      // Recurring intent detection from call transcript (cleaning tenants only)
+      if (customerId && data.transcript && (tenant.slug === "spotless-scrubbers" || tenant.slug === "cedar-rapids")) {
+        try {
+          const { detectRecurringIntent } = await import("@/lib/recurring-detection")
+          const recurringIntent = detectRecurringIntent(data.transcript)
+          if (recurringIntent.frequency) {
+            await client.from("customers").update({
+              preferred_frequency: recurringIntent.frequency,
+              preferred_day: recurringIntent.preferredDay || undefined,
+              recurring_notes: `[Auto-detected from call ${new Date().toISOString().split("T")[0]}]: wants ${recurringIntent.frequency} cleaning${recurringIntent.preferredDay ? ` on ${recurringIntent.preferredDay}` : ""}`,
+            }).eq("id", customerId)
+            console.log(`${tag} Recurring intent detected from call: ${recurringIntent.frequency}`)
+          }
+        } catch (err) {
+          console.error(`${tag} Recurring detection error:`, err)
+        }
+      }
+
       // Determine if this should create a lead
       const shouldCreateLead =
         data.outcome === "booked" ||
@@ -421,8 +439,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 price: jobPrice,
                 hours: estimateJobHours(serviceType),
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-                status: "scheduled",
-                booked: true,
+                status: isWinBros ? "scheduled" : "quoted",
+                booked: isWinBros ? true : false,
                 paid: false,
                 notes: jobNotes || null,
                 payment_status: "pending",
@@ -606,8 +624,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               price: existingJobPrice,
               hours: null,
               cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-              status: "scheduled",
-              booked: true,
+              status: isWinBrosExisting ? "scheduled" : "quoted",
+              booked: isWinBrosExisting ? true : false,
               paid: false,
               notes: existingLeadNotes,
               payment_status: "pending",

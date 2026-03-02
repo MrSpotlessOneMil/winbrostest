@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from("leads")
-    .select("source, converted_to_job_id")
+    .select("id, first_name, last_name, phone_number, email, source, status, created_at, converted_to_job_id")
 
   if (tenant) {
     query = query.eq("tenant_id", tenant.id)
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   const { data: leads, error } = await query
 
   if (error) {
-    return NextResponse.json({ data: [] })
+    return NextResponse.json({ data: [], leads: [] })
   }
 
   // Aggregate by source
@@ -43,5 +43,5 @@ export async function GET(request: NextRequest) {
     jobs: counts.jobs,
   }))
 
-  return NextResponse.json({ data })
+  return NextResponse.json({ data, leads: leads || [] })
 }
