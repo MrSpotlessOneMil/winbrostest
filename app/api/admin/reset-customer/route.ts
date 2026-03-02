@@ -96,9 +96,18 @@ export async function POST(request: NextRequest) {
       leadsByEmail = data || []
     }
 
-    const allLeads = [...(leadsByPhone || []), ...(leadsByEmail || [])]
+    // Also find leads by customer_id (catches email leads with placeholder phone numbers)
+    let leadsByCustomer: typeof leadsByPhone = []
+    if (customerIds.length > 0) {
+      const { data } = await withTenant(
+        client.from("leads").select("id, phone_number")
+      ).in("customer_id", customerIds)
+      leadsByCustomer = data || []
+    }
+
+    const allLeads = [...(leadsByPhone || []), ...(leadsByEmail || []), ...(leadsByCustomer || [])]
     const leadIds = [...new Set(allLeads.map((l) => l.id))]
-    console.log(`[admin] Found ${leadIds.length} leads (${leadsByPhone?.length || 0} by phone, ${leadsByEmail?.length || 0} by email)`)
+    console.log(`[admin] Found ${leadIds.length} leads (${leadsByPhone?.length || 0} by phone, ${leadsByEmail?.length || 0} by email, ${leadsByCustomer?.length || 0} by customer)`)
 
     // 3. Find all jobs by phone and by customer_id (catches email-only customers)
     const { data: jobsByPhone } = await withTenant(
@@ -143,7 +152,7 @@ export async function POST(request: NextRequest) {
       deletionLog.push(`Deleted ${events.length} system events`)
     }
 
-    // 6. Count and delete messages for this phone number (all formats)
+    // 6. Count and delete messages by phone number (SMS) AND email address (email leads)
     const { data: messages } = await withTenant(
       client.from("messages").select("id")
     ).in("phone_number", allPhoneFormats)
@@ -152,7 +161,21 @@ export async function POST(request: NextRequest) {
       await withTenant(
         client.from("messages").delete()
       ).in("phone_number", allPhoneFormats)
-      deletionLog.push(`Deleted ${messages.length} messages`)
+      deletionLog.push(`Deleted ${messages.length} messages (by phone)`)
+    }
+
+    // Also delete email messages (keyed by email_address, not phone_number)
+    if (rawEmail) {
+      const { data: emailMessages } = await withTenant(
+        client.from("messages").select("id")
+      ).ilike("email_address", rawEmail)
+
+      if (emailMessages && emailMessages.length > 0) {
+        await withTenant(
+          client.from("messages").delete()
+        ).ilike("email_address", rawEmail)
+        deletionLog.push(`Deleted ${emailMessages.length} email messages`)
+      }
     }
 
     // 7. Count and delete calls for this phone number (all formats)
