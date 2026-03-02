@@ -989,10 +989,11 @@ export async function generateEmailResponse(
   knownCustomerInfo?: KnownCustomerInfo,
   customerContext?: CustomerContext | null
 ): Promise<AutoResponseResult> {
-  const { buildEmailBotSystemPrompt } = await import('./email-bot-prompt')
+  const { buildEmailBotSystemPrompt, buildWinBrosEmailPrompt } = await import('./email-bot-prompt')
   const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = buildEmailBotSystemPrompt(tenant)
+  const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
+  const systemPrompt = isWinBros ? buildWinBrosEmailPrompt(tenant) : buildEmailBotSystemPrompt(tenant)
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length
