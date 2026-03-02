@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const rawPhone = body.phoneNumber
+  const rawEmail = body.email?.trim().toLowerCase() as string | undefined
 
   if (!rawPhone) {
     return NextResponse.json({ success: false, error: "Phone number required" }, { status: 400 })
@@ -48,7 +49,7 @@ export async function POST(request: NextRequest) {
   const phoneFormats = [e164, digits10, digits11].filter(Boolean)
   const phone = e164 // Primary format for logging
 
-  console.log(`[admin] Resetting all data for phone formats: ${phoneFormats.join(", ")}`)
+  console.log(`[admin] Resetting all data for phone formats: ${phoneFormats.join(", ")}${rawEmail ? `, email: ${rawEmail}` : ""}`)
 
   const deletionLog: string[] = []
 
