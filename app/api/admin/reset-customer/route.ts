@@ -64,13 +64,21 @@ export async function POST(request: NextRequest) {
       client.from("customers").select("id, phone_number, tenant_id")
     ).in("phone_number", phoneFormats)
 
-    // Also find customers by email
+    // Also find customers by email (both the email column and the phone_number placeholder)
     let customersByEmail: typeof customersByPhone = []
     if (rawEmail) {
       const { data } = await withTenant(
         client.from("customers").select("id, phone_number, tenant_id")
       ).ilike("email", rawEmail)
       customersByEmail = data || []
+
+      // Also check the phone_number placeholder pattern used by email leads
+      const { data: byPlaceholder } = await withTenant(
+        client.from("customers").select("id, phone_number, tenant_id")
+      ).eq("phone_number", `email:${rawEmail}`)
+      if (byPlaceholder?.length) {
+        customersByEmail = [...customersByEmail, ...byPlaceholder]
+      }
     }
 
     // Merge and deduplicate customer IDs

@@ -142,12 +142,32 @@ async function processIncomingEmail(
   }
 
   // ── Find or create customer by email ──
+  // Check by email first, then by phone_number placeholder (unique constraint key)
   let { data: customer } = await client
     .from('customers')
     .select('*')
     .eq('tenant_id', tenant.id)
     .eq('email', senderEmail)
     .maybeSingle()
+
+  if (!customer) {
+    // Also check by phone_number placeholder — handles cases where email column
+    // was corrupted but the unique constraint record still exists
+    const { data: byPhone } = await client
+      .from('customers')
+      .select('*')
+      .eq('tenant_id', tenant.id)
+      .eq('phone_number', `email:${senderEmail}`)
+      .maybeSingle()
+
+    if (byPhone) {
+      // Fix the email column and use this customer
+      await client.from('customers').update({ email: senderEmail }).eq('id', byPhone.id)
+      byPhone.email = senderEmail
+      customer = byPhone
+      console.log(`[Email Cron] Found existing customer #${byPhone.id} by phone placeholder, fixed email`)
+    }
+  }
 
   if (!customer) {
     // Try to extract name from the email "From" field
