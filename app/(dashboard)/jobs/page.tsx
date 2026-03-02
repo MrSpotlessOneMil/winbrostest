@@ -467,6 +467,7 @@ export default function JobsPage() {
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteMode, setDeleteMode] = useState<"single" | "future" | null>(null)
 
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
@@ -807,18 +808,50 @@ export default function JobsPage() {
     }
   }
 
-  const handleDeleteJob = async () => {
+  const handleDeleteJob = async (mode: "single" | "future") => {
     if (!selectedEvent) return
+    setDeleteMode(mode)
     setSaving(true)
     try {
-      const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
-      const data = await res.json()
-      if (data.success) {
-        setSelectedEvent(null)
-        setEditMode(false)
-        setConfirmDelete(false)
-        await refreshJobs()
+      if (mode === "future") {
+        const parentId = selectedEvent.parentJobId || selectedEvent.jobId
+        const selectedDate = selectedEvent.start
+          ? selectedEvent.start.toISOString().split("T")[0]
+          : new Date().toISOString().split("T")[0]
+
+        // Cancel the recurring series via API (cancels parent + all future children)
+        await fetch("/api/actions/recurring", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "cancel", parent_job_id: Number(parentId) }),
+        }).catch(() => {})
+
+        // Also hard-delete all future sibling jobs from this date forward
+        const futureJobs = jobs.filter((j) => {
+          const isChild = String(j.parent_job_id) === String(parentId)
+          const isFuture = j.date && j.date >= selectedDate
+          const isDeletable = j.status !== "completed"
+          return isChild && isFuture && isDeletable
+        })
+
+        for (const fj of futureJobs) {
+          await fetch(`/api/jobs?id=${fj.id}`, { method: "DELETE" })
+        }
+
+        // Delete the clicked job itself if it wasn't already covered
+        await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" }).catch(() => {})
+      } else {
+        // Single delete
+        const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
+        const data = await res.json()
+        if (!data.success) return
       }
+
+      setSelectedEvent(null)
+      setEditMode(false)
+      setConfirmDelete(false)
+      setDeleteMode(null)
+      await refreshJobs()
     } finally {
       setSaving(false)
     }
@@ -1171,7 +1204,7 @@ export default function JobsPage() {
       <div
         className={`cal-modal-backdrop${selectedEvent ? " open" : ""}`}
         onClick={(e) => {
-          if (e.target === e.currentTarget) setSelectedEvent(null)
+          if (e.target === e.currentTarget) { setSelectedEvent(null); setConfirmDelete(false); setDeleteMode(null) }
         }}
       >
         <div className="cal-modal">
@@ -1179,7 +1212,7 @@ export default function JobsPage() {
             <h5>{selectedEvent?.title || "Event"}</h5>
             <button
               className="cal-modal-close"
-              onClick={() => setSelectedEvent(null)}
+              onClick={() => { setSelectedEvent(null); setConfirmDelete(false); setDeleteMode(null) }}
             >
               &times;
             </button>
@@ -1335,25 +1368,58 @@ export default function JobsPage() {
           </div>
           <div className="cal-modal-footer">
             {confirmDelete ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
-                <span style={{ fontSize: "0.85rem", color: "#ef4444" }}>Delete this job?</span>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
-                    className="cal-modal-btn"
-                    onClick={() => setConfirmDelete(false)}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    className="cal-modal-btn"
-                    onClick={handleDeleteJob}
-                    disabled={saving}
-                    style={{ color: "#ef4444", borderColor: "#ef4444" }}
-                  >
-                    {saving ? <><span className="saving-spinner" /> Deleting...</> : "Yes, delete"}
-                  </button>
-                </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%" }}>
+                {selectedEvent && (selectedEvent.frequency !== "one-time" || selectedEvent.parentJobId) ? (
+                  <>
+                    <span style={{ fontSize: "0.85rem", color: "#ef4444" }}>This is a recurring job. What do you want to delete?</span>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        className="cal-modal-btn"
+                        onClick={() => { setConfirmDelete(false); setDeleteMode(null) }}
+                        disabled={saving}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="cal-modal-btn"
+                        onClick={() => handleDeleteJob("single")}
+                        disabled={saving}
+                        style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                      >
+                        {saving && deleteMode === "single" ? <><span className="saving-spinner" /> Deleting...</> : "Just this one"}
+                      </button>
+                      <button
+                        className="cal-modal-btn"
+                        onClick={() => { setDeleteMode("future"); handleDeleteJob("future") }}
+                        disabled={saving}
+                        style={{ color: "#fff", backgroundColor: "#ef4444", borderColor: "#ef4444" }}
+                      >
+                        {saving && deleteMode === "future" ? <><span className="saving-spinner" /> Deleting all...</> : "This & all future"}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: "0.85rem", color: "#ef4444" }}>Delete this job?</span>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <button
+                        className="cal-modal-btn"
+                        onClick={() => setConfirmDelete(false)}
+                        disabled={saving}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        className="cal-modal-btn"
+                        onClick={() => handleDeleteJob("single")}
+                        disabled={saving}
+                        style={{ color: "#ef4444", borderColor: "#ef4444" }}
+                      >
+                        {saving ? <><span className="saving-spinner" /> Deleting...</> : "Yes, delete"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : !editMode ? (
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
