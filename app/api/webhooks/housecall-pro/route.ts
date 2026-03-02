@@ -569,7 +569,7 @@ export async function POST(request: NextRequest) {
           if (hcpJobId) {
             const { data: localJob } = await client
               .from("jobs")
-              .select("id")
+              .select("id, customer_id, phone_number, address, service_type, price, date, notes, team_id, job_type, tenant_id")
               .eq("housecall_pro_job_id", String(hcpJobId))
               .maybeSingle()
 
@@ -580,6 +580,98 @@ export async function POST(request: NextRequest) {
                 updated_at: new Date().toISOString(),
               }).eq("id", localJob.id)
               console.log(`[OSIRIS] HCP payment: Marked local job ${localJob.id} as paid from HCP job ${hcpJobId}`)
+
+              // WinBros flow: estimate paid → auto-create cleaning job
+              if (localJob.job_type === 'estimate' && tenant && tenantUsesFeature(tenant, 'use_team_routing')) {
+                try {
+                  // Idempotency: check if we already created a cleaning job from this estimate
+                  const { data: existingCleaning } = await client
+                    .from("jobs")
+                    .select("id")
+                    .eq("tenant_id", localJob.tenant_id)
+                    .eq("job_type", "cleaning")
+                    .like("notes", `%[From estimate #${localJob.id}]%`)
+                    .limit(1)
+                    .maybeSingle()
+
+                  if (existingCleaning) {
+                    console.log(`[OSIRIS] HCP payment: Cleaning job already exists for estimate ${localJob.id} (job ${existingCleaning.id}), skipping duplicate`)
+                    break
+                  }
+
+                  const { sendTelegramMessage } = await import("@/lib/telegram")
+                  const { alertOwner } = await import("@/lib/owner-alert")
+
+                  // Create a new cleaning job from the estimate data
+                  const { data: cleaningJob } = await client.from("jobs").insert({
+                    tenant_id: localJob.tenant_id,
+                    customer_id: localJob.customer_id,
+                    phone_number: localJob.phone_number,
+                    address: localJob.address,
+                    service_type: localJob.service_type,
+                    price: localJob.price,
+                    notes: localJob.notes ? `${localJob.notes}\n[From estimate #${localJob.id}]` : `[From estimate #${localJob.id}]`,
+                    job_type: 'cleaning',
+                    status: 'pending',
+                    booked: true,
+                    paid: true,
+                    payment_status: 'fully_paid',
+                    date: null,
+                    scheduled_at: null,
+                  }).select("id").single()
+
+                  if (cleaningJob) {
+                    console.log(`[OSIRIS] HCP payment: Created cleaning job ${cleaningJob.id} from estimate ${localJob.id}`)
+
+                    // Notify team lead via Telegram
+                    if (localJob.team_id) {
+                      const { data: teamLead } = await client
+                        .from("team_members")
+                        .select("cleaner_id, cleaners ( id, name, telegram_id )")
+                        .eq("team_id", localJob.team_id)
+                        .eq("role", "lead")
+                        .eq("is_active", true)
+                        .limit(1)
+                        .maybeSingle()
+
+                      const leadTelegramId = (teamLead?.cleaners as any)?.telegram_id
+                      const leadName = (teamLead?.cleaners as any)?.name || 'Team Lead'
+                      if (leadTelegramId && tenant) {
+                        const customerName = localJob.phone_number || 'Customer'
+                        await sendTelegramMessage(
+                          tenant,
+                          leadTelegramId,
+                          `💰 Payment received for ${customerName} at ${localJob.address || 'TBD'}!\n\nCleaning job #${cleaningJob.id} created — ready to schedule.`,
+                          'HTML'
+                        )
+                        console.log(`[OSIRIS] HCP payment: Notified team lead ${leadName} (${leadTelegramId})`)
+                      }
+                    }
+
+                    // SMS owner
+                    if (tenant) {
+                      await alertOwner(
+                        `HCP invoice paid! Cleaning job #${cleaningJob.id} created from estimate #${localJob.id} at ${localJob.address || 'TBD'}. Hit "Auto-schedule" in the dashboard to dispatch.`,
+                        { jobId: String(cleaningJob.id), tenant }
+                      )
+                    }
+
+                    // Log system event
+                    await logSystemEvent({
+                      tenant_id: tenant?.id,
+                      event_type: 'CLEANING_JOB_CREATED_FROM_ESTIMATE',
+                      source: 'housecall_pro',
+                      message: `Cleaning job #${cleaningJob.id} created from paid estimate #${localJob.id}`,
+                      job_id: String(cleaningJob.id),
+                      customer_id: localJob.customer_id ? String(localJob.customer_id) : undefined,
+                      phone_number: localJob.phone_number || undefined,
+                      metadata: { estimate_job_id: localJob.id, hcp_job_id: hcpJobId },
+                    })
+                  }
+                } catch (err) {
+                  console.error(`[OSIRIS] HCP payment: Failed to create cleaning job from estimate ${localJob.id}:`, err)
+                }
+              }
             }
           }
         }

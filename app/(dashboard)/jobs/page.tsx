@@ -32,6 +32,8 @@ type CalendarJob = {
   cleaner_id?: number
   cleaner_assignments?: any[]
   teams?: any
+  frequency?: string
+  parent_job_id?: number | null
 }
 
 type CalendarEventDetails = {
@@ -52,6 +54,9 @@ type CalendarEventDetails = {
   notes: string
   hours: number
   cardOnFile: boolean
+  frequency: string
+  parentJobId: string | null
+  jobType: string
 }
 
 type PendingMove = {
@@ -458,6 +463,8 @@ export default function JobsPage() {
   const [editMode, setEditMode] = useState(false)
   const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "" })
   const [saving, setSaving] = useState(false)
+  const [autoScheduling, setAutoScheduling] = useState(false)
+  const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -546,6 +553,9 @@ export default function JobsPage() {
           jobId: String(job.id),
           hours: job.hours ? Number(job.hours) : 2,
           cardOnFile: !!customer?.card_on_file_at,
+          frequency: job.frequency || "one-time",
+          parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
+          jobType: (job as any).job_type || "",
         },
       }
     })
@@ -627,10 +637,14 @@ export default function JobsPage() {
       notes: info.event.extendedProps.notes || "",
       hours: info.event.extendedProps.hours || 2,
       cardOnFile: !!info.event.extendedProps.cardOnFile,
+      frequency: info.event.extendedProps.frequency || "one-time",
+      parentJobId: info.event.extendedProps.parentJobId || null,
+      jobType: info.event.extendedProps.jobType || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
     setConfirmDelete(false)
+    setAutoScheduleResult(null)
   }
 
   const refreshJobs = async () => {
@@ -766,6 +780,30 @@ export default function JobsPage() {
         }
         setCleanersList(all)
       } catch { /* ignore, dropdown will just be empty */ }
+    }
+  }
+
+  const handleAutoSchedule = async () => {
+    if (!selectedEvent) return
+    setAutoScheduling(true)
+    setAutoScheduleResult(null)
+    try {
+      const res = await fetch('/api/actions/auto-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: selectedEvent.jobId }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setAutoScheduleResult(`Scheduled: ${data.display}${data.team_name ? ` (${data.team_name})` : ''}`)
+        await refreshJobs()
+      } else {
+        setAutoScheduleResult(`Error: ${data.error || 'Failed to auto-schedule'}`)
+      }
+    } catch {
+      setAutoScheduleResult('Error: Network request failed')
+    } finally {
+      setAutoScheduling(false)
     }
   }
 
@@ -1044,6 +1082,15 @@ export default function JobsPage() {
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
               eventDidMount={(info) => {
+                const freq = info.event.extendedProps.frequency || "one-time"
+                if (freq !== "one-time") {
+                  const badge = document.createElement("span")
+                  badge.textContent = " \u21BB"
+                  badge.title = freq
+                  badge.style.cssText = "font-size:0.7em;opacity:0.7;"
+                  const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title")
+                  if (titleEl) titleEl.appendChild(badge)
+                }
                 const service = info.event.extendedProps.service || ""
                 const loc = info.event.extendedProps.location || ""
                 const tip = [service, loc].filter(Boolean).join(" \u2022 ")
@@ -1165,6 +1212,28 @@ export default function JobsPage() {
                     <strong>Service:</strong> {selectedEvent.service}
                   </div>
                 )}
+                {selectedEvent?.frequency && selectedEvent.frequency !== "one-time" && (
+                  <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      fontSize: "0.65rem",
+                      fontWeight: 600,
+                      background: "rgba(139, 92, 246, 0.12)",
+                      color: "#a78bfa",
+                      border: "1px solid rgba(139, 92, 246, 0.2)",
+                    }}>
+                      &#8635; {selectedEvent.frequency.replace("-", "-")}
+                    </span>
+                    {selectedEvent.parentJobId && (
+                      <span style={{ fontSize: "0.65rem", color: "#71717a" }}>
+                        (instance of series #{selectedEvent.parentJobId})
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div style={{ marginBottom: "0.5rem" }}>
                   <strong>Cleaner:</strong> {selectedEvent?.cleaner || "Unassigned"}
                 </div>
@@ -1187,6 +1256,41 @@ export default function JobsPage() {
                 {selectedEvent?.notes && (
                   <div>
                     <strong>Notes:</strong> {selectedEvent.notes}
+                  </div>
+                )}
+                {/* Auto-schedule button for unscheduled cleaning jobs */}
+                {selectedEvent?.jobType === 'cleaning' && !selectedEvent?.start && (selectedEvent?.status === 'pending' || selectedEvent?.status === 'scheduled') && (
+                  <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(59, 130, 246, 0.08)", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
+                    <div style={{ fontSize: "0.8rem", color: "#93c5fd", marginBottom: "0.5rem" }}>
+                      This cleaning job has no date set.
+                    </div>
+                    <button
+                      onClick={handleAutoSchedule}
+                      disabled={autoScheduling}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem 1rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.85rem",
+                        cursor: autoScheduling ? "not-allowed" : "pointer",
+                        opacity: autoScheduling ? 0.7 : 1,
+                      }}
+                    >
+                      {autoScheduling ? "Finding best slot..." : "Auto-schedule soonest"}
+                    </button>
+                    {autoScheduleResult && (
+                      <div style={{
+                        marginTop: "0.5rem",
+                        fontSize: "0.8rem",
+                        color: autoScheduleResult.startsWith('Error') ? "#f87171" : "#34d399",
+                      }}>
+                        {autoScheduleResult}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
