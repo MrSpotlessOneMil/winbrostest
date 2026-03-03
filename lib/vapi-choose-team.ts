@@ -1161,7 +1161,18 @@ export async function getVapiAvailabilityResponse(
     }
   }
 
-  // Always find 2 alternative slots regardless of availability
+  if (anyTeamAvailable(adjustedStart, adjustedEnd, teams, jobs)) {
+    console.log(`[VAPI choose-team] AVAILABLE at ${toIsoWithTimezone(adjustedStart)}`)
+    return {
+      is_available: true,
+      confirmed_datetime: toIsoWithTimezone(adjustedStart),
+      confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
+      alternatives: [],
+      duration_hours: durationHours,
+    }
+  }
+
+  // Not available — find alternatives
   const alternatives = findAvailableSlots(
     adjustedStart,
     2,
@@ -1169,17 +1180,6 @@ export async function getVapiAvailabilityResponse(
     teams,
     jobs
   )
-
-  if (anyTeamAvailable(adjustedStart, adjustedEnd, teams, jobs)) {
-    console.log(`[VAPI choose-team] AVAILABLE at ${toIsoWithTimezone(adjustedStart)}`)
-    return {
-      is_available: true,
-      confirmed_datetime: toIsoWithTimezone(adjustedStart),
-      confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
-      alternatives,
-      duration_hours: durationHours,
-    }
-  }
 
   // Log why each team was unavailable
   for (const team of teams) {

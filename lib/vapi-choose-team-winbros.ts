@@ -531,11 +531,6 @@ export async function getWinBrosAvailabilityResponse(
 
   console.log(`${LOG} Requested: ${requestedDate} at ${formatTimeFromMinutes(snappedMinutes)} (${snappedMinutes} min)`)
 
-  // Find alternatives (always, regardless of availability)
-  const alternatives = findAlternatives(
-    2, salesmen, scheduleMap, jobCountMap, blockedDatesMap, allDates
-  )
-
   // Check if requested slot is available
   const available = isSlotAvailable(snappedMinutes, requestedDate, salesmen, scheduleMap, jobCountMap, blockedDatesMap)
 
@@ -546,12 +541,15 @@ export async function getWinBrosAvailabilityResponse(
       is_available: true,
       confirmed_datetime: confirmedIso,
       confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
-      alternatives,
+      alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
     }
   }
 
-  // Not available
+  // Not available — find alternatives
+  const alternatives = findAlternatives(
+    2, salesmen, scheduleMap, jobCountMap, blockedDatesMap, allDates
+  )
   console.log(`${LOG} Requested time unavailable. Alternatives: ${alternatives.map(a => a.datetime).join(', ')}`)
 
   if (alternatives.length === 0) {
