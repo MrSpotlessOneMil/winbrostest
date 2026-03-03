@@ -11,6 +11,25 @@ import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnable
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
+/** Format raw ISO dates/timestamps to human-readable for SMS and LLM context */
+function formatDateHuman(raw: string, tz = 'America/Chicago'): string {
+  try {
+    const dateOnly = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+    if (dateOnly) {
+      const d = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    }
+    const d = new Date(raw)
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
+      }).format(d)
+    }
+    return raw
+  } catch { return raw }
+}
+
 export async function POST(request: NextRequest) {
   const signature =
     request.headers.get("openphone-signature") ||
@@ -663,11 +682,15 @@ export async function POST(request: NextRequest) {
           .eq("id", bookedLead.id)
 
         // Send confirmation message to customer
-        const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'there'
-        const jobDate = job.date || 'your requested date'
-        const jobTime = job.scheduled_at || 'your requested time'
+        const customerFirst = customer.first_name || 'there'
+        const tz = tenant.timezone || 'America/Chicago'
+        const jobDateTime = job.scheduled_at
+          ? formatDateHuman(job.scheduled_at, tz)
+          : job.date
+            ? formatDateHuman(job.date, tz)
+            : 'your requested date'
         const jobAddress = job.address || customer.address || 'your address'
-        const confirmMsg = `You're all confirmed, ${customerName}! Your estimate is set for ${jobDate} at ${jobTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
+        const confirmMsg = `You're all confirmed, ${customerFirst}! Your free estimate is set for ${jobDateTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
 
         const smsResult = await sendSMS(tenant, phone, confirmMsg)
 
@@ -910,7 +933,8 @@ export async function POST(request: NextRequest) {
         ).join('\n')
 
         // Load customer + job + lead data so the AI can answer questions about their booking
-        const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
+        const customerName = customer.first_name || 'the customer'
+        const ctxTz = tenant?.timezone || 'America/Chicago'
         let jobCtx = ''
         if (bookedLead.converted_to_job_id) {
           const { data: jobData } = await client
@@ -920,9 +944,9 @@ export async function POST(request: NextRequest) {
             .maybeSingle()
           if (jobData) {
             const parts = [
-              jobData.service_type ? `Service: ${jobData.service_type}` : null,
-              jobData.date ? `Date: ${jobData.date}` : null,
-              jobData.scheduled_at ? `Time: ${jobData.scheduled_at}` : null,
+              jobData.service_type ? `Service: ${jobData.service_type.replace(/_/g, ' ')}` : null,
+              jobData.date ? `Date: ${formatDateHuman(jobData.date, ctxTz)}` : null,
+              jobData.scheduled_at ? `Time: ${formatDateHuman(jobData.scheduled_at, ctxTz)}` : null,
               jobData.price ? `Price: $${jobData.price}` : null,
               jobData.address ? `Address: ${jobData.address}` : null,
               jobData.notes ? `Notes: ${jobData.notes}` : null,
@@ -937,7 +961,7 @@ export async function POST(request: NextRequest) {
         const bookingData = leadFormData.booking_data as Record<string, any> || {}
 
         const customerCtx = [
-          customer.first_name ? `Name: ${customerName}` : null,
+          customer.first_name ? `First name: ${customer.first_name}` : null,
           customer.email ? `Email: ${customer.email}` : null,
           customer.address ? `Address: ${customer.address}` : null,
           leadFormData.square_footage ? `Square footage: ${leadFormData.square_footage}` : null,
@@ -1066,7 +1090,8 @@ export async function POST(request: NextRequest) {
       console.log(`[OpenPhone] Fallback post-booking: booking confirmation already sent for ${maskPhone(phone)}, using post-booking AI`)
       const businessName = tenant?.business_name_short || tenant?.business_name || tenant?.name || 'our team'
       const sdrName = tenant?.sdr_persona || 'Mary'
-      const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'the customer'
+      const customerName = customer.first_name || 'the customer'
+      const fbTz = tenant?.timezone || 'America/Chicago'
       const historyCtx = conversationHistory.slice(-6).map(m =>
         `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`
       ).join('\n')
@@ -1084,9 +1109,9 @@ export async function POST(request: NextRequest) {
       let jobCtx = ''
       if (recentJob) {
         const parts = [
-          recentJob.service_type ? `Service: ${recentJob.service_type}` : null,
-          recentJob.date ? `Date: ${recentJob.date}` : null,
-          recentJob.scheduled_at ? `Time: ${recentJob.scheduled_at}` : null,
+          recentJob.service_type ? `Service: ${recentJob.service_type.replace(/_/g, ' ')}` : null,
+          recentJob.date ? `Date: ${formatDateHuman(recentJob.date, fbTz)}` : null,
+          recentJob.scheduled_at ? `Time: ${formatDateHuman(recentJob.scheduled_at, fbTz)}` : null,
           recentJob.price ? `Price: $${recentJob.price}` : null,
           recentJob.address ? `Address: ${recentJob.address}` : null,
           recentJob.notes ? `Notes: ${recentJob.notes}` : null,
