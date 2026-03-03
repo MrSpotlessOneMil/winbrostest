@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   // Strip salesman_name from options before returning to VAPI —
   // the AI assistant should NOT mention which cleaner/salesman is assigned
   if (response.options) {
-    response.options = response.options.map(({ date, time }) => ({ date, time, salesman_name: '' }))
+    response.options = response.options.map(({ date, time, day_of_week, year }) => ({ date, time, day_of_week, year, salesman_name: '' }))
   }
 
   return NextResponse.json(response)
