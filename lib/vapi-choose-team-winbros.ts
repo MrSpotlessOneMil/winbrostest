@@ -11,7 +11,7 @@
 
 import { getSupabaseServiceClient } from './supabase'
 import { getCleanerBlockedDates } from './supabase'
-import type { VapiAvailabilityResponse } from './vapi-choose-team'
+import type { VapiAvailabilityResponse, VapiAlternative } from './vapi-choose-team'
 
 // ── Constants ──────────────────────────────────────────────────
 const TIMEZONE = 'America/Los_Angeles'
@@ -82,6 +82,14 @@ function toIsoWithTimezone(date: Date): string {
   const resolvedHour = hour === '24' ? '00' : hour
   const offset = getPacificOffset(date)
   return `${year}-${month}-${day}T${pad(Number(resolvedHour))}:${pad(Number(minute))}:${pad(Number(second))}${offset}`
+}
+
+function getDayOfWeekFromDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: TIMEZONE }).format(date)
+}
+
+function toAlternative(date: Date): VapiAlternative {
+  return { datetime: toIsoWithTimezone(date), day_of_week: getDayOfWeekFromDate(date) }
 }
 
 function createPacificDate(year: number, month: number, day: number, hour: number, minute: number, second = 0): Date {
@@ -292,12 +300,13 @@ function findAlternatives(
   jobCountMap: Map<number, Map<string, number>>,
   blockedDatesMap: Map<number, Set<string>>,
   allDates: string[]
-): string[] {
+): VapiAlternative[] {
   const pacific = getPacificNow()
   const todayStr = `${pacific.year}-${String(pacific.month).padStart(2, '0')}-${String(pacific.day).padStart(2, '0')}`
   const nowMinutes = pacific.hour * 60 + pacific.minute
 
-  const alternatives: string[] = []
+  const alternatives: VapiAlternative[] = []
+  const seenDatetimes = new Set<string>()
 
   // Phase 1: Prioritize 8am slots across the next few days
   for (const date of allDates) {
@@ -307,7 +316,8 @@ function findAlternatives(
     if (isSlotAvailable(SLOT_START_MINUTES, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap)) {
       const [year, month, day] = date.split('-').map(Number)
       const slotDate = createPacificDate(year, month - 1, day, 8, 0)
-      alternatives.push(toIsoWithTimezone(slotDate))
+      alternatives.push(toAlternative(slotDate))
+      seenDatetimes.add(toIsoWithTimezone(slotDate))
     }
   }
 
@@ -329,8 +339,9 @@ function findAlternatives(
           const mins = slotMin % 60
           const slotDate = createPacificDate(year, month - 1, day, hours, mins)
           const iso = toIsoWithTimezone(slotDate)
-          if (!alternatives.includes(iso)) {
-            alternatives.push(iso)
+          if (!seenDatetimes.has(iso)) {
+            seenDatetimes.add(iso)
+            alternatives.push(toAlternative(slotDate))
           }
         }
       }
@@ -363,6 +374,7 @@ export async function getWinBrosAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
       error: 'MISSING_FIELDS',
@@ -401,6 +413,7 @@ export async function getWinBrosAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
       error: 'DB_ERROR',
@@ -418,6 +431,7 @@ export async function getWinBrosAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
       error: 'NO_TEAMS_CONFIGURED',
@@ -443,6 +457,7 @@ export async function getWinBrosAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
       error: 'DB_ERROR',
@@ -530,18 +545,20 @@ export async function getWinBrosAvailabilityResponse(
     return {
       is_available: true,
       confirmed_datetime: confirmedIso,
+      confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
       alternatives,
       duration_hours: ESTIMATE_DURATION_HOURS,
     }
   }
 
   // Not available
-  console.log(`${LOG} Requested time unavailable. Alternatives: ${alternatives.join(', ')}`)
+  console.log(`${LOG} Requested time unavailable. Alternatives: ${alternatives.map(a => a.datetime).join(', ')}`)
 
   if (alternatives.length === 0) {
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: ESTIMATE_DURATION_HOURS,
       error: 'NO_AVAILABILITY_FOUND',
@@ -551,6 +568,7 @@ export async function getWinBrosAvailabilityResponse(
   return {
     is_available: false,
     confirmed_datetime: null,
+    confirmed_day_of_week: null,
     alternatives,
     duration_hours: ESTIMATE_DURATION_HOURS,
   }

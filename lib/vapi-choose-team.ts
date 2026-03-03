@@ -29,10 +29,16 @@ type JobBlock = {
   end: Date
 }
 
+export type VapiAlternative = {
+  datetime: string
+  day_of_week: string
+}
+
 export type VapiAvailabilityResponse = {
   is_available: boolean
   confirmed_datetime: string | null
-  alternatives: string[]
+  confirmed_day_of_week: string | null
+  alternatives: VapiAlternative[]
   duration_hours: number | null
   error?: string
   missing_fields?: string[]
@@ -418,6 +424,16 @@ function toIsoWithTimezone(date: Date): string {
   return `${year}-${month}-${day}T${pad(Number(resolvedHour))}:${pad(Number(minute))}:${pad(
     Number(second)
   )}${offset}`
+}
+
+/** Get the day-of-week name for a Date in Pacific time. */
+function getDayOfWeekFromDate(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: TIMEZONE }).format(date)
+}
+
+/** Build a VapiAlternative from a Date. */
+function toAlternative(date: Date): VapiAlternative {
+  return { datetime: toIsoWithTimezone(date), day_of_week: getDayOfWeekFromDate(date) }
 }
 
 function getLocalTimeComponents(
@@ -847,16 +863,18 @@ function findAvailableSlots(
   durationHours: number,
   teams: Team[],
   jobs: JobBlock[]
-): string[] {
-  const slots: string[] = []
+): VapiAlternative[] {
+  const slots: VapiAlternative[] = []
+  const seenDatetimes = new Set<string>()
   let cursor = new Date(startFrom.getTime())
   const maxSteps = Math.floor((MAX_DAYS_AHEAD * 24 * 60) / STEP_MINUTES)
   for (let i = 0; i < maxSteps && slots.length < count; i += 1) {
     const end = addMinutes(cursor, durationHours * 60 + BUFFER_MINUTES)
     if (cursor.getTime() >= Date.now() && anyTeamAvailable(cursor, end, teams, jobs)) {
       const iso = toIsoWithTimezone(cursor)
-      if (!slots.includes(iso)) {
-        slots.push(iso)
+      if (!seenDatetimes.has(iso)) {
+        seenDatetimes.add(iso)
+        slots.push(toAlternative(cursor))
       }
     }
     cursor = addMinutes(cursor, STEP_MINUTES)
@@ -1074,6 +1092,7 @@ export async function getVapiAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: null,
       error: 'MISSING_FIELDS',
@@ -1097,6 +1116,7 @@ export async function getVapiAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: null,
       error: 'NO_PRICING_MATCH',
@@ -1134,6 +1154,7 @@ export async function getVapiAvailabilityResponse(
     return {
       is_available: false,
       confirmed_datetime: null,
+      confirmed_day_of_week: null,
       alternatives: [],
       duration_hours: durationHours,
       error: 'NO_TEAMS_CONFIGURED',
@@ -1154,6 +1175,7 @@ export async function getVapiAvailabilityResponse(
     return {
       is_available: true,
       confirmed_datetime: toIsoWithTimezone(adjustedStart),
+      confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
       alternatives,
       duration_hours: durationHours,
     }
@@ -1166,9 +1188,10 @@ export async function getVapiAvailabilityResponse(
     console.log(`[VAPI choose-team] Team "${team.name}" unavailable: withinHours=${inHours}, isFree=${isFree}`)
   }
 
-  const unavailableResponse = {
+  const unavailableResponse: VapiAvailabilityResponse = {
     is_available: false,
     confirmed_datetime: null,
+    confirmed_day_of_week: null,
     alternatives,
     duration_hours: durationHours,
   }
@@ -1181,6 +1204,6 @@ export async function getVapiAvailabilityResponse(
     }
   }
 
-  console.log(`[VAPI choose-team] Requested time unavailable, offering ${alternatives.length} alternatives: ${alternatives.join(', ')}`)
+  console.log(`[VAPI choose-team] Requested time unavailable, offering ${alternatives.length} alternatives: ${alternatives.map(a => a.datetime).join(', ')}`)
   return unavailableResponse
 }
