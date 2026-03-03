@@ -28,6 +28,7 @@ interface Customer {
   address?: string
   notes?: string
   auto_response_paused?: boolean
+  is_commercial?: boolean
   card_on_file_at?: string | null
   stripe_customer_id?: string | null
   preferred_frequency?: string | null
