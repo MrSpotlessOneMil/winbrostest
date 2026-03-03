@@ -581,6 +581,7 @@ export default function CustomersPage() {
           phone_number: editingCustomer.phone_number,
           address: editingCustomer.address || "",
           notes: editingCustomer.notes || "",
+          is_commercial: editingCustomer.is_commercial || false,
         }),
       })
       const json = await res.json()
@@ -1639,6 +1640,19 @@ export default function CustomersPage() {
                   className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
                   placeholder="Private notes..."
                 />
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs text-zinc-400">Commercial Client</label>
+                  <p className="text-[10px] text-zinc-500">No SMS reminders for recurring jobs</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingCustomer({ ...editingCustomer, is_commercial: !editingCustomer.is_commercial })}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${editingCustomer.is_commercial ? 'bg-purple-600' : 'bg-zinc-700'}`}
+                >
+                  <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${editingCustomer.is_commercial ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+                </button>
               </div>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">

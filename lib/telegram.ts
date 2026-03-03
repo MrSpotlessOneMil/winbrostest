@@ -438,6 +438,41 @@ export async function notifyCleanerAssignment(
     }
   }
 
+  // Check if this is a recurring job where the cleaner has enough history (3+ completed)
+  // If so, send a friendly reminder instead of accept/decline
+  const isRecurring = (job as any).frequency && (job as any).frequency !== 'one-time'
+    || (job as any).parent_job_id
+  let useReminderMode = false
+
+  if (isRecurring && cleaner.id && job.id) {
+    try {
+      const { getSupabaseServiceClient } = await import('./supabase')
+      const svc = getSupabaseServiceClient()
+      const parentId = (job as any).parent_job_id || job.id
+
+      // Count completed jobs in this series assigned to this cleaner
+      const { count } = await svc
+        .from('cleaner_assignments')
+        .select('id', { count: 'exact', head: true })
+        .eq('cleaner_id', cleaner.id)
+        .eq('status', 'confirmed')
+        .in('jobs.status' as any, ['completed', 'in_progress'])
+
+      // Fallback: count completed jobs for this cleaner + customer combo
+      const { count: completedCount } = await svc
+        .from('jobs')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'completed')
+        .or(`parent_job_id.eq.${parentId},id.eq.${parentId}`)
+
+      if ((completedCount || 0) >= 3) {
+        useReminderMode = true
+      }
+    } catch {
+      // If query fails, fall back to normal accept/decline
+    }
+  }
+
   // Format service type for display
   const serviceType = job.service_type
     ? job.service_type.split(/[\s_]+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
@@ -467,6 +502,23 @@ export async function notifyCleanerAssignment(
   const notesLine = safeNotes ? `\nNotes: ${safeNotes}` : ''
 
   const jobIdLine = job.id ? `Job #${job.id}` : ''
+
+  // Recurring reminder mode: friendly tone, no accept/decline buttons
+  if (useReminderMode) {
+    const customerName = customer?.first_name || 'your client'
+    const reminderMessage = `
+<b>Friendly Reminder - ${businessName}</b>
+${jobIdLine ? `\n${jobIdLine}` : ''}
+${detailLines}${payLine}${notesLine}
+
+Address: ${job.address || customer?.address || 'See details'}
+Customer: ${customerName}
+
+You're all set for this one. See you there!
+`.trim()
+
+    return await sendTelegramMessage(tenant, cleaner.telegram_id, reminderMessage, 'HTML')
+  }
 
   const message = `
 <b>New Job Available - ${businessName}!</b>

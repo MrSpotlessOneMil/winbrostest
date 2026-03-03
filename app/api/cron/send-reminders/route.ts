@@ -8,8 +8,10 @@ import {
   markReminderSent,
 } from '@/lib/supabase'
 import { sendDailySchedule, sendJobReminder, sendTelegramMessage } from '@/lib/telegram'
+import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getTenantById } from '@/lib/tenant'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 
 /**
  * Unique timezones across all active tenants, used to run
@@ -380,6 +382,75 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // 6. Customer SMS reminders for recurring residential jobs (day before)
+    // Commercial customers don't get reminders — residential get a friendly heads-up
+    let customerSmsSent = 0
+    const svc = getSupabaseServiceClient()
+
+    for (const t of allTenants) {
+      const tz = t.timezone || 'America/Chicago'
+      const localTime = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(now)
+      const [localHourStr] = localTime.split(':')
+      const localHour = parseInt(localHourStr)
+
+      if (localHour !== 17) continue // Send at 5pm local, day before
+
+      const tomorrowDate = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      const tomorrowLocal = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(tomorrowDate)
+
+      // Find recurring jobs for tomorrow with customer info
+      const { data: tomorrowJobs } = await svc
+        .from('jobs')
+        .select('id, date, scheduled_at, service_type, address, phone_number, frequency, parent_job_id, customer_id, customers(id, first_name, last_name, phone_number, is_commercial)')
+        .eq('tenant_id', t.id)
+        .eq('date', tomorrowLocal)
+        .in('status', ['scheduled', 'pending'])
+        .or('frequency.neq.one-time,parent_job_id.not.is.null')
+
+      for (const job of tomorrowJobs || []) {
+        const customer = (job as any).customers
+        if (!customer) continue
+
+        // Skip commercial customers — no reminder needed
+        if (customer.is_commercial) continue
+
+        const customerPhone = customer.phone_number || job.phone_number
+        if (!customerPhone) continue
+
+        // Dedup: check if we already sent this reminder
+        const dedupKey = `customer_recurring_${job.id}`
+        const alreadySent = await hasReminderBeenSent(dedupKey, 'customer_recurring_reminder', tomorrowLocal)
+        if (alreadySent) continue
+
+        const customerName = customer.first_name || 'there'
+        const serviceLabel = job.service_type
+          ? job.service_type.split(/[\s_]+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+          : 'cleaning'
+        const timeStr = job.scheduled_at || ''
+        const timePart = timeStr ? ` at ${timeStr}` : ''
+
+        const smsMessage = `Hi ${customerName}! Friendly reminder — your ${serviceLabel} is scheduled for tomorrow${timePart}. Same great team as always! Let us know if you need anything.`
+
+        const result = await sendSMS(t, customerPhone, smsMessage)
+        if (result.success) {
+          customerSmsSent++
+          await markReminderSent(dedupKey, 'customer_recurring_reminder', tomorrowLocal)
+        } else {
+          errors.push(`Customer SMS failed for job ${job.id}: ${result.error}`)
+        }
+      }
+    }
+
     // Log summary
     if (errors.length > 0) {
       console.error('Reminder cron errors:', errors)
@@ -393,6 +464,7 @@ export async function GET(request: NextRequest) {
       start_time_sent: startTimeSent,
       evening_before_sent: eveningBeforeSent,
       morning_schedule_sent: morningScheduleSent,
+      customer_sms_sent: customerSmsSent,
       errors: errors.length > 0 ? errors : undefined,
     })
   } catch (error) {
