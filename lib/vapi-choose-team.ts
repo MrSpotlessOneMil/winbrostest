@@ -508,7 +508,20 @@ function parseDateFlexible(value: unknown): Date | null {
     if (Number.isFinite(native.getTime())) return native
   }
 
-  let match = raw.match(
+  // ISO without timezone: "2026-03-03T09:00:00" or "2026-03-03T09:00" — assume Pacific time
+  let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (match) {
+    return createPacificDate(
+      Number(match[1]),
+      Number(match[2]) - 1,
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      match[6] ? Number(match[6]) : 0
+    )
+  }
+
+  match = raw.match(
     /^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i
   )
   if (match) {

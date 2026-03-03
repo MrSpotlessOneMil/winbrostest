@@ -116,8 +116,20 @@ function parseDateFlexible(value: unknown): Date | null {
     if (Number.isFinite(native.getTime())) return native
   }
 
+  // ISO without timezone: "2026-03-03T09:00:00" or "2026-03-03T09:00" — assume Chicago time
+  let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (match) {
+    const mo = Number(match[2]) - 1
+    // CDT (UTC-5) roughly Mar 8 – Nov 1, CST (UTC-6) otherwise
+    const isCDT = (mo > 2 && mo < 10) || (mo === 2 && Number(match[3]) >= 8) || (mo === 10 && Number(match[3]) < 1)
+    const offset = isCDT ? '-05:00' : '-06:00'
+    const isoStr = `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}T${String(Number(match[4])).padStart(2, '0')}:${match[5].padStart(2, '0')}:${(match[6] || '00').padStart(2, '0')}${offset}`
+    const native = new Date(isoStr)
+    if (Number.isFinite(native.getTime())) return native
+  }
+
   // "2026-02-25 10:00:00" or "2026-02-25 10:00 AM"
-  let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i)
+  match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i)
   if (match) {
     let hour = Number(match[4])
     const ampm = match[7] ? String(match[7]).toUpperCase() : null
