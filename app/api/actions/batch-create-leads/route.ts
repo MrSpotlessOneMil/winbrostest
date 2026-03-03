@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         .from("leads")
         .select("id")
         .eq("tenant_id", tenant.id)
-        .eq("phone", phone)
+        .eq("phone_number", phone)
         .in("status", ["new", "contacted", "qualified", "booked", "nurturing"])
         .limit(1)
         .single()
@@ -74,8 +74,9 @@ export async function POST(request: NextRequest) {
         .from("leads")
         .insert({
           tenant_id: tenant.id,
-          name,
-          phone,
+          first_name: l.first_name.trim(),
+          last_name: (l.last_name || "").trim(),
+          phone_number: phone,
           email: l.email?.trim() || null,
           source,
           status: "new",
