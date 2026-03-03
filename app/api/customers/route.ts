@@ -324,6 +324,28 @@ export async function GET(request: NextRequest) {
     // Don't fail the whole request if tasks fail
   }
 
+  // Fetch active cleaner phones for badge display
+  let cleanerPhones: string[] = []
+  if (tenant) {
+    const serviceClient = getSupabaseServiceClient()
+    const { data: cleaners } = await serviceClient
+      .from("cleaners")
+      .select("phone")
+      .eq("tenant_id", tenant.id)
+      .eq("active", true)
+      .not("phone", "is", null)
+
+    if (cleaners) {
+      cleanerPhones = cleaners
+        .map((c: { phone: string }) => {
+          let digits = (c.phone || "").replace(/\D/g, "")
+          if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
+          return digits
+        })
+        .filter((p: string) => p.length >= 7)
+    }
+  }
+
   return NextResponse.json({
     success: true,
     data: {
@@ -333,6 +355,7 @@ export async function GET(request: NextRequest) {
       calls: calls || [],
       leads: leads || [],
       scheduledTasks: scheduledTasks || [],
+      cleanerPhones,
     },
   })
 }

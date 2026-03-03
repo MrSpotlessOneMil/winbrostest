@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -366,6 +366,17 @@ export default function CustomersPage() {
   const [paymentSmsSent, setPaymentSmsSent] = useState(false)
   const paymentRef = useRef<HTMLDivElement>(null)
 
+  // Cleaner phones for badge
+  const [cleanerPhones, setCleanerPhones] = useState<string[]>([])
+
+  // Batch add state
+  const [batchOpen, setBatchOpen] = useState(false)
+  const [batchText, setBatchText] = useState("")
+  const [batchParsing, setBatchParsing] = useState(false)
+  const [batchParsed, setBatchParsed] = useState<Array<{ first_name: string; last_name: string; phone_number: string; email: string | null; address: string | null }> | null>(null)
+  const [batchCreating, setBatchCreating] = useState(false)
+  const [batchResult, setBatchResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null)
+
   // Initial data fetch
   useEffect(() => {
     async function fetchData() {
@@ -379,6 +390,7 @@ export default function CustomersPage() {
           setCalls(json.data.calls)
           setLeads(json.data.leads || [])
           setScheduledTasks(json.data.scheduledTasks || [])
+          setCleanerPhones(json.data.cleanerPhones || [])
           if (json.data.customers.length > 0) {
             const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
             const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
@@ -419,6 +431,8 @@ export default function CustomersPage() {
           setScheduledTasks(json.data.scheduledTasks || [])
           // Update calls
           setCalls(json.data.calls)
+          // Update cleaner phones
+          setCleanerPhones(json.data.cleanerPhones || [])
 
           // Auto-scroll if new messages arrived
           if (newMessages.length > prevCount) {
@@ -1087,7 +1101,7 @@ export default function CustomersPage() {
           {/* Customer List Sidebar - Hidden on mobile when a customer is selected */}
           <div className={`w-full md:w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden ${selectedCustomer ? "hidden md:flex" : "flex"}`}>
             <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col h-full overflow-hidden">
-              <div className="p-3 border-b border-zinc-800">
+              <div className="p-3 border-b border-zinc-800 space-y-2">
                 <div className="relative">
                   <svg
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500"
@@ -1116,6 +1130,13 @@ export default function CustomersPage() {
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
                   New Customer
+                </button>
+                <button
+                  onClick={() => { setBatchOpen(true); setBatchText(""); setBatchParsed(null); setBatchResult(null) }}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg transition-colors"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  Batch Add
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
@@ -1174,6 +1195,11 @@ export default function CustomersPage() {
                               {customer.card_on_file_at && (
                                 <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                                   Card
+                                </span>
+                              )}
+                              {cleanerPhones.length > 0 && cleanerPhones.includes(normalizePhone(customer.phone_number)) && (
+                                <span title="Also a cleaner" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/20">
+                                  🧹
                                 </span>
                               )}
                             </div>
@@ -1949,6 +1975,173 @@ export default function CustomersPage() {
                   {savingJob ? "Saving..." : "Save Changes"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Add Customers Modal */}
+      {batchOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setBatchOpen(false)}>
+          <div className="w-full max-w-2xl mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">Batch Add Customers</h3>
+              <button onClick={() => setBatchOpen(false)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="px-5 py-4 flex-1 overflow-y-auto space-y-4">
+              {!batchParsed && !batchResult && (
+                <>
+                  <p className="text-sm text-zinc-400">Paste customer info in any format — names, phones, emails, addresses. AI will parse it into structured records.</p>
+                  <textarea
+                    value={batchText}
+                    onChange={(e) => setBatchText(e.target.value)}
+                    rows={8}
+                    className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none"
+                    placeholder={"John Smith 555-123-4567 john@email.com 123 Main St\nJane Doe (555) 987-6543 jane@email.com"}
+                  />
+                </>
+              )}
+
+              {batchParsed && !batchResult && (
+                <>
+                  <p className="text-sm text-zinc-400">{batchParsed.length} customer{batchParsed.length !== 1 ? "s" : ""} found. Review and edit before creating:</p>
+                  <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                    {batchParsed.map((c, i) => (
+                      <div key={i} className="grid grid-cols-5 gap-2 text-xs">
+                        <input
+                          value={c.first_name}
+                          onChange={(e) => { const u = [...batchParsed]; u[i] = { ...u[i], first_name: e.target.value }; setBatchParsed(u) }}
+                          className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-100 focus:outline-none focus:border-purple-500"
+                          placeholder="First"
+                        />
+                        <input
+                          value={c.last_name}
+                          onChange={(e) => { const u = [...batchParsed]; u[i] = { ...u[i], last_name: e.target.value }; setBatchParsed(u) }}
+                          className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-100 focus:outline-none focus:border-purple-500"
+                          placeholder="Last"
+                        />
+                        <input
+                          value={c.phone_number}
+                          onChange={(e) => { const u = [...batchParsed]; u[i] = { ...u[i], phone_number: e.target.value }; setBatchParsed(u) }}
+                          className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-100 focus:outline-none focus:border-purple-500"
+                          placeholder="Phone"
+                        />
+                        <input
+                          value={c.email || ""}
+                          onChange={(e) => { const u = [...batchParsed]; u[i] = { ...u[i], email: e.target.value || null }; setBatchParsed(u) }}
+                          className="px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-100 focus:outline-none focus:border-purple-500"
+                          placeholder="Email"
+                        />
+                        <div className="flex gap-1">
+                          <input
+                            value={c.address || ""}
+                            onChange={(e) => { const u = [...batchParsed]; u[i] = { ...u[i], address: e.target.value || null }; setBatchParsed(u) }}
+                            className="flex-1 px-2 py-1.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-100 focus:outline-none focus:border-purple-500"
+                            placeholder="Address"
+                          />
+                          <button
+                            onClick={() => setBatchParsed(batchParsed.filter((_, j) => j !== i))}
+                            className="px-1.5 text-zinc-500 hover:text-red-400"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {batchResult && (
+                <div className="space-y-2">
+                  <p className="text-sm text-emerald-400">
+                    Done! {batchResult.created} created, {batchResult.updated} updated.
+                  </p>
+                  {batchResult.errors.length > 0 && (
+                    <div className="text-xs text-red-400 space-y-1">
+                      {batchResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              {!batchParsed && !batchResult && (
+                <>
+                  <button onClick={() => setBatchOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">Cancel</button>
+                  <button
+                    onClick={async () => {
+                      setBatchParsing(true)
+                      try {
+                        const res = await fetch("/api/actions/batch-parse-customers", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ text: batchText }),
+                        })
+                        const json = await res.json()
+                        if (json.success && json.customers?.length > 0) {
+                          setBatchParsed(json.customers)
+                        } else {
+                          alert(json.error || "No customers could be parsed from the text")
+                        }
+                      } catch { alert("Failed to parse") }
+                      finally { setBatchParsing(false) }
+                    }}
+                    disabled={batchParsing || !batchText.trim()}
+                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {batchParsing ? "Parsing..." : "Parse"}
+                  </button>
+                </>
+              )}
+
+              {batchParsed && !batchResult && (
+                <>
+                  <button onClick={() => setBatchParsed(null)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">Back</button>
+                  <button
+                    onClick={async () => {
+                      setBatchCreating(true)
+                      try {
+                        const res = await fetch("/api/actions/batch-create-customers", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ customers: batchParsed }),
+                        })
+                        const json = await res.json()
+                        if (json.success) {
+                          setBatchResult({ created: json.created, updated: json.updated, errors: json.errors || [] })
+                          // Refresh customer list
+                          const refresh = await fetch("/api/customers")
+                          const refreshJson = await refresh.json()
+                          if (refreshJson.success) {
+                            setCustomers(refreshJson.data.customers)
+                            setMessages(refreshJson.data.messages)
+                            setJobs(refreshJson.data.jobs)
+                            setCalls(refreshJson.data.calls)
+                            setLeads(refreshJson.data.leads || [])
+                            setCleanerPhones(refreshJson.data.cleanerPhones || [])
+                          }
+                        } else {
+                          alert(json.error || "Failed to create customers")
+                        }
+                      } catch { alert("Failed to create customers") }
+                      finally { setBatchCreating(false) }
+                    }}
+                    disabled={batchCreating || batchParsed.length === 0}
+                    className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {batchCreating ? "Creating..." : `Create ${batchParsed.length} Customer${batchParsed.length !== 1 ? "s" : ""}`}
+                  </button>
+                </>
+              )}
+
+              {batchResult && (
+                <button onClick={() => setBatchOpen(false)} className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors">Done</button>
+              )}
             </div>
           </div>
         </div>
