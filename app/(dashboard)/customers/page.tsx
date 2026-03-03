@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -370,6 +370,8 @@ export default function CustomersPage() {
   const [cleanerPhones, setCleanerPhones] = useState<string[]>([])
 
   // Batch add state
+  const [syncingContacts, setSyncingContacts] = useState(false)
+  const [syncResult, setSyncResult] = useState<{ updated: number; created: number; total_contacts: number } | null>(null)
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchText, setBatchText] = useState("")
   const [batchParsing, setBatchParsing] = useState(false)
@@ -1142,6 +1144,43 @@ export default function CustomersPage() {
                   <UserPlus className="w-3.5 h-3.5" />
                   Batch Add
                 </button>
+                <button
+                  onClick={async () => {
+                    setSyncingContacts(true)
+                    setSyncResult(null)
+                    try {
+                      const res = await fetch("/api/actions/sync-openphone-contacts", { method: "POST" })
+                      const json = await res.json()
+                      if (json.success) {
+                        setSyncResult({ updated: json.updated, created: json.created, total_contacts: json.total_contacts })
+                        // Refresh customers list
+                        const refresh = await fetch("/api/customers")
+                        const refreshJson = await refresh.json()
+                        if (refreshJson.success) {
+                          setCustomers(refreshJson.data.customers)
+                          setMessages(refreshJson.data.messages)
+                          setJobs(refreshJson.data.jobs)
+                          setCalls(refreshJson.data.calls)
+                          setLeads(refreshJson.data.leads || [])
+                          setCleanerPhones(refreshJson.data.cleanerPhones || [])
+                        }
+                      } else {
+                        alert(json.error || "Failed to sync contacts")
+                      }
+                    } catch { alert("Failed to sync contacts") }
+                    finally { setSyncingContacts(false) }
+                  }}
+                  disabled={syncingContacts}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {syncingContacts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  {syncingContacts ? "Syncing..." : "Sync from OpenPhone"}
+                </button>
+                {syncResult && (
+                  <p className="text-xs text-center text-emerald-400">
+                    {syncResult.updated} names updated, {syncResult.created} new contacts from {syncResult.total_contacts} OpenPhone contacts
+                  </p>
+                )}
               </div>
               <div className="flex-1 overflow-y-auto">
                 {filteredCustomers.length === 0 ? (
@@ -1178,32 +1217,35 @@ export default function CustomersPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
-                              {isHouseCleaning && (
+                              {cleanerPhones.length > 0 && cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
+                                <span title="Cleaner" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/20">
+                                  🧹
+                                </span>
+                              ) : (
                                 <>
-                                  {customer.is_commercial ? (
-                                    <span title="Commercial" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
-                                      🏢
-                                    </span>
-                                  ) : (
-                                    <span title="Residential" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                                      🏠
-                                    </span>
-                                  )}
-                                  {getCustomerJobs(customer.phone_number).some((j: any) => j.frequency && j.frequency !== "one-time") && (
-                                    <span title="Recurring" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">
-                                      🔁
-                                    </span>
+                                  {isHouseCleaning && (
+                                    <>
+                                      {customer.is_commercial ? (
+                                        <span title="Commercial" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                                          🏢
+                                        </span>
+                                      ) : (
+                                        <span title="Residential" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                                          🏠
+                                        </span>
+                                      )}
+                                      {getCustomerJobs(customer.phone_number).some((j: any) => j.frequency && j.frequency !== "one-time") && (
+                                        <span title="Recurring" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">
+                                          🔁
+                                        </span>
+                                      )}
+                                    </>
                                   )}
                                 </>
                               )}
                               {customer.card_on_file_at && (
                                 <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                                   Card
-                                </span>
-                              )}
-                              {cleanerPhones.length > 0 && cleanerPhones.includes(normalizePhone(customer.phone_number)) && (
-                                <span title="Also a cleaner" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/20">
-                                  🧹
                                 </span>
                               )}
                             </div>
