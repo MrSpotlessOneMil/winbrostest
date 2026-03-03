@@ -2531,6 +2531,122 @@ async function sendDepositPaymentFlow(params: {
     return { success: false }
   }
 
+  // ──────────────────────────────────────────────────────────────────────
+  // CARD-ON-FILE FLOW: Save card at booking, charge on completion (no deposit)
+  // For tenants with use_card_on_file: true (Cedar Rapids, Spotless Scrubbers)
+  // ──────────────────────────────────────────────────────────────────────
+  const cardOnFileConfig = tenant.workflow_config || {}
+  if (cardOnFileConfig.use_card_on_file) {
+    try {
+      // Fetch tenant's add-on prices dynamically from pricing_addons table
+      const { getPricingAddons } = await import("@/lib/pricing-db")
+      const addons = await getPricingAddons(tenant.id)
+      const addonLines = addons
+        .filter(a => a.flat_price && a.flat_price > 0)
+        .map(a => `  • ${a.label}: $${a.flat_price}`)
+
+      const serviceLabel = job?.service_type?.replace(/_/g, ' ') || 'Cleaning Service'
+      const dateLine = job?.date
+        ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        : 'TBD'
+      const addressLine = job?.address || customer.address || ''
+      const cancellationFee = wc.cancellation_fee_cents ? (wc.cancellation_fee_cents / 100) : 50
+      const cancellationWindow = wc.cancellation_window_hours || 24
+
+      // Build terms SMS
+      const msgParts = [
+        `Booking Confirmed!`,
+        `${serviceLabel} | ${dateLine}${addressLine ? ` | ${addressLine}` : ''}`,
+        `Estimated Total: $${servicePrice.toFixed(2)}`,
+      ]
+
+      if (addonLines.length > 0) {
+        msgParts.push('')
+        msgParts.push('Potential add-ons (if applicable):')
+        msgParts.push(...addonLines)
+      }
+
+      msgParts.push('')
+      msgParts.push(`$${cancellationFee} cancellation fee applies if cancelled within ${cancellationWindow}hrs of service.`)
+
+      // Create card-on-file link
+      const { createCardOnFileLink } = await import("@/lib/stripe-client")
+      const cardResult = await createCardOnFileLink(
+        { ...customer, email } as any,
+        jobId || `lead-${leadId}`,
+        tenant.id,
+        tenant.stripe_secret_key || undefined
+      )
+
+      if (cardResult.success && cardResult.url) {
+        msgParts.push('')
+        msgParts.push(`Please save your card to confirm: ${cardResult.url}`)
+        msgParts.push(`Your card will be charged the final amount after service is completed.`)
+
+        const termsMsg = msgParts.join('\n')
+        const termsSms = await sendSMS(tenant as any, phone, termsMsg)
+        if (termsSms.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: termsMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "card_on_file",
+            metadata: { lead_id: leadId, job_id: jobId, card_on_file_url: cardResult.url },
+          })
+        }
+        console.log(`[OpenPhone] Card-on-file terms SMS sent to ${maskPhone(phone)}`)
+
+        // Mark job as quoted (transitions to scheduled after card saved via Stripe webhook)
+        if (jobId) {
+          const { updateJob } = await import("@/lib/supabase")
+          await updateJob(jobId, { invoice_sent: true, status: 'quoted' as any, booked: false })
+        }
+
+        // Send confirmation email
+        try {
+          const { sendConfirmationEmail } = await import("@/lib/gmail-client")
+          await sendConfirmationEmail({
+            customer: { ...customer, email } as any,
+            job: job || {} as any,
+            waveInvoiceUrl: undefined,
+            stripeDepositUrl: cardResult.url,
+            tenant: tenant as any,
+          })
+        } catch (emailErr) {
+          console.error("[OpenPhone] Card-on-file confirmation email failed:", emailErr)
+        }
+
+        await logSystemEvent({
+          tenant_id: tenant.id,
+          source: "openphone",
+          event_type: "CARD_ON_FILE_TERMS_SENT",
+          message: `Card-on-file terms + link sent to ${phone}`,
+          phone_number: phone,
+          metadata: {
+            lead_id: leadId,
+            job_id: jobId,
+            flow: "card_on_file",
+            card_on_file_url: cardResult.url,
+            price: servicePrice,
+          },
+        })
+
+        return { success: true, depositUrl: cardResult.url }
+      } else {
+        console.error(`[OpenPhone] Card-on-file link creation failed: ${cardResult.error}`)
+      }
+    } catch (cardErr) {
+      console.error("[OpenPhone] Card-on-file flow error:", cardErr)
+    }
+    // Fall through to legacy deposit flow if card-on-file failed
+  }
+
   // 1. Send booking confirmation (Stripe tenants get SMS summary; Wave tenants get invoice link)
   const wc = tenant.workflow_config
   const isStripeOnly = wc?.use_stripe && !wc?.use_wave

@@ -70,7 +70,7 @@ export async function getTenantRedirectDomain(tenantId?: string): Promise<string
   return getClientDomain()
 }
 
-type StripePaymentType = 'DEPOSIT' | 'ADDON' | 'FINAL' | 'CUSTOM'
+type StripePaymentType = 'DEPOSIT' | 'ADDON' | 'FINAL' | 'CUSTOM' | 'AUTO_CHARGE' | 'CANCELLATION_FEE'
 
 function resolveStripeTestChargeCents(): number | null {
   if (process.env.ENABLE_STRIPE_TEST_CHARGES !== 'true') {
@@ -668,6 +668,53 @@ export async function createAddOnPaymentLink(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     }
+  }
+}
+
+/**
+ * Charge a customer's saved card on file (off-session).
+ * Used for auto-charge on job completion and cancellation fees.
+ */
+export async function chargeCardOnFile(
+  stripeSecretKey: string,
+  stripeCustomerId: string,
+  amountCents: number,
+  metadata: Record<string, string>
+): Promise<{ success: boolean; paymentIntentId?: string; error?: string }> {
+  try {
+    const stripe = getStripeClientForTenant(stripeSecretKey)
+
+    // Retrieve the customer's default payment method
+    const customer = await stripe.customers.retrieve(stripeCustomerId)
+    if (customer.deleted) {
+      return { success: false, error: 'Stripe customer has been deleted' }
+    }
+
+    const defaultPm =
+      customer.invoice_settings?.default_payment_method ||
+      customer.default_source
+    if (!defaultPm) {
+      return { success: false, error: 'No payment method on file' }
+    }
+
+    const paymentMethodId = typeof defaultPm === 'string' ? defaultPm : defaultPm.id
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amountCents,
+      currency: 'usd',
+      customer: stripeCustomerId,
+      payment_method: paymentMethodId,
+      off_session: true,
+      confirm: true,
+      metadata,
+    })
+
+    console.log(`[Stripe] Off-session charge succeeded: ${paymentIntent.id} ($${(amountCents / 100).toFixed(2)})`)
+    return { success: true, paymentIntentId: paymentIntent.id }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error(`[Stripe] Off-session charge failed: ${message}`)
+    return { success: false, error: message }
   }
 }
 

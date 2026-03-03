@@ -79,8 +79,11 @@ fail() {
   FAILS+=("$1")
 }
 
-# Read file content once
-CONTENT=$(cat "$UNIX_FILE")
+# Helper: grep the route file directly (avoids git-bash echo pipe truncation on large files)
+fgrep_q()  { grep -q  "$@" "$UNIX_FILE"; }
+fgrep_qE() { grep -qE "$@" "$UNIX_FILE"; }
+
+LINE_COUNT=$(wc -l < "$UNIX_FILE" | tr -d ' ')
 
 # ===========================================================================
 # ACTION ROUTE CHECKS
@@ -88,13 +91,13 @@ CONTENT=$(cat "$UNIX_FILE")
 if [[ "$ROUTE_TYPE" == "action" ]]; then
 
   # 1. Must call requireAuthWithTenant
-  if ! echo "$CONTENT" | grep -q 'requireAuthWithTenant'; then
+  if ! fgrep_q 'requireAuthWithTenant'; then
     fail "Action route missing requireAuthWithTenant() call"
   fi
 
   # 2. Must check instanceof NextResponse after auth
-  if echo "$CONTENT" | grep -q 'requireAuthWithTenant'; then
-    if ! echo "$CONTENT" | grep -q 'instanceof NextResponse'; then
+  if fgrep_q 'requireAuthWithTenant'; then
+    if ! fgrep_q 'instanceof NextResponse'; then
       fail "Action route missing 'instanceof NextResponse' check after auth"
     fi
   fi
@@ -105,22 +108,22 @@ if [[ "$ROUTE_TYPE" == "action" ]]; then
 elif [[ "$ROUTE_TYPE" == "cron" ]]; then
 
   # 1. Must verify cron auth
-  if ! echo "$CONTENT" | grep -qE 'verifyCronAuth|CRON_SECRET'; then
+  if ! fgrep_qE 'verifyCronAuth|CRON_SECRET'; then
     fail "Cron route missing auth verification (verifyCronAuth or CRON_SECRET check)"
   fi
 
   # 2. Must use service client — but only if the file does direct Supabase DB access
   #    Orchestrator crons that delegate to lib functions don't need it in the route
   #    Match Supabase chaining: .from('table'), .rpc('func') — not Array.from()
-  if echo "$CONTENT" | grep -qE "\.(from|rpc)\s*\(\s*'"; then
-    if ! echo "$CONTENT" | grep -qE 'getSupabaseServiceClient|getSupabaseClient'; then
+  if fgrep_qE "\.(from|rpc)\s*\(\s*'"; then
+    if ! fgrep_qE 'getSupabaseServiceClient|getSupabaseClient'; then
       fail "Cron route does direct DB access but doesn't instantiate service client"
     fi
   fi
 
   # 3. Must be registered in vercel.json (unless marked as a sub-cron)
   #    Files with "route-check:no-vercel-cron" comment are sub-crons called by another cron
-  if ! echo "$CONTENT" | grep -q 'route-check:no-vercel-cron'; then
+  if ! fgrep_q 'route-check:no-vercel-cron'; then
     CRON_NAME=""
     if [[ "$FILE_PATH" =~ /app/api/cron/([^/]+)/ ]]; then
       CRON_NAME="${BASH_REMATCH[1]}"
@@ -138,13 +141,12 @@ elif [[ "$ROUTE_TYPE" == "cron" ]]; then
 elif [[ "$ROUTE_TYPE" == "webhook" ]]; then
 
   # 1. Must NOT use requireAuthWithTenant (webhooks have no user session)
-  if echo "$CONTENT" | grep -q 'requireAuthWithTenant'; then
+  if fgrep_q 'requireAuthWithTenant'; then
     fail "Webhook route must NOT use requireAuthWithTenant — webhooks have no user session"
   fi
 
   # 2. Must use service client (skip thin delegator files < 30 lines)
-  if ! echo "$CONTENT" | grep -qE 'getSupabaseServiceClient|getSupabaseClient'; then
-    LINE_COUNT=$(echo "$CONTENT" | wc -l | tr -d ' ')
+  if ! fgrep_qE 'getSupabaseServiceClient|getSupabaseClient'; then
     if [[ "$LINE_COUNT" -gt 30 ]]; then
       fail "Webhook route must use service client (getSupabaseServiceClient or getSupabaseClient)"
     fi
@@ -152,9 +154,9 @@ elif [[ "$ROUTE_TYPE" == "webhook" ]]; then
 
   # 3. Stripe webhooks must check stripe_processed_events for idempotency
   if [[ "$FILE_PATH" == */webhooks/stripe/* ]]; then
-    if ! echo "$CONTENT" | grep -q 'stripe_processed_events'; then
+    if ! fgrep_q 'stripe_processed_events'; then
       # Skip thin delegator files that call processStripeEvent
-      if ! echo "$CONTENT" | grep -q 'processStripeEvent'; then
+      if ! fgrep_q 'processStripeEvent'; then
         fail "Stripe webhook missing idempotency check (stripe_processed_events table)"
       fi
     fi
@@ -166,7 +168,7 @@ elif [[ "$ROUTE_TYPE" == "webhook" ]]; then
 elif [[ "$ROUTE_TYPE" == "automation" ]]; then
 
   # 1. Must have some auth check
-  if ! echo "$CONTENT" | grep -qE 'verifyCronAuth|CRON_SECRET|requireAuth'; then
+  if ! fgrep_qE 'verifyCronAuth|CRON_SECRET|requireAuth'; then
     fail "Automation route missing auth verification"
   fi
 
@@ -177,8 +179,8 @@ fi
 # ===========================================================================
 
 # Fetch timeout: if file uses raw fetch(), it should have AbortController
-if echo "$CONTENT" | grep -qE '\bfetch\s*\('; then
-  if ! echo "$CONTENT" | grep -q 'AbortController'; then
+if fgrep_qE '\bfetch\s*\('; then
+  if ! fgrep_q 'AbortController'; then
     fail "Route uses fetch() but has no AbortController timeout — all external calls need 10-15s timeout"
   fi
 fi

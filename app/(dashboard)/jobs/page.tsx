@@ -469,6 +469,13 @@ export default function JobsPage() {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteMode, setDeleteMode] = useState<"single" | "future" | null>(null)
 
+  // Add charge state (card-on-file tenants)
+  const [addChargeOpen, setAddChargeOpen] = useState(false)
+  const [addChargeType, setAddChargeType] = useState("")
+  const [addChargeAmount, setAddChargeAmount] = useState("")
+  const [addChargeDesc, setAddChargeDesc] = useState("")
+  const [addChargeSaving, setAddChargeSaving] = useState(false)
+
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
   const [rainStep, setRainStep] = useState<"select" | "preview" | "loading" | "done">("select")
@@ -647,6 +654,7 @@ export default function JobsPage() {
     setEditMode(false)
     setConfirmDelete(false)
     setAutoScheduleResult(null)
+    setAddChargeOpen(false)
   }
 
   const refreshJobs = async () => {
@@ -806,6 +814,39 @@ export default function JobsPage() {
       setAutoScheduleResult('Error: Network request failed')
     } finally {
       setAutoScheduling(false)
+    }
+  }
+
+  const handleAddCharge = async () => {
+    if (!selectedEvent || !addChargeType) return
+    setAddChargeSaving(true)
+    try {
+      const body: Record<string, unknown> = { job_id: selectedEvent.jobId, addon_type: addChargeType }
+      if (addChargeType === "custom" && addChargeAmount) {
+        body.amount = parseFloat(addChargeAmount)
+        body.description = addChargeDesc || "Custom charge"
+        body.addon_type = addChargeDesc || "custom_charge"
+      }
+      const res = await fetch("/api/actions/add-charge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.success) {
+        // Update the selected event price in UI
+        setSelectedEvent(prev => prev ? { ...prev, price: data.new_total } : prev)
+        setAddChargeOpen(false)
+        setAddChargeType("")
+        setAddChargeAmount("")
+        setAddChargeDesc("")
+      } else {
+        alert(data.error || "Failed to add charge")
+      }
+    } catch {
+      alert("Failed to add charge")
+    } finally {
+      setAddChargeSaving(false)
     }
   }
 
@@ -1418,6 +1459,48 @@ export default function JobsPage() {
                   </div>
                 )}
               </div>
+            ) : addChargeOpen ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>Add Charge</span>
+                <select
+                  value={addChargeType}
+                  onChange={(e) => { setAddChargeType(e.target.value); setAddChargeAmount(""); setAddChargeDesc("") }}
+                  style={{ padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                >
+                  <option value="">Select add-on...</option>
+                  {addonsList.filter(a => a.flat_price && a.flat_price > 0).map(a => (
+                    <option key={a.addon_key} value={a.addon_key}>{a.label} (${a.flat_price})</option>
+                  ))}
+                  <option value="custom">Custom charge...</option>
+                </select>
+                {addChargeType === "custom" && (
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <input
+                      type="number"
+                      placeholder="Amount"
+                      value={addChargeAmount}
+                      onChange={(e) => setAddChargeAmount(e.target.value)}
+                      style={{ width: 80, padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                    />
+                    <input
+                      placeholder="Description"
+                      value={addChargeDesc}
+                      onChange={(e) => setAddChargeDesc(e.target.value)}
+                      style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                    />
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
+                  <button className="cal-modal-btn" onClick={() => setAddChargeOpen(false)} disabled={addChargeSaving}>Cancel</button>
+                  <button
+                    className="cal-modal-btn cal-modal-btn-primary"
+                    onClick={handleAddCharge}
+                    disabled={addChargeSaving || !addChargeType || (addChargeType === "custom" && !addChargeAmount)}
+                  >
+                    {addChargeSaving ? <><span className="saving-spinner" /> Adding...</> : "Add Charge"}
+                  </button>
+                </div>
+              </div>
             ) : !editMode ? (
               <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
                 <button
@@ -1432,6 +1515,16 @@ export default function JobsPage() {
                   </svg>
                 </button>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
+                  {isHouseCleaning && selectedEvent?.status !== "completed" && (
+                    <button
+                      className="cal-modal-btn"
+                      onClick={() => setAddChargeOpen(true)}
+                      title="Add on-site charge"
+                      style={{ fontSize: "0.8rem" }}
+                    >
+                      + Charge
+                    </button>
+                  )}
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}

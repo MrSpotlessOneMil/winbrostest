@@ -1,8 +1,100 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { chargeCardOnFile } from "@/lib/stripe-client"
+import { sendSMS } from "@/lib/openphone"
+import { getTenantById, getTenantBusinessName } from "@/lib/tenant"
+import { logSystemEvent } from "@/lib/system-events"
 
 type RecurringAction = "change-frequency" | "skip-next" | "pause" | "resume" | "cancel" | "delete-future"
+
+/**
+ * Charge cancellation fee if job is within the cancellation window.
+ * Returns { charged: boolean, amount?: number } — never throws.
+ */
+async function maybeCancelFee(
+  tenantId: string,
+  jobDate: string | null,
+  customerId: string | null,
+  phoneNumber: string | null,
+  jobId: number
+): Promise<{ charged: boolean; amount?: number; error?: string }> {
+  if (!jobDate || !customerId) return { charged: false }
+
+  const tenant = await getTenantById(tenantId)
+  if (!tenant) return { charged: false }
+
+  const wc = tenant.workflow_config as any
+  if (!wc?.use_card_on_file || !wc?.cancellation_fee_cents) return { charged: false }
+
+  const windowHours = wc.cancellation_window_hours || 24
+  const feeCents = wc.cancellation_fee_cents as number
+
+  // Check if job is within cancellation window
+  const jobDateTime = new Date(jobDate + 'T00:00:00')
+  const now = new Date()
+  const hoursUntilJob = (jobDateTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+  if (hoursUntilJob > windowHours || hoursUntilJob < 0) return { charged: false }
+
+  // Look up customer's Stripe ID
+  const client = getSupabaseServiceClient()
+  const { data: customer } = await client
+    .from("customers")
+    .select("stripe_customer_id, phone_number")
+    .eq("id", customerId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle()
+
+  if (!customer?.stripe_customer_id || !tenant.stripe_secret_key) {
+    // No card on file — log for manual follow-up
+    if (phoneNumber) {
+      const businessName = getTenantBusinessName(tenant)
+      const feeAmount = (feeCents / 100).toFixed(2)
+      await sendSMS(tenant, phoneNumber, `Your service has been cancelled within ${windowHours}hrs. A $${feeAmount} cancellation fee applies per our policy. Please contact ${businessName} to arrange payment.`)
+    }
+    await logSystemEvent({
+      tenant_id: tenantId,
+      source: "actions",
+      event_type: "CANCELLATION_FEE_MANUAL",
+      message: `Cancellation fee owed but no card on file for job ${jobId}.`,
+      job_id: String(jobId),
+      customer_id: customerId,
+      phone_number: phoneNumber || undefined,
+      metadata: { fee_cents: feeCents },
+    })
+    return { charged: false, error: "No card on file" }
+  }
+
+  // Charge the cancellation fee
+  const result = await chargeCardOnFile(tenant.stripe_secret_key, customer.stripe_customer_id, feeCents, {
+    job_id: String(jobId),
+    payment_type: "CANCELLATION_FEE",
+    phone_number: phoneNumber || "",
+  })
+
+  const feeAmount = (feeCents / 100).toFixed(2)
+  if (result.success) {
+    if (phoneNumber) {
+      const businessName = getTenantBusinessName(tenant)
+      const jobDateFormatted = new Date(jobDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+      await sendSMS(tenant, phoneNumber, `Your service on ${jobDateFormatted} has been cancelled. A $${feeAmount} cancellation fee has been charged per our policy. - ${businessName}`)
+    }
+    await logSystemEvent({
+      tenant_id: tenantId,
+      source: "actions",
+      event_type: "CANCELLATION_FEE_CHARGED",
+      message: `Cancellation fee $${feeAmount} charged for job ${jobId}.`,
+      job_id: String(jobId),
+      customer_id: customerId,
+      phone_number: phoneNumber || undefined,
+      metadata: { fee_cents: feeCents, payment_intent_id: result.paymentIntentId },
+    })
+    return { charged: true, amount: feeCents / 100 }
+  }
+
+  console.error(`[recurring] Cancellation fee charge failed for job ${jobId}: ${result.error}`)
+  return { charged: false, error: result.error }
+}
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuthWithTenant(request)
@@ -34,7 +126,7 @@ export async function POST(request: NextRequest) {
     // Fetch the clicked job
     const { data: job, error: jobErr } = await client
       .from("jobs")
-      .select("id, tenant_id, customer_id, frequency, parent_job_id, date, status")
+      .select("id, tenant_id, customer_id, frequency, parent_job_id, date, status, phone_number")
       .eq("id", targetId)
       .maybeSingle()
 
@@ -44,6 +136,15 @@ export async function POST(request: NextRequest) {
     if (job.tenant_id !== tenant.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 403 })
     }
+
+    // Check cancellation fee for the clicked job
+    const cancelFee = await maybeCancelFee(
+      tenant.id,
+      job.date,
+      job.customer_id,
+      job.phone_number,
+      job.id
+    )
 
     const fromDate = job.date || today
     const parentId = job.parent_job_id || job.id
@@ -98,7 +199,13 @@ export async function POST(request: NextRequest) {
         .is("paused_at", null)
     }
 
-    return NextResponse.json({ success: true, action: "delete-future", deleted_count: deletedCount })
+    return NextResponse.json({
+      success: true,
+      action: "delete-future",
+      deleted_count: deletedCount,
+      cancellation_fee_charged: cancelFee.charged,
+      cancellation_fee_amount: cancelFee.amount,
+    })
   }
 
   // All other actions require parent_job_id
@@ -212,6 +319,28 @@ export async function POST(request: NextRequest) {
     }
 
     case "cancel": {
+      // Check if the next upcoming job is within cancellation fee window
+      const { data: nextJob } = await client
+        .from("jobs")
+        .select("id, date, customer_id, phone_number")
+        .eq("parent_job_id", parent_job_id)
+        .gte("date", today)
+        .in("status", ["scheduled", "pending"])
+        .order("date", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+
+      let cancellationFee: { charged: boolean; amount?: number } = { charged: false }
+      if (nextJob) {
+        cancellationFee = await maybeCancelFee(
+          tenant.id,
+          nextJob.date,
+          nextJob.customer_id,
+          nextJob.phone_number,
+          nextJob.id
+        )
+      }
+
       // Cancel all future child instances
       const { count } = await client
         .from("jobs")
@@ -227,7 +356,13 @@ export async function POST(request: NextRequest) {
         .eq("id", parent_job_id)
         .neq("status", "cancelled")
 
-      return NextResponse.json({ success: true, action: "cancel", cancelled_count: count || 0 })
+      return NextResponse.json({
+        success: true,
+        action: "cancel",
+        cancelled_count: count || 0,
+        cancellation_fee_charged: cancellationFee.charged,
+        cancellation_fee_amount: cancellationFee.amount,
+      })
     }
 
     default:

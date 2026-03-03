@@ -19,7 +19,7 @@ import {
   getSupabaseServiceClient,
 } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
-import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain, getStripeClientForTenant } from '@/lib/stripe-client'
+import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain, getStripeClientForTenant, chargeCardOnFile } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
@@ -139,8 +139,91 @@ export async function executeCompleteJob(jobId: string): Promise<{
   )
   const chargeAmount = chargeAmountCents / 100
 
-  // Create Stripe payment link for remaining amount (using tenant's Stripe key)
   const stripeKey = tenant?.stripe_secret_key || undefined
+
+  // ──────────────────────────────────────────────────────────────────────
+  // CARD-ON-FILE AUTO-CHARGE: Charge saved card instead of sending payment link
+  // For tenants with use_card_on_file: true (Cedar Rapids, Spotless Scrubbers)
+  // ──────────────────────────────────────────────────────────────────────
+  const useCardOnFile = tenant?.workflow_config?.use_card_on_file === true
+  const customerStripeId = (customer as any).stripe_customer_id as string | null
+
+  if (useCardOnFile && customerStripeId && stripeKey) {
+    const autoChargeResult = await chargeCardOnFile(stripeKey, customerStripeId, chargeAmountCents, {
+      job_id: jobId,
+      phone_number: job.phone_number,
+      payment_type: 'AUTO_CHARGE',
+    })
+
+    if (autoChargeResult.success) {
+      // Auto-charge succeeded — mark job as completed + fully paid
+      await updateJob(jobId, {
+        status: 'completed',
+        payment_status: 'fully_paid' as any,
+      }, {}, serviceClient)
+
+      await serviceClient
+        .from("leads")
+        .update({ status: "completed" })
+        .eq("converted_to_job_id", Number(jobId))
+
+      // Send receipt SMS
+      const receiptMsg = `Your ${job.service_type || 'cleaning'} is complete! $${chargeAmount.toFixed(2)} has been charged to your card on file. Thank you!`
+      const sendResult = tenant
+        ? await sendSMS(tenant, customer.phone_number, receiptMsg)
+        : { success: false, error: 'No tenant' }
+
+      if (sendResult.success) {
+        const timestamp = new Date().toISOString()
+        await appendToTextingTranscript(
+          customer.phone_number,
+          `[${timestamp}] [Job Completed - Auto-Charged] ${businessNameShort}: ${receiptMsg}`,
+          serviceClient
+        )
+      }
+
+      await logSystemEvent({
+        source: 'actions',
+        event_type: 'AUTO_CHARGE_SUCCESS',
+        message: `Auto-charged $${chargeAmount.toFixed(2)} for job ${jobId}.`,
+        job_id: jobId,
+        customer_id: job.customer_id,
+        phone_number: customer.phone_number,
+        metadata: {
+          charge_amount: chargeAmount,
+          payment_intent_id: autoChargeResult.paymentIntentId,
+          total_price: totalPrice,
+          total_due: totalDue,
+        },
+      })
+
+      return {
+        success: true,
+        jobId,
+        chargeAmount,
+        smsSent: sendResult.success,
+        message: 'Auto-charged card on file',
+      }
+    }
+
+    // Auto-charge failed — log and fall through to manual payment link
+    console.warn(`[complete-job] Auto-charge failed for job ${jobId}: ${autoChargeResult.error}`)
+    await logSystemEvent({
+      source: 'actions',
+      event_type: 'AUTO_CHARGE_FAILED',
+      message: `Auto-charge failed for job ${jobId}: ${autoChargeResult.error}. Falling back to payment link.`,
+      job_id: jobId,
+      customer_id: job.customer_id,
+      phone_number: customer.phone_number,
+      metadata: {
+        error: autoChargeResult.error,
+        charge_amount: chargeAmount,
+        stripe_customer_id: customerStripeId,
+      },
+    })
+  }
+
+  // Create Stripe payment link for remaining amount (fallback or non-card-on-file tenants)
   const stripe = getStripeClientForTenant(stripeKey)
 
   // Ensure customer exists in Stripe so payment is associated correctly
