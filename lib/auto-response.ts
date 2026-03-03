@@ -171,6 +171,29 @@ export async function loadCustomerContext(
   }
 }
 
+/** Convert raw ISO dates/timestamps to human-readable for LLM context */
+function formatDateForContext(raw: string, timezone: string): string {
+  try {
+    // Handle "2026-03-05" (date only)
+    const dateOnly = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+    if (dateOnly) {
+      const d = new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+      return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+    }
+    // Handle ISO timestamps like "2026-03-05T14:00:00.000Z"
+    const d = new Date(raw)
+    if (!isNaN(d.getTime())) {
+      return new Intl.DateTimeFormat('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true, timeZone: timezone,
+      }).format(d)
+    }
+    return raw
+  } catch {
+    return raw
+  }
+}
+
 /**
  * Serialize customer context into a text block for AI system prompts.
  */
@@ -181,10 +204,11 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
   if (ctx.activeJobs.length > 0) {
     parts.push('ACTIVE BOOKINGS FOR THIS CUSTOMER:')
     for (const job of ctx.activeJobs) {
-      const datePart = job.date || job.scheduled_at || 'TBD'
+      const rawDate = job.date || job.scheduled_at || ''
+      const datePart = rawDate ? formatDateForContext(rawDate, tenant.timezone || 'America/Chicago') : 'TBD'
       const cleanerPart = job.cleaner_name ? ` | Cleaner: ${job.cleaner_name}` : ''
       const pricePart = job.price ? ` | Price: $${job.price}` : ''
-      parts.push(`  - ${job.service_type || 'Cleaning'} on ${datePart} (${job.status})${pricePart}${cleanerPart}`)
+      parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${datePart} (${job.status})${pricePart}${cleanerPart}`)
     }
     parts.push('')
     parts.push('IMPORTANT: This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
@@ -199,7 +223,9 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     if (ctx.recentJobs.length > 0) {
       parts.push('Recent jobs:')
       for (const job of ctx.recentJobs) {
-        parts.push(`  - ${job.service_type || 'Cleaning'} on ${job.date || job.completed_at || 'unknown'} ($${job.price || 0})`)
+        const rawDate = job.date || job.completed_at || ''
+        const jobDate = rawDate ? formatDateForContext(rawDate, tenant.timezone || 'America/Chicago') : 'unknown'
+        parts.push(`  - ${(job.service_type || 'Cleaning').replace(/_/g, ' ')} on ${jobDate} ($${job.price || 0})`)
       }
     }
     if (ctx.activeJobs.length === 0) {
@@ -210,10 +236,9 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     parts.push('')
   }
 
-  // Customer profile
+  // Customer profile — only provide first name to avoid LLM using last name in messages
   if (ctx.customer) {
-    const name = [ctx.customer.first_name, ctx.customer.last_name].filter(Boolean).join(' ')
-    if (name) parts.push(`Customer name: ${name}`)
+    if (ctx.customer.first_name) parts.push(`Customer first name: ${ctx.customer.first_name}`)
     if (ctx.customer.email) parts.push(`Email on file: ${ctx.customer.email}`)
     if (ctx.customer.address) parts.push(`Address on file: ${ctx.customer.address}`)
     if (ctx.customer.notes) parts.push(`Notes: ${ctx.customer.notes}`)
