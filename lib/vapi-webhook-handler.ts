@@ -12,6 +12,30 @@ import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 
+/** Format raw appointment date/time into human-readable text for SMS */
+function formatDateTimeForSMS(date: string | null, time: string | null): string {
+  if (!date && !time) return "your requested time"
+  let datePart = date || ""
+  let timePart = time || ""
+  // Convert "2026-03-05" → "March 5, 2026"
+  const isoMatch = datePart.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  if (isoMatch) {
+    const d = new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]))
+    datePart = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+  }
+  // Convert "08:00" or "14:00" → "8:00 AM" / "2:00 PM"
+  const timeMatch = timePart.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/)
+  if (timeMatch) {
+    let h = Number(timeMatch[1])
+    const m = timeMatch[2]
+    const period = h >= 12 ? 'PM' : 'AM'
+    if (h === 0) h = 12
+    else if (h > 12) h -= 12
+    timePart = `${h}:${m} ${period}`
+  }
+  return [datePart, timePart].filter(Boolean).join(" at ")
+}
+
 /** Safely extract a string from VAPI structured data — handles objects, arrays, nulls */
 function safeString(val: unknown): string | null {
   if (val == null) return null
@@ -493,7 +517,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               console.log(`${tag} Lead ${lead.id} status set to "booked"`)
 
               // Send booking confirmation text
-              const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
+              const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
               const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
                 firstName || "there",
                 serviceType,
@@ -681,7 +705,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             }
 
             // Send booking confirmation text
-            const dateTimeStr = [appointmentDate, appointmentTime].filter(Boolean).join(" at ") || "your requested time"
+            const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
             const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
               firstName || "there",
               serviceType,
