@@ -395,9 +395,10 @@ export default function JobsPage() {
     setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
   }, [createForm.selected_addons])
 
-  // Fetch add-ons when create modal opens
+  // Fetch add-ons when create modal or add-charge form opens
   useEffect(() => {
-    if (!createOpen || !isHouseCleaning) return
+    if ((!createOpen && !addChargeOpen) || !isHouseCleaning) return
+    if (addonsList.length > 0) return // already fetched
     fetch("/api/pricing/addons")
       .then((r) => r.json())
       .then((res) => {
@@ -406,7 +407,7 @@ export default function JobsPage() {
         }
       })
       .catch(() => {})
-  }, [createOpen])
+  }, [createOpen, addChargeOpen])
 
   // Auto-populate from phone number (debounced)
   useEffect(() => {
@@ -1462,34 +1463,51 @@ export default function JobsPage() {
             ) : addChargeOpen ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%" }}>
                 <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>Add Charge</span>
-                <select
-                  value={addChargeType}
-                  onChange={(e) => { setAddChargeType(e.target.value); setAddChargeAmount(""); setAddChargeDesc("") }}
-                  style={{ padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
-                >
-                  <option value="">Select add-on...</option>
-                  {addonsList.filter(a => a.flat_price && a.flat_price > 0).map(a => (
-                    <option key={a.addon_key} value={a.addon_key}>{a.label} (${a.flat_price})</option>
-                  ))}
-                  <option value="custom">Custom charge...</option>
-                </select>
-                {addChargeType === "custom" && (
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                {/* Preset add-ons from pricing table */}
+                {addonsList.filter(a => a.flat_price && a.flat_price > 0).length > 0 && (
+                  <select
+                    value={addChargeType === "custom" ? "" : addChargeType}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v) {
+                        setAddChargeType(v)
+                        setAddChargeAmount("")
+                        setAddChargeDesc("")
+                      }
+                    }}
+                    style={{ padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                  >
+                    <option value="">Quick add-on...</option>
+                    {addonsList.filter(a => a.flat_price && a.flat_price > 0).map(a => (
+                      <option key={a.addon_key} value={a.addon_key}>{a.label} (${a.flat_price})</option>
+                    ))}
+                  </select>
+                )}
+                {/* Divider */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.75rem", color: "#71717a" }}>
+                  <div style={{ flex: 1, height: 1, background: "#3f3f46" }} />
+                  or custom amount
+                  <div style={{ flex: 1, height: 1, background: "#3f3f46" }} />
+                </div>
+                {/* Custom amount — always visible */}
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <div style={{ position: "relative", width: 100 }}>
+                    <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", color: "#71717a", fontSize: "0.85rem", pointerEvents: "none" }}>$</span>
                     <input
                       type="number"
-                      placeholder="Amount"
+                      placeholder="0.00"
                       value={addChargeAmount}
-                      onChange={(e) => setAddChargeAmount(e.target.value)}
-                      style={{ width: 80, padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
-                    />
-                    <input
-                      placeholder="Description"
-                      value={addChargeDesc}
-                      onChange={(e) => setAddChargeDesc(e.target.value)}
-                      style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                      onChange={(e) => { setAddChargeAmount(e.target.value); if (e.target.value) setAddChargeType("custom") }}
+                      style={{ width: "100%", padding: "0.35rem 0.5rem 0.35rem 1.2rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
                     />
                   </div>
-                )}
+                  <input
+                    placeholder="Description (e.g. Extra deep clean)"
+                    value={addChargeDesc}
+                    onChange={(e) => { setAddChargeDesc(e.target.value); if (!addChargeType) setAddChargeType("custom") }}
+                    style={{ flex: 1, padding: "0.35rem 0.5rem", borderRadius: 6, border: "1px solid #3f3f46", background: "#18181b", color: "#e4e4e7", fontSize: "0.85rem" }}
+                  />
+                </div>
                 <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
                   <button className="cal-modal-btn" onClick={() => setAddChargeOpen(false)} disabled={addChargeSaving}>Cancel</button>
                   <button
