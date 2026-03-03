@@ -1102,17 +1102,14 @@ export default function JobsPage() {
               eventDidMount={(info) => {
                 const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title")
                 if (titleEl) {
-                  // Commercial/Residential badge
-                  const typeBadge = document.createElement("span")
-                  if (info.event.extendedProps.isCommercial) {
-                    typeBadge.textContent = " \uD83C\uDFE2"
-                    typeBadge.title = "Commercial"
-                  } else {
-                    typeBadge.textContent = " \uD83C\uDFE0"
-                    typeBadge.title = "Residential"
+                  if (isHouseCleaning) {
+                    // Commercial/Residential badge — house cleaning tenants only
+                    const typeBadge = document.createElement("span")
+                    typeBadge.textContent = info.event.extendedProps.isCommercial ? " \uD83C\uDFE2" : " \uD83C\uDFE0"
+                    typeBadge.title = info.event.extendedProps.isCommercial ? "Commercial" : "Residential"
+                    typeBadge.style.cssText = "font-size:0.75em;"
+                    titleEl.appendChild(typeBadge)
                   }
-                  typeBadge.style.cssText = "font-size:0.75em;"
-                  titleEl.appendChild(typeBadge)
 
                   // Recurring badge
                   const freq = info.event.extendedProps.frequency || "one-time"
