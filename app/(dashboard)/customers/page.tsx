@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -374,6 +374,7 @@ export default function CustomersPage() {
   const [syncResult, setSyncResult] = useState<{ updated: number; created: number; total_contacts: number } | null>(null)
   const [syncingMessages, setSyncingMessages] = useState(false)
   const [msgSyncResult, setMsgSyncResult] = useState<{ messages_imported: number; calls_imported: number; partial: boolean } | null>(null)
+  const [actionsOpen, setActionsOpen] = useState(false)
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchText, setBatchText] = useState("")
   const [batchParsing, setBatchParsing] = useState(false)
@@ -1091,6 +1092,15 @@ export default function CustomersPage() {
     const name = getCustomerName(customer).toLowerCase()
     const q = searchQuery.toLowerCase()
     return name.includes(q) || customer.phone_number.includes(searchQuery)
+  }).sort((a, b) => {
+    // Sort by last message timestamp (most recent first)
+    const aMessages = messages.filter(m => normalizePhone(m.phone_number) === normalizePhone(a.phone_number))
+    const bMessages = messages.filter(m => normalizePhone(m.phone_number) === normalizePhone(b.phone_number))
+    const aLast = aMessages.length > 0 ? Math.max(...aMessages.map(m => new Date(m.timestamp).getTime())) : 0
+    const bLast = bMessages.length > 0 ? Math.max(...bMessages.map(m => new Date(m.timestamp).getTime())) : 0
+    if (aLast !== bLast) return bLast - aLast // Most recent first
+    // Fall back to updated_at
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
   })
 
   if (loading) {
@@ -1132,93 +1142,102 @@ export default function CustomersPage() {
                     className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/50 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
                   />
                 </div>
-                <button
-                  onClick={() => { setNewCustomerOpen(true); setNewCustomerError("") }}
-                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-sm font-medium hover:bg-purple-600/30 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                  New Customer
-                </button>
-                <button
-                  onClick={() => { setBatchOpen(true); setBatchText(""); setBatchParsed(null); setBatchResult(null) }}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 rounded-lg transition-colors"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  Batch Add
-                </button>
-                <button
-                  onClick={async () => {
-                    setSyncingContacts(true)
-                    setSyncResult(null)
-                    try {
-                      const res = await fetch("/api/actions/sync-openphone-contacts", { method: "POST" })
-                      const json = await res.json()
-                      if (json.success) {
-                        setSyncResult({ updated: json.updated, created: json.created, total_contacts: json.total_contacts })
-                        // Refresh customers list
-                        const refresh = await fetch("/api/customers")
-                        const refreshJson = await refresh.json()
-                        if (refreshJson.success) {
-                          setCustomers(refreshJson.data.customers)
-                          setMessages(refreshJson.data.messages)
-                          setJobs(refreshJson.data.jobs)
-                          setCalls(refreshJson.data.calls)
-                          setLeads(refreshJson.data.leads || [])
-                          setCleanerPhones(refreshJson.data.cleanerPhones || [])
-                        }
-                      } else {
-                        alert(json.error || "Failed to sync contacts")
-                      }
-                    } catch { alert("Failed to sync contacts") }
-                    finally { setSyncingContacts(false) }
-                  }}
-                  disabled={syncingContacts}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {syncingContacts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  {syncingContacts ? "Syncing..." : "Sync from OpenPhone"}
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setActionsOpen(!actionsOpen)}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-300 bg-zinc-700/50 hover:bg-zinc-700 border border-zinc-600/50 rounded-lg transition-colors"
+                  >
+                    {(syncingContacts || syncingMessages) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                    Actions
+                  </button>
+                  {actionsOpen && (
+                    <div className="absolute z-50 mt-1 w-full bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl overflow-hidden">
+                      <button
+                        onClick={() => { setActionsOpen(false); setNewCustomerOpen(true); setNewCustomerError("") }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                        New Customer
+                      </button>
+                      <button
+                        onClick={() => { setActionsOpen(false); setBatchOpen(true); setBatchText(""); setBatchParsed(null); setBatchResult(null) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Batch Add
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false)
+                          setSyncingContacts(true)
+                          setSyncResult(null)
+                          try {
+                            const res = await fetch("/api/actions/sync-openphone-contacts", { method: "POST" })
+                            const json = await res.json()
+                            if (json.success) {
+                              setSyncResult({ updated: json.updated, created: json.created, total_contacts: json.total_contacts })
+                              const refresh = await fetch("/api/customers")
+                              const refreshJson = await refresh.json()
+                              if (refreshJson.success) {
+                                setCustomers(refreshJson.data.customers)
+                                setMessages(refreshJson.data.messages)
+                                setJobs(refreshJson.data.jobs)
+                                setCalls(refreshJson.data.calls)
+                                setLeads(refreshJson.data.leads || [])
+                                setCleanerPhones(refreshJson.data.cleanerPhones || [])
+                              }
+                            } else { alert(json.error || "Failed to sync contacts") }
+                          } catch { alert("Failed to sync contacts") }
+                          finally { setSyncingContacts(false) }
+                        }}
+                        disabled={syncingContacts}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {syncingContacts ? "Syncing..." : "Sync OpenPhone Contacts"}
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false)
+                          setSyncingMessages(true)
+                          setMsgSyncResult(null)
+                          try {
+                            const res = await fetch("/api/actions/sync-openphone-messages", { method: "POST" })
+                            const json = await res.json()
+                            if (json.success) {
+                              setMsgSyncResult({ messages_imported: json.messages_imported, calls_imported: json.calls_imported, partial: json.partial })
+                              const refresh = await fetch("/api/customers")
+                              const refreshJson = await refresh.json()
+                              if (refreshJson.success) {
+                                setCustomers(refreshJson.data.customers)
+                                setMessages(refreshJson.data.messages)
+                                setJobs(refreshJson.data.jobs)
+                                setCalls(refreshJson.data.calls)
+                                setLeads(refreshJson.data.leads || [])
+                                setCleanerPhones(refreshJson.data.cleanerPhones || [])
+                              }
+                            } else { alert(json.error || "Failed to sync messages") }
+                          } catch { alert("Failed to sync message history") }
+                          finally { setSyncingMessages(false) }
+                        }}
+                        disabled={syncingMessages}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        {syncingMessages ? "Pulling history..." : "Import Message History"}
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {syncResult && (
                   <p className="text-xs text-center text-emerald-400">
-                    {syncResult.updated} names updated, {syncResult.created} new contacts from {syncResult.total_contacts} OpenPhone contacts
+                    {syncResult.updated} updated, {syncResult.created} new from {syncResult.total_contacts} contacts
                   </p>
                 )}
-                <button
-                  onClick={async () => {
-                    setSyncingMessages(true)
-                    setMsgSyncResult(null)
-                    try {
-                      const res = await fetch("/api/actions/sync-openphone-messages", { method: "POST" })
-                      const json = await res.json()
-                      if (json.success) {
-                        setMsgSyncResult({ messages_imported: json.messages_imported, calls_imported: json.calls_imported, partial: json.partial })
-                        // Refresh data
-                        const refresh = await fetch("/api/customers")
-                        const refreshJson = await refresh.json()
-                        if (refreshJson.success) {
-                          setCustomers(refreshJson.data.customers)
-                          setMessages(refreshJson.data.messages)
-                          setJobs(refreshJson.data.jobs)
-                          setCalls(refreshJson.data.calls)
-                          setLeads(refreshJson.data.leads || [])
-                          setCleanerPhones(refreshJson.data.cleanerPhones || [])
-                        }
-                      } else {
-                        alert(json.error || "Failed to sync messages")
-                      }
-                    } catch { alert("Failed to sync message history") }
-                    finally { setSyncingMessages(false) }
-                  }}
-                  disabled={syncingMessages}
-                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {syncingMessages ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                  {syncingMessages ? "Pulling history..." : "Import Message History"}
-                </button>
                 {msgSyncResult && (
                   <p className="text-xs text-center text-amber-400">
-                    {msgSyncResult.messages_imported} messages + {msgSyncResult.calls_imported} calls imported
-                    {msgSyncResult.partial && " (partial — click again to continue)"}
+                    {msgSyncResult.messages_imported} msgs + {msgSyncResult.calls_imported} calls
+                    {msgSyncResult.partial && " (run again)"}
                   </p>
                 )}
               </div>
