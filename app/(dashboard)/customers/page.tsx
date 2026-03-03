@@ -1106,11 +1106,11 @@ export default function CustomersPage() {
                               <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
                               {customer.is_commercial ? (
                                 <span title="Commercial" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20 whitespace-nowrap">
-                                  🏢 Comm
+                                  🏢
                                 </span>
                               ) : (
                                 <span title="Residential" className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 whitespace-nowrap">
-                                  🏠 Res
+                                  🏠
                                 </span>
                               )}
                               {getCustomerJobs(customer.phone_number).some((j: any) => j.frequency && j.frequency !== "one-time") && (
