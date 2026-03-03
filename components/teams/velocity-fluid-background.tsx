@@ -627,7 +627,7 @@ export function VelocityFluidBackground({ className }: VelocityFluidBackgroundPr
         inset: 0,
         width: "100%",
         height: "100%",
-        pointerEvents: "all",
+        pointerEvents: "none",
       }}
     />
   )

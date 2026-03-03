@@ -626,9 +626,6 @@ export default function TeamsPage() {
                       return (
                         <div
                           key={m.id}
-                          draggable
-                          onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
-                          onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
                           className={cn(
                             "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
                             isSelected
@@ -638,7 +635,12 @@ export default function TeamsPage() {
                           )}
                           onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
                         >
-                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div
+                            className="flex items-center gap-2 min-w-0 flex-1"
+                            draggable
+                            onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
+                            onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
+                          >
                             <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
                             <span className={cn(
                               "text-sm font-medium truncate",
@@ -661,8 +663,6 @@ export default function TeamsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
-                              draggable={false}
-                              onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setEditingMember({
@@ -682,8 +682,6 @@ export default function TeamsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-destructive hover:text-destructive"
-                              draggable={false}
-                              onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDeleteCleaner(m.id, m.name)
@@ -736,9 +734,6 @@ export default function TeamsPage() {
                     return (
                       <div
                         key={m.id}
-                        draggable
-                        onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
-                        onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
                         className={cn(
                           "flex items-center justify-between rounded-md px-2.5 py-1.5 transition-colors cursor-pointer",
                           isSelected
@@ -748,7 +743,12 @@ export default function TeamsPage() {
                         )}
                         onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
                       >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div
+                          className="flex items-center gap-2 min-w-0 flex-1"
+                          draggable
+                          onDragStart={(e) => { e.dataTransfer.setData("text/plain", m.id); e.dataTransfer.effectAllowed = "move"; setDraggingMemberId(m.id) }}
+                          onDragEnd={() => { setDraggingMemberId(null); setDragOverTeamId(null) }}
+                        >
                           <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
                           <span className={cn(
                             "text-sm font-medium truncate",
@@ -765,8 +765,6 @@ export default function TeamsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            draggable={false}
-                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation()
                               setEditingMember({
@@ -786,8 +784,6 @@ export default function TeamsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-destructive hover:text-destructive"
-                            draggable={false}
-                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation()
                               handleDeleteCleaner(m.id, m.name)

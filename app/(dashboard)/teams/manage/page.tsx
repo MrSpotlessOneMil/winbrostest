@@ -316,12 +316,14 @@ export default function ManageTeamsPage() {
             {unassigned.map((c) => (
               <div
                 key={c.id}
-                draggable
-                onDragStart={(e) => onDragStart(e, c.id)}
-                onDragEnd={onDragEnd}
-                className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 cursor-grab active:cursor-grabbing ${draggingId === c.id ? "opacity-50" : ""}`}
+                className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 ${draggingId === c.id ? "opacity-50" : ""}`}
               >
-                <div className="min-w-0 flex-1">
+                <div
+                  className="min-w-0 flex-1 cursor-grab active:cursor-grabbing"
+                  draggable
+                  onDragStart={(e) => onDragStart(e, c.id)}
+                  onDragEnd={onDragEnd}
+                >
                   <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                     {c.name}
                     {c.is_team_lead && <Star className="h-3 w-3 text-yellow-500" />}
@@ -333,10 +335,10 @@ export default function ManageTeamsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => setEditingCleaner(c)} title="Edit cleaner">
+                  <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </Button>
-                  <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                  <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
                     <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
@@ -372,12 +374,14 @@ export default function ManageTeamsPage() {
                 {list.map((c) => (
                   <div
                     key={c.id}
-                    draggable
-                    onDragStart={(e) => onDragStart(e, c.id)}
-                    onDragEnd={onDragEnd}
-                    className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 cursor-grab active:cursor-grabbing ${draggingId === c.id ? "opacity-50" : ""}`}
+                    className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 ${draggingId === c.id ? "opacity-50" : ""}`}
                   >
-                    <div className="min-w-0 flex-1">
+                    <div
+                      className="min-w-0 flex-1 cursor-grab active:cursor-grabbing"
+                      draggable
+                      onDragStart={(e) => onDragStart(e, c.id)}
+                      onDragEnd={onDragEnd}
+                    >
                       <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                         {c.name}
                         {c.is_team_lead && <Star className="h-3 w-3 text-yellow-500" />}
@@ -389,10 +393,10 @@ export default function ManageTeamsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => setEditingCleaner(c)} title="Edit cleaner">
+                      <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                       </Button>
-                      <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                      <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                     </div>
