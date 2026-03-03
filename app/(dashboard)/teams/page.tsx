@@ -809,7 +809,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}
-        <div className="relative w-full md:w-[420px] shrink-0 rounded-xl overflow-hidden bg-black border border-purple-500/20 min-h-[300px] md:min-h-0" data-no-splat>
+        <div className="relative w-full md:w-[420px] shrink-0 rounded-2xl overflow-hidden bg-black border border-purple-500/20 min-h-[300px] md:min-h-0" data-no-splat>
           <VelocityFluidBackground className="z-0" />
 
           <div className="relative z-10 flex flex-col h-full">
