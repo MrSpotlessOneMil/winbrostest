@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -372,6 +372,8 @@ export default function CustomersPage() {
   // Batch add state
   const [syncingContacts, setSyncingContacts] = useState(false)
   const [syncResult, setSyncResult] = useState<{ updated: number; created: number; total_contacts: number } | null>(null)
+  const [syncingMessages, setSyncingMessages] = useState(false)
+  const [msgSyncResult, setMsgSyncResult] = useState<{ messages_imported: number; calls_imported: number; partial: boolean } | null>(null)
   const [batchOpen, setBatchOpen] = useState(false)
   const [batchText, setBatchText] = useState("")
   const [batchParsing, setBatchParsing] = useState(false)
@@ -1179,6 +1181,44 @@ export default function CustomersPage() {
                 {syncResult && (
                   <p className="text-xs text-center text-emerald-400">
                     {syncResult.updated} names updated, {syncResult.created} new contacts from {syncResult.total_contacts} OpenPhone contacts
+                  </p>
+                )}
+                <button
+                  onClick={async () => {
+                    setSyncingMessages(true)
+                    setMsgSyncResult(null)
+                    try {
+                      const res = await fetch("/api/actions/sync-openphone-messages", { method: "POST" })
+                      const json = await res.json()
+                      if (json.success) {
+                        setMsgSyncResult({ messages_imported: json.messages_imported, calls_imported: json.calls_imported, partial: json.partial })
+                        // Refresh data
+                        const refresh = await fetch("/api/customers")
+                        const refreshJson = await refresh.json()
+                        if (refreshJson.success) {
+                          setCustomers(refreshJson.data.customers)
+                          setMessages(refreshJson.data.messages)
+                          setJobs(refreshJson.data.jobs)
+                          setCalls(refreshJson.data.calls)
+                          setLeads(refreshJson.data.leads || [])
+                          setCleanerPhones(refreshJson.data.cleanerPhones || [])
+                        }
+                      } else {
+                        alert(json.error || "Failed to sync messages")
+                      }
+                    } catch { alert("Failed to sync message history") }
+                    finally { setSyncingMessages(false) }
+                  }}
+                  disabled={syncingMessages}
+                  className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {syncingMessages ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  {syncingMessages ? "Pulling history..." : "Import Message History"}
+                </button>
+                {msgSyncResult && (
+                  <p className="text-xs text-center text-amber-400">
+                    {msgSyncResult.messages_imported} messages + {msgSyncResult.calls_imported} calls imported
+                    {msgSyncResult.partial && " (partial — click again to continue)"}
                   </p>
                 )}
               </div>
