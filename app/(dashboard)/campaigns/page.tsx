@@ -8,7 +8,8 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
-  Megaphone,
+  Target,
+  Upload,
   Plus,
   Calendar,
   Clock,
@@ -17,6 +18,8 @@ import {
   X,
   Loader2,
   RefreshCcw,
+  Megaphone,
+  CheckCircle,
 } from "lucide-react"
 
 interface SeasonalCampaign {
@@ -47,11 +50,33 @@ const SEGMENT_LABELS: Record<SeasonalCampaign["target_segment"], string> = {
   completed_customers: "Past Completed",
 }
 
+interface ParsedLead {
+  first_name: string
+  last_name: string
+  phone_number: string
+  email: string | null
+}
+
+const SOURCE_OPTIONS = [
+  { value: "meta", label: "Meta (Facebook/Instagram)" },
+  { value: "thumbtack", label: "Thumbtack" },
+  { value: "google", label: "Google" },
+  { value: "manual", label: "Other" },
+]
+
 export default function CampaignsPage() {
   const [settings, setSettings] = useState<CampaignSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Lead import state
+  const [importSource, setImportSource] = useState("meta")
+  const [importText, setImportText] = useState("")
+  const [importParsing, setImportParsing] = useState(false)
+  const [importParsed, setImportParsed] = useState<ParsedLead[] | null>(null)
+  const [importCreating, setImportCreating] = useState(false)
+  const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -185,10 +210,10 @@ export default function CampaignsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
-            <Megaphone className="h-7 w-7 text-primary" />
-            Campaigns
+            <Target className="h-7 w-7 text-primary" />
+            Retargeting
           </h1>
-          <p className="text-sm text-muted-foreground">Manage seasonal offers and automated follow-ups</p>
+          <p className="text-sm text-muted-foreground">Import leads &amp; manage automated re-engagement</p>
         </div>
         <Button variant="ghost" size="icon" onClick={fetchSettings} disabled={loading}>
           <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -200,6 +225,173 @@ export default function CampaignsPage() {
           {error}
         </div>
       )}
+
+      {/* Import Leads */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Import Leads
+          </CardTitle>
+          <CardDescription>Paste leads from Meta, Thumbtack, Google, etc. They&apos;ll be auto-enrolled in the 5-stage followup sequence.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!importParsed && !importResult && (
+            <>
+              <div className="space-y-2">
+                <Label>Source</Label>
+                <select
+                  value={importSource}
+                  onChange={(e) => setImportSource(e.target.value)}
+                  aria-label="Lead source"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  {SOURCE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label>Lead Data</Label>
+                <textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  rows={6}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 resize-none"
+                  placeholder={"John Smith 555-123-4567 john@email.com\nJane Doe (555) 987-6543 jane@email.com"}
+                />
+                <p className="text-xs text-muted-foreground">Paste in any format — names, phones, emails. AI will parse it.</p>
+              </div>
+              <Button
+                onClick={async () => {
+                  setImportParsing(true)
+                  try {
+                    const res = await fetch("/api/actions/batch-parse-customers", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ text: importText }),
+                    })
+                    const json = await res.json()
+                    if (json.success && json.customers?.length > 0) {
+                      setImportParsed(json.customers)
+                    } else {
+                      setError(json.error || "No leads could be parsed from the text")
+                    }
+                  } catch {
+                    setError("Failed to parse leads")
+                  } finally {
+                    setImportParsing(false)
+                  }
+                }}
+                disabled={importParsing || !importText.trim()}
+              >
+                {importParsing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {importParsing ? "Parsing..." : "Parse Leads"}
+              </Button>
+            </>
+          )}
+
+          {importParsed && !importResult && (
+            <>
+              <p className="text-sm text-muted-foreground">{importParsed.length} lead{importParsed.length !== 1 ? "s" : ""} found. Review and edit before importing:</p>
+              <div className="space-y-2 max-h-[40vh] overflow-y-auto">
+                {importParsed.map((l, i) => (
+                  <div key={i} className="grid grid-cols-4 gap-2 text-xs">
+                    <input
+                      value={l.first_name}
+                      onChange={(e) => { const u = [...importParsed]; u[i] = { ...u[i], first_name: e.target.value }; setImportParsed(u) }}
+                      className="px-2 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="First"
+                    />
+                    <input
+                      value={l.last_name}
+                      onChange={(e) => { const u = [...importParsed]; u[i] = { ...u[i], last_name: e.target.value }; setImportParsed(u) }}
+                      className="px-2 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="Last"
+                    />
+                    <input
+                      value={l.phone_number}
+                      onChange={(e) => { const u = [...importParsed]; u[i] = { ...u[i], phone_number: e.target.value }; setImportParsed(u) }}
+                      className="px-2 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                      placeholder="Phone"
+                    />
+                    <div className="flex gap-1">
+                      <input
+                        value={l.email || ""}
+                        onChange={(e) => { const u = [...importParsed]; u[i] = { ...u[i], email: e.target.value || null }; setImportParsed(u) }}
+                        className="flex-1 px-2 py-1.5 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                        placeholder="Email"
+                      />
+                      <button
+                        onClick={() => setImportParsed(importParsed.filter((_, j) => j !== i))}
+                        className="px-1.5 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setImportParsed(null)}>Back</Button>
+                <Button
+                  onClick={async () => {
+                    setImportCreating(true)
+                    try {
+                      const res = await fetch("/api/actions/batch-create-leads", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          leads: importParsed.map((l) => ({ ...l, source: importSource })),
+                        }),
+                      })
+                      const json = await res.json()
+                      if (json.success) {
+                        setImportResult({ created: json.created, skipped: json.skipped, errors: json.errors || [] })
+                      } else {
+                        setError(json.error || "Failed to import leads")
+                      }
+                    } catch {
+                      setError("Failed to import leads")
+                    } finally {
+                      setImportCreating(false)
+                    }
+                  }}
+                  disabled={importCreating || importParsed.length === 0}
+                >
+                  {importCreating ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                  {importCreating ? "Importing..." : `Import & Start Followup (${importParsed.length})`}
+                </Button>
+              </div>
+            </>
+          )}
+
+          {importResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-green-400">
+                <CheckCircle className="h-4 w-4" />
+                {importResult.created} lead{importResult.created !== 1 ? "s" : ""} imported, followup sequences started.
+                {importResult.skipped > 0 && <span className="text-muted-foreground">({importResult.skipped} skipped — already exist)</span>}
+              </div>
+              {importResult.errors.length > 0 && (
+                <div className="text-xs text-red-400 space-y-1">
+                  {importResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                </div>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setImportResult(null)
+                  setImportParsed(null)
+                  setImportText("")
+                }}
+              >
+                Import More
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Settings Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

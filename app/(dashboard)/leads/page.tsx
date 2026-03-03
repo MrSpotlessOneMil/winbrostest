@@ -39,6 +39,8 @@ import {
   ArrowDownRight,
   TrendingUp,
   X,
+  ThumbsUp,
+  MapPin,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -65,7 +67,7 @@ type UiLead = {
   id: string
   name: string
   phone: string
-  source: "phone" | "meta" | "website" | "sms"
+  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google"
   status: "new" | "contacted" | "qualified" | "booked" | "nurturing" | "lost"
   service: string
   estimatedValue: number
@@ -73,7 +75,8 @@ type UiLead = {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" ? l.source : "phone") as UiLead["source"]
+  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google"]
+  const source = (knownSources.includes(l.source as any) ? l.source : "phone") as UiLead["source"]
   const status =
     (l.status === "new" ||
     l.status === "contacted" ||
@@ -101,6 +104,8 @@ const sourceIcons = {
   meta: Instagram,
   website: Globe,
   sms: MessageSquare,
+  thumbtack: ThumbsUp,
+  google: MapPin,
 }
 
 const statusConfig = {
