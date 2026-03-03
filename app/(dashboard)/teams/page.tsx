@@ -661,6 +661,8 @@ export default function TeamsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7"
+                              draggable={false}
+                              onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 setEditingMember({
@@ -680,6 +682,8 @@ export default function TeamsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-7 w-7 text-destructive hover:text-destructive"
+                              draggable={false}
+                              onMouseDown={(e) => e.stopPropagation()}
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDeleteCleaner(m.id, m.name)
@@ -761,6 +765,8 @@ export default function TeamsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
+                            draggable={false}
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation()
                               setEditingMember({
@@ -780,6 +786,8 @@ export default function TeamsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7 text-destructive hover:text-destructive"
+                            draggable={false}
+                            onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => {
                               e.stopPropagation()
                               handleDeleteCleaner(m.id, m.name)

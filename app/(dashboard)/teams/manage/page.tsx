@@ -333,10 +333,10 @@ export default function ManageTeamsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
+                  <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                  <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
                     <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
@@ -389,10 +389,10 @@ export default function ManageTeamsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
+                      <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                      <Button variant="ghost" size="icon" draggable={false} onMouseDown={(e) => e.stopPropagation()} onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                     </div>
