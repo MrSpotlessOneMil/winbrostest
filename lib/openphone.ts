@@ -110,10 +110,11 @@ export const SMS_TEMPLATES = {
     // Avoid "Cleaning cleaning" — if serviceType already contains "cleaning", don't append it
     const humanType = serviceType.replace(/_/g, ' ')
     const serviceLabel = /cleaning/i.test(humanType) ? humanType : `${humanType} cleaning`
+    const displayLabel = isEstimate ? `free ${serviceLabel} estimate` : serviceLabel
     const nextStep = isEstimate
       ? `send your best email and I'll get you confirmed`
       : `send your best email and I will send over a confirmed price`
-    return `Hi ${name}! Just confirming: ${serviceLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, ${nextStep}.`
+    return `Hi ${name}! Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, ${nextStep}.`
   },
   paymentConfirmation: (serviceType: string, date: string): string => {
     const humanType = serviceType.replace(/_/g, ' ')
