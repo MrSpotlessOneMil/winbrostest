@@ -32,12 +32,16 @@ type JobBlock = {
 export type VapiAlternative = {
   datetime: string
   day_of_week: string
+  date_display?: string
+  time_display?: string
 }
 
 export type VapiAvailabilityResponse = {
   is_available: boolean
   confirmed_datetime: string | null
   confirmed_day_of_week: string | null
+  confirmed_date_display?: string | null
+  confirmed_time_display?: string | null
   alternatives: VapiAlternative[]
   duration_hours: number | null
   error?: string
@@ -431,9 +435,26 @@ function getDayOfWeekFromDate(date: Date): string {
   return new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: TIMEZONE }).format(date)
 }
 
+function formatDateDisplay(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: TIMEZONE,
+  }).format(date)
+}
+
+function formatTimeDisplay(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: TIMEZONE,
+  }).format(date)
+}
+
 /** Build a VapiAlternative from a Date. */
 function toAlternative(date: Date): VapiAlternative {
-  return { datetime: toIsoWithTimezone(date), day_of_week: getDayOfWeekFromDate(date) }
+  return {
+    datetime: toIsoWithTimezone(date),
+    day_of_week: getDayOfWeekFromDate(date),
+    date_display: formatDateDisplay(date),
+    time_display: formatTimeDisplay(date),
+  }
 }
 
 function getLocalTimeComponents(
@@ -1180,6 +1201,8 @@ export async function getVapiAvailabilityResponse(
       is_available: true,
       confirmed_datetime: toIsoWithTimezone(adjustedStart),
       confirmed_day_of_week: getDayOfWeekFromDate(adjustedStart),
+      confirmed_date_display: formatDateDisplay(adjustedStart),
+      confirmed_time_display: formatTimeDisplay(adjustedStart),
       alternatives: [],
       duration_hours: durationHours,
     }
