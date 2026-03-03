@@ -286,9 +286,11 @@ export async function PATCH(request: NextRequest) {
     if (error) throw error
 
     // Send SMS notification if date or time changed
+    // Skip for recurring child jobs (bulk setup) — only notify for the parent/standalone
     // For admin, look up the job's tenant for business name
     const jobTenant = tenant || (oldJob?.tenant_id ? await getTenantById(oldJob.tenant_id) : null)
-    if (oldJob && jobTenant && (date !== undefined || scheduled_at !== undefined)) {
+    const isRecurringChild = !!(oldJob?.parent_job_id)
+    if (oldJob && jobTenant && !isRecurringChild && (date !== undefined || scheduled_at !== undefined)) {
       const oldDate = oldJob.date
       const oldTime = oldJob.scheduled_at
       const timeChanged = (date !== undefined && date !== oldDate) || (scheduled_at !== undefined && scheduled_at !== oldTime)

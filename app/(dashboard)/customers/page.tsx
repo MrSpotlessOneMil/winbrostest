@@ -1015,8 +1015,10 @@ export default function CustomersPage() {
     }
   }
 
+  const [paymentSmsSending, setPaymentSmsSending] = useState(false)
   const handlePaymentSms = async () => {
-    if (!paymentResult?.url || !selectedCustomer) return
+    if (!paymentResult?.url || !selectedCustomer || paymentSmsSending || paymentSmsSent) return
+    setPaymentSmsSending(true)
     setPaymentSmsSent(false)
     try {
       const res = await fetch("/api/actions/send-sms", {
@@ -1035,6 +1037,8 @@ export default function CustomersPage() {
       }
     } catch {
       alert("Failed to send SMS")
+    } finally {
+      setPaymentSmsSending(false)
     }
   }
 
