@@ -20,6 +20,18 @@ import {
   RefreshCcw,
   Megaphone,
   CheckCircle,
+  Users,
+  Play,
+  ChevronDown,
+  ChevronUp,
+  UserX,
+  FileQuestion,
+  UserCheck,
+  Repeat,
+  TimerOff,
+  Ban,
+  Zap,
+  Eye,
 } from "lucide-react"
 
 interface SeasonalCampaign {
@@ -57,6 +69,37 @@ interface ParsedLead {
   email: string | null
 }
 
+interface PipelineStage {
+  total: number
+  in_sequence: number
+  completed_sequence: number
+  converted: number
+}
+
+interface PipelineCustomer {
+  id: number
+  first_name: string
+  last_name: string
+  phone_number: string
+  email: string | null
+  retargeting_sequence: string | null
+  retargeting_step: number | null
+  retargeting_stopped_reason: string | null
+  retargeting_enrolled_at: string | null
+  created_at: string
+}
+
+const PIPELINE_STAGES = [
+  { key: "unresponsive", label: "Unresponsive", description: "Texted/called, no reply", icon: UserX, color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20", sequence: "unresponsive" as const },
+  { key: "quoted_not_booked", label: "Quoted, Not Booked", description: "Got a quote, didn't pay", icon: FileQuestion, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", sequence: "quoted_not_booked" as const },
+  { key: "one_time", label: "One-Time", description: "Booked once, hasn't returned", icon: UserCheck, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20", sequence: "one_time" as const },
+  { key: "lapsed", label: "Lapsed", description: "Was active, gone 60+ days", icon: TimerOff, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", sequence: "lapsed" as const },
+  { key: "new_lead", label: "New Leads", description: "Just arrived, not yet contacted", icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", sequence: null },
+  { key: "repeat", label: "Repeat", description: "Multiple bookings — loyal", icon: Repeat, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", sequence: null },
+  { key: "active", label: "Active", description: "Has upcoming jobs", icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", sequence: null },
+  { key: "lost", label: "Lost", description: "Said no / bad experience", icon: Ban, color: "text-zinc-500", bg: "bg-zinc-500/10", border: "border-zinc-500/20", sequence: null },
+]
+
 const SOURCE_OPTIONS = [
   { value: "meta", label: "Meta (Facebook/Instagram)" },
   { value: "thumbtack", label: "Thumbtack" },
@@ -69,6 +112,15 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Pipeline state
+  const [pipeline, setPipeline] = useState<Record<string, PipelineStage>>({})
+  const [pipelineLoading, setPipelineLoading] = useState(false)
+  const [expandedStage, setExpandedStage] = useState<string | null>(null)
+  const [stageCustomers, setStageCustomers] = useState<PipelineCustomer[]>([])
+  const [stageCustomersLoading, setStageCustomersLoading] = useState(false)
+  const [enrolling, setEnrolling] = useState<string | null>(null)
+  const [enrollResult, setEnrollResult] = useState<{ segment: string; enrolled: number } | null>(null)
 
   // Lead import state
   const [importSource, setImportSource] = useState("meta")
@@ -105,7 +157,51 @@ export default function CampaignsPage() {
     }
   }
 
-  useEffect(() => { fetchSettings() }, [])
+  async function fetchPipeline() {
+    setPipelineLoading(true)
+    try {
+      const res = await fetch("/api/actions/retargeting-pipeline", { cache: "no-store" })
+      const json = await res.json()
+      if (json.success) setPipeline(json.stages || {})
+    } catch { /* ignore */ }
+    finally { setPipelineLoading(false) }
+  }
+
+  async function fetchStageCustomers(stage: string) {
+    setStageCustomersLoading(true)
+    try {
+      const res = await fetch(`/api/actions/retargeting-customers?stage=${stage}`, { cache: "no-store" })
+      const json = await res.json()
+      if (json.success) setStageCustomers(json.customers || [])
+    } catch { setStageCustomers([]) }
+    finally { setStageCustomersLoading(false) }
+  }
+
+  async function enrollSegment(segment: string) {
+    setEnrolling(segment)
+    setEnrollResult(null)
+    try {
+      const res = await fetch("/api/actions/retargeting-pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ segment }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setEnrollResult({ segment, enrolled: json.enrolled })
+        await fetchPipeline()
+        if (expandedStage === segment) await fetchStageCustomers(segment)
+      } else {
+        setError(json.error || "Failed to enroll segment")
+      }
+    } catch {
+      setError("Failed to enroll segment")
+    } finally {
+      setEnrolling(null)
+    }
+  }
+
+  useEffect(() => { fetchSettings(); fetchPipeline() }, [])
 
   async function updateSettings(updates: Partial<CampaignSettings>) {
     setSaving(true)
@@ -390,6 +486,136 @@ export default function CampaignsPage() {
               </Button>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Customer Pipeline */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Customer Pipeline
+              </CardTitle>
+              <CardDescription>Every customer auto-classified by lifecycle stage. Click a segment to see customers and start retargeting sequences.</CardDescription>
+            </div>
+            <Button variant="ghost" size="icon" onClick={fetchPipeline} disabled={pipelineLoading}>
+              <RefreshCcw className={`h-4 w-4 ${pipelineLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {enrollResult && (
+            <div className="p-3 rounded-lg border border-green-500/30 bg-green-500/10 text-sm text-green-400 flex items-center gap-2 mb-3">
+              <CheckCircle className="h-4 w-4" />
+              {enrollResult.enrolled} customer{enrollResult.enrolled !== 1 ? "s" : ""} enrolled in {enrollResult.segment.replace(/_/g, " ")} retargeting sequence.
+            </div>
+          )}
+          {PIPELINE_STAGES.map((stage) => {
+            const data = pipeline[stage.key]
+            const total = data?.total || 0
+            const inSeq = data?.in_sequence || 0
+            const converted = data?.converted || 0
+            const isExpanded = expandedStage === stage.key
+            const Icon = stage.icon
+            const eligible = total - inSeq - converted
+
+            return (
+              <div key={stage.key}>
+                <button
+                  onClick={async () => {
+                    if (isExpanded) {
+                      setExpandedStage(null)
+                      setStageCustomers([])
+                    } else {
+                      setExpandedStage(stage.key)
+                      await fetchStageCustomers(stage.key)
+                    }
+                  }}
+                  className={`w-full p-3 rounded-lg border ${stage.border} ${stage.bg} flex items-center gap-3 hover:opacity-90 transition-opacity text-left`}
+                >
+                  <Icon className={`h-5 w-5 ${stage.color} shrink-0`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{stage.label}</span>
+                      <Badge variant="outline" className="text-xs">{total}</Badge>
+                      {inSeq > 0 && <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">{inSeq} in sequence</Badge>}
+                      {converted > 0 && <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">{converted} converted</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{stage.description}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {stage.sequence && eligible > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={enrolling !== null}
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          await enrollSegment(stage.sequence!)
+                        }}
+                      >
+                        {enrolling === stage.sequence ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+                        Start Sequence ({eligible})
+                      </Button>
+                    )}
+                    {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                </button>
+
+                {/* Expanded customer list */}
+                {isExpanded && (
+                  <div className="ml-8 mt-2 mb-2 space-y-1">
+                    {stageCustomersLoading ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading customers...
+                      </div>
+                    ) : stageCustomers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-3">No customers in this stage</p>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-5 gap-2 text-xs text-muted-foreground font-medium px-2 py-1">
+                          <span>Name</span>
+                          <span>Phone</span>
+                          <span>Email</span>
+                          <span>Retargeting</span>
+                          <span>Status</span>
+                        </div>
+                        {stageCustomers.map((c) => (
+                          <div key={c.id} className="grid grid-cols-5 gap-2 text-xs px-2 py-1.5 rounded hover:bg-white/[0.03]">
+                            <span className="truncate">{c.first_name} {c.last_name}</span>
+                            <span className="text-muted-foreground">{c.phone_number}</span>
+                            <span className="text-muted-foreground truncate">{c.email || "—"}</span>
+                            <span>
+                              {c.retargeting_sequence ? (
+                                <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
+                                  Step {c.retargeting_step}/{c.retargeting_sequence === "unresponsive" ? 3 : c.retargeting_sequence === "quoted_not_booked" ? 4 : 3}
+                                </Badge>
+                              ) : "—"}
+                            </span>
+                            <span>
+                              {c.retargeting_stopped_reason === "converted" ? (
+                                <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">Converted</Badge>
+                              ) : c.retargeting_stopped_reason === "completed" ? (
+                                <Badge variant="outline" className="text-xs">Sequence done</Badge>
+                              ) : c.retargeting_sequence ? (
+                                <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">Active</Badge>
+                              ) : (
+                                <span className="text-muted-foreground">Not enrolled</span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </CardContent>
       </Card>
 

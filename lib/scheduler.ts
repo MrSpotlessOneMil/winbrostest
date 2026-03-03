@@ -22,6 +22,7 @@ export type TaskType =
   | 'job_reminder'
   | 'post_cleaning_followup'
   | 'sms_retry'
+  | 'retargeting'
 
 export interface ScheduledTask {
   id: string
@@ -373,4 +374,128 @@ export async function scheduleDayBeforeReminder(
       type: 'day_before',
     },
   })
+}
+
+// ==================== RETARGETING SEQUENCES ====================
+
+export type RetargetingSequenceType = 'unresponsive' | 'quoted_not_booked' | 'one_time' | 'lapsed'
+
+interface RetargetingStep {
+  step: number
+  delay_days: number
+  template: string // template key — message is built at send time using customer name + tenant context
+}
+
+/**
+ * Sequence definitions based on research:
+ * - unresponsive: 9-word reactivation (3 texts over 7 days)
+ * - quoted_not_booked: Quote follow-up (4 texts over 7 days)
+ * - one_time: Win-back (3 texts over 14 days)
+ * - lapsed: "We miss you" (3 texts over 10 days)
+ */
+export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingStep[]> = {
+  unresponsive: [
+    { step: 1, delay_days: 0, template: '9_word' },
+    { step: 2, delay_days: 3, template: 'value_nudge' },
+    { step: 3, delay_days: 7, template: 'closing_file' },
+  ],
+  quoted_not_booked: [
+    { step: 1, delay_days: 0, template: 'quote_followup' },
+    { step: 2, delay_days: 2, template: 'question_based' },
+    { step: 3, delay_days: 5, template: 'limited_time' },
+    { step: 4, delay_days: 7, template: 'closing_file' },
+  ],
+  one_time: [
+    { step: 1, delay_days: 0, template: 'we_miss_you' },
+    { step: 2, delay_days: 7, template: 'seasonal_nudge' },
+    { step: 3, delay_days: 14, template: 'closing_file' },
+  ],
+  lapsed: [
+    { step: 1, delay_days: 0, template: 'feedback_ask' },
+    { step: 2, delay_days: 5, template: 'incentive_offer' },
+    { step: 3, delay_days: 10, template: 'closing_file' },
+  ],
+}
+
+/**
+ * SMS templates per retargeting step.
+ * {name} = customer first name, {service} = tenant service type (e.g. "cleaning", "window washing")
+ */
+export const RETARGETING_TEMPLATES: Record<string, string> = {
+  // 9-word reactivation — proven highest response rate for dead leads
+  '9_word': 'Hi {name}, are you still looking for {service}?',
+  // Gentle value nudge
+  'value_nudge': 'Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?',
+  // Quote follow-up
+  'quote_followup': 'Hi {name}, following up on your {service} quote. Any questions? Happy to adjust — just reply here.',
+  // Question-based
+  'question_based': 'Hi {name}, was there anything holding you back from booking? We\'re happy to work with your schedule or budget.',
+  // Limited time
+  'limited_time': 'Hi {name}, we have a couple openings this week for {service}. Want me to hold a spot for you?',
+  // We miss you — for one-time customers
+  'we_miss_you': 'Hi {name}! It\'s been a while since we took care of your {service}. Ready for another round? Reply to book.',
+  // Seasonal nudge
+  'seasonal_nudge': 'Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?',
+  // Feedback ask — for lapsed
+  'feedback_ask': 'Hi {name}, we noticed it\'s been a while. Was there anything we could\'ve done better? We\'d love to earn your business back.',
+  // Incentive offer
+  'incentive_offer': 'Hi {name}, we\'d love to have you back. Reply YES and we\'ll get you priority scheduling for your next {service}.',
+  // Closing file — triggers loss aversion, highest response message in any sequence
+  'closing_file': 'Hi {name}, we\'re updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way.',
+}
+
+/**
+ * Schedule a retargeting sequence for a customer.
+ * Creates scheduled_tasks for each step in the sequence.
+ */
+export async function scheduleRetargetingSequence(
+  tenantId: string,
+  customerId: number,
+  customerPhone: string,
+  customerName: string,
+  sequence: RetargetingSequenceType,
+): Promise<{ success: boolean; taskIds: string[] }> {
+  const steps = RETARGETING_SEQUENCES[sequence]
+  if (!steps) return { success: false, taskIds: [] }
+
+  const taskIds: string[] = []
+  const now = new Date()
+
+  for (const step of steps) {
+    const scheduledFor = new Date(now.getTime() + step.delay_days * 24 * 60 * 60 * 1000)
+
+    const result = await scheduleTask({
+      tenantId,
+      taskType: 'retargeting',
+      taskKey: `retarget-${customerId}-${sequence}-step-${step.step}`,
+      scheduledFor,
+      payload: {
+        customerId,
+        customerPhone,
+        customerName,
+        sequence,
+        step: step.step,
+        template: step.template,
+      },
+    })
+
+    if (result.taskId) {
+      taskIds.push(result.taskId)
+    }
+  }
+
+  // Update customer retargeting status
+  const supabase = getSupabase()
+  await supabase
+    .from('customers')
+    .update({
+      retargeting_sequence: sequence,
+      retargeting_step: 1,
+      retargeting_enrolled_at: now.toISOString(),
+      retargeting_completed_at: null,
+      retargeting_stopped_reason: null,
+    })
+    .eq('id', customerId)
+
+  return { success: true, taskIds }
 }

@@ -14,7 +14,10 @@ import {
   completeTask,
   failTask,
   scheduleTask,
+  RETARGETING_TEMPLATES,
+  RETARGETING_SEQUENCES,
   type ScheduledTask,
+  type RetargetingSequenceType,
 } from '@/lib/scheduler'
 import { getTenantById, getTenantServiceDescription, tenantUsesFeature } from '@/lib/tenant'
 import { processFollowUp, getPendingFollowups } from '@/integrations/ghl/follow-up-scheduler'
@@ -158,6 +161,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
     case 'sms_retry':
       await processSmsRetry(payload, tenant)
+      break
+
+    case 'retargeting':
+      await processRetargeting(payload, tenant, tenant_id || null)
       break
 
     default:
@@ -685,6 +692,102 @@ async function processSmsRetry(
     console.log(`[sms-retry] Successfully sent retry SMS to ${phone.slice(-4)}`)
   } else if (!result.success) {
     console.error(`[sms-retry] Retry failed for ${phone.slice(-4)}: ${result.error}`)
+  }
+}
+
+/**
+ * Process retargeting sequence step
+ * Sends segment-specific SMS, updates customer retargeting progress,
+ * and auto-stops if customer has converted (booked a job).
+ */
+async function processRetargeting(
+  payload: Record<string, unknown>,
+  tenant: any,
+  tenantId: string | null,
+) {
+  const customerId = payload.customerId as number
+  const customerPhone = String(payload.customerPhone || '')
+  const customerName = String(payload.customerName || '')
+  const sequence = payload.sequence as RetargetingSequenceType
+  const step = payload.step as number
+  const template = String(payload.template || '')
+
+  if (!customerId || !customerPhone || !tenant) {
+    console.warn('[retargeting] Missing required payload fields')
+    return
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  // Auto-stop check: if customer has booked a job since enrollment, stop the sequence
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('retargeting_enrolled_at')
+    .eq('id', customerId)
+    .single()
+
+  if (customer?.retargeting_enrolled_at) {
+    const { data: recentJob } = await supabase
+      .from('jobs')
+      .select('id')
+      .eq('customer_id', customerId)
+      .in('status', ['scheduled', 'in_progress', 'completed'])
+      .gte('created_at', customer.retargeting_enrolled_at)
+      .limit(1)
+      .single()
+
+    if (recentJob) {
+      console.log(`[retargeting] Customer ${customerId} converted — stopping sequence`)
+      await supabase
+        .from('customers')
+        .update({
+          retargeting_completed_at: new Date().toISOString(),
+          retargeting_stopped_reason: 'converted',
+        })
+        .eq('id', customerId)
+
+      // Cancel remaining tasks in this sequence
+      await supabase
+        .from('scheduled_tasks')
+        .update({ status: 'cancelled' })
+        .like('task_key', `retarget-${customerId}-${sequence}-%`)
+        .eq('status', 'pending')
+
+      return
+    }
+  }
+
+  // Build message from template
+  const serviceDesc = getTenantServiceDescription(tenant)
+  const firstName = customerName.split(' ')[0] || customerName
+  const messageTemplate = RETARGETING_TEMPLATES[template] || RETARGETING_TEMPLATES['9_word']
+  const message = messageTemplate
+    .replace('{name}', firstName)
+    .replace('{service}', serviceDesc)
+
+  console.log(`[retargeting] Sending ${sequence} step ${step} to ${customerPhone.slice(-4)} (${tenant.slug})`)
+
+  const result = await sendSMS(tenant, customerPhone, message)
+
+  if (result.success) {
+    // Update customer retargeting step
+    const steps = RETARGETING_SEQUENCES[sequence]
+    const isLastStep = step >= (steps?.length || 0)
+
+    await supabase
+      .from('customers')
+      .update({
+        retargeting_step: step,
+        ...(isLastStep ? {
+          retargeting_completed_at: new Date().toISOString(),
+          retargeting_stopped_reason: 'completed',
+        } : {}),
+      })
+      .eq('id', customerId)
+
+    console.log(`[retargeting] Sent step ${step}/${steps?.length} to customer ${customerId}`)
+  } else {
+    console.error(`[retargeting] SMS failed for customer ${customerId}: ${result.error}`)
   }
 }
 
