@@ -43,7 +43,6 @@ export type EstimateOption = {
   date: string // "2026-02-25"
   time: string // "8:00 AM"
   day_of_week: string // "Tuesday"
-  year: string // "2026"
   salesman_name: string
 }
 
@@ -101,13 +100,12 @@ function formatTimeFromMinutes(totalMinutes: number): string {
   return `${hours12}:${String(mins).padStart(2, '0')} ${period}`
 }
 
-/** Given a "YYYY-MM-DD" string, return { day_of_week, year } for VAPI responses. */
-function getDateMeta(dateStr: string): { day_of_week: string; year: string } {
+/** Given a "YYYY-MM-DD" string, return the day of week name for VAPI responses. */
+function getDayOfWeek(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   // Use UTC noon to avoid timezone-shift issues
   const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0))
-  const day_of_week = dt.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
-  return { day_of_week, year: String(y) }
+  return dt.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
 }
 
 function parseScheduledAt(value: string | null | undefined): number | null {
@@ -425,7 +423,7 @@ export async function scheduleEstimate(
         tieredOptions.push({
           date,
           time: tier.label,
-          ...getDateMeta(date),
+          day_of_week: getDayOfWeek(date),
           salesman_name: bestSalesman.name,
         })
       }
@@ -581,7 +579,7 @@ export async function scheduleEstimate(
   const options: EstimateOption[] = top3.map((c) => ({
     date: c.date,
     time: formatTimeFromMinutes(c.timeMinutes),
-    ...getDateMeta(c.date),
+    day_of_week: getDayOfWeek(c.date),
     salesman_name: c.salesmanName,
   }))
 

@@ -20,11 +20,11 @@ export async function POST(request: NextRequest) {
   const payload = extractPayload(parsed.value)
   const response = await scheduleEstimate(payload, tenantId)
 
-  // Strip salesman_name from options before returning to VAPI —
-  // the AI assistant should NOT mention which cleaner/salesman is assigned
-  if (response.options) {
-    response.options = response.options.map(({ date, time, day_of_week, year }) => ({ date, time, day_of_week, year, salesman_name: '' }))
+  // Strip internal fields — VAPI only needs date, time, and day_of_week
+  const vapiResponse = {
+    ...response,
+    options: response.options?.map(({ date, time, day_of_week }) => ({ date, time, day_of_week })),
   }
 
-  return NextResponse.json(response)
+  return NextResponse.json(vapiResponse)
 }
