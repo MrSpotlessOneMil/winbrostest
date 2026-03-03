@@ -15,6 +15,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   MapPin,
   Phone,
   DollarSign,
@@ -93,6 +103,7 @@ export default function TeamsPage() {
     id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean; employee_type: EmployeeType
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState<EmployeeType>(() => {
     if (typeof window === "undefined") return "technician"
     try {
@@ -318,19 +329,26 @@ export default function TeamsPage() {
     }
   }
 
-  async function handleDeleteCleaner(cleanerId: string, cleanerName: string) {
-    if (!confirm(`Delete ${cleanerName}? This will deactivate them and remove them from their team.`)) return
+  async function confirmDeleteCleaner() {
+    if (!deleteTarget) return
     try {
-      await fetch("/api/manage-teams", {
+      const res = await fetch("/api/manage-teams", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete_cleaner", cleaner_id: Number(cleanerId) }),
+        body: JSON.stringify({ action: "delete_cleaner", cleaner_id: Number(deleteTarget.id) }),
       })
-      // If the deleted cleaner is the current chat target, clear it
-      if (chatMember?.id === cleanerId) setChatMember(null)
-      await loadTeams()
-    } catch {
-      // silently fail
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json?.success === false) {
+        setLoadError(json?.error || `Delete failed (${res.status})`)
+      } else {
+        // If the deleted cleaner is the current chat target, clear it
+        if (chatMember?.id === deleteTarget.id) setChatMember(null)
+        await loadTeams()
+      }
+    } catch (err: any) {
+      setLoadError(err?.message || "Delete failed")
+    } finally {
+      setDeleteTarget(null)
     }
   }
 
@@ -684,7 +702,7 @@ export default function TeamsPage() {
                               className="h-7 w-7 text-destructive hover:text-destructive"
                               onClick={(e) => {
                                 e.stopPropagation()
-                                handleDeleteCleaner(m.id, m.name)
+                                setDeleteTarget({ id: m.id, name: m.name })
                               }}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
@@ -786,7 +804,7 @@ export default function TeamsPage() {
                             className="h-7 w-7 text-destructive hover:text-destructive"
                             onClick={(e) => {
                               e.stopPropagation()
-                              handleDeleteCleaner(m.id, m.name)
+                              setDeleteTarget({ id: m.id, name: m.name })
                             }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -813,7 +831,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel with fluid background */}
-        <div className="relative w-full md:w-[420px] shrink-0 rounded-2xl overflow-hidden bg-black border border-purple-500/20 min-h-[300px] md:min-h-0" data-no-splat>
+        <div className="relative w-full md:w-[420px] shrink-0 rounded-3xl overflow-hidden bg-black border border-purple-500/30 min-h-[300px] md:min-h-0" data-no-splat>
           <VelocityFluidBackground className="z-0" />
 
           <div className="relative z-10 flex flex-col h-full">
@@ -992,6 +1010,24 @@ export default function TeamsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete team member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              &quot;{deleteTarget?.name}&quot; will be deactivated and removed from their team.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteCleaner} className="bg-destructive text-white hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

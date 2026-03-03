@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Users, ArrowLeft, Plus, Trash2, Pencil, Star, MessageCircle } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 type Team = { id: number; name: string }
 type Cleaner = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; is_team_lead?: boolean; employee_type?: 'technician' | 'salesman'; team_id: number | null }
@@ -39,6 +49,7 @@ export default function ManageTeamsPage() {
   const [newCleanerIsTeamLead, setNewCleanerIsTeamLead] = useState(false)
   const [newCleanerEmployeeType, setNewCleanerEmployeeType] = useState<'technician' | 'salesman'>('technician')
   const [editingCleaner, setEditingCleaner] = useState<Cleaner | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ type: "team" | "cleaner"; id: number; name: string } | null>(null)
   const [dragOverTarget, setDragOverTarget] = useState<number | "unassigned" | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
 
@@ -191,25 +202,20 @@ export default function ManageTeamsPage() {
     }
   }
 
-  async function deleteTeam(teamId: number) {
-    if (!confirm("Delete this team? (It will be hidden; existing jobs keep their history.)")) return
+  async function confirmDelete() {
+    if (!deleteTarget) return
     try {
       setError(null)
-      await api("delete_team", { team_id: teamId })
+      if (deleteTarget.type === "team") {
+        await api("delete_team", { team_id: deleteTarget.id })
+      } else {
+        await api("delete_cleaner", { cleaner_id: deleteTarget.id })
+      }
+      setDeleteTarget(null)
       await load()
     } catch (err: any) {
-      setError(err?.message || "Delete team failed")
-    }
-  }
-
-  async function deleteCleaner(cleanerId: number) {
-    if (!confirm("Delete this user/cleaner? (It will be deactivated.)")) return
-    try {
-      setError(null)
-      await api("delete_cleaner", { cleaner_id: cleanerId })
-      await load()
-    } catch (err: any) {
-      setError(err?.message || "Delete cleaner failed")
+      setError(err?.message || `Delete ${deleteTarget.type} failed`)
+      setDeleteTarget(null)
     }
   }
 
@@ -338,7 +344,7 @@ export default function ManageTeamsPage() {
                   <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                  <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ type: "cleaner", id: c.id, name: c.name })} title="Delete cleaner">
                     <Trash2 className="h-4 w-4 text-muted-foreground" />
                   </Button>
                 </div>
@@ -363,7 +369,7 @@ export default function ManageTeamsPage() {
                   <span className="truncate">{t.name}</span>
                   <div className="flex items-center gap-2">
                     <Badge variant="outline">{list.length}</Badge>
-                    <Button variant="ghost" size="icon" onClick={() => deleteTeam(t.id)} title="Delete team">
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ type: "team", id: t.id, name: t.name })} title="Delete team">
                       <Trash2 className="h-4 w-4 text-muted-foreground" />
                     </Button>
                   </div>
@@ -396,7 +402,7 @@ export default function ManageTeamsPage() {
                       <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteCleaner(c.id)} title="Delete cleaner">
+                      <Button variant="ghost" size="icon" onClick={() => setDeleteTarget({ type: "cleaner", id: c.id, name: c.name })} title="Delete cleaner">
                         <Trash2 className="h-4 w-4 text-muted-foreground" />
                       </Button>
                     </div>
@@ -413,6 +419,28 @@ export default function ManageTeamsPage() {
         Storage model: teams in <code>teams</code>, users in <code>cleaners</code>, membership in <code>team_members</code> (we flip{" "}
         <code>is_active</code> when moving). <Star className="inline h-3 w-3 text-yellow-500" /> = Team Lead, <MessageCircle className="inline h-3 w-3 text-blue-500" /> = Telegram connected.
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deleteTarget?.type === "team" ? "team" : "user"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === "team"
+                ? `"${deleteTarget?.name}" will be hidden. Existing jobs keep their history.`
+                : `"${deleteTarget?.name}" will be deactivated and removed from their team.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-white hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Edit Cleaner Modal */}
       {editingCleaner && (
