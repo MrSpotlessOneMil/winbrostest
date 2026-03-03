@@ -14,7 +14,7 @@ import { getCleanerBlockedDates } from './supabase'
 import type { VapiAvailabilityResponse, VapiAlternative } from './vapi-choose-team'
 
 // ── Constants ──────────────────────────────────────────────────
-const TIMEZONE = 'America/Los_Angeles'
+const TIMEZONE = 'America/Chicago'
 const ESTIMATE_DURATION_HOURS = 0.5 // 30 minutes
 const BUFFER_MINUTES = 15
 const STEP_MINUTES = 30
@@ -60,7 +60,7 @@ function addMinutes(date: Date, mins: number): Date {
   return new Date(date.getTime() + mins * 60 * 1000)
 }
 
-function getPacificOffset(date: Date): string {
+function getTimezoneOffset(date: Date): string {
   const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
   const pstDate = new Date(date.toLocaleString('en-US', { timeZone: TIMEZONE }))
   const diffMinutes = (utcDate.getTime() - pstDate.getTime()) / 60000
@@ -80,7 +80,7 @@ function toIsoWithTimezone(date: Date): string {
   const minute = new Intl.DateTimeFormat('en-US', { ...options, minute: '2-digit' }).format(date)
   const second = new Intl.DateTimeFormat('en-US', { ...options, second: '2-digit' }).format(date)
   const resolvedHour = hour === '24' ? '00' : hour
-  const offset = getPacificOffset(date)
+  const offset = getTimezoneOffset(date)
   return `${year}-${month}-${day}T${pad(Number(resolvedHour))}:${pad(Number(minute))}:${pad(Number(second))}${offset}`
 }
 
@@ -92,14 +92,15 @@ function toAlternative(date: Date): VapiAlternative {
   return { datetime: toIsoWithTimezone(date), day_of_week: getDayOfWeekFromDate(date) }
 }
 
-function createPacificDate(year: number, month: number, day: number, hour: number, minute: number, second = 0): Date {
+function createLocalDate(year: number, month: number, day: number, hour: number, minute: number, second = 0): Date {
   const monthStr = String(month + 1).padStart(2, '0')
   const dayStr = String(day).padStart(2, '0')
   const hourStr = String(hour).padStart(2, '0')
   const minStr = String(minute).padStart(2, '0')
   const secStr = String(second).padStart(2, '0')
-  const isPDT = (month > 2 && month < 10) || (month === 2 && day >= 8) || (month === 10 && day < 1)
-  const offset = isPDT ? '-07:00' : '-08:00'
+  // CDT (UTC-5) roughly Mar second Sunday – Nov first Sunday; CST (UTC-6) otherwise
+  const isCDT = (month > 2 && month < 10) || (month === 2 && day >= 8) || (month === 10 && day < 1)
+  const offset = isCDT ? '-05:00' : '-06:00'
   return new Date(`${year}-${monthStr}-${dayStr}T${hourStr}:${minStr}:${secStr}${offset}`)
 }
 
@@ -110,22 +111,21 @@ function parseDateFlexible(value: unknown): Date | null {
   const raw = String(value).trim()
   if (!raw) return null
 
-  // ISO with timezone offset
+  // ISO with explicit timezone offset (e.g. "2026-03-03T09:00:00-06:00")
   if (raw.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/)) {
     const native = new Date(raw)
     if (Number.isFinite(native.getTime())) return native
   }
 
-  // ISO without timezone: "2026-03-03T09:00:00" or "2026-03-03T09:00" — assume Chicago time
-  let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  // ISO with Z or without timezone — treat time components as Chicago local time
+  // Handles: "2026-03-03T09:00:00Z", "2026-03-03T09:00:00.000Z",
+  //          "2026-03-03T09:00:00", "2026-03-03T09:00"
+  let match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})T(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\.\d+)?Z?$/)
   if (match) {
-    const mo = Number(match[2]) - 1
-    // CDT (UTC-5) roughly Mar 8 – Nov 1, CST (UTC-6) otherwise
-    const isCDT = (mo > 2 && mo < 10) || (mo === 2 && Number(match[3]) >= 8) || (mo === 10 && Number(match[3]) < 1)
-    const offset = isCDT ? '-05:00' : '-06:00'
-    const isoStr = `${match[1]}-${String(Number(match[2])).padStart(2, '0')}-${String(Number(match[3])).padStart(2, '0')}T${String(Number(match[4])).padStart(2, '0')}:${match[5].padStart(2, '0')}:${(match[6] || '00').padStart(2, '0')}${offset}`
-    const native = new Date(isoStr)
-    if (Number.isFinite(native.getTime())) return native
+    return createLocalDate(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), match[6] ? Number(match[6]) : 0
+    )
   }
 
   // "2026-02-25 10:00:00" or "2026-02-25 10:00 AM"
@@ -135,13 +135,13 @@ function parseDateFlexible(value: unknown): Date | null {
     const ampm = match[7] ? String(match[7]).toUpperCase() : null
     if (ampm === 'PM' && hour < 12) hour += 12
     if (ampm === 'AM' && hour === 12) hour = 0
-    return createPacificDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]), hour, Number(match[5]), match[6] ? Number(match[6]) : 0)
+    return createLocalDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]), hour, Number(match[5]), match[6] ? Number(match[6]) : 0)
   }
 
   // "2026-02-25"
   match = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
   if (match) {
-    return createPacificDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 9, 0, 0)
+    return createLocalDate(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 9, 0, 0)
   }
 
   // "02/25/2026 10:00 AM"
@@ -151,13 +151,7 @@ function parseDateFlexible(value: unknown): Date | null {
     const ampm = match[7] ? String(match[7]).toUpperCase() : null
     if (ampm === 'PM' && hour < 12) hour += 12
     if (ampm === 'AM' && hour === 12) hour = 0
-    return createPacificDate(Number(match[3]), Number(match[1]) - 1, Number(match[2]), hour, Number(match[5]), match[6] ? Number(match[6]) : 0)
-  }
-
-  // ISO with Z or offset
-  if (raw.includes('T') && (raw.includes('Z') || raw.match(/[+-]\d{2}:\d{2}$/))) {
-    const native = new Date(raw)
-    if (Number.isFinite(native.getTime())) return native
+    return createLocalDate(Number(match[3]), Number(match[1]) - 1, Number(match[2]), hour, Number(match[5]), match[6] ? Number(match[6]) : 0)
   }
 
   // Natural language: "February 26 2026 8am", "feb 26 8:00 am", etc.
@@ -208,13 +202,13 @@ function parseDateFlexible(value: unknown): Date | null {
   }
   if (nHour === null) nHour = 9
   if (nMonth !== null && nDay !== null && nYear !== null) {
-    return createPacificDate(nYear, nMonth, nDay, nHour, nMinute, 0)
+    return createLocalDate(nYear, nMonth, nDay, nHour, nMinute, 0)
   }
 
   return null
 }
 
-function getPacificNow() {
+function getLocalNow() {
   const now = new Date()
   const opts = { timeZone: TIMEZONE } as const
   const year = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(now))
@@ -251,7 +245,7 @@ function formatTimeFromMinutes(totalMinutes: number): string {
 }
 
 function getNextCandidateDates(count: number): string[] {
-  const pacific = getPacificNow()
+  const pacific = getLocalNow()
   const todayMinutes = pacific.hour * 60 + pacific.minute
   const skipToday = todayMinutes >= LAST_SLOT_MINUTES
 
@@ -303,7 +297,7 @@ function isSlotAvailable(
 
 /**
  * Find alternative available slots, prioritizing 8am slots.
- * Returns ISO datetime strings with Pacific timezone.
+ * Returns ISO datetime strings with Chicago timezone.
  */
 function findAlternatives(
   count: number,
@@ -313,7 +307,7 @@ function findAlternatives(
   blockedDatesMap: Map<number, Set<string>>,
   allDates: string[]
 ): VapiAlternative[] {
-  const pacific = getPacificNow()
+  const pacific = getLocalNow()
   const todayStr = `${pacific.year}-${String(pacific.month).padStart(2, '0')}-${String(pacific.day).padStart(2, '0')}`
   const nowMinutes = pacific.hour * 60 + pacific.minute
 
@@ -327,7 +321,7 @@ function findAlternatives(
 
     if (isSlotAvailable(SLOT_START_MINUTES, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap)) {
       const [year, month, day] = date.split('-').map(Number)
-      const slotDate = createPacificDate(year, month - 1, day, 8, 0)
+      const slotDate = createLocalDate(year, month - 1, day, 8, 0)
       alternatives.push(toAlternative(slotDate))
       seenDatetimes.add(toIsoWithTimezone(slotDate))
     }
@@ -349,7 +343,7 @@ function findAlternatives(
           const [year, month, day] = date.split('-').map(Number)
           const hours = Math.floor(slotMin / 60)
           const mins = slotMin % 60
-          const slotDate = createPacificDate(year, month - 1, day, hours, mins)
+          const slotDate = createLocalDate(year, month - 1, day, hours, mins)
           const iso = toIsoWithTimezone(slotDate)
           if (!seenDatetimes.has(iso)) {
             seenDatetimes.add(iso)
@@ -378,6 +372,8 @@ export async function getWinBrosAvailabilityResponse(
     'start', 'start_time', 'startTime', 'datetime', 'date_time', 'dateTime',
     'date', 'time', 'appointment_time', 'appointmentTime', 'booking_time', 'scheduledTime',
   ])
+
+  console.log(`${LOG} Raw requested_datetime from VAPI: ${JSON.stringify(requestedStartRaw)} (type: ${typeof requestedStartRaw})`)
 
   const requestedStart = parseDateFlexible(requestedStartRaw)
 
