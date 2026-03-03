@@ -5,7 +5,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, Building2, Home } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -1103,6 +1103,20 @@ export default function CustomersPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
+                              {customer.is_commercial ? (
+                                <span title="Commercial" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                                  <Building2 className="w-2.5 h-2.5" />
+                                </span>
+                              ) : (
+                                <span title="Residential" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20 whitespace-nowrap">
+                                  <Home className="w-2.5 h-2.5" />
+                                </span>
+                              )}
+                              {getCustomerJobs(customer.phone_number).some((j: any) => j.frequency && j.frequency !== "one-time") && (
+                                <span title="Recurring" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20 whitespace-nowrap">
+                                  <Repeat className="w-2.5 h-2.5" />
+                                </span>
+                              )}
                               {customer.card_on_file_at && (
                                 <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
                                   Card

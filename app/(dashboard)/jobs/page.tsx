@@ -557,6 +557,7 @@ export default function JobsPage() {
           frequency: job.frequency || "one-time",
           parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
           jobType: (job as any).job_type || "",
+          isCommercial: !!customer?.is_commercial,
         },
       }
     })
@@ -1099,14 +1100,29 @@ export default function JobsPage() {
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
               eventDidMount={(info) => {
-                const freq = info.event.extendedProps.frequency || "one-time"
-                if (freq !== "one-time") {
-                  const badge = document.createElement("span")
-                  badge.textContent = " \u21BB"
-                  badge.title = freq
-                  badge.style.cssText = "font-size:0.7em;opacity:0.7;"
-                  const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title")
-                  if (titleEl) titleEl.appendChild(badge)
+                const titleEl = info.el.querySelector(".fc-event-title, .fc-list-event-title")
+                if (titleEl) {
+                  // Commercial/Residential badge
+                  const typeBadge = document.createElement("span")
+                  if (info.event.extendedProps.isCommercial) {
+                    typeBadge.textContent = " \uD83C\uDFE2"
+                    typeBadge.title = "Commercial"
+                  } else {
+                    typeBadge.textContent = " \uD83C\uDFE0"
+                    typeBadge.title = "Residential"
+                  }
+                  typeBadge.style.cssText = "font-size:0.75em;"
+                  titleEl.appendChild(typeBadge)
+
+                  // Recurring badge
+                  const freq = info.event.extendedProps.frequency || "one-time"
+                  if (freq !== "one-time") {
+                    const recurBadge = document.createElement("span")
+                    recurBadge.textContent = " \u21BB"
+                    recurBadge.title = `Recurring: ${freq}`
+                    recurBadge.style.cssText = "font-size:0.7em;opacity:0.7;"
+                    titleEl.appendChild(recurBadge)
+                  }
                 }
                 const service = info.event.extendedProps.service || ""
                 const loc = info.event.extendedProps.location || ""
