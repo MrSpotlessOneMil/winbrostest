@@ -2550,8 +2550,8 @@ async function sendDepositPaymentFlow(params: {
         ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
         : 'TBD'
       const addressLine = job?.address || customer.address || ''
-      const cancellationFee = wc.cancellation_fee_cents ? (wc.cancellation_fee_cents / 100) : 50
-      const cancellationWindow = wc.cancellation_window_hours || 24
+      const cancellationFee = cardOnFileConfig.cancellation_fee_cents ? (cardOnFileConfig.cancellation_fee_cents / 100) : 50
+      const cancellationWindow = cardOnFileConfig.cancellation_window_hours || 24
 
       // Build terms SMS
       const msgParts = [

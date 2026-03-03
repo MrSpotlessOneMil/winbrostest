@@ -346,6 +346,12 @@ export default function JobsPage() {
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  // Add charge state (card-on-file tenants)
+  const [addChargeOpen, setAddChargeOpen] = useState(false)
+  const [addChargeType, setAddChargeType] = useState("")
+  const [addChargeAmount, setAddChargeAmount] = useState("")
+  const [addChargeDesc, setAddChargeDesc] = useState("")
+  const [addChargeSaving, setAddChargeSaving] = useState(false)
   const [basePrice, setBasePrice] = useState<number>(0)
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
@@ -469,13 +475,6 @@ export default function JobsPage() {
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteMode, setDeleteMode] = useState<"single" | "future" | null>(null)
-
-  // Add charge state (card-on-file tenants)
-  const [addChargeOpen, setAddChargeOpen] = useState(false)
-  const [addChargeType, setAddChargeType] = useState("")
-  const [addChargeAmount, setAddChargeAmount] = useState("")
-  const [addChargeDesc, setAddChargeDesc] = useState("")
-  const [addChargeSaving, setAddChargeSaving] = useState(false)
 
   // Rainy day reschedule state
   const [rainOpen, setRainOpen] = useState(false)
