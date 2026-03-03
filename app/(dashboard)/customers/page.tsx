@@ -345,6 +345,14 @@ export default function CustomersPage() {
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [editingJob, setEditingJob] = useState<Job | null>(null)
   const [savingJob, setSavingJob] = useState(false)
+
+  // New customer modal state
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false)
+  const [newCustomerForm, setNewCustomerForm] = useState({
+    first_name: "", last_name: "", phone_number: "", email: "", address: "", notes: "", is_commercial: false,
+  })
+  const [savingNewCustomer, setSavingNewCustomer] = useState(false)
+  const [newCustomerError, setNewCustomerError] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Payment popover state
@@ -603,6 +611,37 @@ export default function CustomersPage() {
       alert("Failed to update customer")
     } finally {
       setSavingCustomer(false)
+    }
+  }
+
+  // Handle create new customer
+  const handleCreateCustomer = async () => {
+    if (!newCustomerForm.phone_number.replace(/\D/g, "").length) {
+      setNewCustomerError("Phone number is required")
+      return
+    }
+    setSavingNewCustomer(true)
+    setNewCustomerError("")
+    try {
+      const res = await fetch("/api/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newCustomerForm),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setCustomers((prev) => [json.data, ...prev])
+        setSelectedCustomer(json.data)
+        setNewCustomerOpen(false)
+        setNewCustomerForm({ first_name: "", last_name: "", phone_number: "", email: "", address: "", notes: "", is_commercial: false })
+      } else {
+        setNewCustomerError(json.error || "Failed to create customer")
+      }
+    } catch (error) {
+      console.error("Failed to create customer:", error)
+      setNewCustomerError("Failed to create customer")
+    } finally {
+      setSavingNewCustomer(false)
     }
   }
 
@@ -1071,6 +1110,13 @@ export default function CustomersPage() {
                     className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/50 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
                   />
                 </div>
+                <button
+                  onClick={() => { setNewCustomerOpen(true); setNewCustomerError("") }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-purple-600/20 border border-purple-500/30 text-purple-300 text-sm font-medium hover:bg-purple-600/30 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                  New Customer
+                </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 {filteredCustomers.length === 0 ? (
@@ -1690,6 +1736,70 @@ export default function CustomersPage() {
                 className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
               >
                 {savingCustomer ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Customer Modal */}
+      {newCustomerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setNewCustomerOpen(false)}>
+          <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">New Customer</h3>
+              <button onClick={() => setNewCustomerOpen(false)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">First Name</label>
+                  <input type="text" value={newCustomerForm.first_name} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, first_name: e.target.value })} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500" placeholder="First name" />
+                </div>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">Last Name</label>
+                  <input type="text" value={newCustomerForm.last_name} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, last_name: e.target.value })} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500" placeholder="Last name" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Phone <span className="text-red-400">*</span></label>
+                <input type="text" value={newCustomerForm.phone_number} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, phone_number: e.target.value })} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500" placeholder="+1 (555) 123-4567" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Email</label>
+                <input type="email" value={newCustomerForm.email} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, email: e.target.value })} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500" placeholder="email@example.com" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Address</label>
+                <input type="text" value={newCustomerForm.address} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, address: e.target.value })} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500" placeholder="123 Main St, City, ST 12345" />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Notes</label>
+                <textarea value={newCustomerForm.notes} onChange={(e) => setNewCustomerForm({ ...newCustomerForm, notes: e.target.value })} rows={3} className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500 resize-none" placeholder="Private notes..." />
+              </div>
+              {isHouseCleaning && (
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="block text-xs text-zinc-400">Commercial Client</label>
+                    <p className="text-[10px] text-zinc-500">No SMS reminders for recurring jobs</p>
+                  </div>
+                  <button type="button" onClick={() => setNewCustomerForm({ ...newCustomerForm, is_commercial: !newCustomerForm.is_commercial })} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${newCustomerForm.is_commercial ? 'bg-purple-600' : 'bg-zinc-700'}`}>
+                    <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${newCustomerForm.is_commercial ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
+                  </button>
+                </div>
+              )}
+              {newCustomerError && (
+                <p className="text-sm text-red-400">{newCustomerError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button onClick={() => setNewCustomerOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">
+                Cancel
+              </button>
+              <button onClick={handleCreateCustomer} disabled={savingNewCustomer} className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50">
+                {savingNewCustomer ? "Creating..." : "Create Customer"}
               </button>
             </div>
           </div>

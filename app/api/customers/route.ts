@@ -3,6 +3,67 @@ import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
 import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
 
+export async function POST(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
+
+  const body = await request.json()
+  const { phone_number, first_name, last_name, email, address, notes, is_commercial } = body
+
+  if (!phone_number || phone_number.replace(/\D/g, "").length < 10) {
+    return NextResponse.json({ success: false, error: "Valid phone number is required" }, { status: 400 })
+  }
+
+  const client = getSupabaseServiceClient()
+
+  try {
+    const { data, error } = await client
+      .from("customers")
+      .insert({
+        tenant_id: tenant.id,
+        phone_number: phone_number.trim(),
+        first_name: first_name?.trim() || null,
+        last_name: last_name?.trim() || null,
+        email: email?.trim() || null,
+        address: address?.trim() || null,
+        notes: notes?.trim() || null,
+        is_commercial: is_commercial || false,
+      })
+      .select("*")
+      .single()
+
+    if (error) {
+      if (error.code === "23505") {
+        return NextResponse.json({ success: false, error: "A customer with this phone number already exists" }, { status: 409 })
+      }
+      console.error("[customers] POST failed:", error.message)
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+    }
+
+    // Sync to HouseCall Pro if enabled
+    if (tenant.housecall_pro_api_key) {
+      syncCustomerToHCP({
+        tenantId: tenant.id,
+        customerId: data.id,
+        phone: data.phone_number,
+        firstName: data.first_name,
+        lastName: data.last_name,
+        email: data.email,
+        address: data.address,
+      }).catch((err) => console.error("[customers] HCP sync error:", err))
+    }
+
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error("[customers] POST error:", error)
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : "Unknown error" },
+      { status: 500 }
+    )
+  }
+}
+
 export async function PATCH(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
