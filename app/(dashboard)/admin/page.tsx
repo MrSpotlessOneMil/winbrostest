@@ -3009,7 +3009,7 @@ export default function AdminPage() {
       {/* Onboarding Wizard */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-3xl mx-4 max-h-[95vh] flex flex-col overflow-hidden">
+          <Card className="w-full max-w-3xl mx-4 max-h-[95vh] flex flex-col overflow-hidden !bg-zinc-900">
             <CardHeader className="shrink-0">
               <div className="flex items-center justify-between">
                 <CardTitle>
