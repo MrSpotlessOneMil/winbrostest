@@ -45,6 +45,8 @@ import {
   Megaphone,
   Edit,
   Clock,
+  ClipboardList,
+  ExternalLink,
 } from "lucide-react"
 
 interface WorkflowConfig {
