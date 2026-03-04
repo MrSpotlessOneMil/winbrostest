@@ -32,7 +32,9 @@ import {
   Ban,
   Zap,
   Eye,
+  MessageSquare,
 } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
 
 interface SeasonalCampaign {
   id: string
@@ -89,6 +91,43 @@ interface PipelineCustomer {
   created_at: string
 }
 
+// Sequence preview data (mirrors lib/scheduler.ts RETARGETING_SEQUENCES + RETARGETING_TEMPLATES)
+const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; template: string; message: string }[]; summary: string }> = {
+  unresponsive: {
+    summary: "3 messages over 7 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "9-Word Reactivation", message: "Hi {name}, are you still looking for {service}?" },
+      { step: 2, delay: "Day 3", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
+      { step: 3, delay: "Day 7", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
+  quoted_not_booked: {
+    summary: "4 messages over 7 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "Quote Follow-up", message: "Hi {name}, following up on your {service} quote. Any questions? Happy to adjust — just reply here." },
+      { step: 2, delay: "Day 2", template: "Question-Based", message: "Hi {name}, was there anything holding you back from booking? We're happy to work with your schedule or budget." },
+      { step: 3, delay: "Day 5", template: "Limited Time", message: "Hi {name}, we have a couple openings this week for {service}. Want me to hold a spot for you?" },
+      { step: 4, delay: "Day 7", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
+  one_time: {
+    summary: "3 messages over 14 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "We Miss You", message: "Hi {name}! It's been a while since we took care of your {service}. Ready for another round? Reply to book." },
+      { step: 2, delay: "Day 7", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
+      { step: 3, delay: "Day 14", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
+  lapsed: {
+    summary: "3 messages over 10 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "Feedback Ask", message: "Hi {name}, we noticed it's been a while. Was there anything we could've done better? We'd love to earn your business back." },
+      { step: 2, delay: "Day 5", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
+      { step: 3, delay: "Day 10", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
+}
+
 const PIPELINE_STAGES = [
   { key: "unresponsive", label: "Unresponsive", description: "Texted/called, no reply", icon: UserX, color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20", sequence: "unresponsive" as const },
   { key: "quoted_not_booked", label: "Quoted, Not Booked", description: "Got a quote, didn't pay", icon: FileQuestion, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", sequence: "quoted_not_booked" as const },
@@ -121,6 +160,8 @@ export default function CampaignsPage() {
   const [stageCustomersLoading, setStageCustomersLoading] = useState(false)
   const [enrolling, setEnrolling] = useState<string | null>(null)
   const [enrollResult, setEnrollResult] = useState<{ segment: string; enrolled: number } | null>(null)
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<number>>(new Set())
+  const [showPreview, setShowPreview] = useState<string | null>(null)
 
   // Lead import state
   const [importSource, setImportSource] = useState("meta")
@@ -177,18 +218,23 @@ export default function CampaignsPage() {
     finally { setStageCustomersLoading(false) }
   }
 
-  async function enrollSegment(segment: string) {
+  async function enrollSegment(segment: string, customerIds?: number[]) {
     setEnrolling(segment)
     setEnrollResult(null)
     try {
+      const body: Record<string, unknown> = { segment }
+      if (customerIds && customerIds.length > 0) {
+        body.customer_ids = customerIds
+      }
       const res = await fetch("/api/actions/retargeting-pipeline", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ segment }),
+        body: JSON.stringify(body),
       })
       const json = await res.json()
       if (json.success) {
         setEnrollResult({ segment, enrolled: json.enrolled })
+        setSelectedCustomerIds(new Set())
         await fetchPipeline()
         if (expandedStage === segment) await fetchStageCustomers(segment)
       } else {
@@ -528,8 +574,12 @@ export default function CampaignsPage() {
                     if (isExpanded) {
                       setExpandedStage(null)
                       setStageCustomers([])
+                      setSelectedCustomerIds(new Set())
+                      setShowPreview(null)
                     } else {
                       setExpandedStage(stage.key)
+                      setSelectedCustomerIds(new Set())
+                      setShowPreview(null)
                       await fetchStageCustomers(stage.key)
                     }
                   }}
@@ -546,20 +596,8 @@ export default function CampaignsPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">{stage.description}</p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    {stage.sequence && eligible > 0 && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        disabled={enrolling !== null}
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          await enrollSegment(stage.sequence!)
-                        }}
-                      >
-                        {enrolling === stage.sequence ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
-                        Start Sequence ({eligible})
-                      </Button>
+                    {stage.sequence && eligible > 0 && !isExpanded && (
+                      <Badge className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/20">{eligible} eligible</Badge>
                     )}
                     {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                   </div>
@@ -567,7 +605,7 @@ export default function CampaignsPage() {
 
                 {/* Expanded customer list */}
                 {isExpanded && (
-                  <div className="ml-8 mt-2 mb-2 space-y-1">
+                  <div className="ml-4 md:ml-8 mt-2 mb-2 space-y-3">
                     {stageCustomersLoading ? (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -577,38 +615,159 @@ export default function CampaignsPage() {
                       <p className="text-sm text-muted-foreground py-3">No customers in this stage</p>
                     ) : (
                       <>
-                        <div className="grid grid-cols-5 gap-2 text-xs text-muted-foreground font-medium px-2 py-1">
-                          <span>Name</span>
-                          <span>Phone</span>
-                          <span>Email</span>
-                          <span>Retargeting</span>
-                          <span>Status</span>
-                        </div>
-                        {stageCustomers.map((c) => (
-                          <div key={c.id} className="grid grid-cols-5 gap-2 text-xs px-2 py-1.5 rounded hover:bg-white/[0.03]">
-                            <span className="truncate">{c.first_name} {c.last_name}</span>
-                            <span className="text-muted-foreground">{c.phone_number}</span>
-                            <span className="text-muted-foreground truncate">{c.email || "—"}</span>
-                            <span>
-                              {c.retargeting_sequence ? (
-                                <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">
-                                  Step {c.retargeting_step}/{c.retargeting_sequence === "unresponsive" ? 3 : c.retargeting_sequence === "quoted_not_booked" ? 4 : 3}
-                                </Badge>
-                              ) : "—"}
-                            </span>
-                            <span>
-                              {c.retargeting_stopped_reason === "converted" ? (
-                                <Badge className="text-xs bg-green-500/20 text-green-400 border-green-500/30">Converted</Badge>
-                              ) : c.retargeting_stopped_reason === "completed" ? (
-                                <Badge variant="outline" className="text-xs">Sequence done</Badge>
-                              ) : c.retargeting_sequence ? (
-                                <Badge className="text-xs bg-blue-500/20 text-blue-400 border-blue-500/30">Active</Badge>
-                              ) : (
-                                <span className="text-muted-foreground">Not enrolled</span>
-                              )}
-                            </span>
+                        {/* Customer list with checkboxes */}
+                        <div className="border border-zinc-800 rounded-lg overflow-hidden">
+                          {/* Select all header */}
+                          {stage.sequence && (() => {
+                            const eligibleCustomers = stageCustomers.filter(c => !c.retargeting_sequence && c.phone_number)
+                            return eligibleCustomers.length > 0 ? (
+                              <div className="flex items-center gap-3 px-3 py-2 bg-zinc-900/50 border-b border-zinc-800">
+                                <Checkbox
+                                  checked={eligibleCustomers.length > 0 && eligibleCustomers.every(c => selectedCustomerIds.has(c.id))}
+                                  onCheckedChange={(checked) => {
+                                    const next = new Set(selectedCustomerIds)
+                                    if (checked) {
+                                      eligibleCustomers.forEach(c => next.add(c.id))
+                                    } else {
+                                      eligibleCustomers.forEach(c => next.delete(c.id))
+                                    }
+                                    setSelectedCustomerIds(next)
+                                  }}
+                                />
+                                <span className="text-xs text-muted-foreground">
+                                  {selectedCustomerIds.size > 0
+                                    ? `${selectedCustomerIds.size} selected`
+                                    : `Select all (${eligibleCustomers.length} eligible)`}
+                                </span>
+                              </div>
+                            ) : null
+                          })()}
+                          <div className="divide-y divide-zinc-800/50">
+                            {stageCustomers.map((c) => {
+                              const isEligible = !c.retargeting_sequence && !!c.phone_number
+                              const isSelected = selectedCustomerIds.has(c.id)
+                              return (
+                                <div
+                                  key={c.id}
+                                  className={`flex items-center gap-3 px-3 py-2 text-xs ${isEligible ? "hover:bg-white/[0.03] cursor-pointer" : "opacity-60"}`}
+                                  onClick={() => {
+                                    if (!isEligible) return
+                                    const next = new Set(selectedCustomerIds)
+                                    if (isSelected) next.delete(c.id)
+                                    else next.add(c.id)
+                                    setSelectedCustomerIds(next)
+                                  }}
+                                >
+                                  {stage.sequence && (
+                                    <Checkbox
+                                      checked={isSelected}
+                                      disabled={!isEligible}
+                                      onCheckedChange={() => {
+                                        if (!isEligible) return
+                                        const next = new Set(selectedCustomerIds)
+                                        if (isSelected) next.delete(c.id)
+                                        else next.add(c.id)
+                                        setSelectedCustomerIds(next)
+                                      }}
+                                    />
+                                  )}
+                                  <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-4 gap-2">
+                                    <span className="truncate font-medium">{c.first_name} {c.last_name}</span>
+                                    <span className="text-muted-foreground hidden md:block">{c.phone_number}</span>
+                                    <span className="text-muted-foreground truncate hidden md:block">{c.email || "—"}</span>
+                                    <span>
+                                      {c.retargeting_stopped_reason === "converted" ? (
+                                        <Badge className="text-[10px] bg-green-500/20 text-green-400 border-green-500/30">Converted</Badge>
+                                      ) : c.retargeting_stopped_reason === "completed" ? (
+                                        <Badge variant="outline" className="text-[10px]">Done</Badge>
+                                      ) : c.retargeting_sequence ? (
+                                        <Badge className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
+                                          Step {c.retargeting_step}/{c.retargeting_sequence === "quoted_not_booked" ? 4 : 3}
+                                        </Badge>
+                                      ) : !c.phone_number ? (
+                                        <span className="text-muted-foreground text-[10px]">No phone</span>
+                                      ) : (
+                                        <span className="text-muted-foreground text-[10px]">Eligible</span>
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
                           </div>
-                        ))}
+                        </div>
+
+                        {/* Action buttons + preview toggle */}
+                        {stage.sequence && (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 text-xs"
+                                onClick={() => setShowPreview(showPreview === stage.sequence ? null : stage.sequence!)}
+                              >
+                                <Eye className="h-3 w-3 mr-1.5" />
+                                {showPreview === stage.sequence ? "Hide" : "Preview"} Messages
+                              </Button>
+                              {selectedCustomerIds.size > 0 && (
+                                <Button
+                                  size="sm"
+                                  className="h-8 text-xs"
+                                  disabled={enrolling !== null}
+                                  onClick={() => enrollSegment(stage.sequence!, Array.from(selectedCustomerIds))}
+                                >
+                                  {enrolling === stage.sequence ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Play className="h-3 w-3 mr-1.5" />}
+                                  Start for {selectedCustomerIds.size} Selected
+                                </Button>
+                              )}
+                              {eligible > 0 && (
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  className="h-8 text-xs"
+                                  disabled={enrolling !== null}
+                                  onClick={() => enrollSegment(stage.sequence!)}
+                                >
+                                  {enrolling === stage.sequence && selectedCustomerIds.size === 0 ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Users className="h-3 w-3 mr-1.5" />}
+                                  Start All ({eligible})
+                                </Button>
+                              )}
+                            </div>
+
+                            {/* Sequence preview */}
+                            {showPreview === stage.sequence && SEQUENCE_PREVIEWS[stage.sequence] && (
+                              <div className="border border-zinc-700/50 rounded-lg bg-zinc-900/50 overflow-hidden">
+                                <div className="px-4 py-2.5 border-b border-zinc-700/50 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <MessageSquare className="h-4 w-4 text-blue-400" />
+                                    <span className="text-sm font-medium">Message Sequence</span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">{SEQUENCE_PREVIEWS[stage.sequence].summary}</span>
+                                </div>
+                                <div className="divide-y divide-zinc-800/50">
+                                  {SEQUENCE_PREVIEWS[stage.sequence].steps.map((s) => (
+                                    <div key={s.step} className="px-4 py-3">
+                                      <div className="flex items-center gap-2 mb-1.5">
+                                        <Badge variant="outline" className="text-[10px] font-mono">Step {s.step}</Badge>
+                                        <span className="text-[10px] text-muted-foreground">{s.delay}</span>
+                                        <span className="text-[10px] text-blue-400">· {s.template}</span>
+                                      </div>
+                                      <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-800/50 rounded px-3 py-2 italic">
+                                        &ldquo;{s.message}&rdquo;
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="px-4 py-2.5 border-t border-zinc-700/50 bg-emerald-500/5">
+                                  <p className="text-[11px] text-emerald-400">
+                                    Auto-stops if the customer books a job during the sequence.
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
