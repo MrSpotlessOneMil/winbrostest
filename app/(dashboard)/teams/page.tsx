@@ -45,7 +45,6 @@ import {
   Calendar,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { VelocityFluidBackground } from "@/components/teams/velocity-fluid-background"
 import { MessageBubble } from "@/components/message-bubble"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
@@ -830,84 +829,80 @@ export default function TeamsPage() {
           {!loading && !loadError && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
         </div>
 
-        {/* RIGHT: Persistent chat panel with fluid background */}
-        <div className="relative w-full md:w-[420px] shrink-0 rounded-3xl overflow-hidden bg-black border border-purple-500/30 min-h-[300px] md:min-h-0" data-no-splat>
-          <VelocityFluidBackground className="z-0" />
-
-          <div className="relative z-10 flex flex-col h-full">
-            {/* Chat Header */}
-            <div className="p-4 backdrop-blur-md bg-black/50 border-b border-purple-500/10">
-              {chatMember ? (
-                <>
-                  <h3 className="text-white font-semibold text-sm">{chatMember.name}</h3>
-                  <div className="flex items-center gap-1 text-purple-300/70 text-xs">
-                    <Phone className="h-3 w-3" />
-                    {chatMember.phone}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3 className="text-white font-semibold text-sm">Team Chat</h3>
-                  <p className="text-purple-300/50 text-xs">Select a member to view messages</p>
-                </>
-              )}
-            </div>
-
-            {/* Chat Messages */}
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-1">
-              {!chatMember && (
-                <div className="flex flex-col items-center justify-center h-full text-center px-6">
-                  <MessageSquare className="h-10 w-10 text-purple-500/30 mb-3" />
-                  <p className="text-purple-300/50 text-sm">
-                    Click the chat icon next to any team member to view their SMS conversation
-                  </p>
+        {/* RIGHT: Persistent chat panel */}
+        <Card className="w-full md:w-[420px] shrink-0 min-h-[300px] md:min-h-0 flex flex-col">
+          {/* Chat Header */}
+          <div className="p-4 border-b">
+            {chatMember ? (
+              <>
+                <h3 className="font-semibold text-sm">{chatMember.name}</h3>
+                <div className="flex items-center gap-1 text-muted-foreground text-xs">
+                  <Phone className="h-3 w-3" />
+                  {chatMember.phone}
                 </div>
-              )}
-              {chatMember && chatLoading && (
-                <p className="text-center text-sm text-purple-300/50 py-8">Loading messages...</p>
-              )}
-              {chatMember && !chatLoading && chatMessages.length === 0 && (
-                <p className="text-center text-sm text-purple-300/50 py-8">No messages found.</p>
-              )}
-              {chatMessages.map((msg) => (
-                <MessageBubble
-                  key={msg.id}
-                  role={msg.direction === "inbound" ? "client" : "assistant"}
-                  content={msg.content}
-                  timestamp={msg.timestamp}
-                />
-              ))}
-            </div>
-
-            {/* Telegram Send Bar */}
-            {chatMember && (
-              <div className="p-3 backdrop-blur-md bg-black/50 border-t border-purple-500/10">
-                {chatMember.telegram_id ? (
-                  <div className="flex gap-2">
-                    <Input
-                      value={sendText}
-                      onChange={(e) => setSendText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendTelegram() } }}
-                      placeholder="Send Telegram message..."
-                      className="flex-1 bg-zinc-900/80 border-purple-500/20 text-white placeholder:text-purple-300/30 text-sm"
-                      disabled={sending}
-                    />
-                    <Button
-                      size="icon"
-                      className="shrink-0 bg-purple-600 hover:bg-purple-500 h-9 w-9"
-                      onClick={handleSendTelegram}
-                      disabled={!sendText.trim() || sending}
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-xs text-purple-300/40 text-center">No Telegram ID configured for this member</p>
-                )}
-              </div>
+              </>
+            ) : (
+              <>
+                <h3 className="font-semibold text-sm">Team Chat</h3>
+                <p className="text-muted-foreground text-xs">Select a member to view messages</p>
+              </>
             )}
           </div>
-        </div>
+
+          {/* Chat Messages */}
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-1">
+            {!chatMember && (
+              <div className="flex flex-col items-center justify-center h-full text-center px-6">
+                <MessageSquare className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground text-sm">
+                  Click the chat icon next to any team member to view their SMS conversation
+                </p>
+              </div>
+            )}
+            {chatMember && chatLoading && (
+              <p className="text-center text-sm text-muted-foreground py-8">Loading messages...</p>
+            )}
+            {chatMember && !chatLoading && chatMessages.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-8">No messages found.</p>
+            )}
+            {chatMessages.map((msg) => (
+              <MessageBubble
+                key={msg.id}
+                role={msg.direction === "inbound" ? "client" : "assistant"}
+                content={msg.content}
+                timestamp={msg.timestamp}
+              />
+            ))}
+          </div>
+
+          {/* Telegram Send Bar */}
+          {chatMember && (
+            <div className="p-3 border-t">
+              {chatMember.telegram_id ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={sendText}
+                    onChange={(e) => setSendText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendTelegram() } }}
+                    placeholder="Send Telegram message..."
+                    className="flex-1 text-sm"
+                    disabled={sending}
+                  />
+                  <Button
+                    size="icon"
+                    className="shrink-0 h-9 w-9"
+                    onClick={handleSendTelegram}
+                    disabled={!sendText.trim() || sending}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground text-center">No Telegram ID configured for this member</p>
+              )}
+            </div>
+          )}
+        </Card>
       </div>
 
       {/* Edit Member Modal */}
