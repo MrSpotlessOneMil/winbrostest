@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
     telegram_bot_token,
     owner_telegram_chat_id,
     stripe_secret_key,
+    stripe_publishable_key,
     vapi_api_key,
     vapi_assistant_id,
     vapi_outbound_assistant_id,
@@ -275,6 +276,7 @@ export async function POST(request: NextRequest) {
   if (telegram_bot_token) credentials.telegram_bot_token = telegram_bot_token
   if (owner_telegram_chat_id) credentials.owner_telegram_chat_id = owner_telegram_chat_id
   if (stripe_secret_key) credentials.stripe_secret_key = stripe_secret_key
+  if (stripe_publishable_key) credentials.stripe_publishable_key = stripe_publishable_key
   if (vapi_api_key) credentials.vapi_api_key = vapi_api_key
   if (vapi_assistant_id) credentials.vapi_assistant_id = vapi_assistant_id
   if (vapi_outbound_assistant_id) credentials.vapi_outbound_assistant_id = vapi_outbound_assistant_id

@@ -6,7 +6,8 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound } from "lucide-react"
+import { StripeCardForm } from "@/components/stripe-card-form"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -1440,7 +1441,8 @@ export default function CustomersPage() {
                               <div className="p-2 space-y-0.5">
                                 <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
                                 {[
-                                  { key: "card_on_file", label: "Card on File", desc: "Save card for later", icon: CreditCard },
+                                  { key: "card_on_file", label: "Card on File", desc: "Send link to save card", icon: CreditCard },
+                                  { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
                                   { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
                                   { key: "deposit", label: "Deposit", desc: "50% + 3% fee", icon: DollarSign },
                                   { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
@@ -1448,7 +1450,9 @@ export default function CustomersPage() {
                                   <button
                                     key={opt.key}
                                     onClick={() => {
-                                      if (opt.key === "payment") {
+                                      if (opt.key === "enter_card") {
+                                        setPaymentType("enter_card")
+                                      } else if (opt.key === "payment") {
                                         setPaymentType("payment")
                                       } else if (opt.key === "deposit" || opt.key === "invoice") {
                                         // Need to pick a job first
@@ -1571,6 +1575,20 @@ export default function CustomersPage() {
                                   </button>
                                 </div>
                               </div>
+                            )}
+
+                            {/* Enter Card — Stripe Elements */}
+                            {paymentType === "enter_card" && (
+                              <StripeCardForm
+                                customerId={String(selectedCustomer.id)}
+                                onSuccess={() => {
+                                  setPaymentType(null)
+                                  setPaymentOpen(false)
+                                  // Update local customer data to show card badge
+                                  selectedCustomer.card_on_file_at = new Date().toISOString()
+                                }}
+                                onCancel={() => setPaymentType(null)}
+                              />
                             )}
 
                             {/* Charge Card — amount input */}

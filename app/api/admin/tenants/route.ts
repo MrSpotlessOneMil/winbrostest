@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
 
   // Mask secret values — show only last 4 chars
   const SECRET_FIELDS = [
-    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
     'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
   ]
@@ -340,7 +340,7 @@ export async function PATCH(request: NextRequest) {
     'openphone_api_key', 'openphone_phone_id', 'openphone_phone_number',
     'openphone_webhook_secret',
     'vapi_api_key', 'vapi_assistant_id', 'vapi_outbound_assistant_id', 'vapi_phone_id',
-    'stripe_secret_key', 'stripe_webhook_secret',
+    'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_company_id', 'housecall_pro_webhook_secret',
     'ghl_location_id', 'ghl_webhook_secret',
     'telegram_bot_token', 'owner_telegram_chat_id',
@@ -349,7 +349,7 @@ export async function PATCH(request: NextRequest) {
   ])
   // Secret fields that are masked in GET — skip if the value looks masked
   const SECRET_PATCH_FIELDS = new Set([
-    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
     'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
   ])

@@ -123,6 +123,7 @@ interface Tenant {
   vapi_phone_id: string | null
   // Stripe
   stripe_secret_key: string | null
+  stripe_publishable_key: string | null
   stripe_webhook_secret: string | null
   // HousecallPro
   housecall_pro_api_key: string | null
@@ -209,6 +210,7 @@ export default function AdminPage() {
     telegram_bot_token: "",
     owner_telegram_chat_id: "",
     stripe_secret_key: "",
+    stripe_publishable_key: "",
     vapi_api_key: "",
     vapi_assistant_id: "",
     vapi_outbound_assistant_id: "",
@@ -390,7 +392,7 @@ export default function AdminPage() {
       owner_phone: "", owner_email: "", google_review_link: "",
       openphone_api_key: "", openphone_phone_id: "", openphone_phone_number: "",
       telegram_bot_token: "", owner_telegram_chat_id: "",
-      stripe_secret_key: "",
+      stripe_secret_key: "", stripe_publishable_key: "",
       vapi_api_key: "", vapi_assistant_id: "", vapi_outbound_assistant_id: "", vapi_phone_id: "",
       housecall_pro_api_key: "", housecall_pro_company_id: "",
       wave_api_token: "", wave_business_id: "", wave_income_account_id: "",
@@ -2029,7 +2031,7 @@ export default function AdminPage() {
                           return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
                         })()}
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2">
                           <Label className="text-sm">Secret Key</Label>
                           <div className="flex gap-2">
@@ -2045,6 +2047,24 @@ export default function AdminPage() {
                               onClick={() => toggleReveal("stripe_secret_key")}
                             >
                               {revealedFields.has("stripe_secret_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Publishable Key</Label>
+                          <div className="flex gap-2">
+                            <Input
+                              type={revealedFields.has("stripe_publishable_key") ? "text" : "password"}
+                              value={getFieldValue(currentTenant, "stripe_publishable_key")}
+                              onChange={(e) => setFieldValue("stripe_publishable_key", e.target.value)}
+                              placeholder={currentTenant.stripe_publishable_key ? maskKey(currentTenant.stripe_publishable_key) : "pk_..."}
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => toggleReveal("stripe_publishable_key")}
+                            >
+                              {revealedFields.has("stripe_publishable_key") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                             </Button>
                           </div>
                         </div>
@@ -3288,6 +3308,7 @@ export default function AdminPage() {
                       )}
                     </div>
                     <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
+                    <Input className="h-8 text-sm mt-1.5" placeholder="Publishable Key (pk_...)" value={onboardForm.stripe_publishable_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_publishable_key: e.target.value })} />
                   </div>
 
                   {/* VAPI */}
