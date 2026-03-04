@@ -1218,6 +1218,7 @@ export async function POST(request: NextRequest) {
         .from("leads")
         .update({ last_contact_at: new Date().toISOString() })
         .eq("id", assignedLead.id)
+        .eq("tenant_id", tenant.id)
 
       // Check if auto-response is paused for this lead
       const assignedFormData = parseFormData(assignedLead.form_data)
@@ -1468,6 +1469,7 @@ export async function POST(request: NextRequest) {
                   },
                 })
                 .eq("id", assignedLead.id)
+                .eq("tenant_id", tenant.id)
             } else {
               console.error(`[OpenPhone] Escalation SMS failed for lead ${assignedLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
             }
@@ -1733,6 +1735,7 @@ export async function POST(request: NextRequest) {
                       },
                     })
                     .eq("id", existingLead.id)
+                    .eq("tenant_id", tenant.id)
                 } else {
                   console.error(`[OpenPhone] Escalation SMS failed for lead ${existingLead.id}, NOT pausing auto-response: ${escSendResult.error}`)
                 }

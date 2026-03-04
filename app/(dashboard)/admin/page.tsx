@@ -7,6 +7,16 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -96,6 +106,8 @@ interface Tenant {
   business_name: string | null
   business_name_short: string | null
   service_area: string | null
+  service_description: string | null
+  timezone: string
   sdr_persona: string | null
   owner_phone: string | null
   owner_email: string | null
@@ -129,11 +141,30 @@ interface Tenant {
   // Gmail (Email Bot)
   gmail_user: string | null
   gmail_app_password: string | null
+  // Webhook registration timestamps
+  telegram_webhook_registered_at: string | null
+  stripe_webhook_registered_at: string | null
+  openphone_webhook_registered_at: string | null
+  // Webhook error tracking
+  telegram_webhook_error: string | null
+  telegram_webhook_error_at: string | null
+  stripe_webhook_error: string | null
+  stripe_webhook_error_at: string | null
+  openphone_webhook_error: string | null
+  openphone_webhook_error_at: string | null
   // Status
   workflow_config: WorkflowConfig
   active: boolean
   created_at: string
   updated_at: string
+  // Injected by GET route (not in DB)
+  cleaner_count: number
+  pricing_tier_count: number
+  webhook_health: {
+    housecall_pro: { last_event_at: string; last_event_type: string } | null
+    ghl: { last_event_at: string; last_event_type: string } | null
+    vapi: { last_event_at: string; last_event_type: string } | null
+  }
 }
 
 // Helper to mask API keys for display
@@ -153,14 +184,51 @@ export default function AdminPage() {
   const [updating, setUpdating] = useState<string | null>(null)
   const [selectedTenant, setSelectedTenantRaw] = useState<string | null>(searchParams.get("tenant"))
 
-  // Add New Business modal state
+  // Onboarding wizard state
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newBusiness, setNewBusiness] = useState({
-    name: "", slug: "", email: "", password: "",
-    business_name: "", business_name_short: "", service_area: "",
-    owner_phone: "", owner_email: "", sdr_persona: "Mary",
+  const [onboardStep, setOnboardStep] = useState(0) // 0=info, 1=creds, 2=review/execute
+  const [onboardForm, setOnboardForm] = useState({
+    // Step 1 — Business Info
+    name: "",
+    slug: "",
+    password: "",
+    flow_type: "spotless" as "winbros" | "spotless" | "cedar",
+    business_name: "",
+    business_name_short: "",
+    service_area: "",
+    service_description: "",
+    timezone: "America/Chicago",
+    sdr_persona: "Mary",
+    owner_phone: "",
+    owner_email: "",
+    google_review_link: "",
+    // Step 2 — API Credentials
+    openphone_api_key: "",
+    openphone_phone_id: "",
+    openphone_phone_number: "",
+    telegram_bot_token: "",
+    owner_telegram_chat_id: "",
+    stripe_secret_key: "",
+    vapi_api_key: "",
+    vapi_assistant_id: "",
+    vapi_outbound_assistant_id: "",
+    vapi_phone_id: "",
+    housecall_pro_api_key: "",
+    housecall_pro_company_id: "",
+    wave_api_token: "",
+    wave_business_id: "",
+    wave_income_account_id: "",
+    ghl_location_id: "",
+    seed_pricing: "default" as "default" | "skip",
   })
-  const [creating, setCreating] = useState(false)
+  const [onboarding, setOnboarding] = useState(false)
+  const [onboardResults, setOnboardResults] = useState<any>(null)
+  const [wizardTesting, setWizardTesting] = useState<string | null>(null)
+  const [wizardTestResults, setWizardTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+  const [showExtraServices, setShowExtraServices] = useState(false)
+  const [customServices, setCustomServices] = useState<Array<{ name: string; fields: Array<{ key: string; value: string }> }>>([])
+  const [wizardRegistering, setWizardRegistering] = useState<string | null>(null)
+  const [wizardRegisterResults, setWizardRegisterResults] = useState<Record<string, { success: boolean; message: string; secret?: string }>>({})
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -216,6 +284,31 @@ export default function AdminPage() {
     enabled: true,
   })
 
+  // Connection test state
+  const [testingService, setTestingService] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+
+  // Webhook registration state
+  const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
+  const [webhookResults, setWebhookResults] = useState<Record<string, { success: boolean; message: string }>>({})
+
+  // Webhook verification state
+  const [verifyingWebhooks, setVerifyingWebhooks] = useState(false)
+  const [webhookVerification, setWebhookVerification] = useState<Record<string, { active: boolean; message: string }>>({})
+
+  // Bulk action state
+  const [testingAll, setTestingAll] = useState(false)
+  const [registeringAll, setRegisteringAll] = useState(false)
+  const [webhookConfirmOpen, setWebhookConfirmOpen] = useState(false)
+  const [webhookConfirmAction, setWebhookConfirmAction] = useState<(() => void) | null>(null)
+  const [webhookConfirmService, setWebhookConfirmService] = useState("")
+
+  function confirmWebhookRegistration(service: string, action: () => void) {
+    setWebhookConfirmService(service)
+    setWebhookConfirmAction(() => action)
+    setWebhookConfirmOpen(true)
+  }
+
   async function fetchTenants() {
     setLoading(true)
     setError(null)
@@ -232,7 +325,7 @@ export default function AdminPage() {
       }
       setTenants(json.data || [])
       if (json.data?.length > 0 && !selectedTenant) {
-        setSelectedTenant(json.data[0].id)
+        selectTenant(json.data[0].id)
       }
     } catch (e: any) {
       setError(e.message || "Failed to load tenants")
@@ -245,6 +338,14 @@ export default function AdminPage() {
     fetchTenants()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Auto-trigger connection checks when entering Step 3
+  useEffect(() => {
+    if (onboardStep === 2 && !onboardResults && !onboarding) {
+      testAllConnectionsDirect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onboardStep])
 
   async function updateTenant(tenantId: string, updates: Partial<Tenant> | { workflow_config: Partial<WorkflowConfig> }) {
     setUpdating(tenantId)
@@ -280,38 +381,159 @@ export default function AdminPage() {
     await updateTenant(tenant.id, { active: !tenant.active })
   }
 
-  async function createBusiness() {
-    if (!newBusiness.name || !newBusiness.slug) {
-      setError("Name and slug are required")
-      return
+  function resetOnboardWizard() {
+    setOnboardStep(0)
+    setOnboardForm({
+      name: "", slug: "", password: "", flow_type: "spotless",
+      business_name: "", business_name_short: "", service_area: "", service_description: "",
+      timezone: "America/Chicago", sdr_persona: "Mary",
+      owner_phone: "", owner_email: "", google_review_link: "",
+      openphone_api_key: "", openphone_phone_id: "", openphone_phone_number: "",
+      telegram_bot_token: "", owner_telegram_chat_id: "",
+      stripe_secret_key: "",
+      vapi_api_key: "", vapi_assistant_id: "", vapi_outbound_assistant_id: "", vapi_phone_id: "",
+      housecall_pro_api_key: "", housecall_pro_company_id: "",
+      wave_api_token: "", wave_business_id: "", wave_income_account_id: "",
+      ghl_location_id: "",
+      seed_pricing: "default",
+    })
+    setOnboarding(false)
+    setOnboardResults(null)
+    setWizardTesting(null)
+    setWizardTestResults({})
+    setShowExtraServices(false)
+    setCustomServices([])
+    setWizardRegistering(null)
+    setWizardRegisterResults({})
+  }
+
+  async function testAllConnectionsDirect() {
+    const tests: Array<{ service: string; credentials: Record<string, string> }> = []
+    if (onboardForm.openphone_api_key && onboardForm.openphone_phone_id)
+      tests.push({ service: "openphone", credentials: { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id } })
+    if (onboardForm.telegram_bot_token)
+      tests.push({ service: "telegram", credentials: { telegram_bot_token: onboardForm.telegram_bot_token } })
+    if (onboardForm.stripe_secret_key)
+      tests.push({ service: "stripe", credentials: { stripe_secret_key: onboardForm.stripe_secret_key } })
+    if (onboardForm.vapi_api_key && onboardForm.vapi_assistant_id)
+      tests.push({ service: "vapi", credentials: { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id } })
+    if (onboardForm.wave_api_token && onboardForm.wave_business_id)
+      tests.push({ service: "wave", credentials: { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id } })
+    if (tests.length === 0) return
+    setWizardTesting("all")
+    const results = await Promise.allSettled(
+      tests.map(async (t) => {
+        const res = await fetch("/api/admin/test-connection-direct", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(t),
+        })
+        const json = await res.json()
+        return { service: t.service, success: json.success, message: json.message || json.error || "Unknown" }
+      })
+    )
+    const newResults: Record<string, { success: boolean; message: string }> = {}
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        newResults[r.value.service] = { success: r.value.success, message: r.value.message }
+      } else {
+        // Find which service this was for — shouldn't happen but handle gracefully
+      }
     }
-    setCreating(true)
-    setError(null)
+    setWizardTestResults((prev) => ({ ...prev, ...newResults }))
+    setWizardTesting(null)
+  }
+
+  async function testConnectionDirect(service: string, credentials: Record<string, string>) {
+    setWizardTesting(service)
     try {
-      const res = await fetch("/api/admin/tenants", {
+      const res = await fetch("/api/admin/test-connection-direct", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newBusiness),
+        body: JSON.stringify({ service, credentials }),
       })
       const json = await res.json()
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to create business")
-      }
-      setShowAddModal(false)
-      setNewBusiness({
-        name: "", slug: "", email: "", password: "",
-        business_name: "", business_name_short: "", service_area: "",
-        owner_phone: "", owner_email: "", sdr_persona: "Mary",
+      setWizardTestResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+      }))
+    } catch (e: any) {
+      setWizardTestResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: e.message || "Test failed" },
+      }))
+    } finally {
+      setWizardTesting(null)
+    }
+  }
+
+  async function registerWebhookDirect(service: string, credentials: Record<string, string>) {
+    setWizardRegistering(service)
+    try {
+      const res = await fetch("/api/admin/register-webhook-direct", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ service, credentials }),
       })
-      await fetchTenants()
-      // Select the newly created tenant
-      if (json.data?.id) {
-        setSelectedTenant(json.data.id)
+      const json = await res.json()
+      setWizardRegisterResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown", secret: json.secret },
+      }))
+    } catch (e: any) {
+      setWizardRegisterResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: e.message || "Registration failed" },
+      }))
+    } finally {
+      setWizardRegistering(null)
+    }
+  }
+
+  async function runOnboarding() {
+    setOnboarding(true)
+    setOnboardResults(null)
+    setError(null)
+    try {
+      // Build payload — only include non-empty fields
+      const payload: Record<string, any> = {}
+      for (const [k, v] of Object.entries(onboardForm)) {
+        if (v !== "") payload[k] = v
+      }
+      // Include custom services as custom_credentials
+      if (customServices.length > 0) {
+        const cc: Record<string, Record<string, string>> = {}
+        for (const svc of customServices) {
+          if (svc.name.trim()) {
+            const fields: Record<string, string> = {}
+            for (const f of svc.fields) {
+              if (f.key.trim() && f.value.trim()) fields[f.key.trim()] = f.value.trim()
+            }
+            if (Object.keys(fields).length > 0) cc[svc.name.trim()] = fields
+          }
+        }
+        if (Object.keys(cc).length > 0) payload.custom_credentials = cc
+      }
+      const res = await fetch("/api/admin/onboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json()
+      if (json.success && json.result?.tenantId) {
+        // Success — navigate directly to the new tenant
+        await fetchTenants()
+        selectTenant(json.result.tenantId)
+        setShowAddModal(false)
+        resetOnboardWizard()
+      } else {
+        // Failed — show results so admin can see what went wrong
+        setOnboardResults(json.result)
       }
     } catch (e: any) {
-      setError(e.message || "Failed to create business")
+      setError(e.message || "Onboarding failed")
     } finally {
-      setCreating(false)
+      setOnboarding(false)
     }
   }
 
@@ -361,6 +583,8 @@ export default function AdminPage() {
       { label: "Business Name", value: currentTenant.business_name },
       { label: "Short Name", value: currentTenant.business_name_short },
       { label: "Service Area", value: currentTenant.service_area },
+      { label: "Service Type", value: currentTenant.service_description },
+      { label: "Timezone", value: currentTenant.timezone },
       { label: "SDR Persona", value: currentTenant.sdr_persona },
       { label: "Owner Phone", value: currentTenant.owner_phone },
       { label: "Owner Email", value: currentTenant.owner_email },
@@ -444,7 +668,7 @@ export default function AdminPage() {
         throw new Error(json.error || "Failed to delete business")
       }
       setShowDeleteConfirm(false)
-      setSelectedTenant(null)
+      selectTenant(null)
       await fetchTenants()
     } catch (e: any) {
       setError(e.message || "Failed to delete business")
@@ -623,7 +847,239 @@ export default function AdminPage() {
     completed_customers: "Past Completed",
   }
 
-  const currentTenant = tenants.find((t) => t.id === selectedTenant)
+  // --- Setup progress & connection testing helpers ---
+
+  function selectTenant(id: string | null) {
+    setSelectedTenant(id)
+    setTestResults({})
+    setWebhookResults({})
+    setWebhookVerification({})
+    setEditingCredentials({})
+    setRevealedFields(new Set())
+  }
+
+  function computeSetupChecks(tenant: Tenant) {
+    const config = tenant.workflow_config
+    const checks: { label: string; complete: boolean; enabled: boolean }[] = [
+      {
+        label: "Business Info",
+        complete: !!(tenant.business_name && tenant.business_name_short && tenant.service_area && tenant.owner_phone),
+        enabled: true,
+      },
+      {
+        label: "OpenPhone",
+        complete: !!(tenant.openphone_api_key && tenant.openphone_phone_id && tenant.openphone_phone_number),
+        enabled: true,
+      },
+      {
+        label: "Stripe",
+        complete: !!tenant.stripe_secret_key,
+        enabled: !!config.use_stripe,
+      },
+      {
+        label: "VAPI",
+        complete: !!(tenant.vapi_api_key && tenant.vapi_assistant_id),
+        enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound),
+      },
+      {
+        label: "Telegram",
+        complete: !!(tenant.telegram_bot_token && tenant.owner_telegram_chat_id),
+        enabled: true,
+      },
+      {
+        label: "HousecallPro",
+        complete: !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id),
+        enabled: !!config.use_housecall_pro,
+      },
+      {
+        label: "GHL",
+        complete: !!tenant.ghl_location_id,
+        enabled: !!config.use_ghl,
+      },
+      {
+        label: "Wave",
+        complete: !!(tenant.wave_api_token && tenant.wave_business_id),
+        enabled: !!config.use_wave,
+      },
+      {
+        label: "Telegram Webhook",
+        complete: !!tenant.telegram_webhook_registered_at,
+        enabled: !!tenant.telegram_bot_token,
+      },
+      {
+        label: "Stripe Webhook",
+        complete: !!tenant.stripe_webhook_registered_at,
+        enabled: !!config.use_stripe && !!tenant.stripe_secret_key,
+      },
+      {
+        label: "OpenPhone Webhook",
+        complete: !!tenant.openphone_webhook_registered_at,
+        enabled: !!tenant.openphone_api_key,
+      },
+      {
+        label: "HCP Webhook",
+        complete: !!tenant.webhook_health?.housecall_pro?.last_event_at,
+        enabled: !!config.use_housecall_pro && !!tenant.housecall_pro_api_key,
+      },
+      {
+        label: "GHL Webhook",
+        complete: !!tenant.webhook_health?.ghl?.last_event_at,
+        enabled: !!config.use_ghl && !!tenant.ghl_location_id,
+      },
+      {
+        label: "VAPI Webhook",
+        complete: !!tenant.webhook_health?.vapi?.last_event_at,
+        enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound) && !!(tenant.vapi_api_key && tenant.vapi_assistant_id),
+      },
+      {
+        label: "Cleaners",
+        complete: (tenant.cleaner_count || 0) >= 1,
+        enabled: true,
+      },
+      {
+        label: "Pricing",
+        complete: (tenant.pricing_tier_count || 0) >= 1,
+        enabled: true,
+      },
+    ]
+
+    const enabledChecks = checks.filter((c) => c.enabled)
+    const completedCount = enabledChecks.filter((c) => c.complete).length
+    const totalCount = enabledChecks.length
+    const percentage = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0
+
+    return { checks, enabledChecks, completedCount, totalCount, percentage }
+  }
+
+  type IntegrationStatus = "connected" | "untested" | "not_configured"
+
+  function getIntegrationStatus(service: string, tenant: Tenant): IntegrationStatus {
+    const hasKeys = (() => {
+      switch (service) {
+        case "openphone": return !!(tenant.openphone_api_key && tenant.openphone_phone_id)
+        case "stripe": return !!tenant.stripe_secret_key
+        case "vapi": return !!(tenant.vapi_api_key && tenant.vapi_assistant_id)
+        case "telegram": return !!tenant.telegram_bot_token
+        case "housecall_pro": return !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id)
+        case "ghl": return !!tenant.ghl_location_id
+        case "wave": return !!(tenant.wave_api_token && tenant.wave_business_id)
+        default: return false
+      }
+    })()
+
+    if (!hasKeys) return "not_configured"
+    if (testResults[service]?.success) return "connected"
+    return "untested"
+  }
+
+  async function testConnection(service: string) {
+    if (!selectedTenant) return
+    setTestingService(service)
+    try {
+      const res = await fetch("/api/admin/test-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant, service }),
+      })
+      const json = await res.json()
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+      }))
+    } catch (err: any) {
+      setTestResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: err.message || "Test failed" },
+      }))
+    } finally {
+      setTestingService(null)
+    }
+  }
+
+  async function registerWebhook(service: string) {
+    if (!selectedTenant) return
+    setRegisteringWebhook(service)
+    try {
+      const res = await fetch("/api/admin/register-webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant, service }),
+      })
+      const json = await res.json()
+      setWebhookResults((prev) => ({
+        ...prev,
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+      }))
+      if (json.success) {
+        await fetchTenants()
+      }
+    } catch (err: any) {
+      setWebhookResults((prev) => ({
+        ...prev,
+        [service]: { success: false, message: err.message || "Registration failed" },
+      }))
+    } finally {
+      setRegisteringWebhook(null)
+    }
+  }
+
+  async function testAllConnections() {
+    if (!currentTenantRef) return
+    if (Object.keys(editingCredentials).length > 0) {
+      setError("Save pending credential changes before running Test All.")
+      return
+    }
+    setTestingAll(true)
+    const config = currentTenantRef.workflow_config
+    const services: string[] = ["openphone", "telegram"]
+    if (config.use_stripe) services.push("stripe")
+    if (config.use_vapi_inbound || config.use_vapi_outbound) services.push("vapi")
+
+    for (const service of services) {
+      await testConnection(service)
+    }
+    setTestingAll(false)
+  }
+
+  async function registerAllWebhooks() {
+    if (!currentTenantRef) return
+    setRegisteringAll(true)
+    const services: string[] = []
+    if (currentTenantRef.telegram_bot_token) services.push("telegram")
+    if (currentTenantRef.workflow_config.use_stripe && currentTenantRef.stripe_secret_key) services.push("stripe")
+    if (currentTenantRef.openphone_api_key) services.push("openphone")
+
+    for (const service of services) {
+      await registerWebhook(service)
+    }
+    setRegisteringAll(false)
+  }
+
+  async function verifyAllWebhooks() {
+    if (!currentTenantRef) return
+    setVerifyingWebhooks(true)
+    setWebhookVerification({})
+    try {
+      const res = await fetch("/api/admin/verify-webhooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: selectedTenant }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setWebhookVerification(data.results || {})
+      } else {
+        setError(data.error || "Webhook verification failed")
+      }
+    } catch (err: any) {
+      setError(err.message || "Webhook verification failed")
+    } finally {
+      setVerifyingWebhooks(false)
+    }
+  }
+
+  const currentTenantRef = tenants.find((t) => t.id === selectedTenant)
+  const currentTenant = currentTenantRef
 
   return (
     <div className="space-y-6">
@@ -714,7 +1170,7 @@ export default function AdminPage() {
                 return (
                   <button
                     key={tenant.id}
-                    onClick={() => setSelectedTenant(tenant.id)}
+                    onClick={() => selectTenant(tenant.id)}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
                       selectedTenant === tenant.id
                         ? "border-primary bg-primary/5"
@@ -788,6 +1244,37 @@ export default function AdminPage() {
                   </div>
                 </div>
               </CardHeader>
+
+              {/* Setup Progress Bar */}
+              {(() => {
+                const setup = computeSetupChecks(currentTenant)
+                return (
+                  <div className="px-6 pb-4 space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Setup Progress</span>
+                      <span className="font-medium text-green-500">
+                        {setup.completedCount}/{setup.totalCount} Complete
+                      </span>
+                    </div>
+                    <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all duration-500"
+                        style={{ width: `${setup.percentage}%` }}
+                      />
+                    </div>
+                    {setup.percentage < 100 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {setup.enabledChecks.filter((c) => !c.complete).map((c) => (
+                          <Badge key={c.label} variant="outline" className="text-xs text-orange-400 border-orange-500/30">
+                            {c.label}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               <CardContent>
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                   <TabsList>
@@ -802,10 +1289,6 @@ export default function AdminPage() {
                     <TabsTrigger value="credentials" className="gap-2">
                       <Key className="h-4 w-4" />
                       Credentials
-                    </TabsTrigger>
-                    <TabsTrigger value="setup" className="gap-2">
-                      <ClipboardList className="h-4 w-4" />
-                      Setup
                     </TabsTrigger>
                     <TabsTrigger value="campaigns" className="gap-2">
                       <Megaphone className="h-4 w-4" />
@@ -1195,8 +1678,43 @@ export default function AdminPage() {
                   {/* Credentials Tab */}
                   <TabsContent value="credentials" className="space-y-6">
                     {/* Action buttons */}
-                    <div className="flex justify-end gap-2">
-                      <Button variant="outline" onClick={copyAllCredentials}>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={testAllConnections}
+                        disabled={testingAll || Object.keys(editingCredentials).length > 0}
+                        title={Object.keys(editingCredentials).length > 0 ? "Save changes before testing" : "Test all configured integrations"}
+                      >
+                        {testingAll ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="h-4 w-4 mr-2" />
+                        )}
+                        {testingAll ? "Testing..." : "Test All"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => confirmWebhookRegistration("all", registerAllWebhooks)}
+                        disabled={registeringAll}
+                      >
+                        {registeringAll ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <Settings2 className="h-4 w-4 mr-2" />
+                        )}
+                        {registeringAll ? "Registering..." : "Register All Webhooks"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={verifyAllWebhooks} disabled={verifyingWebhooks}>
+                        {verifyingWebhooks ? (
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        ) : (
+                          <RefreshCcw className="h-4 w-4 mr-2" />
+                        )}
+                        {verifyingWebhooks ? "Verifying..." : "Verify Webhooks"}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={copyAllCredentials}>
                         {copied ? (
                           <Check className="h-4 w-4 mr-2 text-green-500" />
                         ) : (
@@ -1205,7 +1723,7 @@ export default function AdminPage() {
                         {copied ? "Copied!" : "Copy All"}
                       </Button>
                       {Object.keys(editingCredentials).length > 0 && (
-                        <Button onClick={saveCredentials} disabled={savingCredentials}>
+                        <Button size="sm" onClick={saveCredentials} disabled={savingCredentials}>
                           <Save className="h-4 w-4 mr-2" />
                           {savingCredentials ? "Saving..." : "Save Changes"}
                         </Button>
@@ -1253,6 +1771,28 @@ export default function AdminPage() {
                           />
                         </div>
                         <div className="space-y-2">
+                          <Label className="text-sm">Service Type</Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "service_description")}
+                            onChange={(e) => setFieldValue("service_description", e.target.value)}
+                            placeholder="e.g., window cleaning, house cleaning"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Timezone</Label>
+                          <select
+                            className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            value={getFieldValue(currentTenant, "timezone") || "America/Chicago"}
+                            onChange={(e) => setFieldValue("timezone", e.target.value)}
+                          >
+                            <option value="America/New_York">Eastern (New York)</option>
+                            <option value="America/Chicago">Central (Chicago)</option>
+                            <option value="America/Denver">Mountain (Denver)</option>
+                            <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+                            <option value="America/Phoenix">Arizona (Phoenix)</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
                           <Label className="text-sm">SDR Persona</Label>
                           <Input
                             value={getFieldValue(currentTenant, "sdr_persona")}
@@ -1292,6 +1832,12 @@ export default function AdminPage() {
                       <div className="font-medium flex items-center gap-2">
                         <Phone className="h-4 w-4" />
                         OpenPhone
+                        {(() => {
+                          const status = getIntegrationStatus("openphone", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1329,13 +1875,60 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("openphone")} disabled={testingService === "openphone" || !currentTenant.openphone_api_key}>
+                          {testingService === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["openphone"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["openphone"].message)}>
+                            {testResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("OpenPhone", () => registerWebhook("openphone"))} disabled={registeringWebhook === "openphone" || !currentTenant.openphone_api_key}>
+                          {registeringWebhook === "openphone" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {webhookResults["openphone"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookResults["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["openphone"].message)}>
+                            {webhookResults["openphone"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        {!webhookResults["openphone"] && currentTenant.openphone_webhook_error && (
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.openphone_webhook_error} (${new Date(currentTenant.openphone_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.openphone_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && currentTenant.openphone_webhook_registered_at && (
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.openphone_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && !currentTenant.openphone_webhook_registered_at && currentTenant.openphone_api_key && (
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        )}
+                        {webhookVerification["openphone"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["openphone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["openphone"].message)}>
+                            {webhookVerification["openphone"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* VAPI */}
+                    {/* VAPI - hidden if disabled */}
+                    {(currentTenant.workflow_config.use_vapi_inbound || currentTenant.workflow_config.use_vapi_outbound) && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
                         VAPI (Voice AI)
+                        {(() => {
+                          const status = getIntegrationStatus("vapi", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       {/* Auto-generated Server URL */}
                       <div className="space-y-2">
@@ -1400,13 +1993,41 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("vapi")} disabled={testingService === "vapi" || !currentTenant.vapi_api_key}>
+                          {testingService === "vapi" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["vapi"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["vapi"].message)}>
+                            {testResults["vapi"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        {currentTenant.webhook_health?.vapi?.last_event_at ? (
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id) ? (
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure Server URL in VAPI dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure Server URL in VAPI dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
+                    )}
 
-                    {/* Stripe */}
+                    {/* Stripe - hidden if disabled */}
+                    {currentTenant.workflow_config.use_stripe && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Key className="h-4 w-4" />
                         Stripe
+                        {(() => {
+                          const status = getIntegrationStatus("stripe", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1446,13 +2067,61 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("stripe")} disabled={testingService === "stripe" || !currentTenant.stripe_secret_key}>
+                          {testingService === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["stripe"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["stripe"].message)}>
+                            {testResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("Stripe", () => registerWebhook("stripe"))} disabled={registeringWebhook === "stripe" || !currentTenant.stripe_secret_key}>
+                          {registeringWebhook === "stripe" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {webhookResults["stripe"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookResults["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["stripe"].message)}>
+                            {webhookResults["stripe"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        {!webhookResults["stripe"] && currentTenant.stripe_webhook_error && (
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.stripe_webhook_error} (${new Date(currentTenant.stripe_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.stripe_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && currentTenant.stripe_webhook_registered_at && (
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.stripe_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && !currentTenant.stripe_webhook_registered_at && currentTenant.stripe_secret_key && (
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        )}
+                        {webhookVerification["stripe"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["stripe"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["stripe"].message)}>
+                            {webhookVerification["stripe"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    )}
 
-                    {/* HousecallPro */}
+                    {/* HousecallPro - hidden if disabled */}
+                    {currentTenant.workflow_config.use_housecall_pro && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         HousecallPro
+                        {(() => {
+                          const status = getIntegrationStatus("housecall_pro", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1500,13 +2169,50 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      {/* Webhook health + URL */}
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        <div className="space-y-1">
+                          <Label className="text-sm">Webhook URL <span className="text-muted-foreground">(paste in HousecallPro dashboard)</span></Label>
+                          <div className="flex gap-2">
+                            <Input
+                              readOnly
+                              value={getWebhookUrl(currentTenant.slug, "housecall-pro")}
+                              className="bg-muted/50 font-mono text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, "housecall-pro"), "hcp_webhook_url")}
+                            >
+                              {copiedUrl === "hcp_webhook_url" ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        {currentTenant.webhook_health?.housecall_pro?.last_event_at ? (
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.housecall_pro.last_event_type} (${new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.housecall_pro.last_event_type} (${new Date(currentTenant.webhook_health.housecall_pro.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        ) : currentTenant.housecall_pro_api_key ? (
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in HousecallPro dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in HousecallPro dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
+                    )}
 
-                    {/* GoHighLevel */}
+                    {/* GoHighLevel - hidden if disabled */}
+                    {currentTenant.workflow_config.use_ghl && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         GoHighLevel
+                        {(() => {
+                          const status = getIntegrationStatus("ghl", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1536,13 +2242,49 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      {/* Webhook health + URL */}
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        <div className="space-y-1">
+                          <Label className="text-sm">Webhook URL <span className="text-muted-foreground">(paste in GHL dashboard)</span></Label>
+                          <div className="flex gap-2">
+                            <Input
+                              readOnly
+                              value={getWebhookUrl(currentTenant.slug, "ghl")}
+                              className="bg-muted/50 font-mono text-xs"
+                            />
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => copyUrl(getWebhookUrl(currentTenant.slug, "ghl"), "ghl_webhook_url")}
+                            >
+                              {copiedUrl === "ghl_webhook_url" ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        </div>
+                        {currentTenant.webhook_health?.ghl?.last_event_at ? (
+                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.ghl.last_event_type} (${new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.ghl.last_event_type} (${new Date(currentTenant.webhook_health.ghl.last_event_at).toLocaleDateString()})`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        ) : currentTenant.ghl_location_id ? (
+                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in GHL dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in GHL dashboard")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
+                    )}
 
                     {/* Telegram */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <MessageSquare className="h-4 w-4" />
                         Telegram
+                        {(() => {
+                          const status = getIntegrationStatus("telegram", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
@@ -1572,13 +2314,60 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("telegram")} disabled={testingService === "telegram" || !currentTenant.telegram_bot_token}>
+                          {testingService === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["telegram"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["telegram"].message)}>
+                            {testResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("Telegram", () => registerWebhook("telegram"))} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
+                          {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {webhookResults["telegram"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["telegram"].message)}>
+                            {webhookResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        {!webhookResults["telegram"] && currentTenant.telegram_webhook_error && (
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.telegram_webhook_error} (${new Date(currentTenant.telegram_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.telegram_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && currentTenant.telegram_webhook_registered_at && (
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && !currentTenant.telegram_webhook_registered_at && currentTenant.telegram_bot_token && (
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        )}
+                        {webhookVerification["telegram"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["telegram"].message)}>
+                            {webhookVerification["telegram"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Wave */}
+                    {/* Wave - hidden if disabled */}
+                    {currentTenant.workflow_config.use_wave && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
                       <div className="font-medium flex items-center gap-2">
                         <Settings2 className="h-4 w-4" />
                         Wave Accounting
+                        {(() => {
+                          const status = getIntegrationStatus("wave", currentTenant)
+                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
+                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
+                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
+                        })()}
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2">
@@ -1616,7 +2405,19 @@ export default function AdminPage() {
                           />
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("wave")} disabled={testingService === "wave" || !currentTenant.wave_api_token}>
+                          {testingService === "wave" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["wave"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["wave"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["wave"].message)}>
+                            {testResults["wave"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                      </div>
                     </div>
+                    )}
 
                     {/* Gmail (Email Bot) */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
@@ -2205,116 +3006,660 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Add New Business Modal */}
+      {/* Onboarding Wizard */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 overflow-y-auto py-8">
-          <Card className="w-full max-w-lg mx-4">
-            <CardHeader>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-3xl mx-4 max-h-[95vh] flex flex-col overflow-hidden">
+            <CardHeader className="shrink-0">
               <div className="flex items-center justify-between">
-                <CardTitle>Add New Business</CardTitle>
-                <Button variant="ghost" size="icon" onClick={() => setShowAddModal(false)}>
+                <CardTitle>
+                  {onboardStep === 0 && "Step 1: Business Info"}
+                  {onboardStep === 1 && "Step 2: API Credentials"}
+                  {onboardStep === 2 && "Step 3: Review & Setup"}
+                </CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <CardDescription>Create a new business/tenant. Pricing tiers and a login user will be auto-created.</CardDescription>
+              {/* Step indicators */}
+              <div className="flex gap-2 mt-2">
+                {[0, 1, 2].map((s) => (
+                  <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= onboardStep ? "bg-primary" : "bg-muted"}`} />
+                ))}
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Internal Name *</Label>
-                  <Input
-                    value={newBusiness.name}
-                    onChange={(e) => setNewBusiness({ ...newBusiness, name: e.target.value })}
-                    placeholder="Cedar Rapids Cleaning"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Slug *</Label>
-                  <Input
-                    value={newBusiness.slug}
-                    onChange={(e) => setNewBusiness({ ...newBusiness, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                    placeholder="cedar-rapids"
-                  />
-                  <p className="text-xs text-muted-foreground">URL-safe identifier</p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Password *</Label>
-                <Input
-                  type="password"
-                  value={newBusiness.password}
-                  onChange={(e) => setNewBusiness({ ...newBusiness, password: e.target.value })}
-                  placeholder="••••••••"
-                />
-                <p className="text-xs text-muted-foreground">Login: username = slug, password = this value</p>
-              </div>
+            <CardContent className="space-y-4 overflow-y-auto">
+              {/* STEP 0 — Business Info */}
+              {onboardStep === 0 && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Business Name *</Label>
+                      <Input
+                        value={onboardForm.name}
+                        onChange={(e) => {
+                          const name = e.target.value
+                          const autoSlug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+                          setOnboardForm({ ...onboardForm, name, slug: onboardForm.slug || autoSlug, business_name: onboardForm.business_name || name })
+                        }}
+                        placeholder="WinBros Cleaning"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Slug *</Label>
+                      <Input
+                        value={onboardForm.slug}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                        placeholder="winbros"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Password</Label>
+                      <Input
+                        type="password"
+                        value={onboardForm.password}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, password: e.target.value })}
+                        placeholder="Defaults to slug"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Flow Type *</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.flow_type}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, flow_type: e.target.value as any })}
+                      >
+                        <option value="winbros">WinBros (Window Cleaning — Full HCP)</option>
+                        <option value="spotless">Spotless (House Cleaning)</option>
+                        <option value="cedar">Cedar (Simple Booking)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Pricing</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.seed_pricing}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, seed_pricing: e.target.value as any })}
+                      >
+                        <option value="default">Default (14 tiers + 7 addons)</option>
+                        <option value="skip">Skip — configure later</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Short Name</Label>
+                      <Input
+                        value={onboardForm.business_name_short}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, business_name_short: e.target.value })}
+                        placeholder="WinBros"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Service Area</Label>
+                      <Input
+                        value={onboardForm.service_area}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, service_area: e.target.value })}
+                        placeholder="Dallas, TX"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Service Type</Label>
+                      <Input
+                        value={onboardForm.service_description}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, service_description: e.target.value })}
+                        placeholder="e.g., window cleaning, house cleaning"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Timezone</Label>
+                      <select
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={onboardForm.timezone}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, timezone: e.target.value })}
+                      >
+                        <option value="America/New_York">Eastern</option>
+                        <option value="America/Chicago">Central</option>
+                        <option value="America/Denver">Mountain</option>
+                        <option value="America/Los_Angeles">Pacific</option>
+                        <option value="America/Phoenix">Arizona</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>SDR Persona</Label>
+                      <Input
+                        value={onboardForm.sdr_persona}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, sdr_persona: e.target.value })}
+                        placeholder="Mary"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Owner Phone</Label>
+                      <Input
+                        value={onboardForm.owner_phone}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, owner_phone: e.target.value })}
+                        placeholder="+1234567890"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Owner Email</Label>
+                      <Input
+                        value={onboardForm.owner_email}
+                        onChange={(e) => setOnboardForm({ ...onboardForm, owner_email: e.target.value })}
+                        placeholder="owner@example.com"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Google Review Link</Label>
+                    <Input
+                      value={onboardForm.google_review_link}
+                      onChange={(e) => setOnboardForm({ ...onboardForm, google_review_link: e.target.value })}
+                      placeholder="https://g.page/..."
+                    />
+                  </div>
+                  <div className="flex justify-end pt-4">
+                    <Button onClick={() => setOnboardStep(1)} disabled={!onboardForm.name || !onboardForm.slug}>
+                      Next: API Credentials
+                    </Button>
+                  </div>
+                </>
+              )}
 
-              <div className="border-t pt-4 space-y-4">
-                <p className="text-sm font-medium text-muted-foreground">Business Details</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Business Name <span className="text-muted-foreground text-xs">(customer-facing)</span></Label>
-                    <Input
-                      value={newBusiness.business_name}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, business_name: e.target.value })}
-                      placeholder="Cedar Rapids Cleaning Services"
-                    />
+              {/* STEP 1 — API Credentials */}
+              {onboardStep === 1 && (
+                <div className="space-y-2">
+                  {/* OpenPhone */}
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">OpenPhone</Label>
+                      <a href="https://my.openphone.com/settings/api" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.openphone_api_key || !onboardForm.openphone_phone_id || !!wizardTesting}
+                        onClick={() => testConnectionDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id })}
+                      >
+                        {wizardTesting === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.openphone && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults.openphone.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.openphone.message)}>
+                          {wizardTestResults.openphone.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.openphone_api_key || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("openphone", { openphone_api_key: onboardForm.openphone_api_key })}
+                      >
+                        {wizardRegistering === "openphone" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
+                      </Button>
+                      {wizardRegisterResults.openphone && (
+                        <span className="inline-flex cursor-pointer" title={(wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message) + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardRegisterResults.openphone.success ? "Webhook registered" : wizardRegisterResults.openphone.message)}>
+                          {wizardRegisterResults.openphone.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.openphone_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_api_key: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.openphone_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone Number" value={onboardForm.openphone_phone_number} onChange={(e) => setOnboardForm({ ...onboardForm, openphone_phone_number: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Short Name <span className="text-muted-foreground text-xs">(for SMS)</span></Label>
-                    <Input
-                      value={newBusiness.business_name_short}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, business_name_short: e.target.value })}
-                      placeholder="CRC"
-                    />
+
+                  {/* Telegram */}
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">Telegram</Label>
+                      <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">BotFather</a>
+                      <div className="flex-1" />
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.telegram_bot_token || !!wizardTesting}
+                        onClick={() => testConnectionDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token })}
+                      >
+                        {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.telegram && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults.telegram.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.telegram.message)}>
+                          {wizardTestResults.telegram.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.telegram_bot_token || !onboardForm.slug || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token, slug: onboardForm.slug })}
+                      >
+                        {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
+                      </Button>
+                      {wizardRegisterResults.telegram && (
+                        <span className="inline-flex cursor-pointer" title={(wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message) + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message)}>
+                          {wizardRegisterResults.telegram.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Service Area</Label>
-                    <Input
-                      value={newBusiness.service_area}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, service_area: e.target.value })}
-                      placeholder="Cedar Rapids, IA"
-                    />
+
+                  {/* Stripe */}
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">Stripe</Label>
+                      <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.stripe_secret_key || !!wizardTesting}
+                        onClick={() => testConnectionDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
+                      >
+                        {wizardTesting === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.stripe && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults.stripe.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.stripe.message)}>
+                          {wizardTestResults.stripe.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.stripe_secret_key || !!wizardRegistering}
+                        onClick={() => registerWebhookDirect("stripe", { stripe_secret_key: onboardForm.stripe_secret_key })}
+                      >
+                        {wizardRegistering === "stripe" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
+                      </Button>
+                      {wizardRegisterResults.stripe && (
+                        <span className="inline-flex cursor-pointer" title={(wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message) + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardRegisterResults.stripe.success ? `Webhook registered${wizardRegisterResults.stripe.secret ? " (secret saved)" : ""}` : wizardRegisterResults.stripe.message)}>
+                          {wizardRegisterResults.stripe.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                    </div>
+                    <Input className="h-8 text-sm" placeholder="Secret Key (sk_...)" value={onboardForm.stripe_secret_key} onChange={(e) => setOnboardForm({ ...onboardForm, stripe_secret_key: e.target.value })} />
                   </div>
-                  <div className="space-y-2">
-                    <Label>SDR Persona</Label>
-                    <Input
-                      value={newBusiness.sdr_persona}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, sdr_persona: e.target.value })}
-                      placeholder="Mary"
-                    />
+
+                  {/* VAPI */}
+                  <div className="border rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">VAPI</Label>
+                      <a href="https://dashboard.vapi.ai" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                      <div className="flex-1" />
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.vapi_api_key || !onboardForm.vapi_assistant_id || !!wizardTesting}
+                        onClick={() => testConnectionDirect("vapi", { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id })}
+                      >
+                        {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.vapi && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults.vapi.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.vapi.message)}>
+                          {wizardTestResults.vapi.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
+                      <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">VAPI Server URL must be set manually in VAPI dashboard to: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/vapi</code></p>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Owner Phone</Label>
-                    <Input
-                      value={newBusiness.owner_phone}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, owner_phone: e.target.value })}
-                      placeholder="+1..."
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Owner Email</Label>
-                    <Input
-                      value={newBusiness.owner_email}
-                      onChange={(e) => setNewBusiness({ ...newBusiness, owner_email: e.target.value })}
-                      placeholder="owner@example.com"
-                    />
+
+                  {/* Additional Services — expandable */}
+                  <button
+                    type="button"
+                    className="w-full text-left text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 py-1"
+                    onClick={() => setShowExtraServices(!showExtraServices)}
+                  >
+                    <span className={`transition-transform ${showExtraServices ? "rotate-90" : ""}`}>&#9654;</span>
+                    Additional Services
+                  </button>
+                  {showExtraServices && (
+                    <div className="space-y-2 pl-2 border-l-2 border-muted">
+                      {/* HousecallPro */}
+                      <div className="border rounded-lg p-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">HousecallPro</Label>
+                          <a href="https://app.housecallpro.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
+                          <span className="text-xs text-orange-500">Manual webhook setup required</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.housecall_pro_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_api_key: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Company ID" value={onboardForm.housecall_pro_company_id} onChange={(e) => setOnboardForm({ ...onboardForm, housecall_pro_company_id: e.target.value })} />
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                          <p className="font-medium">Manual webhook setup:</p>
+                          <p>1. Go to HCP Settings &gt; Integrations &gt; Webhooks</p>
+                          <p>2. Add webhook URL: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/housecall-pro</code></p>
+                          <p>3. Enable events: job.scheduled, job.completed, estimate.scheduled</p>
+                        </div>
+                      </div>
+                      {/* Wave */}
+                      <div className="border rounded-lg p-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">Wave Accounting</Label>
+                          <a href="https://my.waveapps.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
+                          <div className="flex-1" />
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                            disabled={!onboardForm.wave_api_token || !onboardForm.wave_business_id || !!wizardTesting}
+                            onClick={() => testConnectionDirect("wave", { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id })}
+                          >
+                            {wizardTesting === "wave" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                          </Button>
+                          {wizardTestResults.wave && (
+                            <span className="inline-flex cursor-pointer" title={wizardTestResults.wave.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.wave.message)}>
+                              {wizardTestResults.wave.success
+                                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <Input className="h-8 text-sm" placeholder="API Token" value={onboardForm.wave_api_token} onChange={(e) => setOnboardForm({ ...onboardForm, wave_api_token: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Business ID" value={onboardForm.wave_business_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_business_id: e.target.value })} />
+                          <Input className="h-8 text-sm" placeholder="Income Account ID" value={onboardForm.wave_income_account_id} onChange={(e) => setOnboardForm({ ...onboardForm, wave_income_account_id: e.target.value })} />
+                        </div>
+                      </div>
+                      {/* GHL */}
+                      <div className="border rounded-lg p-2">
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Label className="font-semibold text-sm">GHL (GoHighLevel)</Label>
+                          <a href="https://app.gohighlevel.com/settings" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
+                          <span className="text-xs text-orange-500">Manual webhook setup required</span>
+                        </div>
+                        <Input className="h-8 text-sm" placeholder="Location ID" value={onboardForm.ghl_location_id} onChange={(e) => setOnboardForm({ ...onboardForm, ghl_location_id: e.target.value })} />
+                        <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                          <p className="font-medium">Manual webhook setup:</p>
+                          <p>1. Go to GHL Settings &gt; Webhooks</p>
+                          <p>2. Add webhook URL: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/ghl</code></p>
+                          <p>3. Enable: Contact Create, Contact Update, Opportunity Status Change</p>
+                        </div>
+                      </div>
+
+                      {/* Custom Services */}
+                      {customServices.map((svc, si) => (
+                        <div key={si} className="border rounded-lg p-2">
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <Input className="h-7 text-sm font-semibold w-40" placeholder="Service Name" value={svc.name}
+                              onChange={(e) => {
+                                const updated = [...customServices]
+                                updated[si] = { ...svc, name: e.target.value }
+                                setCustomServices(updated)
+                              }}
+                            />
+                            <Button size="sm" variant="ghost" className="h-6 px-1 text-xs text-red-500"
+                              onClick={() => setCustomServices(customServices.filter((_, i) => i !== si))}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
+                          {svc.fields.map((f, fi) => (
+                            <div key={fi} className="grid grid-cols-[1fr_1fr_auto] gap-1.5 mb-1">
+                              <Input className="h-7 text-xs" placeholder="Key (e.g. api_key)" value={f.key}
+                                onChange={(e) => {
+                                  const updated = [...customServices]
+                                  updated[si].fields[fi] = { ...f, key: e.target.value }
+                                  setCustomServices(updated)
+                                }}
+                              />
+                              <Input className="h-7 text-xs" placeholder="Value" value={f.value}
+                                onChange={(e) => {
+                                  const updated = [...customServices]
+                                  updated[si].fields[fi] = { ...f, value: e.target.value }
+                                  setCustomServices(updated)
+                                }}
+                              />
+                              <Button size="sm" variant="ghost" className="h-7 px-1"
+                                onClick={() => {
+                                  const updated = [...customServices]
+                                  updated[si].fields = svc.fields.filter((_, i) => i !== fi)
+                                  setCustomServices(updated)
+                                }}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ))}
+                          <Button size="sm" variant="ghost" className="h-6 text-xs"
+                            onClick={() => {
+                              const updated = [...customServices]
+                              updated[si].fields = [...svc.fields, { key: "", value: "" }]
+                              setCustomServices(updated)
+                            }}
+                          >
+                            + Add Field
+                          </Button>
+                        </div>
+                      ))}
+                      <Button size="sm" variant="outline" className="w-full h-7 text-xs"
+                        onClick={() => setCustomServices([...customServices, { name: "", fields: [{ key: "", value: "" }] }])}
+                      >
+                        + Add Custom Service
+                      </Button>
+                    </div>
+                  )}
+
+                  {/* Test All + Navigation */}
+                  <div className="flex items-center gap-2 pt-3">
+                    <Button variant="outline" onClick={() => setOnboardStep(0)}>Back</Button>
+                    <Button variant="outline" size="sm"
+                      disabled={!!wizardTesting || (!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && !onboardForm.wave_api_token)}
+                      onClick={testAllConnectionsDirect}
+                    >
+                      {wizardTesting === "all" ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Testing...</> : "Test All"}
+                    </Button>
+                    <div className="flex-1" />
+                    <Button onClick={() => setOnboardStep(2)}>Next: Review</Button>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <div className="flex gap-2 pt-4">
-                <Button variant="outline" className="flex-1" onClick={() => setShowAddModal(false)}>
-                  Cancel
-                </Button>
-                <Button className="flex-1" onClick={createBusiness} disabled={creating || !newBusiness.name || !newBusiness.slug || !newBusiness.password}>
-                  {creating ? "Creating..." : "Create Business"}
-                </Button>
-              </div>
+              {/* STEP 2 — Review & Setup (check → create) */}
+              {onboardStep === 2 && (() => {
+                // Compute untested credentials
+                const untestedServices: string[] = []
+                if (onboardForm.openphone_api_key && !wizardTestResults.openphone) untestedServices.push("OpenPhone")
+                if (onboardForm.telegram_bot_token && !wizardTestResults.telegram) untestedServices.push("Telegram")
+                if (onboardForm.stripe_secret_key && !wizardTestResults.stripe) untestedServices.push("Stripe")
+                if (onboardForm.vapi_api_key && !wizardTestResults.vapi) untestedServices.push("VAPI")
+                if (onboardForm.wave_api_token && !wizardTestResults.wave) untestedServices.push("Wave")
+
+                return (
+                  <>
+                    {/* Business Info Review */}
+                    <div className="space-y-1.5 text-sm">
+                      <p className="font-medium text-base">Business Info</p>
+                      {([
+                        { label: "Business Name", value: onboardForm.name, required: true },
+                        { label: "Slug", value: onboardForm.slug, required: true },
+                        { label: "Flow Type", value: onboardForm.flow_type.charAt(0).toUpperCase() + onboardForm.flow_type.slice(1), required: true },
+                        { label: "Password", value: onboardForm.password ? "Set" : "Default (slug)", required: false, always: true },
+                        { label: "Pricing", value: onboardForm.seed_pricing === "default" ? "Default (14 tiers + 7 addons)" : "Skip", required: false, always: true },
+                        { label: "Short Name", value: onboardForm.business_name_short },
+                        { label: "Service Area", value: onboardForm.service_area },
+                        { label: "Service Type", value: onboardForm.service_description },
+                        { label: "Timezone", value: ({ "America/New_York": "Eastern", "America/Chicago": "Central", "America/Denver": "Mountain", "America/Los_Angeles": "Pacific" } as Record<string, string>)[onboardForm.timezone] || onboardForm.timezone, required: false, always: true },
+                        { label: "SDR Persona", value: onboardForm.sdr_persona, required: false, always: true },
+                        { label: "Owner Phone", value: onboardForm.owner_phone },
+                        { label: "Owner Email", value: onboardForm.owner_email },
+                        { label: "Google Review Link", value: onboardForm.google_review_link },
+                      ] as Array<{ label: string; value: string; required?: boolean; always?: boolean }>).map((field) => (
+                        <div key={field.label} className="flex items-center gap-2 pl-2">
+                          {field.value
+                            ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            : field.required
+                              ? <X className="h-4 w-4 text-red-500 shrink-0" />
+                              : <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />}
+                          <span className="w-36 text-muted-foreground shrink-0">{field.label}</span>
+                          <span className={field.value ? "font-medium" : "text-muted-foreground italic"}>{field.value || "Not set"}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* API Credentials Review — only configured services */}
+                    {(() => {
+                      const configuredServices = [
+                        { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone", needsManual: false },
+                        { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram", needsManual: false },
+                        { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe", needsManual: false },
+                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi", registerKey: null, needsManual: true },
+                        { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
+                        { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null, needsManual: false },
+                        { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
+                      ].filter(s => s.configured)
+                      if (configuredServices.length === 0) return (
+                        <div className="border-t pt-3 mt-3 text-sm">
+                          <p className="font-medium text-base">API Credentials</p>
+                          <p className="text-muted-foreground italic pl-2 mt-1">None — you can add credentials later</p>
+                        </div>
+                      )
+                      return (
+                        <div className="border-t pt-3 mt-3 space-y-1.5 text-sm">
+                          <p className="font-medium text-base">API Credentials</p>
+                          {configuredServices.map((svc) => {
+                            const testResult = svc.testKey ? wizardTestResults[svc.testKey] : null
+                            const regResult = svc.registerKey ? wizardRegisterResults[svc.registerKey] : null
+                            const isTestingThis = wizardTesting === "all" && svc.testKey && !testResult
+                            const anyFailed = (testResult && !testResult.success) || (regResult && !regResult.success)
+                            const allAutoPassed = (!testResult || testResult.success) && (!regResult || regResult.success)
+                            const needsManualAttention = svc.needsManual && allAutoPassed && !isTestingThis
+                            return (
+                              <div key={svc.name} className="flex items-center gap-2 pl-2">
+                                {isTestingThis
+                                  ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+                                  : anyFailed
+                                    ? <X className="h-4 w-4 text-red-500 shrink-0" />
+                                    : needsManualAttention
+                                      ? <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+                                      : <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />}
+                                <span className="w-36 font-medium shrink-0">{svc.name}</span>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  {testResult && (
+                                    <span className="inline-flex items-center gap-1 cursor-pointer" title={testResult.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResult.message)}>
+                                      {testResult.success
+                                        ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                        : <X className="h-3 w-3 text-red-500" />}
+                                      tested
+                                    </span>
+                                  )}
+                                  {regResult && (
+                                    <span className="inline-flex items-center gap-1 cursor-pointer" title={(regResult.success ? "Webhook registered" : regResult.message) + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(regResult.success ? "Webhook registered" : regResult.message)}>
+                                      {regResult.success
+                                        ? <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                        : <X className="h-3 w-3 text-red-500" />}
+                                      registered
+                                    </span>
+                                  )}
+                                  {svc.needsManual && <span className="text-orange-500">manual setup needed</span>}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Untested credential reminder */}
+                    {untestedServices.length > 0 && !onboardResults && wizardTesting !== "all" && (
+                      <div className="mt-2 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                        Not verified: {untestedServices.join(", ")}. Go back to test these credentials before creating.
+                      </div>
+                    )}
+
+                    {/* Pipeline running indicator */}
+                    {onboarding && !onboardResults && (
+                      <div className="flex items-center gap-2 pt-3 text-sm text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Creating tenant...
+                      </div>
+                    )}
+
+                    {/* Pipeline results — only shown on failure (success auto-navigates) */}
+                    {onboardResults && (
+                      <div className="border-t pt-3 mt-3 space-y-2 text-sm">
+                        {/* Core steps */}
+                        {(["create_tenant", "create_user", "seed_pricing", "save_credentials"] as const).map((key) => {
+                          const step = onboardResults.steps[key]
+                          if (!step) return null
+                          const label = key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                          return (
+                            <div key={key} className="flex items-center gap-2">
+                              {step.status === "success" ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                              ) : step.status === "skipped" ? (
+                                <div className="h-4 w-4 rounded-full border-2 border-muted shrink-0" />
+                              ) : (
+                                <X className="h-4 w-4 text-red-500 shrink-0" />
+                              )}
+                              <span className="font-medium">{label}</span>
+                              <span className="text-muted-foreground ml-auto text-right break-words max-w-[400px] select-text cursor-text text-xs" title={step.message}>{step.message}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Navigation */}
+                    <div className="flex justify-between pt-4">
+                      <Button variant="outline" disabled={onboarding}
+                        onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
+                        Back
+                      </Button>
+                      <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
+                        {onboarding ? (
+                          <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
+                        ) : onboardResults ? (
+                          "Retry"
+                        ) : (
+                          "Create Tenant"
+                        )}
+                      </Button>
+                    </div>
+                  </>
+                )
+              })()}
             </CardContent>
           </Card>
         </div>
       )}
+      <AlertDialog open={webhookConfirmOpen} onOpenChange={setWebhookConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Re-register {webhookConfirmService === "all" ? "all webhooks" : `${webhookConfirmService} webhook`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will delete the existing webhook and create a new one with a new signing secret. The current secret will be invalidated. If the new secret fails to save, webhook signature validation will break until re-registered.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                webhookConfirmAction?.()
+                setWebhookConfirmOpen(false)
+              }}
+            >
+              Re-register
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

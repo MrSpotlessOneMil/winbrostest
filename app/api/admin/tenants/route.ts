@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { randomBytes } from "crypto"
 import { createClient } from "@supabase/supabase-js"
 import { requireAdmin } from "@/lib/auth"
 
@@ -28,6 +29,8 @@ export async function GET(request: NextRequest) {
       business_name,
       business_name_short,
       service_area,
+      service_description,
+      timezone,
       sdr_persona,
       owner_phone,
       owner_email,
@@ -53,6 +56,15 @@ export async function GET(request: NextRequest) {
       wave_income_account_id,
       gmail_user,
       gmail_app_password,
+      telegram_webhook_registered_at,
+      telegram_webhook_error,
+      telegram_webhook_error_at,
+      stripe_webhook_registered_at,
+      stripe_webhook_error,
+      stripe_webhook_error_at,
+      openphone_webhook_registered_at,
+      openphone_webhook_error,
+      openphone_webhook_error_at,
       workflow_config,
       active,
       created_at,
@@ -64,7 +76,89 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, data: tenants })
+  // Batch-fetch cleaner and pricing counts per tenant
+  const tenantIds = (tenants || []).map((t: any) => t.id)
+
+  const { data: cleanerRows } = tenantIds.length > 0
+    ? await client
+        .from("cleaners")
+        .select("tenant_id")
+        .in("tenant_id", tenantIds)
+        .eq("active", true)
+        .is("deleted_at", null)
+    : { data: [] }
+
+  const { data: pricingRows } = tenantIds.length > 0
+    ? await client
+        .from("pricing_tiers")
+        .select("tenant_id")
+        .in("tenant_id", tenantIds)
+    : { data: [] }
+
+  const cleanerCountMap: Record<string, number> = {}
+  for (const row of cleanerRows || []) {
+    cleanerCountMap[row.tenant_id] = (cleanerCountMap[row.tenant_id] || 0) + 1
+  }
+
+  const pricingCountMap: Record<string, number> = {}
+  for (const row of pricingRows || []) {
+    pricingCountMap[row.tenant_id] = (pricingCountMap[row.tenant_id] || 0) + 1
+  }
+
+  // Batch-fetch latest webhook events per tenant per source (for HCP/GHL/VAPI health)
+  const webhookSources = ["housecall_pro", "ghl", "vapi"]
+  const { data: webhookEventRows } = tenantIds.length > 0
+    ? await client
+        .from("system_events")
+        .select("tenant_id, source, event_type, created_at")
+        .in("tenant_id", tenantIds)
+        .in("source", webhookSources)
+        .order("created_at", { ascending: false })
+        .limit(300)
+    : { data: [] }
+
+  // Deduplicate: keep only the latest event per (tenant_id, source)
+  const webhookHealthMap: Record<string, Record<string, { last_event_at: string; last_event_type: string }>> = {}
+  for (const row of webhookEventRows || []) {
+    if (!webhookHealthMap[row.tenant_id]) webhookHealthMap[row.tenant_id] = {}
+    if (!webhookHealthMap[row.tenant_id][row.source]) {
+      webhookHealthMap[row.tenant_id][row.source] = {
+        last_event_at: row.created_at,
+        last_event_type: row.event_type,
+      }
+    }
+  }
+
+  // Mask secret values — show only last 4 chars
+  const SECRET_FIELDS = [
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+  ]
+  function maskSecret(val: string | null): string | null {
+    if (!val) return null
+    if (val.length <= 8) return '****'
+    return '****' + val.slice(-4)
+  }
+
+  const enrichedTenants = (tenants || []).map((t: any) => {
+    const masked = { ...t }
+    for (const field of SECRET_FIELDS) {
+      if (masked[field]) masked[field] = maskSecret(masked[field])
+    }
+    return {
+      ...masked,
+      cleaner_count: cleanerCountMap[t.id] || 0,
+      pricing_tier_count: pricingCountMap[t.id] || 0,
+      webhook_health: {
+        housecall_pro: webhookHealthMap[t.id]?.housecall_pro || null,
+        ghl: webhookHealthMap[t.id]?.ghl || null,
+        vapi: webhookHealthMap[t.id]?.vapi || null,
+      },
+    }
+  })
+
+  return NextResponse.json({ success: true, data: enrichedTenants })
 }
 
 // POST - Create new tenant
@@ -76,7 +170,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const {
     name, slug, email, password,
-    business_name, business_name_short, service_area,
+    business_name, business_name_short, service_area, service_description,
     sdr_persona, owner_phone, owner_email, timezone,
     flow_flags, // optional: { use_hcp_mirror, use_team_routing, use_cleaner_dispatch, ... }
   } = body
@@ -113,6 +207,7 @@ export async function POST(request: NextRequest) {
       business_name: business_name || name,
       business_name_short: business_name_short || null,
       service_area: service_area || null,
+      service_description: service_description || null,
       sdr_persona: sdr_persona || 'Mary',
       owner_phone: owner_phone || null,
       owner_email: owner_email || email || null,
@@ -169,7 +264,7 @@ export async function POST(request: NextRequest) {
 
   // Auto-create a login user for this tenant (username = slug)
   if (tenant) {
-    const userPassword = password || slug // Default password to slug if not provided
+    const userPassword = password || randomBytes(12).toString('base64url') // Generate random password if not provided
     const { error: userError } = await client.rpc("create_user_with_password", {
       p_username: slug,
       p_password: userPassword,
@@ -232,10 +327,38 @@ export async function PATCH(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { tenantId, updates } = body
+  const { tenantId, updates: rawUpdates } = body
 
   if (!tenantId) {
     return NextResponse.json({ success: false, error: "tenantId is required" }, { status: 400 })
+  }
+
+  // Whitelist allowed fields to prevent injection of arbitrary columns
+  const ALLOWED_FIELDS = new Set([
+    'name', 'slug', 'email', 'business_name', 'business_name_short', 'service_area', 'service_description',
+    'sdr_persona', 'owner_phone', 'owner_email', 'google_review_link', 'timezone',
+    'openphone_api_key', 'openphone_phone_id', 'openphone_phone_number',
+    'openphone_webhook_secret',
+    'vapi_api_key', 'vapi_assistant_id', 'vapi_outbound_assistant_id', 'vapi_phone_id',
+    'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_company_id', 'housecall_pro_webhook_secret',
+    'ghl_location_id', 'ghl_webhook_secret',
+    'telegram_bot_token', 'owner_telegram_chat_id',
+    'wave_api_token', 'wave_business_id', 'wave_income_account_id',
+    'workflow_config', 'active',
+  ])
+  // Secret fields that are masked in GET — skip if the value looks masked
+  const SECRET_PATCH_FIELDS = new Set([
+    'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_webhook_secret',
+    'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+  ])
+  const updates: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(rawUpdates || {})) {
+    if (!ALLOWED_FIELDS.has(key)) continue
+    // Skip masked values to prevent overwriting real secrets with "****xxxx"
+    if (SECRET_PATCH_FIELDS.has(key) && typeof value === 'string' && value.startsWith('****')) continue
+    updates[key] = value
   }
 
   const client = getAdminClient()
@@ -273,6 +396,26 @@ export async function PATCH(request: NextRequest) {
     if (existingSlug) {
       return NextResponse.json({ success: false, error: "A business with this slug already exists" }, { status: 400 })
     }
+  }
+
+  // Invalidate webhook registration and errors when API keys change
+  if (updates.telegram_bot_token !== undefined) {
+    updates.telegram_webhook_registered_at = null
+    updates.telegram_webhook_secret = null
+    updates.telegram_webhook_error = null
+    updates.telegram_webhook_error_at = null
+  }
+  if (updates.stripe_secret_key !== undefined) {
+    updates.stripe_webhook_registered_at = null
+    updates.stripe_webhook_secret = null
+    updates.stripe_webhook_error = null
+    updates.stripe_webhook_error_at = null
+  }
+  if (updates.openphone_api_key !== undefined) {
+    updates.openphone_webhook_registered_at = null
+    updates.openphone_webhook_secret = null
+    updates.openphone_webhook_error = null
+    updates.openphone_webhook_error_at = null
   }
 
   const { data, error } = await client

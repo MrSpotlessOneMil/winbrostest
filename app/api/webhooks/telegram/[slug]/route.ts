@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { timingSafeEqual } from "crypto"
 import { getTenantBySlug, tenantUsesFeature } from "@/lib/tenant"
 import {
   getSupabaseServiceClient,
   getJobById,
   getCustomerByPhone,
-  getCleanerById,
   getCleanerAssignmentById,
-  updateCleanerAssignment,
   updateJob,
 } from "@/lib/supabase"
 import { answerCallbackQuery, sendTelegramMessage, logTelegramMessage } from "@/lib/telegram"
@@ -276,27 +275,31 @@ async function handleAcceptCallback(
     const client = getSupabaseServiceClient()
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your acceptance...")
 
-    const assignment = await getCleanerAssignmentById(assignmentId)
-    if (!assignment) {
-      await sendMsg(chatId, "Sorry, this assignment could not be found.", tenant)
-      return NextResponse.json({ success: false, error: "Assignment not found" })
+    // Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
+    const { data: claimed, error: claimErr } = await client
+      .from('cleaner_assignments')
+      .update({ status: 'confirmed', responded_at: new Date().toISOString() })
+      .eq('id', assignmentId)
+      .eq('status', 'pending')
+      .eq('tenant_id', tenant.id)
+      .select('*')
+      .maybeSingle()
+
+    if (claimErr || !claimed) {
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendMsg(chatId, statusMsg, tenant)
+      return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
-    if (assignment.status !== "pending") {
-      await sendMsg(chatId, `This job has already been ${assignment.status}.`, tenant)
-      return NextResponse.json({ success: true })
-    }
+    const assignment = claimed
 
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== tenant.id) {
       await sendMsg(chatId, "Sorry, this job could not be found.", tenant)
       return NextResponse.json({ success: false, error: "Job not found" })
-    }
-
-    const updatedAssignment = await updateCleanerAssignment(assignmentId, "confirmed")
-    if (!updatedAssignment) {
-      await sendMsg(chatId, "Failed to update assignment. Please try again.", tenant)
-      return NextResponse.json({ success: false, error: "Failed to update assignment" })
     }
 
     await updateJob(jobId, { cleaner_confirmed: true, status: 'scheduled', cleaner_id: assignment.cleaner_id } as Record<string, unknown>, {}, client)
@@ -448,24 +451,33 @@ async function handleDeclineCallback(
   try {
     await answerCallbackQuery(tenant, callbackQueryId, "Processing your response...")
 
-    const assignment = await getCleanerAssignmentById(assignmentId)
-    if (!assignment) {
-      await sendMsg(chatId, "Sorry, this assignment could not be found.", tenant)
-      return NextResponse.json({ success: false, error: "Assignment not found" })
+    // Atomic claim: UPDATE only if still pending (prevents TOCTOU race)
+    const client = getSupabaseServiceClient()
+    const { data: claimed, error: claimErr } = await client
+      .from('cleaner_assignments')
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
+      .eq('id', assignmentId)
+      .eq('status', 'pending')
+      .eq('tenant_id', tenant.id)
+      .select('*')
+      .maybeSingle()
+
+    if (claimErr || !claimed) {
+      const existing = await getCleanerAssignmentById(assignmentId)
+      const statusMsg = existing
+        ? `This job has already been ${existing.status}.`
+        : "Sorry, this assignment could not be found."
+      await sendMsg(chatId, statusMsg, tenant)
+      return NextResponse.json({ success: true, action: "assignment_already_processed" })
     }
 
-    if (assignment.status !== "pending") {
-      await sendMsg(chatId, `This job has already been ${assignment.status}.`, tenant)
-      return NextResponse.json({ success: true })
-    }
+    const assignment = claimed
 
     const job = await getJobById(jobId)
-    if (!job) {
+    if (!job || job.tenant_id !== tenant.id) {
       await sendMsg(chatId, "Sorry, this job could not be found.", tenant)
       return NextResponse.json({ success: false, error: "Job not found" })
     }
-
-    await updateCleanerAssignment(assignmentId, "declined")
     await sendMsg(chatId, `No problem! We'll find another ${getRoleLabel(tenant)} for this job.`, tenant)
 
     // Check if this tenant uses broadcast mode
@@ -477,7 +489,6 @@ async function handleDeclineCallback(
     let nextAssigned = false
 
     if (isBroadcast) {
-      const client = getSupabaseServiceClient()
       const { data: remainingPending } = await client
         .from("cleaner_assignments")
         .select("id")
@@ -574,6 +585,21 @@ export async function POST(
   if (!tenant) {
     console.error(`[Telegram/${slug}] Tenant not found`)
     return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
+  }
+
+  // Validate Telegram secret_token (set during setWebhook registration)
+  if (tenant.telegram_webhook_secret) {
+    const secretToken = request.headers.get("x-telegram-bot-api-secret-token")
+    if (!secretToken) {
+      console.error(`[Telegram/${slug}] Missing secret_token header`)
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
+    const expected = Buffer.from(tenant.telegram_webhook_secret)
+    const received = Buffer.from(secretToken)
+    if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+      console.error(`[Telegram/${slug}] Invalid secret_token`)
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
+    }
   }
 
   let update: TelegramUpdate
@@ -1177,6 +1203,7 @@ async function handleCleanerAI(
     const userName = cleaner?.name || firstName
 
     // Build job context for this cleaner
+    const roleLabel = getRoleLabel(tenant)
     let jobContext = ""
     let cleanerInfoContext = ""
     if (cleaner?.id) {
@@ -1226,7 +1253,6 @@ async function handleCleanerAI(
       jobContext = `\n\nThis user is NOT registered as a ${getRoleLabel(tenant)}. Tell them to send "join" to register.`
     }
 
-    const roleLabel = getRoleLabel(tenant)
     const tools: Anthropic.Tool[] = cleaner?.id ? [
       {
         name: "update_cleaner_info",

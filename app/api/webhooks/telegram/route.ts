@@ -14,7 +14,7 @@ import { assignNextAvailableCleaner } from "@/lib/cleaner-assignment"
 import { sendSMS } from "@/lib/openphone"
 import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
+import { getDefaultTenant, getTenantById, tenantUsesFeature } from "@/lib/tenant"
 import type { Tenant } from "@/lib/tenant"
 import { geocodeAddress } from "@/lib/google-maps"
 import { distributeTip } from "@/lib/tips"
@@ -362,8 +362,8 @@ async function handleAcceptCallback(
       return NextResponse.json({ success: false, error: "Job not found" })
     }
 
-    // 5. Update job status to assigned + cleaner_confirmed
-    await updateJob(jobId, { cleaner_confirmed: true, status: 'assigned' } as Record<string, unknown>)
+    // 5. Update job status to scheduled + cleaner_confirmed
+    await updateJob(jobId, { cleaner_confirmed: true, status: 'scheduled', cleaner_id: assignment.cleaner_id } as Record<string, unknown>)
 
     // 6. Get customer info and send notification SMS
     let customerNotified = false
@@ -644,8 +644,23 @@ export async function POST(request: NextRequest) {
 
     console.log(`[OSIRIS] Telegram message from telegram_id=${telegramUserId}, chat_id=${chatId}, length=${text?.length || 0}`)
 
-    // Fetch tenant early for role-aware messaging
-    const tenant = await getDefaultTenant()
+    // LEGACY ROUTE: resolve tenant from cleaner's tenant_id when possible.
+    // Falls back to getDefaultTenant() (WinBros) for unregistered users.
+    // New tenants should use /api/webhooks/telegram/[slug] instead.
+    let tenant: Tenant | null = null
+    const client = getSupabaseServiceClient()
+    const { data: tenantLookupRows } = await client
+      .from("cleaners")
+      .select("tenant_id")
+      .eq("telegram_id", telegramUserId)
+      .eq("active", true)
+      .limit(1)
+    if (tenantLookupRows?.[0]?.tenant_id) {
+      tenant = await getTenantById(tenantLookupRows[0].tenant_id)
+    }
+    if (!tenant) {
+      tenant = await getDefaultTenant()
+    }
     const roleLabel = tenant ? getRoleLabel(tenant) : 'cleaner'
     const roleCap = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)
 
@@ -693,12 +708,10 @@ Send "join" or "I'm a new ${roleLabel}" to register.
       return NextResponse.json({ success: true, action: "chat_id_sent", chat_id: chatId })
     }
 
-    const client = getSupabaseServiceClient()
-
     // Check if user is in onboarding flow (stored in DB, not memory)
     const onboardingState = await getOnboardingState(chatId)
     if (onboardingState) {
-      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState, roleLabel)
+      return await handleOnboardingStep(chatId, telegramUserId, from, text, onboardingState, roleLabel, tenant)
     }
 
     // Check if this is a new cleaner trying to join
@@ -769,15 +782,15 @@ Send "join" or "I'm a new ${roleLabel}" to register.
 
     // Handle team lead commands
     if (text.toLowerCase() === "/team" && cleaner?.is_team_lead) {
-      return await handleTeamCommand(chatId, cleaner, client)
+      return await handleTeamCommand(chatId, cleaner, client, tenant)
     }
 
     if (text.toLowerCase() === "/leaderboard" && cleaner?.is_team_lead) {
-      return await handleLeaderboardCommand(chatId, cleaner, client)
+      return await handleLeaderboardCommand(chatId, cleaner, client, tenant)
     }
 
     if (text.toLowerCase() === "/briefing" && cleaner?.is_team_lead) {
-      return await handleBriefingCommand(chatId, cleaner, client)
+      return await handleBriefingCommand(chatId, cleaner, client, tenant)
     }
 
     // Parse review confirmation from team leads: "review job 123"
@@ -926,7 +939,7 @@ Send "join" or "I'm a new ${roleLabel}" to register.
 
     // Schedule query — directly fetch and format the cleaner's jobs without AI
     if (SCHEDULE_PATTERN.test(text)) {
-      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, roleLabel)
+      const scheduleMsg = await buildScheduleResponse(text, cleaner?.id || null, cleaner?.name || from.first_name, roleLabel, tenant)
       await sendTelegramMessage(chatId, scheduleMsg)
       return NextResponse.json({ success: true, action: "schedule_response" })
     }
@@ -958,7 +971,8 @@ async function handleOnboardingStep(
   from: { first_name: string; username?: string },
   text: string,
   state: OnboardingState,
-  roleLabel: string = 'cleaner'
+  roleLabel: string = 'cleaner',
+  tenant: Tenant | null = null
 ): Promise<NextResponse> {
   const client = getSupabaseServiceClient()
 
@@ -1101,9 +1115,8 @@ async function handleOnboardingStep(
 
     case 'confirm':
       if (text.toLowerCase() === 'yes' || text.toLowerCase() === 'y') {
-        // Legacy route: use getDefaultTenant() for cleaner onboarding (no slug in URL)
+        // Legacy route: tenant resolved from cleaner lookup or getDefaultTenant() fallback
         // New tenants should use /api/webhooks/telegram/[slug] instead
-        const tenant = await getDefaultTenant()
         if (!tenant) {
           await sendTelegramMessage(chatId, `Registration error. Please contact support.`)
           await deleteOnboardingState(chatId)
@@ -1271,13 +1284,16 @@ async function handleOnboardingStep(
 async function handleTeamCommand(
   chatId: string,
   cleaner: { id: string; name: string; is_team_lead?: boolean },
-  client: ReturnType<typeof getSupabaseServiceClient>
+  client: ReturnType<typeof getSupabaseServiceClient>,
+  tenant: Tenant | null
 ): Promise<NextResponse> {
-  // Get all cleaners (team members)
-  const { data: teamMembers, error } = await client
+  // Get all cleaners (team members) scoped to tenant
+  let query = client
     .from("cleaners")
     .select("id, name, phone, is_team_lead, active, telegram_id")
     .eq("active", true)
+  if (tenant?.id) query = query.eq("tenant_id", tenant.id)
+  const { data: teamMembers, error } = await query
     .order("is_team_lead", { ascending: false })
     .order("name")
 
@@ -1306,13 +1322,14 @@ async function handleTeamCommand(
 async function handleLeaderboardCommand(
   chatId: string,
   cleaner: { id: string; name: string },
-  client: ReturnType<typeof getSupabaseServiceClient>
+  client: ReturnType<typeof getSupabaseServiceClient>,
+  tenant: Tenant | null
 ): Promise<NextResponse> {
-  // Get job completion stats for the past 30 days
+  // Get job completion stats for the past 30 days, scoped to tenant
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
-  const { data: assignments, error } = await client
+  let query = client
     .from("cleaner_assignments")
     .select(`
       cleaner_id,
@@ -1321,6 +1338,8 @@ async function handleLeaderboardCommand(
     `)
     .gte("created_at", thirtyDaysAgo.toISOString())
     .eq("status", "confirmed")
+  if (tenant?.id) query = query.eq("tenant_id", tenant.id)
+  const { data: assignments, error } = await query
 
   if (error) {
     await sendTelegramMessage(chatId, `Error fetching leaderboard. Please try again.`)
@@ -1369,12 +1388,13 @@ async function handleLeaderboardCommand(
 async function handleBriefingCommand(
   chatId: string,
   cleaner: { id: string; name: string },
-  client: ReturnType<typeof getSupabaseServiceClient>
+  client: ReturnType<typeof getSupabaseServiceClient>,
+  tenant: Tenant | null
 ): Promise<NextResponse> {
   const today = new Date().toISOString().split('T')[0]
 
-  // Get today's jobs
-  const { data: todaysJobs, error: jobsError } = await client
+  // Get today's jobs, scoped to tenant
+  let jobsQuery = client
     .from("jobs")
     .select(`
       id,
@@ -1389,20 +1409,22 @@ async function handleBriefingCommand(
       )
     `)
     .eq("date", today)
-    .order("scheduled_at")
+  if (tenant?.id) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const { data: todaysJobs, error: jobsError } = await jobsQuery.order("scheduled_at")
 
   if (jobsError) {
     await sendTelegramMessage(chatId, `Error fetching briefing. Please try again.`)
     return NextResponse.json({ success: false, error: "Failed to fetch briefing" })
   }
 
-  // Get pending jobs needing assignment
-  const { data: pendingJobs } = await client
+  // Get pending jobs needing assignment, scoped to tenant
+  let pendingQuery = client
     .from("jobs")
     .select("id, date, address")
     .gte("date", today)
     .is("cleaner_confirmed", null)
-    .limit(5)
+  if (tenant?.id) pendingQuery = pendingQuery.eq("tenant_id", tenant.id)
+  const { data: pendingJobs } = await pendingQuery.limit(5)
 
   // Build briefing message
   let briefing = `<b>📋 Daily Briefing for ${cleaner.name}</b>\n\n`
@@ -1455,14 +1477,15 @@ async function buildScheduleResponse(
   userMessage: string,
   cleanerId: string | null,
   cleanerName: string,
-  roleLabel: string = 'cleaner'
+  roleLabel: string = 'cleaner',
+  tenant: Tenant | null = null
 ): Promise<string> {
   if (!cleanerId) {
     return `Hi! You're not registered as a ${roleLabel} yet. Send "join" to get set up and start receiving job assignments.`
   }
 
   const supabase = getSupabaseServiceClient()
-  const tz = 'America/Los_Angeles'
+  const tz = tenant?.timezone || 'America/Chicago'
   const nowLocal = new Date().toLocaleDateString('en-CA', { timeZone: tz })
   const tomorrowLocal = new Date(Date.now() + 86400000).toLocaleDateString('en-CA', { timeZone: tz })
 

@@ -118,6 +118,7 @@ export interface Tenant {
   openphone_api_key: string | null
   openphone_phone_id: string | null
   openphone_phone_number: string | null
+  openphone_webhook_secret: string | null
 
   vapi_api_key: string | null
   vapi_assistant_id: string | null
@@ -135,11 +136,25 @@ export interface Tenant {
   ghl_webhook_secret: string | null
 
   telegram_bot_token: string | null
+  telegram_webhook_secret: string | null
   owner_telegram_chat_id: string | null
 
   wave_api_token: string | null
   wave_business_id: string | null
   wave_income_account_id: string | null
+
+  // Webhook registration timestamps
+  telegram_webhook_registered_at: string | null
+  stripe_webhook_registered_at: string | null
+  openphone_webhook_registered_at: string | null
+
+  // Webhook error tracking
+  telegram_webhook_error: string | null
+  telegram_webhook_error_at: string | null
+  stripe_webhook_error: string | null
+  stripe_webhook_error_at: string | null
+  openphone_webhook_error: string | null
+  openphone_webhook_error_at: string | null
 
   // Gmail credentials (per-tenant email bot)
   gmail_user: string | null
@@ -386,6 +401,7 @@ export function tenantUsesFeature(
     | 'use_review_request'
     | 'use_retargeting'
     | 'use_payment_collection'
+    | 'use_broadcast_assignment'
     | 'lead_followup_enabled'
     | 'post_cleaning_followup_enabled'
     | 'monthly_followup_enabled'
