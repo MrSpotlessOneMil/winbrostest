@@ -262,6 +262,16 @@ export async function GET(request: NextRequest) {
     ? await getTenantScopedClient(tenant.id)
     : (await import("@/lib/supabase")).getSupabaseServiceClient()
 
+  // Fetch messages first — needed to sort customers by last activity
+  const { data: messages, error: messagesError } = await client
+    .from("messages")
+    .select("*")
+    .order("timestamp", { ascending: true })
+
+  if (messagesError) {
+    return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
+  }
+
   // Fetch customers — server-side search if query provided
   let customersQuery = client
     .from("customers")
@@ -287,20 +297,42 @@ export async function GET(request: NextRequest) {
     customersQuery = customersQuery.limit(200)
   }
 
-  const { data: customers, error: customersError } = await customersQuery
+  const { data: baseCustomers, error: customersError } = await customersQuery
 
   if (customersError) {
     return NextResponse.json({ success: false, error: customersError.message }, { status: 500 })
   }
 
-  // Fetch messages, jobs, calls, leads for all tenant customers (RLS handles scoping)
-  const { data: messages, error: messagesError } = await client
-    .from("messages")
-    .select("*")
-    .order("timestamp", { ascending: true })
+  // Normalize phone to 10 digits for comparison
+  const normalizePhoneDigits = (phone: string) => {
+    let digits = (phone || "").replace(/\D/g, "")
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
+    return digits
+  }
 
-  if (messagesError) {
-    return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
+  // Ensure customers with recent messages are included even if they fell outside limit(200)
+  let customers = baseCustomers || []
+  if (!searchQuery && messages && messages.length > 0) {
+    const existingPhones = new Set(customers.map((c: { phone_number: string }) => normalizePhoneDigits(c.phone_number)))
+
+    // Get unique phone numbers from recent messages not already in our customer list
+    const missingPhones = new Set<string>()
+    for (const msg of messages as Array<{ phone_number: string }>) {
+      const norm = normalizePhoneDigits(msg.phone_number)
+      if (norm && !existingPhones.has(norm)) missingPhones.add(msg.phone_number)
+    }
+
+    if (missingPhones.size > 0) {
+      // Fetch those missing customers
+      const phonesArray = Array.from(missingPhones).slice(0, 50)
+      const { data: extraCustomers } = await client
+        .from("customers")
+        .select("*")
+        .in("phone_number", phonesArray)
+      if (extraCustomers && extraCustomers.length > 0) {
+        customers = [...customers, ...extraCustomers]
+      }
+    }
   }
 
   const { data: jobs, error: jobsError } = await client
@@ -344,12 +376,6 @@ export async function GET(request: NextRequest) {
   }
 
   // Sort customers by last message/lead activity (most recent first)
-  const normalizePhoneDigits = (phone: string) => {
-    let digits = (phone || "").replace(/\D/g, "")
-    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
-    return digits
-  }
-
   // Build a map of phone -> latest activity timestamp
   const lastActivityMap = new Map<string, number>()
   for (const msg of (messages || []) as Array<{ phone_number: string; timestamp: string }>) {
