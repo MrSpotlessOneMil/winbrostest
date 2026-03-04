@@ -382,42 +382,66 @@ export default function CustomersPage() {
   const [batchCreating, setBatchCreating] = useState(false)
   const [batchResult, setBatchResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null)
 
+  // Fetch customers (with optional search)
+  const fetchCustomers = async (search?: string) => {
+    try {
+      const url = search ? `/api/customers?search=${encodeURIComponent(search)}` : "/api/customers"
+      const res = await fetch(url)
+      const json = await res.json()
+      if (json.success) {
+        setCustomers(json.data.customers)
+        setMessages(json.data.messages)
+        setJobs(json.data.jobs)
+        setCalls(json.data.calls)
+        setLeads(json.data.leads || [])
+        setScheduledTasks(json.data.scheduledTasks || [])
+        setCleanerPhones(json.data.cleanerPhones || [])
+        if (!search && json.data.customers.length > 0 && !selectedCustomer) {
+          const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
+          const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
+          setSelectedCustomer(restored || json.data.customers[0])
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch customers:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   // Initial data fetch
   useEffect(() => {
-    async function fetchData() {
-      try {
-        const res = await fetch("/api/customers")
-        const json = await res.json()
-        if (json.success) {
-          setCustomers(json.data.customers)
-          setMessages(json.data.messages)
-          setJobs(json.data.jobs)
-          setCalls(json.data.calls)
-          setLeads(json.data.leads || [])
-          setScheduledTasks(json.data.scheduledTasks || [])
-          setCleanerPhones(json.data.cleanerPhones || [])
-          if (json.data.customers.length > 0) {
-            const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
-            const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
-            setSelectedCustomer(restored || json.data.customers[0])
-          }
-        }
-      } catch (error) {
-        console.error("Failed to fetch customers:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
+    fetchCustomers()
   }, [])
 
+  // Debounced server-side search
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!searchQuery) {
+      // Reset to default when search cleared
+      fetchCustomers()
+      return
+    }
+    searchTimerRef.current = setTimeout(() => {
+      fetchCustomers(searchQuery)
+    }, 300)
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
+  }, [searchQuery])
+
   // Poll for new messages and updates every 3 seconds
+  // Use ref to access current searchQuery without re-creating the interval
+  const searchQueryRef = useRef(searchQuery)
+  useEffect(() => { searchQueryRef.current = searchQuery }, [searchQuery])
+
   useEffect(() => {
     const pollInterval = setInterval(async () => {
       // Skip polling while a delete is in progress to avoid race conditions
       if (deletingRef.current) return
       try {
-        const res = await fetch("/api/customers")
+        const currentSearch = searchQueryRef.current
+        const url = currentSearch ? `/api/customers?search=${encodeURIComponent(currentSearch)}` : "/api/customers"
+        const res = await fetch(url)
         const json = await res.json()
         if (json.success) {
           // Check if there are new messages to trigger scroll
@@ -1088,20 +1112,8 @@ export default function CustomersPage() {
       ]
     : []
 
-  const filteredCustomers = customers.filter((customer) => {
-    const name = getCustomerName(customer).toLowerCase()
-    const q = searchQuery.toLowerCase()
-    return name.includes(q) || customer.phone_number.includes(searchQuery)
-  }).sort((a, b) => {
-    // Sort by last message timestamp (most recent first)
-    const aMessages = messages.filter(m => normalizePhone(m.phone_number) === normalizePhone(a.phone_number))
-    const bMessages = messages.filter(m => normalizePhone(m.phone_number) === normalizePhone(b.phone_number))
-    const aLast = aMessages.length > 0 ? Math.max(...aMessages.map(m => new Date(m.timestamp).getTime())) : 0
-    const bLast = bMessages.length > 0 ? Math.max(...bMessages.map(m => new Date(m.timestamp).getTime())) : 0
-    if (aLast !== bLast) return bLast - aLast // Most recent first
-    // Fall back to updated_at
-    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-  })
+  // Server already sorts by last activity and handles search — just use as-is
+  const filteredCustomers = customers
 
   if (loading) {
     return (

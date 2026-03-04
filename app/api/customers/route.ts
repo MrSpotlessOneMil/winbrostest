@@ -256,22 +256,44 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
 
+  const searchQuery = request.nextUrl.searchParams.get("search")?.trim() || ""
+
   const client = tenant
     ? await getTenantScopedClient(tenant.id)
     : (await import("@/lib/supabase")).getSupabaseServiceClient()
 
-  // Fetch customers with their messages and jobs
-  const { data: customers, error: customersError } = await client
+  // Fetch customers — server-side search if query provided
+  let customersQuery = client
     .from("customers")
     .select("*")
     .order("updated_at", { ascending: false })
-    .limit(100)
+
+  if (searchQuery) {
+    // Strip non-digits for phone search
+    const digits = searchQuery.replace(/\D/g, "")
+    if (digits.length >= 4) {
+      // Search by phone OR name
+      customersQuery = customersQuery.or(
+        `phone_number.ilike.%${digits}%,first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+      )
+    } else {
+      // Name-only search
+      customersQuery = customersQuery.or(
+        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+      )
+    }
+    customersQuery = customersQuery.limit(50)
+  } else {
+    customersQuery = customersQuery.limit(200)
+  }
+
+  const { data: customers, error: customersError } = await customersQuery
 
   if (customersError) {
     return NextResponse.json({ success: false, error: customersError.message }, { status: 500 })
   }
 
-  // Fetch messages for all customers
+  // Fetch messages, jobs, calls, leads for all tenant customers (RLS handles scoping)
   const { data: messages, error: messagesError } = await client
     .from("messages")
     .select("*")
@@ -281,7 +303,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
   }
 
-  // Fetch jobs for all customers
   const { data: jobs, error: jobsError } = await client
     .from("jobs")
     .select("*")
@@ -291,7 +312,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: jobsError.message }, { status: 500 })
   }
 
-  // Fetch calls
   const { data: calls, error: callsError } = await client
     .from("calls")
     .select("*")
@@ -301,7 +321,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: callsError.message }, { status: 500 })
   }
 
-  // Fetch leads for all customers
   const { data: leads, error: leadsError } = await client
     .from("leads")
     .select("*")
@@ -323,6 +342,36 @@ export async function GET(request: NextRequest) {
     console.error("Error fetching scheduled tasks:", tasksError.message)
     // Don't fail the whole request if tasks fail
   }
+
+  // Sort customers by last message/lead activity (most recent first)
+  const normalizePhoneDigits = (phone: string) => {
+    let digits = (phone || "").replace(/\D/g, "")
+    if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
+    return digits
+  }
+
+  // Build a map of phone -> latest activity timestamp
+  const lastActivityMap = new Map<string, number>()
+  for (const msg of (messages || []) as Array<{ phone_number: string; timestamp: string }>) {
+    const key = normalizePhoneDigits(msg.phone_number)
+    const ts = new Date(msg.timestamp).getTime()
+    const cur = lastActivityMap.get(key) || 0
+    if (ts > cur) lastActivityMap.set(key, ts)
+  }
+  for (const lead of (leads || []) as Array<{ phone_number: string; last_contact_at?: string; created_at: string }>) {
+    const key = normalizePhoneDigits(lead.phone_number)
+    const ts = new Date(lead.last_contact_at || lead.created_at).getTime()
+    const cur = lastActivityMap.get(key) || 0
+    if (ts > cur) lastActivityMap.set(key, ts)
+  }
+
+  // Sort: customers with recent activity first, then by updated_at
+  const sortedCustomers = (customers || []).sort((a: { phone_number: string; updated_at: string }, b: { phone_number: string; updated_at: string }) => {
+    const aActivity = lastActivityMap.get(normalizePhoneDigits(a.phone_number)) || 0
+    const bActivity = lastActivityMap.get(normalizePhoneDigits(b.phone_number)) || 0
+    if (aActivity !== bActivity) return bActivity - aActivity
+    return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  })
 
   // Fetch active cleaner phones for badge display
   let cleanerPhones: string[] = []
@@ -349,11 +398,11 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
-      customers: customers || [],
-      messages: messages || [],
-      jobs: jobs || [],
-      calls: calls || [],
-      leads: leads || [],
+      customers: sortedCustomers,
+      messages,
+      jobs,
+      calls,
+      leads,
       scheduledTasks: scheduledTasks || [],
       cleanerPhones,
     },

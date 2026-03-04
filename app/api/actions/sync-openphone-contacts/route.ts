@@ -188,8 +188,20 @@ export async function POST(request: NextRequest) {
   // Filter out our own business number
   const businessE164 = businessPhone ? toE164(businessPhone) : null
 
+  // Profanity filter for contact names — strip slurs, derogatory labels, offensive descriptors
+  const profanityWords = /\b(fuck|shit|bitch|cunt|nigger|nigga|whore|slut|retard|fag|faggot|dick|cock|pussy|bastard|motherfuck|asshole|dumbass|shithead|twat|wanker|prick|douche|skank|tramp|thot|cracker|spic|chink|gook|kike|wetback|beaner|coon|darkie|dyke|lesbo|tranny|shemale|hoe)\b/gi
+  const offensivePatterns = /\b(silly|dummy|dumb|stupid|ugly|idiot|moron|creepy|sketchy|nasty|gross|trash|garbage|loser|weird|cheap|rude|mean|annoying)\b/gi
+  const sanitizeName = (name: string | null): string | null => {
+    if (!name) return null
+    let cleaned = name.replace(profanityWords, "").replace(offensivePatterns, "").replace(/\s{2,}/g, " ").trim()
+    return cleaned || null
+  }
+
   for (const [phone, info] of phoneMap) {
     if (phone === businessE164) continue // Skip our own number
+
+    const cleanFirst = sanitizeName(info.firstName)
+    const cleanLast = sanitizeName(info.lastName)
 
     const { data: existing } = await supabase
       .from("customers")
@@ -201,12 +213,12 @@ export async function POST(request: NextRequest) {
 
     if (existing) {
       // Update name if we have one and customer doesn't
-      if (!existing.first_name && !existing.last_name && (info.firstName || info.lastName)) {
+      if (!existing.first_name && !existing.last_name && (cleanFirst || cleanLast)) {
         await supabase
           .from("customers")
           .update({
-            first_name: info.firstName || null,
-            last_name: info.lastName || null,
+            first_name: cleanFirst,
+            last_name: cleanLast,
             ...(info.email ? { email: info.email } : {}),
           })
           .eq("id", existing.id)
@@ -221,8 +233,8 @@ export async function POST(request: NextRequest) {
         .insert({
           tenant_id: tenant.id,
           phone_number: phone,
-          first_name: info.firstName || null,
-          last_name: info.lastName || null,
+          first_name: cleanFirst,
+          last_name: cleanLast,
           email: info.email || null,
         })
       if (!insertErr) {

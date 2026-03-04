@@ -18,6 +18,7 @@ import {
   X,
   Loader2,
   Target,
+  Lightbulb,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
 
@@ -28,6 +29,7 @@ const navigation = [
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Retargeting", href: "/campaigns", icon: Target, adminOnly: false },
+  { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
