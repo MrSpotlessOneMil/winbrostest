@@ -378,7 +378,7 @@ export async function scheduleDayBeforeReminder(
 
 // ==================== RETARGETING SEQUENCES ====================
 
-export type RetargetingSequenceType = 'unresponsive' | 'quoted_not_booked' | 'one_time' | 'lapsed'
+export type RetargetingSequenceType = 'unresponsive' | 'quoted_not_booked' | 'one_time' | 'lapsed' | 'new_lead' | 'repeat' | 'active' | 'lost'
 
 interface RetargetingStep {
   step: number
@@ -411,6 +411,24 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
     { step: 3, delay_days: 14, template: 'closing_file' },
   ],
   lapsed: [
+    { step: 1, delay_days: 0, template: 'feedback_ask' },
+    { step: 2, delay_days: 5, template: 'incentive_offer' },
+    { step: 3, delay_days: 10, template: 'closing_file' },
+  ],
+  new_lead: [
+    { step: 1, delay_days: 0, template: '9_word' },
+    { step: 2, delay_days: 2, template: 'value_nudge' },
+    { step: 3, delay_days: 5, template: 'closing_file' },
+  ],
+  repeat: [
+    { step: 1, delay_days: 0, template: 'seasonal_nudge' },
+    { step: 2, delay_days: 7, template: 'incentive_offer' },
+  ],
+  active: [
+    { step: 1, delay_days: 0, template: 'seasonal_nudge' },
+    { step: 2, delay_days: 7, template: 'value_nudge' },
+  ],
+  lost: [
     { step: 1, delay_days: 0, template: 'feedback_ask' },
     { step: 2, delay_days: 5, template: 'incentive_offer' },
     { step: 3, delay_days: 10, template: 'closing_file' },

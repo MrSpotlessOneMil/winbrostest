@@ -130,6 +130,7 @@ export interface Tenant {
   housecall_pro_webhook_secret: string | null
 
   stripe_secret_key: string | null
+  stripe_publishable_key: string | null
   stripe_webhook_secret: string | null
 
   ghl_location_id: string | null

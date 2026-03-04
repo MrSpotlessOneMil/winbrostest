@@ -6,6 +6,7 @@ import { scheduleRetargetingSequence, type RetargetingSequenceType } from "@/lib
 /**
  * GET — Pipeline summary: counts per lifecycle stage + retargeting status
  * POST — Enroll a segment (or specific customers) in a retargeting sequence
+ * DELETE — Cancel retargeting for specific customers or an entire segment
  */
 
 export async function GET(request: NextRequest) {
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
 
   const { segment, customer_ids } = await request.json()
 
-  const validSequences: RetargetingSequenceType[] = ["unresponsive", "quoted_not_booked", "one_time", "lapsed"]
+  const validSequences: RetargetingSequenceType[] = ["unresponsive", "quoted_not_booked", "one_time", "lapsed", "new_lead", "repeat", "active", "lost"]
   if (!validSequences.includes(segment)) {
     return NextResponse.json({ error: `Invalid segment. Must be one of: ${validSequences.join(", ")}` }, { status: 400 })
   }
@@ -118,4 +119,60 @@ export async function POST(request: NextRequest) {
     total_eligible: customers.length,
     errors,
   })
+}
+
+export async function DELETE(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
+
+  const { customer_ids } = await request.json()
+
+  if (!customer_ids || !Array.isArray(customer_ids) || customer_ids.length === 0) {
+    return NextResponse.json({ error: "customer_ids array is required" }, { status: 400 })
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  // Get customers to cancel — verify tenant ownership and active sequence
+  const { data: customers } = await supabase
+    .from("customers")
+    .select("id, retargeting_sequence")
+    .eq("tenant_id", tenant.id)
+    .in("id", customer_ids)
+    .not("retargeting_sequence", "is", null)
+
+  if (!customers || customers.length === 0) {
+    return NextResponse.json({ success: true, cancelled: 0, message: "No active sequences found" })
+  }
+
+  let cancelled = 0
+
+  for (const c of customers) {
+    // Cancel pending scheduled tasks for this customer
+    await supabase
+      .from("scheduled_tasks")
+      .update({ status: "cancelled" })
+      .eq("tenant_id", tenant.id)
+      .eq("task_type", "retargeting")
+      .like("task_key", `retarget-${c.id}-%`)
+      .in("status", ["pending", "processing"])
+
+    // Reset customer retargeting state
+    await supabase
+      .from("customers")
+      .update({
+        retargeting_sequence: null,
+        retargeting_step: null,
+        retargeting_enrolled_at: null,
+        retargeting_completed_at: null,
+        retargeting_stopped_reason: null,
+      })
+      .eq("id", c.id)
+      .eq("tenant_id", tenant.id)
+
+    cancelled++
+  }
+
+  return NextResponse.json({ success: true, cancelled })
 }

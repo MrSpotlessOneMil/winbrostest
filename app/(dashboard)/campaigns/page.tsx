@@ -118,6 +118,36 @@ const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; 
       { step: 3, delay: "Day 10", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
     ],
   },
+  new_lead: {
+    summary: "3 messages over 5 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "9-Word Reactivation", message: "Hi {name}, are you still looking for {service}?" },
+      { step: 2, delay: "Day 2", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
+      { step: 3, delay: "Day 5", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
+  repeat: {
+    summary: "2 messages over 7 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
+      { step: 2, delay: "Day 7", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
+    ],
+  },
+  active: {
+    summary: "2 messages over 7 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
+      { step: 2, delay: "Day 7", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
+    ],
+  },
+  lost: {
+    summary: "3 messages over 10 days",
+    steps: [
+      { step: 1, delay: "Immediately", template: "Feedback Ask", message: "Hi {name}, we noticed it's been a while. Was there anything we could've done better? We'd love to earn your business back." },
+      { step: 2, delay: "Day 5", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
+      { step: 3, delay: "Day 10", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+    ],
+  },
 }
 
 const PIPELINE_STAGES = [
@@ -125,10 +155,10 @@ const PIPELINE_STAGES = [
   { key: "quoted_not_booked", label: "Quoted, Not Booked", description: "Got a quote, didn't pay", icon: FileQuestion, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", sequence: "quoted_not_booked" as const },
   { key: "one_time", label: "One-Time", description: "Booked once, hasn't returned", icon: UserCheck, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20", sequence: "one_time" as const },
   { key: "lapsed", label: "Lapsed", description: "Was active, gone 60+ days", icon: TimerOff, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", sequence: "lapsed" as const },
-  { key: "new_lead", label: "New Leads", description: "Just arrived, not yet contacted", icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", sequence: null },
-  { key: "repeat", label: "Repeat", description: "Multiple bookings — loyal", icon: Repeat, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", sequence: null },
-  { key: "active", label: "Active", description: "Has upcoming jobs", icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", sequence: null },
-  { key: "lost", label: "Lost", description: "Said no / bad experience", icon: Ban, color: "text-zinc-500", bg: "bg-zinc-500/10", border: "border-zinc-500/20", sequence: null },
+  { key: "new_lead", label: "New Leads", description: "Just arrived, not yet contacted", icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", sequence: "new_lead" as const },
+  { key: "repeat", label: "Repeat", description: "Multiple bookings — loyal", icon: Repeat, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", sequence: "repeat" as const },
+  { key: "active", label: "Active", description: "Has upcoming jobs", icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", sequence: "active" as const },
+  { key: "lost", label: "Lost", description: "Said no / bad experience", icon: Ban, color: "text-zinc-500", bg: "bg-zinc-500/10", border: "border-zinc-500/20", sequence: "lost" as const },
 ]
 
 export default function CampaignsPage() {
@@ -147,6 +177,7 @@ export default function CampaignsPage() {
   const [enrollResult, setEnrollResult] = useState<{ segment: string; enrolled: number } | null>(null)
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<number>>(new Set())
   const [showPreview, setShowPreview] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
 
 
   // Modal state
@@ -222,6 +253,31 @@ export default function CampaignsPage() {
       setError("Failed to enroll segment")
     } finally {
       setEnrolling(null)
+    }
+  }
+
+  async function cancelRetargeting(customerIds: number[]) {
+    if (customerIds.length === 0) return
+    setCancelling(true)
+    try {
+      const res = await fetch("/api/actions/retargeting-pipeline", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_ids: customerIds }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setEnrollResult(null)
+        setSelectedCustomerIds(new Set())
+        await fetchPipeline()
+        if (expandedStage) await fetchStageCustomers(expandedStage)
+      } else {
+        setError(json.error || "Failed to cancel retargeting")
+      }
+    } catch {
+      setError("Failed to cancel retargeting")
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -486,15 +542,24 @@ export default function CampaignsPage() {
                                     <span className="truncate font-medium">{c.first_name} {c.last_name}</span>
                                     <span className="text-muted-foreground hidden md:block">{c.phone_number}</span>
                                     <span className="text-muted-foreground truncate hidden md:block">{c.email || "—"}</span>
-                                    <span>
+                                    <span className="flex items-center gap-1">
                                       {c.retargeting_stopped_reason === "converted" ? (
                                         <Badge className="text-[10px] bg-green-500/20 text-green-400 border-green-500/30">Converted</Badge>
                                       ) : c.retargeting_stopped_reason === "completed" ? (
                                         <Badge variant="outline" className="text-[10px]">Done</Badge>
                                       ) : c.retargeting_sequence ? (
-                                        <Badge className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
-                                          Step {c.retargeting_step}/{c.retargeting_sequence === "quoted_not_booked" ? 4 : 3}
-                                        </Badge>
+                                        <>
+                                          <Badge className="text-[10px] bg-blue-500/20 text-blue-400 border-blue-500/30">
+                                            Step {c.retargeting_step}/{SEQUENCE_PREVIEWS[c.retargeting_sequence]?.steps.length || 3}
+                                          </Badge>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); cancelRetargeting([c.id]) }}
+                                            className="p-0.5 rounded hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-colors"
+                                            title="Cancel sequence"
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </button>
+                                        </>
                                       ) : !c.phone_number ? (
                                         <span className="text-muted-foreground text-[10px]">No phone</span>
                                       ) : (
@@ -544,6 +609,21 @@ export default function CampaignsPage() {
                                   Start All ({eligible})
                                 </Button>
                               )}
+                              {(() => {
+                                const activeInSequence = stageCustomers.filter(c => c.retargeting_sequence && !c.retargeting_stopped_reason)
+                                return activeInSequence.length > 0 ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                    disabled={cancelling}
+                                    onClick={() => cancelRetargeting(activeInSequence.map(c => c.id))}
+                                  >
+                                    {cancelling ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <X className="h-3 w-3 mr-1.5" />}
+                                    Cancel All Active ({activeInSequence.length})
+                                  </Button>
+                                ) : null
+                              })()}
                             </div>
 
                             {/* Sequence preview */}
