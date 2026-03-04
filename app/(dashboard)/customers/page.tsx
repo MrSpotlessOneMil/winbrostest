@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
@@ -17,6 +17,30 @@ function normalizePhone(phone: string | null | undefined): string {
     digits = digits.slice(1)
   }
   return digits
+}
+
+// iMessage-style relative timestamp
+function formatThreadTimestamp(timestamp: string): string {
+  const now = new Date()
+  const date = new Date(timestamp)
+  const diffMs = now.getTime() - date.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  const diffHrs = Math.floor(diffMs / 3600000)
+
+  if (diffMin < 1) return "now"
+  if (diffMin < 60) return `${diffMin}m`
+  if (diffHrs < 24) return `${diffHrs}h`
+
+  const yesterday = new Date(now)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday"
+
+  // Same week → day name
+  const diffDays = Math.floor(diffMs / 86400000)
+  if (diffDays < 7) return date.toLocaleDateString("en-US", { weekday: "short" })
+
+  // Older → "Jan 5"
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
 type TabType = "messages" | "jobs" | "invoices" | "recurring"
@@ -1149,6 +1173,42 @@ export default function CustomersPage() {
   // Server already sorts by last activity and handles search — just use as-is
   const filteredCustomers = customers
 
+  // localStorage-based read tracking for unread badges
+  const [readVersion, setReadVersion] = useState(0)
+  const getReadTimestamps = (): Record<number, string> => {
+    if (typeof window === "undefined") return {}
+    try {
+      return JSON.parse(localStorage.getItem("customerReadTimestamps") || "{}")
+    } catch { return {} }
+  }
+  const markAsRead = (customerId: number) => {
+    const timestamps = getReadTimestamps()
+    timestamps[customerId] = new Date().toISOString()
+    localStorage.setItem("customerReadTimestamps", JSON.stringify(timestamps))
+    setReadVersion((v) => v + 1) // trigger useMemo recompute
+  }
+
+  // Derived data for iMessage-style rows
+  const customerRowData = useMemo(() => {
+    const readTimestamps = getReadTimestamps()
+    void readVersion // dependency to recompute on mark-as-read
+    return filteredCustomers.map((customer) => {
+      const customerMessages = getCustomerMessages(customer.phone_number)
+      const lastMessage = customerMessages.length > 0
+        ? customerMessages[customerMessages.length - 1]
+        : null
+      const lastReadTs = readTimestamps[customer.id]
+      const unreadCount = lastReadTs
+        ? customerMessages.filter(
+            (m) => m.direction === "incoming" && m.timestamp > lastReadTs
+          ).length
+        : customerMessages.filter((m) => m.direction === "incoming").length > 0
+          ? customerMessages.filter((m) => m.direction === "incoming").length
+          : 0
+      return { customer, lastMessage, unreadCount }
+    })
+  }, [filteredCustomers, messages, readVersion])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full py-24">
@@ -1291,9 +1351,7 @@ export default function CustomersPage() {
                 {filteredCustomers.length === 0 ? (
                   <div className="p-4 text-center text-sm text-zinc-600">No customers found</div>
                 ) : (
-                  filteredCustomers.map((customer) => {
-                    const revenue = getCustomerRevenue(customer.phone_number)
-                    const jobCount = getCustomerJobs(customer.phone_number).length
+                  customerRowData.map(({ customer, lastMessage, unreadCount }) => {
                     const isSelected = selectedCustomer?.id === customer.id
                     const name = getCustomerName(customer)
 
@@ -1302,60 +1360,52 @@ export default function CustomersPage() {
                         key={customer.id}
                         onClick={() => {
                           setSelectedCustomer(customer)
+                          markAsRead(customer.id)
                           if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
                           switchTab("messages")
                         }}
-                        className={`w-full text-left px-4 py-3 border-b border-zinc-800/50 ${
+                        className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/50 ${
                           isSelected ? "bg-zinc-800/80" : "hover:bg-zinc-800/40"
                         }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
-                              isSelected
-                                ? "bg-purple-500/20 text-purple-300"
-                                : "bg-zinc-800 text-zinc-400"
-                            }`}
-                          >
-                            {name.charAt(0).toUpperCase()}
+                        <div className="flex items-start gap-3">
+                          {/* Avatar with card-on-file dot */}
+                          <div className="relative flex-shrink-0 mt-0.5">
+                            <div
+                              className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
+                                isSelected
+                                  ? "bg-purple-500/20 text-purple-300"
+                                  : "bg-zinc-800 text-zinc-400"
+                              }`}
+                            >
+                              {name.charAt(0).toUpperCase()}
+                            </div>
+                            {customer.card_on_file_at && (
+                              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-zinc-900" title="Card on file" />
+                            )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-sm font-medium text-zinc-200 truncate">{name}</span>
-                              {cleanerPhones.length > 0 && cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
-                                <span title="Cleaner" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/15 text-teal-400 border border-teal-500/20">
-                                  🧹
-                                </span>
-                              ) : (
-                                <>
-                                  {isHouseCleaning && (
-                                    <>
-                                      {customer.is_commercial ? (
-                                        <span title="Commercial" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
-                                          🏢
-                                        </span>
-                                      ) : (
-                                        <span title="Residential" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                                          🏠
-                                        </span>
-                                      )}
-                                      {getCustomerJobs(customer.phone_number).some((j: any) => j.frequency && j.frequency !== "one-time") && (
-                                        <span title="Recurring" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/15 text-purple-400 border border-purple-500/20">
-                                          🔁
-                                        </span>
-                                      )}
-                                    </>
-                                  )}
-                                </>
-                              )}
-                              {customer.card_on_file_at && (
-                                <span title="Card on file" className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
-                                  Card
+                            {/* Top row: name + timestamp */}
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
+                              {lastMessage && (
+                                <span className="text-[11px] text-zinc-500 flex-shrink-0">
+                                  {formatThreadTimestamp(lastMessage.timestamp)}
                                 </span>
                               )}
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              {jobCount} {jobCount === 1 ? "job" : "jobs"} · ${revenue.toLocaleString()}
+                            {/* Bottom row: message preview + unread badge */}
+                            <div className="flex items-center justify-between gap-2 mt-0.5">
+                              <span className="text-xs text-zinc-500 truncate">
+                                {lastMessage
+                                  ? `${lastMessage.direction === "outgoing" ? "You: " : ""}${lastMessage.content}`
+                                  : "No messages yet"}
+                              </span>
+                              {unreadCount > 0 && (
+                                <span className="flex-shrink-0 min-w-[18px] h-[18px] rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center px-1">
+                                  {unreadCount > 99 ? "99+" : unreadCount}
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
