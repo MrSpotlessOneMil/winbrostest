@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap } from "lucide-react"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -364,6 +364,9 @@ export default function CustomersPage() {
   const [paymentResult, setPaymentResult] = useState<{ url?: string; invoiceId?: string } | null>(null)
   const [paymentCopied, setPaymentCopied] = useState(false)
   const [paymentSmsSent, setPaymentSmsSent] = useState(false)
+  const [chargeCardLoading, setChargeCardLoading] = useState(false)
+  const [chargeCardResult, setChargeCardResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
+  const [chargeCardDescription, setChargeCardDescription] = useState("")
   const paymentRef = useRef<HTMLDivElement>(null)
 
   // Cleaner phones for badge
@@ -1071,6 +1074,36 @@ export default function CustomersPage() {
     }
   }
 
+  const handleChargeCard = async () => {
+    if (!selectedCustomer || chargeCardLoading) return
+    const amt = parseFloat(paymentAmount)
+    if (!amt || amt <= 0) return
+
+    setChargeCardLoading(true)
+    setChargeCardResult(null)
+    try {
+      const res = await fetch("/api/actions/charge-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: selectedCustomer.id,
+          amount: amt,
+          description: chargeCardDescription || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setChargeCardResult({ success: true, amount: json.amount })
+      } else {
+        setChargeCardResult({ success: false, error: json.error || "Charge failed" })
+      }
+    } catch {
+      setChargeCardResult({ success: false, error: "Failed to charge card" })
+    } finally {
+      setChargeCardLoading(false)
+    }
+  }
+
   const handleCopyTranscript = () => {
     if (!selectedCustomer) return
     const customerName = getCustomerName(selectedCustomer)
@@ -1389,6 +1422,8 @@ export default function CustomersPage() {
                             setPaymentResult(null)
                             setPaymentAmount("")
                             setPaymentJobId("")
+                            setChargeCardResult(null)
+                            setChargeCardDescription("")
                           }}
                           className={`p-1.5 rounded transition-colors ${paymentOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10"}`}
                           title="Payment links"
@@ -1401,7 +1436,7 @@ export default function CustomersPage() {
                           {/* Backdrop for mobile */}
                           <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => { setPaymentOpen(false); setPaymentType(null); setPaymentResult(null) }} />
                           <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
-                            {!paymentType && !paymentResult && (
+                            {!paymentType && !paymentResult && !chargeCardResult && (
                               <div className="p-2 space-y-0.5">
                                 <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
                                 {[
@@ -1440,6 +1475,22 @@ export default function CustomersPage() {
                                     </div>
                                   </button>
                                 ))}
+                                {selectedCustomer.card_on_file_at && (
+                                  <>
+                                    <div className="mx-2 my-1.5 border-t border-zinc-700/50" />
+                                    <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Charge</p>
+                                    <button
+                                      onClick={() => setPaymentType("charge_card")}
+                                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+                                    >
+                                      <Zap className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                      <div>
+                                        <div className="text-sm text-zinc-200">Charge Card</div>
+                                        <div className="text-xs text-zinc-500">Charge saved card</div>
+                                      </div>
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             )}
 
@@ -1519,6 +1570,68 @@ export default function CustomersPage() {
                                     {paymentLoading ? "Generating..." : paymentType === "invoice" ? "Send Invoice" : "Generate"}
                                   </button>
                                 </div>
+                              </div>
+                            )}
+
+                            {/* Charge Card — amount input */}
+                            {paymentType === "charge_card" && !chargeCardResult && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-zinc-200">Charge Card on File</p>
+                                <input
+                                  type="number"
+                                  value={paymentAmount}
+                                  onChange={(e) => setPaymentAmount(e.target.value)}
+                                  placeholder="Amount ($)"
+                                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                                  autoFocus
+                                />
+                                <input
+                                  type="text"
+                                  value={chargeCardDescription}
+                                  onChange={(e) => setChargeCardDescription(e.target.value)}
+                                  placeholder="Description (optional)"
+                                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => { setPaymentType(null); setPaymentAmount(""); setChargeCardDescription("") }}
+                                    className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                  >
+                                    Back
+                                  </button>
+                                  <button
+                                    onClick={handleChargeCard}
+                                    disabled={chargeCardLoading || !paymentAmount || parseFloat(paymentAmount) <= 0}
+                                    className="flex-1 px-3 py-2 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-500 disabled:opacity-50 transition-colors"
+                                  >
+                                    {chargeCardLoading ? "Charging..." : `Charge $${paymentAmount || "0"}`}
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Charge Card — result */}
+                            {chargeCardResult && (
+                              <div className="p-4 space-y-3">
+                                {chargeCardResult.success ? (
+                                  <>
+                                    <p className="text-sm font-medium text-emerald-400">Charge Successful!</p>
+                                    <p className="text-xs text-zinc-400">
+                                      ${chargeCardResult.amount?.toFixed(2)} charged to card on file. SMS receipt sent.
+                                    </p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-sm font-medium text-red-400">Charge Failed</p>
+                                    <p className="text-xs text-zinc-400">{chargeCardResult.error}</p>
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => { setPaymentType(null); setChargeCardResult(null); setPaymentOpen(false); setPaymentAmount(""); setChargeCardDescription("") }}
+                                  className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                >
+                                  Done
+                                </button>
                               </div>
                             )}
 
