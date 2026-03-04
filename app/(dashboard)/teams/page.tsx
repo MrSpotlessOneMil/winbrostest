@@ -830,7 +830,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel */}
-        <Card className="w-full md:w-[420px] shrink-0 min-h-[300px] md:min-h-0 flex flex-col bg-zinc-950">
+        <Card className="w-full md:w-[420px] shrink-0 min-h-[300px] md:min-h-0 flex flex-col" style={{ background: "rgb(9, 9, 11)" }}>
           {/* Chat Header */}
           <div className="p-4 border-b">
             {chatMember ? (
