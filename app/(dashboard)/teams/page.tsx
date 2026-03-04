@@ -830,7 +830,7 @@ export default function TeamsPage() {
         </div>
 
         {/* RIGHT: Persistent chat panel */}
-        <Card className="w-full md:w-[420px] shrink-0 min-h-[300px] md:min-h-0 flex flex-col">
+        <Card className="w-full md:w-[520px] shrink-0 min-h-[300px] md:min-h-0 flex flex-col">
           {/* Chat Header */}
           <div className="p-4 border-b">
             {chatMember ? (
@@ -850,7 +850,7 @@ export default function TeamsPage() {
           </div>
 
           {/* Chat Messages */}
-          <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-1" style={{ background: "rgba(9, 9, 11, 0.8)" }}>
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-1" style={{ background: "rgba(39, 39, 42, 0.5)" }}>
             {!chatMember && (
               <div className="flex flex-col items-center justify-center h-full text-center px-6">
                 <MessageSquare className="h-10 w-10 text-muted-foreground/30 mb-3" />
