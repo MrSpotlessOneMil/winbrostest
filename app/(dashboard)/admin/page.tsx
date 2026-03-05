@@ -528,9 +528,12 @@ export default function AdminPage() {
         selectTenant(json.result.tenantId)
         setShowAddModal(false)
         resetOnboardWizard()
-      } else {
-        // Failed — show results so admin can see what went wrong
+      } else if (json.result) {
+        // Pipeline ran but had failures — show step-by-step results
         setOnboardResults(json.result)
+      } else {
+        // API returned an error before pipeline started
+        setError(json.error || "Onboarding failed")
       }
     } catch (e: any) {
       setError(e.message || "Onboarding failed")
@@ -3610,6 +3613,13 @@ export default function AdminPage() {
                     {untestedServices.length > 0 && !onboardResults && wizardTesting !== "all" && (
                       <div className="mt-2 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
                         Not verified: {untestedServices.join(", ")}. Go back to test these credentials before creating.
+                      </div>
+                    )}
+
+                    {/* Error message (shown inside wizard) */}
+                    {error && !onboarding && (
+                      <div className="mt-2 px-3 py-2 bg-red-950/50 border border-red-500/30 rounded text-xs text-red-400">
+                        <span className="font-medium">Error:</span> {error}
                       </div>
                     )}
 
