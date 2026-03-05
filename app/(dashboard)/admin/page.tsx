@@ -146,6 +146,7 @@ interface Tenant {
   telegram_webhook_registered_at: string | null
   stripe_webhook_registered_at: string | null
   openphone_webhook_registered_at: string | null
+  vapi_webhook_registered_at: string | null
   // Webhook error tracking
   telegram_webhook_error: string | null
   telegram_webhook_error_at: string | null
@@ -153,6 +154,8 @@ interface Tenant {
   stripe_webhook_error_at: string | null
   openphone_webhook_error: string | null
   openphone_webhook_error_at: string | null
+  vapi_webhook_error: string | null
+  vapi_webhook_error_at: string | null
   // Status
   workflow_config: WorkflowConfig
   active: boolean
@@ -1057,6 +1060,7 @@ export default function AdminPage() {
     if (currentTenantRef.telegram_bot_token) services.push("telegram")
     if (currentTenantRef.workflow_config.use_stripe && currentTenantRef.stripe_secret_key) services.push("stripe")
     if (currentTenantRef.openphone_api_key) services.push("openphone")
+    if (currentTenantRef.vapi_api_key && currentTenantRef.vapi_assistant_id) services.push("vapi")
 
     for (const service of services) {
       await registerWebhook(service)
@@ -2012,6 +2016,25 @@ export default function AdminPage() {
                             {testResults["vapi"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
+                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("VAPI", () => registerWebhook("vapi"))} disabled={registeringWebhook === "vapi" || !currentTenant.vapi_api_key || !currentTenant.vapi_assistant_id}>
+                          {registeringWebhook === "vapi" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
+                          Register Webhook
+                        </Button>
+                        {webhookResults["vapi"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookResults["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["vapi"].message)}>
+                            {webhookResults["vapi"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                        {!webhookResults["vapi"] && currentTenant.vapi_webhook_error && (
+                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.vapi_webhook_error} (${new Date(currentTenant.vapi_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.vapi_webhook_error}`)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        )}
+                        {!webhookResults["vapi"] && !currentTenant.vapi_webhook_error && currentTenant.vapi_webhook_registered_at && (
+                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.vapi_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.vapi_webhook_registered_at).toLocaleDateString()}`)}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        )}
                         {testResults["vapi"]?.webhookStatus === "verified" ? (
                           <span className="inline-flex cursor-pointer" title={"Webhook URL verified — server.url points to our endpoint\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL verified — server.url points to our endpoint")}>
                             <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
@@ -2033,6 +2056,11 @@ export default function AdminPage() {
                             <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
                           </span>
                         ) : null}
+                        {webhookVerification["vapi"] && (
+                          <span className="inline-flex cursor-pointer" title={webhookVerification["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["vapi"].message)}>
+                            {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
                       </div>
                     </div>
                     )}
@@ -2881,7 +2909,7 @@ export default function AdminPage() {
 
       {/* Delete Business Confirmation */}
       {showDeleteConfirm && currentTenant && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <Card className="w-full max-w-md mx-4">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2898,7 +2926,7 @@ export default function AdminPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Alert className="border-red-500/30 bg-red-500/5">
+              <Alert className="border-red-500/30 bg-red-500/15">
                 <AlertTriangle className="h-4 w-4 text-red-400" />
                 <AlertTitle className="text-red-400">This action cannot be undone</AlertTitle>
                 <AlertDescription className="text-muted-foreground">
