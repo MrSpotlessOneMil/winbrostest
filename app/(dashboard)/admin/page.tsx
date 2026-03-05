@@ -940,7 +940,7 @@ export default function AdminPage() {
       },
       {
         label: "VAPI Webhook",
-        complete: !!tenant.webhook_health?.vapi?.last_event_at,
+        complete: !!tenant.vapi_webhook_registered_at || !!tenant.webhook_health?.vapi?.last_event_at,
         enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound) && !!(tenant.vapi_api_key && tenant.vapi_assistant_id),
       },
       {
