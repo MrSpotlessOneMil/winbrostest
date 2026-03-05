@@ -3087,13 +3087,13 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       <Label>Flow Type *</Label>
                       <select
-                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        className="w-full h-10 rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                         value={onboardForm.flow_type}
                         onChange={(e) => setOnboardForm({ ...onboardForm, flow_type: e.target.value as any })}
                       >
-                        <option value="winbros">WinBros (Window Cleaning — Full HCP)</option>
-                        <option value="spotless">Spotless (House Cleaning)</option>
-                        <option value="cedar">Cedar (Simple Booking)</option>
+                        <option value="winbros" className="bg-zinc-800 text-zinc-100">WinBros (Window Cleaning — Full HCP)</option>
+                        <option value="spotless" className="bg-zinc-800 text-zinc-100">Spotless (House Cleaning)</option>
+                        <option value="cedar" className="bg-zinc-800 text-zinc-100">Cedar (Simple Booking)</option>
                       </select>
                     </div>
                   </div>
@@ -3101,12 +3101,12 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       <Label>Pricing</Label>
                       <select
-                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        className="w-full h-10 rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                         value={onboardForm.seed_pricing}
                         onChange={(e) => setOnboardForm({ ...onboardForm, seed_pricing: e.target.value as any })}
                       >
-                        <option value="default">Default (14 tiers + 7 addons)</option>
-                        <option value="skip">Skip — configure later</option>
+                        <option value="default" className="bg-zinc-800 text-zinc-100">Default (14 tiers + 7 addons)</option>
+                        <option value="skip" className="bg-zinc-800 text-zinc-100">Skip — configure later</option>
                       </select>
                     </div>
                     <div className="space-y-2">
@@ -3138,15 +3138,15 @@ export default function AdminPage() {
                     <div className="space-y-2">
                       <Label>Timezone</Label>
                       <select
-                        className="w-full h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        className="w-full h-10 rounded-md border border-zinc-700 bg-zinc-800 text-zinc-100 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                         value={onboardForm.timezone}
                         onChange={(e) => setOnboardForm({ ...onboardForm, timezone: e.target.value })}
                       >
-                        <option value="America/New_York">Eastern</option>
-                        <option value="America/Chicago">Central</option>
-                        <option value="America/Denver">Mountain</option>
-                        <option value="America/Los_Angeles">Pacific</option>
-                        <option value="America/Phoenix">Arizona</option>
+                        <option value="America/New_York" className="bg-zinc-800 text-zinc-100">Eastern</option>
+                        <option value="America/Chicago" className="bg-zinc-800 text-zinc-100">Central</option>
+                        <option value="America/Denver" className="bg-zinc-800 text-zinc-100">Mountain</option>
+                        <option value="America/Los_Angeles" className="bg-zinc-800 text-zinc-100">Pacific</option>
+                        <option value="America/Phoenix" className="bg-zinc-800 text-zinc-100">Arizona</option>
                       </select>
                     </div>
                     <div className="space-y-2">
@@ -3196,7 +3196,7 @@ export default function AdminPage() {
               {onboardStep === 1 && (
                 <div className="space-y-2">
                   {/* OpenPhone */}
-                  <div className="border rounded-lg p-2">
+                  <div className="border border-zinc-600 rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">OpenPhone</Label>
                       <a href="https://my.openphone.com/settings/api" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
@@ -3236,7 +3236,7 @@ export default function AdminPage() {
                   </div>
 
                   {/* Telegram */}
-                  <div className="border rounded-lg p-2">
+                  <div className="border border-zinc-600 rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Telegram</Label>
                       <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">BotFather</a>
@@ -3275,7 +3275,7 @@ export default function AdminPage() {
                   </div>
 
                   {/* Stripe */}
-                  <div className="border rounded-lg p-2">
+                  <div className="border border-zinc-600 rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Stripe</Label>
                       <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
@@ -3312,7 +3312,7 @@ export default function AdminPage() {
                   </div>
 
                   {/* VAPI */}
-                  <div className="border rounded-lg p-2">
+                  <div className="border border-zinc-600 rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">VAPI</Label>
                       <a href="https://dashboard.vapi.ai" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
@@ -3352,7 +3352,7 @@ export default function AdminPage() {
                   {showExtraServices && (
                     <div className="space-y-2 pl-2 border-l-2 border-muted">
                       {/* HousecallPro */}
-                      <div className="border rounded-lg p-2">
+                      <div className="border border-zinc-600 rounded-lg p-2">
                         <div className="flex items-center gap-2 mb-1.5">
                           <Label className="font-semibold text-sm">HousecallPro</Label>
                           <a href="https://app.housecallpro.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
@@ -3370,7 +3370,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       {/* Wave */}
-                      <div className="border rounded-lg p-2">
+                      <div className="border border-zinc-600 rounded-lg p-2">
                         <div className="flex items-center gap-2 mb-1.5">
                           <Label className="font-semibold text-sm">Wave Accounting</Label>
                           <a href="https://my.waveapps.com" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
@@ -3396,7 +3396,7 @@ export default function AdminPage() {
                         </div>
                       </div>
                       {/* GHL */}
-                      <div className="border rounded-lg p-2">
+                      <div className="border border-zinc-600 rounded-lg p-2">
                         <div className="flex items-center gap-2 mb-1.5">
                           <Label className="font-semibold text-sm">GHL (GoHighLevel)</Label>
                           <a href="https://app.gohighlevel.com/settings" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Settings</a>
@@ -3413,7 +3413,7 @@ export default function AdminPage() {
 
                       {/* Custom Services */}
                       {customServices.map((svc, si) => (
-                        <div key={si} className="border rounded-lg p-2">
+                        <div key={si} className="border border-zinc-600 rounded-lg p-2">
                           <div className="flex items-center gap-2 mb-1.5">
                             <Input className="h-7 text-sm font-semibold w-40" placeholder="Service Name" value={svc.name}
                               onChange={(e) => {
@@ -3543,13 +3543,13 @@ export default function AdminPage() {
                         { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
                       ].filter(s => s.configured)
                       if (configuredServices.length === 0) return (
-                        <div className="border-t pt-3 mt-3 text-sm">
+                        <div className="border-t border-zinc-600 pt-3 mt-3 text-sm">
                           <p className="font-medium text-base">API Credentials</p>
                           <p className="text-muted-foreground italic pl-2 mt-1">None — you can add credentials later</p>
                         </div>
                       )
                       return (
-                        <div className="border-t pt-3 mt-3 space-y-1.5 text-sm">
+                        <div className="border-t border-zinc-600 pt-3 mt-3 space-y-1.5 text-sm">
                           <p className="font-medium text-base">API Credentials</p>
                           {configuredServices.map((svc) => {
                             const testResult = svc.testKey ? wizardTestResults[svc.testKey] : null
@@ -3611,7 +3611,7 @@ export default function AdminPage() {
 
                     {/* Pipeline results — only shown on failure (success auto-navigates) */}
                     {onboardResults && (
-                      <div className="border-t pt-3 mt-3 space-y-2 text-sm">
+                      <div className="border-t border-zinc-600 pt-3 mt-3 space-y-2 text-sm">
                         {/* Core steps */}
                         {(["create_tenant", "create_user", "seed_pricing", "save_credentials"] as const).map((key) => {
                           const step = onboardResults.steps[key]
