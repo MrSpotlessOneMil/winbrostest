@@ -502,6 +502,10 @@ export default function AdminPage() {
       for (const [k, v] of Object.entries(onboardForm)) {
         if (v !== "") payload[k] = v
       }
+      // Default password to slug if not provided (matches placeholder hint)
+      if (!payload.password && payload.slug) {
+        payload.password = payload.slug
+      }
       // Include custom services as custom_credentials
       if (customServices.length > 0) {
         const cc: Record<string, Record<string, string>> = {}
