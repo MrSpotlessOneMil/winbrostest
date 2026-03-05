@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
       openphone_webhook_registered_at,
       openphone_webhook_error,
       openphone_webhook_error_at,
+      vapi_webhook_registered_at,
+      vapi_webhook_error,
+      vapi_webhook_error_at,
       workflow_config,
       active,
       created_at,
@@ -416,6 +419,11 @@ export async function PATCH(request: NextRequest) {
     updates.openphone_webhook_secret = null
     updates.openphone_webhook_error = null
     updates.openphone_webhook_error_at = null
+  }
+  if (updates.vapi_api_key !== undefined || updates.vapi_assistant_id !== undefined) {
+    updates.vapi_webhook_registered_at = null
+    updates.vapi_webhook_error = null
+    updates.vapi_webhook_error_at = null
   }
 
   const { data, error } = await client
