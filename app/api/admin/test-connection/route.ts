@@ -7,6 +7,7 @@ import {
   testVapiConnection,
   testTelegramConnection,
   testWaveConnection,
+  getBaseUrl,
 } from "@/lib/admin-onboard"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
         if (!tenant.vapi_api_key || !tenant.vapi_assistant_id) {
           return NextResponse.json({ success: false, error: "VAPI API key or assistant ID not configured" }, { status: 400 })
         }
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${request.headers.get("host")}`
+        const baseUrl = getBaseUrl() || `https://${request.headers.get("host")}`
         const expectedWebhookUrl = `${baseUrl}/api/webhooks/vapi/${tenant.slug}`
         const result = await testVapiConnection(tenant.vapi_api_key, tenant.vapi_assistant_id, {
           outboundAssistantId: tenant.vapi_outbound_assistant_id || undefined,
