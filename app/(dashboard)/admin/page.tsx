@@ -288,7 +288,7 @@ export default function AdminPage() {
 
   // Connection test state
   const [testingService, setTestingService] = useState<string | null>(null)
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; webhookStatus?: "verified" | "warning" | "mismatch" | null }>>({})
 
   // Webhook registration state
   const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
@@ -986,7 +986,7 @@ export default function AdminPage() {
       const json = await res.json()
       setTestResults((prev) => ({
         ...prev,
-        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
+        [service]: { success: json.success, message: json.message || json.error || "Unknown", webhookStatus: json.webhookStatus || null },
       }))
     } catch (err: any) {
       setTestResults((prev) => ({
@@ -2005,7 +2005,19 @@ export default function AdminPage() {
                             {testResults["vapi"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                           </span>
                         )}
-                        {currentTenant.webhook_health?.vapi?.last_event_at ? (
+                        {testResults["vapi"]?.webhookStatus === "verified" ? (
+                          <span className="inline-flex cursor-pointer" title={"Webhook URL verified — server.url points to our endpoint\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL verified — server.url points to our endpoint")}>
+                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                          </span>
+                        ) : testResults["vapi"]?.webhookStatus === "warning" ? (
+                          <span className="inline-flex cursor-pointer" title={"No server URL on assistant — may use account-level fallback\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No server URL on assistant — may use account-level fallback")}>
+                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                          </span>
+                        ) : testResults["vapi"]?.webhookStatus === "mismatch" ? (
+                          <span className="inline-flex cursor-pointer" title={"Webhook URL mismatch — server.url points elsewhere. Click Register Webhook to fix.\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL mismatch — server.url points elsewhere")}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        ) : currentTenant.webhook_health?.vapi?.last_event_at ? (
                           <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})`)}>
                             <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>

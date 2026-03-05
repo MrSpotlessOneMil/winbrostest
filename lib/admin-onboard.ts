@@ -113,20 +113,56 @@ export async function testOpenPhoneConnection(key: string, phoneId: string): Pro
   return { ok: true, message: `Connected. Phone: ${match.formattedNumber || match.phoneNumber || "OK"}` }
 }
 
-export async function testVapiConnection(key: string, assistantId: string): Promise<StepResult> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10_000)
-  const res = await fetch(`https://api.vapi.ai/assistant/${assistantId}`, {
-    headers: { Authorization: `Bearer ${key}` },
-    signal: controller.signal,
-  })
-  clearTimeout(timeout)
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`VAPI API returned ${res.status}: ${errText}`)
+export async function testVapiConnection(
+  key: string,
+  assistantId: string,
+  opts?: { outboundAssistantId?: string; expectedWebhookUrl?: string },
+): Promise<StepResult> {
+  const assistantIds = [assistantId, ...(opts?.outboundAssistantId ? [opts.outboundAssistantId] : [])]
+  const names: string[] = []
+  // "verified" = URL matches, "warning" = no server.url set, "mismatch" = points elsewhere
+  let webhookStatus: "verified" | "warning" | "mismatch" | null = null
+  const webhookDetails: string[] = []
+
+  for (const aId of assistantIds) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(`https://api.vapi.ai/assistant/${aId}`, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`VAPI API returned ${res.status} for assistant ${aId}: ${errText}`)
+    }
+    const data = await res.json()
+    names.push(data.name || aId)
+
+    if (opts?.expectedWebhookUrl) {
+      const serverUrl = data.server?.url
+      if (serverUrl === opts.expectedWebhookUrl) {
+        if (!webhookStatus) webhookStatus = "verified"
+      } else if (!serverUrl) {
+        webhookDetails.push(`${data.name || aId}: no server URL set`)
+        if (webhookStatus !== "mismatch") webhookStatus = "warning"
+      } else {
+        webhookDetails.push(`${data.name || aId}: points to ${serverUrl}`)
+        webhookStatus = "mismatch"
+      }
+    }
   }
-  const data = await res.json()
-  return { ok: true, message: `Connected. Assistant: ${data.name || data.id || "OK"}` }
+
+  let message = `Connected. Assistant${names.length > 1 ? "s" : ""}: ${names.join(", ")}`
+  if (webhookStatus === "verified") {
+    message += " | Webhook: verified"
+  } else if (webhookStatus === "warning") {
+    message += ` | Webhook: not set (${webhookDetails.join("; ")}) — may use account-level fallback`
+  } else if (webhookStatus === "mismatch") {
+    message += ` | Webhook: mismatch (${webhookDetails.join("; ")})`
+  }
+
+  return { ok: true, message, data: { webhookStatus } }
 }
 
 export async function testTelegramConnection(token: string): Promise<StepResult> {
