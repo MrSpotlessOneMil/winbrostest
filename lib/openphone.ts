@@ -62,7 +62,7 @@ export async function sendSMS(
   }
 
   // ── Per-customer SMS throttle ──
-  // Max 8 outbound messages per customer per 24 hours
+  // Max 20 outbound messages per customer per 24 hours
   // Max 1 message with same content per customer per 30 minutes (dedup)
   try {
     const throttleClient = getSupabaseServiceClient()
@@ -77,8 +77,8 @@ export async function sendSMS(
       .eq('direction', 'outbound')
       .gte('created_at', twentyFourHoursAgo)
 
-    if (dailyCount && dailyCount >= 8) {
-      console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} messages in 24h (limit 8)`)
+    if (dailyCount && dailyCount >= 20) {
+      console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} messages in 24h (limit 20)`)
       return { success: false, error: `SMS throttled: customer received ${dailyCount} messages in 24h` }
     }
 

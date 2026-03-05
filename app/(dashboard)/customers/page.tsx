@@ -6,7 +6,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 
 // Normalize phone to 10 digits for comparison
@@ -60,6 +60,7 @@ interface Customer {
   preferred_frequency?: string | null
   preferred_day?: string | null
   recurring_notes?: string | null
+  lifecycle_stage?: string | null
   created_at: string
   updated_at: string
 }
@@ -645,6 +646,30 @@ export default function CustomersPage() {
     } finally {
       setDeletingCustomer(false)
       deletingRef.current = false
+    }
+  }
+
+  // Handle mark customer as lost
+  const handleMarkAsLost = async () => {
+    if (!selectedCustomer) return
+    const name = getCustomerName(selectedCustomer)
+    if (!confirm(`Mark ${name} as lost (bad experience)? They won't receive any retargeting messages.`)) return
+
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedCustomer.id, lifecycle_stage: "lost" }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setCustomers((prev) => prev.map((c) => c.id === selectedCustomer.id ? { ...c, lifecycle_stage: "lost" } : c))
+        setSelectedCustomer({ ...selectedCustomer, lifecycle_stage: "lost" } as typeof selectedCustomer)
+      } else {
+        alert(json.error || "Failed to mark as lost")
+      }
+    } catch {
+      alert("Failed to mark as lost")
     }
   }
 
@@ -1486,7 +1511,7 @@ export default function CustomersPage() {
                           <>
                           {/* Backdrop for mobile */}
                           <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => { setPaymentOpen(false); setPaymentType(null); setPaymentResult(null) }} />
-                          <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
+                          <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
                             {!paymentType && !paymentResult && !chargeCardResult && (
                               <div className="p-2 space-y-0.5">
                                 <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
@@ -1763,6 +1788,15 @@ export default function CustomersPage() {
                         title="Copy transcript"
                       >
                         {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+
+                      {/* Mark as Lost */}
+                      <button
+                        onClick={handleMarkAsLost}
+                        className="p-1.5 rounded text-zinc-500 hover:text-orange-400 hover:bg-orange-400/10 transition-colors"
+                        title="Mark as lost (bad experience)"
+                      >
+                        <Ban className="w-4 h-4" />
                       </button>
 
                       {/* Delete Customer */}

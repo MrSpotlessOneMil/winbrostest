@@ -5,10 +5,11 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getTenantBySlug } from "@/lib/tenant"
 
 // Minimal GoHighLevel webhook handler:
 // stores incoming leads into `public.leads`.
+// Tenant is resolved from ?tenant= query param (slug).
 export async function POST(request: NextRequest) {
   // Get raw body for signature verification
   let rawBody: string
@@ -92,18 +93,37 @@ export async function POST(request: NextRequest) {
     payload?.location_id ||
     null
 
+  // Resolve tenant from ?tenant= query param (slug)
+  const tenantSlug = request.nextUrl.searchParams.get("tenant")
+  if (!tenantSlug) {
+    console.error("[OSIRIS] GHL Webhook: No ?tenant= query param — cannot route. Dropping webhook.")
+    await logSystemEvent({
+      source: "ghl",
+      event_type: "GHL_TENANT_MISSING",
+      message: "GHL webhook received without ?tenant= param — dropped to prevent cross-tenant leak",
+      phone_number: phone,
+      metadata: { locationId, sourceId },
+    })
+    return NextResponse.json({ success: false, error: "Missing tenant param" }, { status: 400 })
+  }
+
+  const tenant = await getTenantBySlug(tenantSlug)
+  if (!tenant) {
+    console.error(`[OSIRIS] GHL Webhook: Tenant '${tenantSlug}' not found — dropping webhook.`)
+    return NextResponse.json({ success: false, error: "Unknown tenant" }, { status: 404 })
+  }
+
   const client = getSupabaseClient()
-  const tenant = await getDefaultTenant()
 
   // Upsert customer for linking later (composite unique: tenant_id, phone_number)
   const { data: customer } = await client
     .from("customers")
-    .upsert({ phone_number: phone, tenant_id: tenant?.id, first_name: firstName || null, last_name: lastName || null, email: email || null }, { onConflict: "tenant_id,phone_number" })
+    .upsert({ phone_number: phone, tenant_id: tenant.id, first_name: firstName || null, last_name: lastName || null, email: email || null }, { onConflict: "tenant_id,phone_number" })
     .select("id")
     .single()
 
   const { data: lead, error: leadError } = await client.from("leads").insert({
-    tenant_id: tenant?.id,
+    tenant_id: tenant.id,
     source_id: String(sourceId),
     ghl_location_id: locationId ? String(locationId) : null,
     phone_number: phone,
@@ -125,6 +145,7 @@ export async function POST(request: NextRequest) {
 
   // Log system event
   await logSystemEvent({
+    tenant_id: tenant.id,
     source: "ghl",
     event_type: "GHL_LEAD_RECEIVED",
     message: `New lead from GHL: ${firstName || 'Unknown'} ${lastName || ''}`.trim(),
@@ -133,6 +154,7 @@ export async function POST(request: NextRequest) {
       lead_id: lead?.id,
       source_id: sourceId,
       location_id: locationId,
+      tenant_slug: tenant.slug,
     },
   })
 
@@ -140,8 +162,8 @@ export async function POST(request: NextRequest) {
   if (lead?.id) {
     try {
       const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
-      await scheduleLeadFollowUp(tenant?.id || '', String(lead.id), phone, leadName)
-      console.log(`[OSIRIS] GHL Webhook: Scheduled follow-up sequence for lead ${lead.id}`)
+      await scheduleLeadFollowUp(tenant.id, String(lead.id), phone, leadName)
+      console.log(`[OSIRIS] GHL Webhook: Scheduled follow-up sequence for lead ${lead.id} (${tenant.slug})`)
     } catch (scheduleError) {
       console.error("[OSIRIS] GHL Webhook: Error scheduling follow-up:", scheduleError)
       // Don't fail the webhook, the lead is already created
@@ -150,4 +172,3 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ success: true, leadId: lead?.id })
 }
-

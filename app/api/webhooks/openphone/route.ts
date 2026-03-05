@@ -312,6 +312,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
+  // Track retargeting reply: if customer has active sequence and hasn't replied yet, mark first reply
+  if (customer?.retargeting_sequence && !customer?.retargeting_completed_at && !customer?.retargeting_replied_at) {
+    await client
+      .from("customers")
+      .update({ retargeting_replied_at: new Date().toISOString() })
+      .eq("id", customer.id)
+      .is("retargeting_replied_at", null)
+    console.log(`[OpenPhone] Marked retargeting reply for customer ${customer.id}`)
+  }
+
   // Per-customer auto-response kill switch
   if (customer?.auto_response_paused === true) {
     console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — storing message, skipping AI`)

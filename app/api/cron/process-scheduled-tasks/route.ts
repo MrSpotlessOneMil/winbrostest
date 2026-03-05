@@ -711,6 +711,7 @@ async function processRetargeting(
   const sequence = payload.sequence as RetargetingSequenceType
   const step = payload.step as number
   const template = String(payload.template || '')
+  const variant = (payload.variant as 'a' | 'b') || 'a' // default 'a' for pre-existing tasks
 
   if (!customerId || !customerPhone || !tenant) {
     console.warn('[retargeting] Missing required payload fields')
@@ -757,10 +758,11 @@ async function processRetargeting(
     }
   }
 
-  // Build message from template
+  // Build message from template (A/B variant)
   const serviceDesc = getTenantServiceDescription(tenant)
   const firstName = customerName.split(' ')[0] || customerName
-  const messageTemplate = RETARGETING_TEMPLATES[template] || RETARGETING_TEMPLATES['9_word']
+  const templateObj = RETARGETING_TEMPLATES[template] || RETARGETING_TEMPLATES['9_word']
+  const messageTemplate = templateObj[variant] || templateObj.a
   const message = messageTemplate
     .replace('{name}', firstName)
     .replace('{service}', serviceDesc)

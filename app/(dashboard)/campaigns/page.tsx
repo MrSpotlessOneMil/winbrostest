@@ -84,68 +84,69 @@ interface PipelineCustomer {
 }
 
 // Sequence preview data (mirrors lib/scheduler.ts RETARGETING_SEQUENCES + RETARGETING_TEMPLATES)
-const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; template: string; message: string }[]; summary: string }> = {
+// Each step has variant a and b for A/B testing
+const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; template: string; a: string; b: string }[]; summary: string }> = {
   unresponsive: {
     summary: "3 messages over 7 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "9-Word Reactivation", message: "Hi {name}, are you still looking for {service}?" },
-      { step: 2, delay: "Day 3", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
-      { step: 3, delay: "Day 7", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "9-Word Reactivation", a: "Hey {name}! We have a couple openings for {service} this week — want me to save you a spot?", b: "Hey {name}, quick question — are you still needing {service}? Reply YES and I'll get you on the schedule." },
+      { step: 2, delay: "Day 3", template: "Value Nudge", a: "Hi {name}, just finished a job near you and thought of you! We've got one more opening this week for {service}. Want me to pencil you in?", b: "Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?" },
+      { step: 3, delay: "Day 7", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
   quoted_not_booked: {
     summary: "4 messages over 7 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Quote Follow-up", message: "Hi {name}, following up on your {service} quote. Any questions? Happy to adjust — just reply here." },
-      { step: 2, delay: "Day 2", template: "Question-Based", message: "Hi {name}, was there anything holding you back from booking? We're happy to work with your schedule or budget." },
-      { step: 3, delay: "Day 5", template: "Limited Time", message: "Hi {name}, we have a couple openings this week for {service}. Want me to hold a spot for you?" },
-      { step: 4, delay: "Day 7", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "Quote Follow-up", a: "Hey {name}, your {service} quote is still good! Any questions or want to adjust anything? Just reply here — happy to work with you.", b: "Hi {name}, following up on your quote — I can hold your spot if you want to lock it in this week. Just say the word!" },
+      { step: 2, delay: "Day 2", template: "Question-Based", a: "Hey {name}, totally get that timing matters. Is there anything we can do to make booking easier for you? We're flexible on scheduling.", b: "Hi {name}, was there something we could do differently? Happy to work around your schedule or adjust the price." },
+      { step: 3, delay: "Day 5", template: "Limited Time", a: "Hey {name}, only 2 openings left this week for {service} — want me to hold one for you? They go fast!", b: "Hi {name}, we just had a cancellation and have a spot open for {service}. Want it? Reply YES to grab it." },
+      { step: 4, delay: "Day 7", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
   one_time: {
     summary: "3 messages over 14 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "We Miss You", message: "Hi {name}! It's been a while since we took care of your {service}. Ready for another round? Reply to book." },
-      { step: 2, delay: "Day 7", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
-      { step: 3, delay: "Day 14", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "We Miss You", a: "Hey {name}! It's been a minute — your place is probably due for {service} again. Want us to swing by? Reply YES to book.", b: "Hi {name}, we were just in your area doing {service} and thought of you! Ready for another round? Just say when." },
+      { step: 2, delay: "Day 7", template: "Seasonal Nudge", a: "Hey {name}, perfect time of year for {service}! We're booking up this week — want me to squeeze you in?", b: "Hi {name}, most of our customers are getting their {service} done right now. Want me to get you on the schedule too?" },
+      { step: 3, delay: "Day 14", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
   lapsed: {
     summary: "3 messages over 10 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask", message: "Hi {name}, we noticed it's been a while. Was there anything we could've done better? We'd love to earn your business back." },
-      { step: 2, delay: "Day 5", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
-      { step: 3, delay: "Day 10", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name}, real quick — was there anything we could've done better last time? We'd love another chance to impress you.", b: "Hi {name}, just checking in. If there's anything we can improve, I'd love to hear it. Either way, we'd love to have you back!" },
+      { step: 2, delay: "Day 5", template: "Incentive Offer", a: "Hey {name}, we'd love to have you back! Reply YES and I'll get you priority scheduling for your next {service}.", b: "Hi {name}, we're offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?" },
+      { step: 3, delay: "Day 10", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
   new_lead: {
     summary: "3 messages over 5 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "9-Word Reactivation", message: "Hi {name}, are you still looking for {service}?" },
-      { step: 2, delay: "Day 2", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
-      { step: 3, delay: "Day 5", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "9-Word Reactivation", a: "Hey {name}! We have a couple openings for {service} this week — want me to save you a spot?", b: "Hey {name}, quick question — are you still needing {service}? Reply YES and I'll get you on the schedule." },
+      { step: 2, delay: "Day 2", template: "Value Nudge", a: "Hi {name}, just finished a job near you and thought of you! We've got one more opening this week for {service}. Want me to pencil you in?", b: "Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?" },
+      { step: 3, delay: "Day 5", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
   repeat: {
     summary: "2 messages over 7 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
-      { step: 2, delay: "Day 7", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
+      { step: 1, delay: "Immediately", template: "Seasonal Nudge", a: "Hey {name}, perfect time of year for {service}! We're booking up this week — want me to squeeze you in?", b: "Hi {name}, most of our customers are getting their {service} done right now. Want me to get you on the schedule too?" },
+      { step: 2, delay: "Day 7", template: "Incentive Offer", a: "Hey {name}, we'd love to have you back! Reply YES and I'll get you priority scheduling for your next {service}.", b: "Hi {name}, we're offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?" },
     ],
   },
   active: {
     summary: "2 messages over 7 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Seasonal Nudge", message: "Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?" },
-      { step: 2, delay: "Day 7", template: "Value Nudge", message: "Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?" },
+      { step: 1, delay: "Immediately", template: "Seasonal Nudge", a: "Hey {name}, perfect time of year for {service}! We're booking up this week — want me to squeeze you in?", b: "Hi {name}, most of our customers are getting their {service} done right now. Want me to get you on the schedule too?" },
+      { step: 2, delay: "Day 7", template: "Value Nudge", a: "Hi {name}, just finished a job near you and thought of you! We've got one more opening this week for {service}. Want me to pencil you in?", b: "Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?" },
     ],
   },
   lost: {
     summary: "3 messages over 10 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask", message: "Hi {name}, we noticed it's been a while. Was there anything we could've done better? We'd love to earn your business back." },
-      { step: 2, delay: "Day 5", template: "Incentive Offer", message: "Hi {name}, we'd love to have you back. Reply YES and we'll get you priority scheduling for your next {service}." },
-      { step: 3, delay: "Day 10", template: "Closing File", message: "Hi {name}, we're updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way." },
+      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name}, real quick — was there anything we could've done better last time? We'd love another chance to impress you.", b: "Hi {name}, just checking in. If there's anything we can improve, I'd love to hear it. Either way, we'd love to have you back!" },
+      { step: 2, delay: "Day 5", template: "Incentive Offer", a: "Hey {name}, we'd love to have you back! Reply YES and I'll get you priority scheduling for your next {service}.", b: "Hi {name}, we're offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?" },
+      { step: 3, delay: "Day 10", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
     ],
   },
 }
@@ -177,8 +178,13 @@ export default function CampaignsPage() {
   const [enrollResult, setEnrollResult] = useState<{ segment: string; enrolled: number } | null>(null)
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<Set<number>>(new Set())
   const [showPreview, setShowPreview] = useState<string | null>(null)
+  const [previewVariant, setPreviewVariant] = useState<'a' | 'b'>('a')
   const [cancelling, setCancelling] = useState(false)
 
+  // A/B results state
+  const [abResults, setAbResults] = useState<Record<string, Record<string, { enrolled: number; replied: number; converted: number }>>>({})
+  const [abLoading, setAbLoading] = useState(false)
+  const [abExpanded, setAbExpanded] = useState(false)
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -281,7 +287,17 @@ export default function CampaignsPage() {
     }
   }
 
-  useEffect(() => { fetchSettings(); fetchPipeline() }, [])
+  async function fetchAbResults() {
+    setAbLoading(true)
+    try {
+      const res = await fetch("/api/actions/retargeting-ab-results", { cache: "no-store" })
+      const json = await res.json()
+      if (json.success) setAbResults(json.results || {})
+    } catch { /* ignore */ }
+    finally { setAbLoading(false) }
+  }
+
+  useEffect(() => { fetchSettings(); fetchPipeline(); fetchAbResults() }, [])
 
   async function updateSettings(updates: Partial<CampaignSettings>) {
     setSaving(true)
@@ -634,7 +650,23 @@ export default function CampaignsPage() {
                                     <MessageSquare className="h-4 w-4 text-blue-400" />
                                     <span className="text-sm font-medium">Message Sequence</span>
                                   </div>
-                                  <span className="text-xs text-muted-foreground">{SEQUENCE_PREVIEWS[stage.sequence].summary}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-muted-foreground">{SEQUENCE_PREVIEWS[stage.sequence].summary}</span>
+                                    <div className="flex rounded-md border border-zinc-700 overflow-hidden text-[10px]">
+                                      <button
+                                        className={`px-2 py-0.5 ${previewVariant === 'a' ? 'bg-blue-500/20 text-blue-400' : 'text-muted-foreground hover:bg-zinc-800'}`}
+                                        onClick={() => setPreviewVariant('a')}
+                                      >
+                                        A
+                                      </button>
+                                      <button
+                                        className={`px-2 py-0.5 border-l border-zinc-700 ${previewVariant === 'b' ? 'bg-purple-500/20 text-purple-400' : 'text-muted-foreground hover:bg-zinc-800'}`}
+                                        onClick={() => setPreviewVariant('b')}
+                                      >
+                                        B
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
                                 <div className="divide-y divide-zinc-800/50">
                                   {SEQUENCE_PREVIEWS[stage.sequence].steps.map((s) => (
@@ -643,16 +675,19 @@ export default function CampaignsPage() {
                                         <Badge variant="outline" className="text-[10px] font-mono">Step {s.step}</Badge>
                                         <span className="text-[10px] text-muted-foreground">{s.delay}</span>
                                         <span className="text-[10px] text-blue-400">· {s.template}</span>
+                                        <Badge className={`text-[9px] ${previewVariant === 'a' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-purple-500/20 text-purple-400 border-purple-500/30'}`}>
+                                          Variant {previewVariant.toUpperCase()}
+                                        </Badge>
                                       </div>
                                       <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-800/50 rounded px-3 py-2 italic">
-                                        &ldquo;{s.message}&rdquo;
+                                        &ldquo;{previewVariant === 'a' ? s.a : s.b}&rdquo;
                                       </p>
                                     </div>
                                   ))}
                                 </div>
                                 <div className="px-4 py-2.5 border-t border-zinc-700/50 bg-emerald-500/5">
                                   <p className="text-[11px] text-emerald-400">
-                                    Auto-stops if the customer books a job during the sequence.
+                                    Auto-stops if the customer books a job during the sequence. Each customer is randomly assigned variant A or B.
                                   </p>
                                 </div>
                               </div>
@@ -667,6 +702,65 @@ export default function CampaignsPage() {
             )
           })}
         </CardContent>
+      </Card>
+
+      {/* A/B Test Results */}
+      <Card>
+        <CardHeader className="cursor-pointer" onClick={() => { setAbExpanded(!abExpanded); if (!abExpanded && Object.keys(abResults).length === 0) fetchAbResults() }}>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Zap className="h-5 w-5" />
+                A/B Test Results
+              </CardTitle>
+              <CardDescription>Compare variant A vs B performance across retargeting sequences</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              {abLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {abExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </div>
+          </div>
+        </CardHeader>
+        {abExpanded && (
+          <CardContent>
+            {Object.keys(abResults).length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No A/B data yet. Enroll customers in retargeting sequences to start collecting data.</p>
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(abResults).map(([seq, variants]) => {
+                  const stageInfo = PIPELINE_STAGES.find(s => s.key === seq)
+                  const a = variants.a || { enrolled: 0, replied: 0, converted: 0 }
+                  const b = variants.b || { enrolled: 0, replied: 0, converted: 0 }
+                  const aReplyRate = a.enrolled > 0 ? Math.round((a.replied / a.enrolled) * 100) : 0
+                  const bReplyRate = b.enrolled > 0 ? Math.round((b.replied / b.enrolled) * 100) : 0
+                  const aConvRate = a.enrolled > 0 ? Math.round((a.converted / a.enrolled) * 100) : 0
+                  const bConvRate = b.enrolled > 0 ? Math.round((b.converted / b.enrolled) * 100) : 0
+                  return (
+                    <div key={seq} className="border border-zinc-800 rounded-lg overflow-hidden">
+                      <div className="px-4 py-2 bg-zinc-900/50 border-b border-zinc-800">
+                        <span className="text-sm font-medium">{stageInfo?.label || seq.replace(/_/g, " ")}</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-px text-xs">
+                        <div className="px-3 py-2 bg-zinc-900/30 text-muted-foreground font-medium"></div>
+                        <div className="px-3 py-2 bg-zinc-900/30 text-muted-foreground font-medium text-center">Enrolled</div>
+                        <div className="px-3 py-2 bg-zinc-900/30 text-muted-foreground font-medium text-center">Replied</div>
+                        <div className="px-3 py-2 bg-zinc-900/30 text-muted-foreground font-medium text-center">Converted</div>
+                        <div className="px-3 py-2 font-medium text-blue-400">Variant A</div>
+                        <div className="px-3 py-2 text-center">{a.enrolled}</div>
+                        <div className="px-3 py-2 text-center">{a.replied} <span className="text-muted-foreground">({aReplyRate}%)</span></div>
+                        <div className="px-3 py-2 text-center">{a.converted} <span className="text-muted-foreground">({aConvRate}%)</span></div>
+                        <div className="px-3 py-2 font-medium text-purple-400">Variant B</div>
+                        <div className="px-3 py-2 text-center">{b.enrolled}</div>
+                        <div className="px-3 py-2 text-center">{b.replied} <span className="text-muted-foreground">({bReplyRate}%)</span></div>
+                        <div className="px-3 py-2 text-center">{b.converted} <span className="text-muted-foreground">({bConvRate}%)</span></div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Settings Cards */}

@@ -436,30 +436,51 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
 }
 
 /**
- * SMS templates per retargeting step.
+ * SMS templates per retargeting step — A/B tested.
+ * Each template has variant 'a' (default) and 'b' (challenger).
  * {name} = customer first name, {service} = tenant service type (e.g. "cleaning", "window washing")
  */
-export const RETARGETING_TEMPLATES: Record<string, string> = {
-  // 9-word reactivation — proven highest response rate for dead leads
-  '9_word': 'Hi {name}, are you still looking for {service}?',
-  // Gentle value nudge
-  'value_nudge': 'Hi {name}, just checking in — we have availability this week for {service}. Want me to get you on the schedule?',
-  // Quote follow-up
-  'quote_followup': 'Hi {name}, following up on your {service} quote. Any questions? Happy to adjust — just reply here.',
-  // Question-based
-  'question_based': 'Hi {name}, was there anything holding you back from booking? We\'re happy to work with your schedule or budget.',
-  // Limited time
-  'limited_time': 'Hi {name}, we have a couple openings this week for {service}. Want me to hold a spot for you?',
-  // We miss you — for one-time customers
-  'we_miss_you': 'Hi {name}! It\'s been a while since we took care of your {service}. Ready for another round? Reply to book.',
-  // Seasonal nudge
-  'seasonal_nudge': 'Hi {name}, the season is changing — perfect time for {service}. Want us to get you scheduled?',
-  // Feedback ask — for lapsed
-  'feedback_ask': 'Hi {name}, we noticed it\'s been a while. Was there anything we could\'ve done better? We\'d love to earn your business back.',
-  // Incentive offer
-  'incentive_offer': 'Hi {name}, we\'d love to have you back. Reply YES and we\'ll get you priority scheduling for your next {service}.',
-  // Closing file — triggers loss aversion, highest response message in any sequence
-  'closing_file': 'Hi {name}, we\'re updating our records. Should I close out your file, or are you still interested in {service}? No pressure either way.',
+export const RETARGETING_TEMPLATES: Record<string, { a: string; b: string }> = {
+  '9_word': {
+    a: 'Hey {name}! We have a couple openings for {service} this week — want me to save you a spot?',
+    b: 'Hey {name}, quick question — are you still needing {service}? Reply YES and I\'ll get you on the schedule.',
+  },
+  'value_nudge': {
+    a: 'Hi {name}, just finished a job near you and thought of you! We\'ve got one more opening this week for {service}. Want me to pencil you in?',
+    b: 'Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?',
+  },
+  'quote_followup': {
+    a: 'Hey {name}, your {service} quote is still good! Any questions or want to adjust anything? Just reply here — happy to work with you.',
+    b: 'Hi {name}, following up on your quote — I can hold your spot if you want to lock it in this week. Just say the word!',
+  },
+  'question_based': {
+    a: 'Hey {name}, totally get that timing matters. Is there anything we can do to make booking easier for you? We\'re flexible on scheduling.',
+    b: 'Hi {name}, was there something we could do differently? Happy to work around your schedule or adjust the price.',
+  },
+  'limited_time': {
+    a: 'Hey {name}, only 2 openings left this week for {service} — want me to hold one for you? They go fast!',
+    b: 'Hi {name}, we just had a cancellation and have a spot open for {service}. Want it? Reply YES to grab it.',
+  },
+  'we_miss_you': {
+    a: 'Hey {name}! It\'s been a minute — your place is probably due for {service} again. Want us to swing by? Reply YES to book.',
+    b: 'Hi {name}, we were just in your area doing {service} and thought of you! Ready for another round? Just say when.',
+  },
+  'seasonal_nudge': {
+    a: 'Hey {name}, perfect time of year for {service}! We\'re booking up this week — want me to squeeze you in?',
+    b: 'Hi {name}, most of our customers are getting their {service} done right now. Want me to get you on the schedule too?',
+  },
+  'feedback_ask': {
+    a: 'Hey {name}, real quick — was there anything we could\'ve done better last time? We\'d love another chance to impress you.',
+    b: 'Hi {name}, just checking in. If there\'s anything we can improve, I\'d love to hear it. Either way, we\'d love to have you back!',
+  },
+  'incentive_offer': {
+    a: 'Hey {name}, we\'d love to have you back! Reply YES and I\'ll get you priority scheduling for your next {service}.',
+    b: 'Hi {name}, we\'re offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?',
+  },
+  'closing_file': {
+    a: 'Hey {name}, last check-in from me! We\'d love to have you back for {service} but no pressure. Reply YES to book, otherwise I\'ll stop reaching out.',
+    b: 'Hi {name}, I\'m cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!',
+  },
 }
 
 /**
@@ -479,6 +500,9 @@ export async function scheduleRetargetingSequence(
   const taskIds: string[] = []
   const now = new Date()
 
+  // A/B test: randomly assign variant for the entire sequence
+  const variant = Math.random() < 0.5 ? 'a' : 'b'
+
   for (const step of steps) {
     const scheduledFor = new Date(now.getTime() + step.delay_days * 24 * 60 * 60 * 1000)
 
@@ -494,6 +518,7 @@ export async function scheduleRetargetingSequence(
         sequence,
         step: step.step,
         template: step.template,
+        variant,
       },
     })
 
@@ -502,7 +527,7 @@ export async function scheduleRetargetingSequence(
     }
   }
 
-  // Update customer retargeting status
+  // Update customer retargeting status + A/B variant
   const supabase = getSupabase()
   await supabase
     .from('customers')
@@ -512,6 +537,8 @@ export async function scheduleRetargetingSequence(
       retargeting_enrolled_at: now.toISOString(),
       retargeting_completed_at: null,
       retargeting_stopped_reason: null,
+      retargeting_variant: variant,
+      retargeting_replied_at: null,
     })
     .eq('id', customerId)
 
