@@ -125,6 +125,51 @@ const TIER_COLORS: Record<string, { ring: string; bg: string; glow: string; text
   },
 }
 
+// ── Membership Plans ─────────────────────────────────────────────────
+
+interface MembershipPlan {
+  slug: string
+  name: string
+  visits: number
+  interval: string
+  discount: number
+  freeAddons: string[]
+  agreement: string
+}
+
+const MEMBERSHIP_PLANS: MembershipPlan[] = [
+  {
+    slug: "biannual",
+    name: "BiAnnual Membership",
+    visits: 2,
+    interval: "6 months",
+    discount: 50,
+    freeAddons: ["Rain Repellent", "Screen Cleaning"],
+    agreement:
+      "By approving this agreement, you commit to receiving 2 exterior window cleaning visits within a 12-month period. In exchange, a $50 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every 6 months. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent and Screen Cleaning on every visit.",
+  },
+  {
+    slug: "quarterly",
+    name: "Quarterly Membership",
+    visits: 4,
+    interval: "3 months",
+    discount: 100,
+    freeAddons: ["Rain Repellent", "Screen Cleaning", "7-Day Rain Guarantee"],
+    agreement:
+      "By approving this agreement, you commit to receiving 4 exterior window cleaning visits within a 12-month period. In exchange, a $100 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every 3 months. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent, Screen Cleaning, and 7-Day Rain Guarantee on every visit.",
+  },
+  {
+    slug: "monthly",
+    name: "Monthly Membership",
+    visits: 12,
+    interval: "month",
+    discount: 150,
+    freeAddons: ["Rain Repellent", "Screen Cleaning", "7-Day Rain Guarantee"],
+    agreement:
+      "By approving this agreement, you commit to receiving 12 exterior window cleaning visits within a 12-month period. In exchange, a $150 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every month. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent, Screen Cleaning, and 7-Day Rain Guarantee on every visit.",
+  },
+]
+
 // ── Component ────────────────────────────────────────────────────────
 
 export default function QuotePage() {
@@ -140,6 +185,8 @@ export default function QuotePage() {
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({})
   const [approving, setApproving] = useState(false)
   const [approved, setApproved] = useState(false)
+  const [selectedMembership, setSelectedMembership] = useState<string | null>(null)
+  const [agreementAccepted, setAgreementAccepted] = useState(false)
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -234,8 +281,10 @@ export default function QuotePage() {
       }, 0)
     : 0
 
-  const discountAmount =
-    (Number(quote?.discount) || 0) + (Number(quote?.membership_discount) || 0)
+  const selectedPlan = MEMBERSHIP_PLANS.find((p) => p.slug === selectedMembership) ?? null
+  const membershipDiscount = selectedPlan?.discount ?? 0
+  const existingDiscount = Number(quote?.discount) || 0
+  const discountAmount = existingDiscount + membershipDiscount
   const total = Math.max(0, subtotal - discountAmount)
 
   // ── Approve handler ──────────────────────────────────────────────
@@ -254,6 +303,7 @@ export default function QuotePage() {
         body: JSON.stringify({
           selected_tier: selectedTierKey,
           selected_addons: activeAddons,
+          membership_plan: selectedPlan?.slug || null,
         }),
       })
 
@@ -660,6 +710,144 @@ export default function QuotePage() {
           </div>
         )}
 
+        {/* ── Membership Plans ───────────────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-1">
+              Save with a Membership
+            </h2>
+            <p className="text-zinc-400 text-sm mb-6">
+              Commit to regular cleanings and save on every visit.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* No Membership option */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedMembership(null)
+                  setAgreementAccepted(false)
+                }}
+                className={`
+                  relative text-left rounded-xl border p-5 transition-all duration-200
+                  ${
+                    selectedMembership === null
+                      ? "ring-2 ring-zinc-500/60 border-white/10 bg-zinc-800/40"
+                      : "border-white/[0.06] bg-zinc-900/40 hover:border-white/[0.12] hover:bg-zinc-900/60"
+                  }
+                  cursor-pointer
+                `}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-white font-semibold">No Membership</h3>
+                </div>
+                <p className="text-zinc-400 text-xs mb-3">One-time service at regular price</p>
+                <p className="text-zinc-500 text-sm">No commitment</p>
+                {selectedMembership === null && (
+                  <div className="absolute top-3 right-3">
+                    <div className="size-5 rounded-full bg-zinc-500 flex items-center justify-center">
+                      <Check className="size-3 text-white" />
+                    </div>
+                  </div>
+                )}
+              </button>
+
+              {/* Membership plan cards */}
+              {MEMBERSHIP_PLANS.map((plan) => {
+                const isSelected = selectedMembership === plan.slug
+                return (
+                  <button
+                    key={plan.slug}
+                    type="button"
+                    onClick={() => {
+                      setSelectedMembership(plan.slug)
+                      setAgreementAccepted(false)
+                    }}
+                    className={`
+                      relative text-left rounded-xl border p-5 transition-all duration-200
+                      ${
+                        isSelected
+                          ? "ring-2 ring-emerald-500/60 border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_30px_rgba(16,185,129,0.1)]"
+                          : "border-white/[0.06] bg-zinc-900/40 hover:border-white/[0.12] hover:bg-zinc-900/60"
+                      }
+                      cursor-pointer
+                    `}
+                    style={
+                      isSelected
+                        ? {}
+                        : {
+                            backgroundImage:
+                              "linear-gradient(135deg, rgba(16,185,129,0.03) 0%, transparent 50%)",
+                          }
+                    }
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="text-white font-semibold text-sm">{plan.name}</h3>
+                    </div>
+                    <p className="text-zinc-400 text-xs mb-3">
+                      {plan.visits} visits/year &middot; Every {plan.interval}
+                    </p>
+                    <div className="mb-3">
+                      <span className="text-emerald-400 font-semibold text-sm">
+                        Save {formatCurrency(plan.discount)}/visit
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-zinc-500 text-xs font-medium">Free perks:</p>
+                      {plan.freeAddons.map((perk) => (
+                        <div key={perk} className="flex items-center gap-1.5">
+                          <Check className="size-3 text-emerald-400 shrink-0" />
+                          <span className="text-zinc-400 text-xs">{perk}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {isSelected && (
+                      <div className="absolute top-3 right-3">
+                        <div className="size-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                          <Check className="size-3 text-white" />
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Service Agreement */}
+            {selectedPlan && (
+              <div className="mt-6 space-y-4">
+                <div className="border border-white/[0.08] rounded-lg overflow-hidden">
+                  <div className="px-4 py-2.5 bg-zinc-900/60 border-b border-white/[0.06]">
+                    <p className="text-sm font-medium text-white">
+                      Service Agreement &mdash; {selectedPlan.name}
+                    </p>
+                  </div>
+                  <div
+                    className="px-4 py-3 max-h-[200px] overflow-y-auto text-sm text-zinc-400 leading-relaxed"
+                    style={{ scrollbarWidth: "thin" }}
+                  >
+                    {selectedPlan.agreement}
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="agreement-checkbox"
+                    checked={agreementAccepted}
+                    onCheckedChange={(val) => setAgreementAccepted(!!val)}
+                  />
+                  <Label
+                    htmlFor="agreement-checkbox"
+                    className="text-sm text-zinc-300 cursor-pointer leading-snug"
+                  >
+                    I agree to the membership terms above
+                  </Label>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Price Summary ───────────────────────────────────────── */}
         <Card>
           <CardHeader>
@@ -715,16 +903,24 @@ export default function QuotePage() {
                 <span className="text-zinc-300">{formatCurrency(subtotal)}</span>
               </div>
 
-              {/* Discount */}
-              {discountAmount > 0 && (
+              {/* Existing discount */}
+              {existingDiscount > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-emerald-400">Discount</span>
+                  <span className="text-emerald-400">
+                    -{formatCurrency(existingDiscount)}
+                  </span>
+                </div>
+              )}
+
+              {/* Membership discount */}
+              {membershipDiscount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-emerald-400">
-                    {quote.membership_plan
-                      ? `${quote.membership_plan} Discount`
-                      : "Discount"}
+                    Membership Discount ({selectedPlan?.name})
                   </span>
                   <span className="text-emerald-400">
-                    -{formatCurrency(discountAmount)}
+                    -{formatCurrency(membershipDiscount)}
                   </span>
                 </div>
               )}
@@ -747,7 +943,7 @@ export default function QuotePage() {
           <div className="flex justify-center pb-8">
             <Button
               size="lg"
-              disabled={!selectedTierKey || approving}
+              disabled={!selectedTierKey || approving || (selectedPlan !== null && !agreementAccepted)}
               onClick={handleApprove}
               className="
                 w-full sm:w-auto sm:min-w-[280px] h-14 text-base font-semibold

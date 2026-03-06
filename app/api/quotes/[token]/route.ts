@@ -70,7 +70,7 @@ export async function PATCH(
   }
 
   const body = await request.json()
-  const { selected_tier, selected_addons, customer_name, customer_email } = body
+  const { selected_tier, selected_addons, customer_name, customer_email, membership_plan } = body
 
   // Validate tier
   const validTiers = ["good", "better", "best"] as const
@@ -133,7 +133,26 @@ export async function PATCH(
     }
   }
 
-  const total = subtotal - (Number(quote.discount) || 0) - (Number(quote.membership_discount) || 0)
+  // Look up membership plan if selected
+  let plan: { id: string; slug: string; discount_per_visit: number; interval_months: number; visits_per_year: number; free_addons: string[] | null } | null = null
+  let membershipDiscount = 0
+
+  if (membership_plan) {
+    const { data: planData } = await supabase
+      .from("service_plans")
+      .select("id, slug, discount_per_visit, interval_months, visits_per_year, free_addons")
+      .eq("slug", membership_plan)
+      .eq("tenant_id", quote.tenant_id)
+      .eq("active", true)
+      .single()
+
+    if (planData) {
+      plan = planData
+      membershipDiscount = Number(plan.discount_per_visit) || 0
+    }
+  }
+
+  const total = subtotal - (Number(quote.discount) || 0) - membershipDiscount
 
   // Build update payload
   const updatePayload: Record<string, unknown> = {
@@ -143,6 +162,11 @@ export async function PATCH(
     subtotal,
     total: Math.max(total, 0),
     approved_at: new Date().toISOString(),
+  }
+
+  if (plan) {
+    updatePayload.membership_plan = plan.slug
+    updatePayload.membership_discount = membershipDiscount
   }
 
   // Optionally update customer info if provided
@@ -162,6 +186,27 @@ export async function PATCH(
       { error: "Failed to approve quote — it may have already been updated" },
       { status: 409 }
     )
+  }
+
+  // Create membership record if plan was selected
+  if (plan && quote.customer_id) {
+    try {
+      const nextVisit = new Date()
+      nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
+
+      await supabase.from("customer_memberships").insert({
+        tenant_id: quote.tenant_id,
+        customer_id: quote.customer_id,
+        plan_id: plan.id,
+        status: "active",
+        started_at: new Date().toISOString(),
+        next_visit_at: nextVisit.toISOString(),
+        visits_completed: 0,
+        credits: 0,
+      })
+    } catch (err) {
+      console.error("[quote/approve] Membership creation error:", err)
+    }
   }
 
   // Auto-create a job from the approved quote
