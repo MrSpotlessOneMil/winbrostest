@@ -164,5 +164,35 @@ export async function PATCH(
     )
   }
 
+  // Auto-create a job from the approved quote
+  try {
+    const jobInsert: Record<string, unknown> = {
+      tenant_id: quote.tenant_id,
+      customer_id: quote.customer_id || null,
+      phone_number: quote.customer_phone || null,
+      address: quote.customer_address || null,
+      service_type: selected_tier === "best" ? "Full Detail" : selected_tier === "better" ? "Complete Clean" : "Exterior Clean",
+      price: Math.max(total, 0),
+      status: "pending",
+      booked: false,
+      paid: false,
+      payment_status: "pending",
+      notes: `Quote #${token.slice(0, 8).toUpperCase()} approved — ${
+        selected_tier === "best" ? "Full Detail" : selected_tier === "better" ? "Complete Clean" : "Exterior Clean"
+      } package`,
+      quote_id: quote.id,
+    }
+
+    const { error: jobError } = await supabase
+      .from("jobs")
+      .insert(jobInsert)
+
+    if (jobError) {
+      console.error("[quote/approve] Failed to create job:", jobError.message)
+    }
+  } catch (err) {
+    console.error("[quote/approve] Job creation error:", err)
+  }
+
   return NextResponse.json({ success: true, quote: updated })
 }
