@@ -95,12 +95,14 @@ const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; 
     ],
   },
   quoted_not_booked: {
-    summary: "4 messages over 7 days",
+    summary: "6 messages over 14 days",
     steps: [
       { step: 1, delay: "Immediately", template: "Quote Follow-up", a: "Hey {name}, your {service} quote is still good! Any questions or want to adjust anything? Just reply here — happy to work with you.", b: "Hi {name}, following up on your quote — I can hold your spot if you want to lock it in this week. Just say the word!" },
       { step: 2, delay: "Day 2", template: "Question-Based", a: "Hey {name}, totally get that timing matters. Is there anything we can do to make booking easier for you? We're flexible on scheduling.", b: "Hi {name}, was there something we could do differently? Happy to work around your schedule or adjust the price." },
-      { step: 3, delay: "Day 5", template: "Limited Time", a: "Hey {name}, only 2 openings left this week for {service} — want me to hold one for you? They go fast!", b: "Hi {name}, we just had a cancellation and have a spot open for {service}. Want it? Reply YES to grab it." },
-      { step: 4, delay: "Day 7", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 3, delay: "Day 4", template: "Limited Time", a: "Hey {name}, only 2 openings left this week for {service} — want me to hold one for you? They go fast!", b: "Hi {name}, we just had a cancellation and have a spot open for {service}. Want it? Reply YES to grab it." },
+      { step: 4, delay: "Day 7", template: "Check-In", a: "Hey {name}, just circling back — still interested in {service}? I can work with you on timing or price. What would make this a yes?", b: "Hi {name}, wanted to make sure your quote didn't slip through the cracks. We've got availability this week — want me to book you in?" },
+      { step: 5, delay: "Day 10", template: "Social Proof", a: "Hey {name}, just wrapped up {service} for a neighbor nearby and they loved it! We'd love to take care of your place too. Reply YES to book.", b: "Hi {name}, we've been busy in your area doing {service} — your neighbors are loving the results! Want us to swing by yours too?" },
+      { step: 6, delay: "Day 14", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to get you booked for {service} but no pressure. Reply YES to book, otherwise I'll close out your file.", b: "Hi {name}, I'm closing out quotes this week — should I keep yours open for {service}, or would you rather I stop reaching out? Either way, no hard feelings!" },
     ],
   },
   one_time: {
@@ -259,6 +261,31 @@ export default function CampaignsPage() {
       setError("Failed to enroll segment")
     } finally {
       setEnrolling(null)
+    }
+  }
+
+  async function markAsLost(customerIds: number[]) {
+    if (customerIds.length === 0) return
+    setCancelling(true)
+    try {
+      const res = await fetch("/api/actions/retargeting-pipeline", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_ids: customerIds, override: "lost" }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setEnrollResult(null)
+        setSelectedCustomerIds(new Set())
+        await fetchPipeline()
+        if (expandedStage) await fetchStageCustomers(expandedStage)
+      } else {
+        setError(json.error || "Failed to mark as bad experience")
+      }
+    } catch {
+      setError("Failed to mark as bad experience")
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -575,11 +602,27 @@ export default function CampaignsPage() {
                                           >
                                             <X className="h-3 w-3" />
                                           </button>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); markAsLost([c.id]) }}
+                                            className="p-0.5 rounded hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-colors"
+                                            title="Mark as bad experience"
+                                          >
+                                            <Ban className="h-3 w-3" />
+                                          </button>
                                         </>
                                       ) : !c.phone_number ? (
                                         <span className="text-muted-foreground text-[10px]">No phone</span>
                                       ) : (
-                                        <span className="text-muted-foreground text-[10px]">Eligible</span>
+                                        <span className="flex items-center gap-1">
+                                          <span className="text-muted-foreground text-[10px]">Eligible</span>
+                                          <button
+                                            onClick={(e) => { e.stopPropagation(); markAsLost([c.id]) }}
+                                            className="p-0.5 rounded hover:bg-red-500/20 text-zinc-500 hover:text-red-400 transition-colors"
+                                            title="Mark as bad experience"
+                                          >
+                                            <Ban className="h-3 w-3" />
+                                          </button>
+                                        </span>
                                       )}
                                     </span>
                                   </div>
@@ -603,15 +646,27 @@ export default function CampaignsPage() {
                                 {showPreview === stage.sequence ? "Hide" : "Preview"} Messages
                               </Button>
                               {selectedCustomerIds.size > 0 && (
-                                <Button
-                                  size="sm"
-                                  className="h-8 text-xs"
-                                  disabled={enrolling !== null}
-                                  onClick={() => enrollSegment(stage.sequence!, Array.from(selectedCustomerIds))}
-                                >
-                                  {enrolling === stage.sequence ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Play className="h-3 w-3 mr-1.5" />}
-                                  Start for {selectedCustomerIds.size} Selected
-                                </Button>
+                                <>
+                                  <Button
+                                    size="sm"
+                                    className="h-8 text-xs"
+                                    disabled={enrolling !== null}
+                                    onClick={() => enrollSegment(stage.sequence!, Array.from(selectedCustomerIds))}
+                                  >
+                                    {enrolling === stage.sequence ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Play className="h-3 w-3 mr-1.5" />}
+                                    Start for {selectedCustomerIds.size} Selected
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 text-xs text-red-400 border-red-500/30 hover:bg-red-500/10"
+                                    disabled={cancelling}
+                                    onClick={() => markAsLost(Array.from(selectedCustomerIds))}
+                                  >
+                                    {cancelling ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Ban className="h-3 w-3 mr-1.5" />}
+                                    Bad Experience ({selectedCustomerIds.size})
+                                  </Button>
+                                </>
                               )}
                               {eligible > 0 && (
                                 <Button

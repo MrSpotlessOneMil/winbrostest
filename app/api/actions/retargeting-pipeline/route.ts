@@ -6,6 +6,7 @@ import { scheduleRetargetingSequence, type RetargetingSequenceType } from "@/lib
 /**
  * GET — Pipeline summary: counts per lifecycle stage + retargeting status
  * POST — Enroll a segment (or specific customers) in a retargeting sequence
+ * PATCH — Override lifecycle stage for specific customers (e.g. mark as lost/bad experience)
  * DELETE — Cancel retargeting for specific customers or an entire segment
  */
 
@@ -119,6 +120,76 @@ export async function POST(request: NextRequest) {
     total_eligible: customers.length,
     errors,
   })
+}
+
+export async function PATCH(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
+
+  const { customer_ids, override } = await request.json()
+
+  if (!customer_ids || !Array.isArray(customer_ids) || customer_ids.length === 0) {
+    return NextResponse.json({ error: "customer_ids array is required" }, { status: 400 })
+  }
+
+  const validOverrides = ["lost", "new_lead", "unresponsive", "quoted_not_booked", null]
+  if (!validOverrides.includes(override)) {
+    return NextResponse.json({ error: `Invalid override. Must be one of: ${validOverrides.filter(Boolean).join(", ")}, or null to clear` }, { status: 400 })
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  // Verify tenant ownership
+  const { data: customers } = await supabase
+    .from("customers")
+    .select("id")
+    .eq("tenant_id", tenant.id)
+    .in("id", customer_ids)
+
+  if (!customers || customers.length === 0) {
+    return NextResponse.json({ error: "No matching customers found" }, { status: 404 })
+  }
+
+  let updated = 0
+  for (const c of customers) {
+    // Cancel any active retargeting sequences when marking as lost
+    if (override === "lost") {
+      await supabase
+        .from("scheduled_tasks")
+        .update({ status: "cancelled" })
+        .eq("tenant_id", tenant.id)
+        .eq("task_type", "retargeting")
+        .like("task_key", `retarget-${c.id}-%`)
+        .in("status", ["pending", "processing"])
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      lifecycle_stage_override: override,
+    }
+    // When setting an override, also set lifecycle_stage directly
+    if (override) {
+      updatePayload.lifecycle_stage = override
+    }
+    // When marking as lost, also cancel retargeting state
+    if (override === "lost") {
+      updatePayload.retargeting_sequence = null
+      updatePayload.retargeting_step = null
+      updatePayload.retargeting_enrolled_at = null
+      updatePayload.retargeting_completed_at = null
+      updatePayload.retargeting_stopped_reason = null
+    }
+
+    await supabase
+      .from("customers")
+      .update(updatePayload)
+      .eq("id", c.id)
+      .eq("tenant_id", tenant.id)
+
+    updated++
+  }
+
+  return NextResponse.json({ success: true, updated })
 }
 
 export async function DELETE(request: NextRequest) {

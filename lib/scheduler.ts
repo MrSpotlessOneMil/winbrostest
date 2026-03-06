@@ -389,7 +389,7 @@ interface RetargetingStep {
 /**
  * Sequence definitions based on research:
  * - unresponsive: 9-word reactivation (3 texts over 7 days)
- * - quoted_not_booked: Quote follow-up (4 texts over 7 days)
+ * - quoted_not_booked: Quote follow-up (6 texts over 14 days)
  * - one_time: Win-back (3 texts over 14 days)
  * - lapsed: "We miss you" (3 texts over 10 days)
  */
@@ -402,8 +402,10 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
   quoted_not_booked: [
     { step: 1, delay_days: 0, template: 'quote_followup' },
     { step: 2, delay_days: 2, template: 'question_based' },
-    { step: 3, delay_days: 5, template: 'limited_time' },
-    { step: 4, delay_days: 7, template: 'closing_file' },
+    { step: 3, delay_days: 4, template: 'limited_time' },
+    { step: 4, delay_days: 7, template: 'check_in' },
+    { step: 5, delay_days: 10, template: 'social_proof' },
+    { step: 6, delay_days: 14, template: 'closing_file' },
   ],
   one_time: [
     { step: 1, delay_days: 0, template: 'we_miss_you' },
@@ -476,6 +478,14 @@ export const RETARGETING_TEMPLATES: Record<string, { a: string; b: string }> = {
   'incentive_offer': {
     a: 'Hey {name}, we\'d love to have you back! Reply YES and I\'ll get you priority scheduling for your next {service}.',
     b: 'Hi {name}, we\'re offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?',
+  },
+  'check_in': {
+    a: 'Hey {name}, just circling back — still interested in {service}? I can work with you on timing or price. What would make this a yes?',
+    b: 'Hi {name}, wanted to make sure your quote didn\'t slip through the cracks. We\'ve got availability this week — want me to book you in?',
+  },
+  'social_proof': {
+    a: 'Hey {name}, just wrapped up {service} for a neighbor nearby and they loved it! We\'d love to take care of your place too. Reply YES to book.',
+    b: 'Hi {name}, we\'ve been busy in your area doing {service} — your neighbors are loving the results! Want us to swing by yours too?',
   },
   'closing_file': {
     a: 'Hey {name}, last check-in from me! We\'d love to have you back for {service} but no pressure. Reply YES to book, otherwise I\'ll stop reaching out.',
