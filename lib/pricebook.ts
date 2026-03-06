@@ -34,6 +34,113 @@ const WINDOW_TIERS: WindowTier[] = [
 // Default tier when sqft is unknown (smallest / most common residential)
 const DEFAULT_WINDOW_TIER = WINDOW_TIERS[0]
 
+// Custom per-unit pricing (for custom pane counts or individual services)
+export const CUSTOM_PER_UNIT: Record<string, { price: number; label: string; unit: string }> = {
+  exterior: { price: 5, label: "Exterior Window Cleaning", unit: "pane" },
+  interior: { price: 4, label: "Interior Window Cleaning", unit: "pane" },
+  track_detailing: { price: 3, label: "Track Detailing", unit: "track" },
+  partial_interior_ground: { price: 4, label: "Partial Interior (Ground Level)", unit: "pane" },
+  partial_interior_upper: { price: 12, label: "Partial Interior (Upper Level)", unit: "pane" },
+  solar_panel: { price: 7, label: "Solar Panel Cleaning", unit: "panel" },
+  hard_water_treatment: { price: 12, label: "Hard Water Stain Treatment", unit: "pane" },
+}
+
+/**
+ * Good / Better / Best tier definitions for interactive quotes.
+ * Each tier defines which services are included and optional add-ons.
+ */
+export interface QuoteTier {
+  key: 'good' | 'better' | 'best'
+  name: string
+  tagline: string
+  badge?: string
+  included: string[]
+  description: string
+}
+
+export const QUOTE_TIERS: QuoteTier[] = [
+  {
+    key: 'good',
+    name: 'Exterior Clean',
+    tagline: 'Essential curb appeal',
+    included: ['exterior', 'screen_cleaning'],
+    description: 'Complete exterior window wash — glass, frames, sills, and courtesy screen cleaning.',
+  },
+  {
+    key: 'better',
+    name: 'Complete Clean',
+    tagline: 'Most popular',
+    badge: 'Best Value',
+    included: ['exterior', 'interior', 'screen_cleaning', 'rain_repellent'],
+    description: 'Full interior & exterior cleaning with rain repellent for lasting clarity.',
+  },
+  {
+    key: 'best',
+    name: 'Full Detail',
+    tagline: 'The works',
+    included: ['exterior', 'interior', 'track_detailing', 'screen_cleaning', 'rain_repellent', 'rain_guarantee'],
+    description: 'Everything in Complete Clean plus deep track detailing and 7-day rain guarantee.',
+  },
+]
+
+/** Optional add-ons customers can toggle on any tier */
+export interface QuoteAddon {
+  key: string
+  name: string
+  description: string
+  priceType: 'flat' | 'per_unit'
+  price: number
+  unit?: string
+}
+
+export const QUOTE_ADDONS: QuoteAddon[] = [
+  { key: 'interior', name: 'Interior Window Cleaning', description: 'Streak-free interior glass cleaning with non-toxic solutions', priceType: 'flat', price: 0 }, // price from tier
+  { key: 'track_detailing', name: 'Track Detailing', description: 'Deep clean window tracks — remove dirt, debris, and mildew', priceType: 'flat', price: 0 },
+  { key: 'solar_panel', name: 'Solar Panel Cleaning', description: 'Maximize energy output by removing dirt and debris from panels', priceType: 'per_unit', price: 7, unit: 'panel' },
+  { key: 'hard_water_treatment', name: 'Hard Water Stain Treatment', description: 'Specialized treatment to restore glass clarity', priceType: 'per_unit', price: 12, unit: 'pane' },
+  { key: 'rain_repellent', name: 'Rain Repellent', description: 'Hydrophobic coating that repels water and keeps windows cleaner longer', priceType: 'flat', price: 0 }, // FREE
+  { key: 'rain_guarantee', name: '7-Day Rain Guarantee', description: 'Free re-clean if it rains within 7 days of service', priceType: 'flat', price: 0 }, // FREE
+]
+
+/**
+ * Compute price for a specific tier given property square footage.
+ */
+export function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: number | null): {
+  price: number
+  breakdown: { service: string; price: number }[]
+  tier: string
+} {
+  const windowTier = getWindowTier(sqft)
+  const quoteTier = QUOTE_TIERS.find(t => t.key === tierKey)!
+  const breakdown: { service: string; price: number }[] = []
+  let price = 0
+
+  if (quoteTier.included.includes('exterior')) {
+    breakdown.push({ service: 'Exterior Window Cleaning', price: windowTier.exterior })
+    price += windowTier.exterior
+  }
+  if (quoteTier.included.includes('interior')) {
+    breakdown.push({ service: 'Interior Window Cleaning', price: windowTier.interior })
+    price += windowTier.interior
+  }
+  if (quoteTier.included.includes('track_detailing')) {
+    breakdown.push({ service: 'Track Detailing', price: windowTier.trackDetailing })
+    price += windowTier.trackDetailing
+  }
+  // Free included services
+  if (quoteTier.included.includes('screen_cleaning')) {
+    breakdown.push({ service: 'Exterior Screen Cleaning', price: 0 })
+  }
+  if (quoteTier.included.includes('rain_repellent')) {
+    breakdown.push({ service: 'Rain Repellent', price: 0 })
+  }
+  if (quoteTier.included.includes('rain_guarantee')) {
+    breakdown.push({ service: '7-Day Rain Guarantee', price: 0 })
+  }
+
+  return { price, breakdown, tier: windowTier.label }
+}
+
 // Flat-rate services matched by keywords (pressure washing surfaces)
 const FLAT_SERVICES: FlatService[] = [
   { name: "House Washing", keywords: ["house wash", "house_wash", "siding", "soft wash"], price: 300 },
