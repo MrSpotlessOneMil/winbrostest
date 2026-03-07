@@ -380,6 +380,8 @@ export default function CustomersPage() {
   const [savingNewCustomer, setSavingNewCustomer] = useState(false)
   const [newCustomerError, setNewCustomerError] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const [pendingScrollSearch, setPendingScrollSearch] = useState<string | null>(null)
 
   // Payment popover state
   const [paymentOpen, setPaymentOpen] = useState(false)
@@ -457,6 +459,26 @@ export default function CustomersPage() {
     }, 300)
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [searchQuery])
+
+  // Scroll to the most recent message matching the search term after selecting a customer
+  useEffect(() => {
+    if (!pendingScrollSearch || !selectedCustomer || !messagesContainerRef.current) return
+    const timer = setTimeout(() => {
+      const container = messagesContainerRef.current
+      if (!container) return
+      const bubbles = container.querySelectorAll<HTMLElement>("[data-msg-content]")
+      let lastMatch: HTMLElement | null = null
+      bubbles.forEach((el) => {
+        const content = el.getAttribute("data-msg-content")?.toLowerCase() || ""
+        if (content.includes(pendingScrollSearch)) lastMatch = el
+      })
+      if (lastMatch) {
+        (lastMatch as HTMLElement).scrollIntoView({ behavior: "smooth", block: "start" })
+      }
+      setPendingScrollSearch(null)
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [pendingScrollSearch, selectedCustomer])
 
   // Poll for new messages and updates every 3 seconds
   // Use ref to access current searchQuery without re-creating the interval
@@ -1387,6 +1409,7 @@ export default function CustomersPage() {
                           setSelectedCustomer(customer)
                           markAsRead(customer.id)
                           if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
+                          if (searchQuery.trim()) setPendingScrollSearch(searchQuery.trim().toLowerCase())
                           switchTab("messages")
                         }}
                         className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/50 ${
@@ -1858,7 +1881,7 @@ export default function CustomersPage() {
                     {/* Messages + Calls Timeline */}
                     {activeTab === "messages" && (
                       <div className="flex flex-col flex-1 min-h-0">
-                        <div className="flex-1 overflow-y-auto">
+                        <div className="flex-1 overflow-y-auto" ref={messagesContainerRef}>
                           {getCustomerTimeline(selectedCustomer).length === 0 ? (
                             <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
                               No messages or calls
@@ -1869,16 +1892,17 @@ export default function CustomersPage() {
                                 if (item.type === "message") {
                                   const msg = item.data as Message
                                   return (
-                                    <MessageBubble
-                                      key={`msg-${idx}`}
-                                      role={msg.role as "client" | "business" | "assistant" | "system"}
-                                      content={msg.content}
-                                      timestamp={msg.timestamp}
-                                    />
+                                    <div key={`msg-${idx}`} data-msg-content={msg.content}>
+                                      <MessageBubble
+                                        role={msg.role as "client" | "business" | "assistant" | "system"}
+                                        content={msg.content}
+                                        timestamp={msg.timestamp}
+                                      />
+                                    </div>
                                   )
                                 } else {
                                   const call = item.data as Call
-                                  return <CallBubble key={`call-${idx}`} call={call} />
+                                  return <div key={`call-${idx}`} data-msg-content={call.transcript || ""}><CallBubble call={call} /></div>
                                 }
                               })}
                               <div ref={messagesEndRef} />
