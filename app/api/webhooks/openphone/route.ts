@@ -618,7 +618,17 @@ export async function POST(request: NextRequest) {
     const emailMatch = combinedMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i)
     const providedEmail = emailMatch ? emailMatch[0].toLowerCase() : null
 
-    if (providedEmail) {
+    // Dedup: if payment links were already sent, skip email capture even if combinedMessage still contains the email
+    const { data: emailCaptureDedupCheck } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .in("source", ["card_on_file", "deposit", "invoice"])
+      .limit(1)
+      .maybeSingle()
+
+    if (providedEmail && !emailCaptureDedupCheck) {
       console.log(`[OpenPhone] Email captured from booked customer: ${maskEmail(providedEmail)}`)
 
       // Save email to customer record
