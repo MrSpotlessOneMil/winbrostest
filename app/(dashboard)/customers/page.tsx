@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef, useMemo } from "react"
+import { useSearchParams } from "next/navigation"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
@@ -341,6 +342,7 @@ function RecurringTab({ jobs, customer }: { jobs: Job[]; customer: Customer }) {
 
 export default function CustomersPage() {
   const { user } = useAuth()
+  const urlParams = useSearchParams()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [customers, setCustomers] = useState<Customer[]>([])
   const [messages, setMessages] = useState<Message[]>([])
@@ -349,6 +351,7 @@ export default function CustomersPage() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
+  const urlParamsHandled = useRef(false)
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
@@ -444,6 +447,38 @@ export default function CustomersPage() {
   useEffect(() => {
     fetchCustomers()
   }, [])
+
+  // Handle URL params from global search (e.g. ?customerId=123&q=term&phone=+1234)
+  useEffect(() => {
+    if (urlParamsHandled.current || loading || customers.length === 0) return
+    const paramCustomerId = urlParams.get("customerId")
+    const paramPhone = urlParams.get("phone")
+    const paramQ = urlParams.get("q")
+
+    if (paramCustomerId || paramPhone) {
+      urlParamsHandled.current = true
+      let target: Customer | undefined
+      if (paramCustomerId) {
+        target = customers.find((c) => String(c.id) === paramCustomerId)
+      }
+      if (!target && paramPhone) {
+        const normParam = normalizePhone(paramPhone)
+        target = customers.find((c) => normalizePhone(c.phone_number) === normParam)
+      }
+      if (target) {
+        setSelectedCustomer(target)
+        markAsRead(target.id)
+        switchTab("messages")
+        if (paramQ) {
+          setPendingScrollSearch(paramQ.toLowerCase())
+        }
+      }
+      // Clean URL params without reload
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/customers")
+      }
+    }
+  }, [loading, customers, urlParams])
 
   // Debounced server-side search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)

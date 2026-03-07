@@ -1,7 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Search, PanelLeft, Menu, Power, PowerOff } from "lucide-react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { useRouter } from "next/navigation"
+import {
+  Search,
+  PanelLeft,
+  Menu,
+  Power,
+  PowerOff,
+  UserCircle,
+  MessageSquare,
+  Phone,
+  CalendarDays,
+  Users,
+  Target,
+  Loader2,
+} from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/lib/auth-context"
@@ -11,8 +25,36 @@ interface TopNavProps {
   onToggleMobileMenu?: () => void
 }
 
+interface SearchResult {
+  category: string
+  title: string
+  subtitle: string
+  href: string
+  params?: Record<string, string>
+}
+
+const CATEGORY_ICONS: Record<string, typeof UserCircle> = {
+  Customers: UserCircle,
+  Messages: MessageSquare,
+  Calls: Phone,
+  Calendar: CalendarDays,
+  Teams: Users,
+  Retargeting: Target,
+}
+
 export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
   const { tenantStatus, isAdmin, refresh } = useAuth()
+  const router = useRouter()
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(-1)
+  const searchRef = useRef<HTMLDivElement>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Local optimistic state for system active toggle — initializes from auth context
   const [localActive, setLocalActive] = useState<boolean | null>(null)
@@ -43,6 +85,90 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
       setLocalActive(!newActive)
     }
   }
+
+  // Debounced search
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      setSearchResults([])
+      setSearchOpen(false)
+      return
+    }
+    setSearchLoading(true)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(searchQuery.trim())}`)
+        const json = await res.json()
+        if (json.success) {
+          setSearchResults(json.results || [])
+          setSearchOpen(true)
+        }
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    }
+  }, [searchQuery])
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  // Keyboard navigation
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!searchOpen || searchResults.length === 0) return
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : 0))
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : searchResults.length - 1))
+      } else if (e.key === "Enter" && selectedIndex >= 0) {
+        e.preventDefault()
+        navigateToResult(searchResults[selectedIndex])
+      } else if (e.key === "Escape") {
+        setSearchOpen(false)
+        inputRef.current?.blur()
+      }
+    },
+    [searchOpen, searchResults, selectedIndex]
+  )
+
+  const navigateToResult = (result: SearchResult) => {
+    const params = new URLSearchParams()
+    if (result.params) {
+      for (const [k, v] of Object.entries(result.params)) {
+        if (v) params.set(k, v)
+      }
+    }
+    const paramStr = params.toString()
+    const url = paramStr ? `${result.href}?${paramStr}` : result.href
+    setSearchOpen(false)
+    setSearchQuery("")
+    router.push(url)
+  }
+
+  // Group results by category
+  const grouped = searchResults.reduce<Record<string, SearchResult[]>>((acc, r) => {
+    if (!acc[r.category]) acc[r.category] = []
+    acc[r.category].push(r)
+    return acc
+  }, {})
+
+  // Flatten for keyboard index
+  let flatIndex = 0
 
   // Determine status indicator
   const getStatus = () => {
@@ -104,12 +230,74 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
       )}
 
       {/* Search */}
-      <div className="relative flex-1 max-w-md">
+      <div className="relative flex-1 max-w-md" ref={searchRef}>
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        {searchLoading && (
+          <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500 animate-spin" />
+        )}
         <Input
-          placeholder="Search..."
+          ref={inputRef}
+          placeholder="Search everything..."
+          value={searchQuery}
+          onChange={(e) => {
+            setSearchQuery(e.target.value)
+            setSelectedIndex(-1)
+          }}
+          onFocus={() => {
+            if (searchResults.length > 0) setSearchOpen(true)
+          }}
+          onKeyDown={handleKeyDown}
           className="pl-10 bg-zinc-800/80 border-zinc-700/50 text-zinc-300 placeholder-zinc-600 focus:border-zinc-600 text-sm"
         />
+
+        {/* Search results dropdown */}
+        {searchOpen && searchResults.length > 0 && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl overflow-hidden z-50 max-h-[70vh] overflow-y-auto">
+            {Object.entries(grouped).map(([category, items]) => {
+              const Icon = CATEGORY_ICONS[category] || Search
+              return (
+                <div key={category}>
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 border-b border-zinc-800/60">
+                    <Icon className="w-3.5 h-3.5 text-zinc-500" />
+                    <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+                      {category}
+                    </span>
+                    <span className="text-[10px] text-zinc-600">{items.length}</span>
+                  </div>
+                  {items.map((result) => {
+                    const thisIndex = flatIndex++
+                    const isSelected = thisIndex === selectedIndex
+                    return (
+                      <button
+                        key={`${category}-${thisIndex}`}
+                        onClick={() => navigateToResult(result)}
+                        onMouseEnter={() => setSelectedIndex(thisIndex)}
+                        className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors ${
+                          isSelected ? "bg-purple-500/10" : "hover:bg-zinc-800/50"
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-sm truncate ${isSelected ? "text-purple-200" : "text-zinc-200"}`}>
+                            {result.title}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {result.subtitle}
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && !searchLoading && (
+          <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl z-50 p-4 text-center text-sm text-zinc-500">
+            No results found
+          </div>
+        )}
       </div>
 
       {/* Right side */}
