@@ -365,6 +365,7 @@ export default function CustomersPage() {
   }
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [searchLoading, setSearchLoading] = useState(false)
   const [smsMessage, setSmsMessage] = useState("")
   const [sendingSms, setSendingSms] = useState(false)
   const [deletingCustomer, setDeletingCustomer] = useState(false)
@@ -485,12 +486,15 @@ export default function CustomersPage() {
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!searchQuery) {
+      setSearchLoading(false)
       // Reset to default when search cleared
       fetchCustomers()
       return
     }
-    searchTimerRef.current = setTimeout(() => {
-      fetchCustomers(searchQuery)
+    setSearchLoading(true)
+    searchTimerRef.current = setTimeout(async () => {
+      await fetchCustomers(searchQuery)
+      setSearchLoading(false)
     }, 300)
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [searchQuery])
@@ -498,9 +502,10 @@ export default function CustomersPage() {
   // Scroll to the most recent message matching the search term after selecting a customer
   useEffect(() => {
     if (!pendingScrollSearch || !selectedCustomer || !messagesContainerRef.current) return
-    const timer = setTimeout(() => {
+    // Use requestAnimationFrame to wait for DOM paint, then jump instantly
+    const raf = requestAnimationFrame(() => {
       const container = messagesContainerRef.current
-      if (!container) return
+      if (!container) { setPendingScrollSearch(null); return }
       const bubbles = container.querySelectorAll<HTMLElement>("[data-msg-content]")
       let lastMatch: HTMLElement | null = null
       bubbles.forEach((el) => {
@@ -508,11 +513,11 @@ export default function CustomersPage() {
         if (content.includes(pendingScrollSearch)) lastMatch = el
       })
       if (lastMatch) {
-        (lastMatch as HTMLElement).scrollIntoView({ behavior: "smooth", block: "start" })
+        (lastMatch as HTMLElement).scrollIntoView({ behavior: "instant", block: "start" })
       }
       setPendingScrollSearch(null)
-    }, 150)
-    return () => clearTimeout(timer)
+    })
+    return () => cancelAnimationFrame(raf)
   }, [pendingScrollSearch, selectedCustomer])
 
   // Poll for new messages and updates every 3 seconds
@@ -1340,8 +1345,11 @@ export default function CustomersPage() {
                     placeholder="Search customers..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/50 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
+                    className="w-full pl-9 pr-8 py-2 rounded-lg bg-zinc-800/80 border border-zinc-700/50 text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-600"
                   />
+                  {searchLoading && (
+                    <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 animate-spin" />
+                  )}
                 </div>
                 <div className="relative">
                   <button
