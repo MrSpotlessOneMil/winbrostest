@@ -1239,11 +1239,24 @@ export default function CustomersPage() {
   const customerRowData = useMemo(() => {
     const readTimestamps = getReadTimestamps()
     void readVersion // dependency to recompute on mark-as-read
+    const lowerSearch = searchQuery.trim().toLowerCase()
     return filteredCustomers.map((customer) => {
       const customerMessages = getCustomerMessages(customer.phone_number)
       const lastMessage = customerMessages.length > 0
         ? customerMessages[customerMessages.length - 1]
         : null
+
+      // When searching, find the most recent message matching the search term for preview
+      let previewMessage = lastMessage
+      if (lowerSearch && customerMessages.length > 0) {
+        for (let i = customerMessages.length - 1; i >= 0; i--) {
+          if (customerMessages[i].content?.toLowerCase().includes(lowerSearch)) {
+            previewMessage = customerMessages[i]
+            break
+          }
+        }
+      }
+
       const lastReadTs = readTimestamps[customer.id]
       const unreadCount = lastReadTs
         ? customerMessages.filter(
@@ -1252,9 +1265,9 @@ export default function CustomersPage() {
         : customerMessages.filter((m) => m.direction === "incoming").length > 0
           ? customerMessages.filter((m) => m.direction === "incoming").length
           : 0
-      return { customer, lastMessage, unreadCount }
+      return { customer, lastMessage, previewMessage, unreadCount }
     })
-  }, [filteredCustomers, messages, readVersion])
+  }, [filteredCustomers, messages, readVersion, searchQuery])
 
   if (loading) {
     return (
@@ -1398,7 +1411,7 @@ export default function CustomersPage() {
                 {filteredCustomers.length === 0 ? (
                   <div className="p-4 text-center text-sm text-zinc-600">No customers found</div>
                 ) : (
-                  customerRowData.map(({ customer, lastMessage, unreadCount }) => {
+                  customerRowData.map(({ customer, lastMessage, previewMessage, unreadCount }) => {
                     const isSelected = selectedCustomer?.id === customer.id
                     const name = getCustomerName(customer)
 
@@ -1445,8 +1458,21 @@ export default function CustomersPage() {
                             {/* Bottom row: message preview + unread badge */}
                             <div className="flex items-center justify-between gap-2 mt-0.5">
                               <span className="text-xs text-zinc-500 truncate">
-                                {lastMessage
-                                  ? `${lastMessage.direction === "outgoing" ? "You: " : ""}${lastMessage.content}`
+                                {previewMessage
+                                  ? (() => {
+                                      const content = previewMessage.content || ""
+                                      const prefix = previewMessage.direction === "outgoing" ? "You: " : ""
+                                      const lq = searchQuery.trim().toLowerCase()
+                                      if (!lq || !content.toLowerCase().includes(lq)) {
+                                        return `${prefix}${content}`
+                                      }
+                                      // Show snippet centered around the match
+                                      const idx = content.toLowerCase().indexOf(lq)
+                                      const start = Math.max(0, idx - 30)
+                                      const end = Math.min(content.length, idx + lq.length + 30)
+                                      const snippet = (start > 0 ? "..." : "") + content.slice(start, end) + (end < content.length ? "..." : "")
+                                      return `${prefix}${snippet}`
+                                    })()
                                   : "No messages yet"}
                               </span>
                               {unreadCount > 0 && (
