@@ -282,14 +282,14 @@ export async function GET(request: NextRequest) {
     // Strip non-digits for phone search
     const digits = searchQuery.replace(/\D/g, "")
     if (digits.length >= 4) {
-      // Search by phone OR name
+      // Search by phone, name, email, or address
       customersQuery = customersQuery.or(
-        `phone_number.ilike.%${digits}%,first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+        `phone_number.ilike.%${digits}%,first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,address.ilike.%${searchQuery}%`
       )
     } else {
-      // Name-only search
+      // Name, email, or address search
       customersQuery = customersQuery.or(
-        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%`
+        `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,address.ilike.%${searchQuery}%`
       )
     }
     customersQuery = customersQuery.limit(50)
@@ -310,8 +310,35 @@ export async function GET(request: NextRequest) {
     return digits
   }
 
-  // Ensure customers with recent messages are included even if they fell outside limit(200)
+  // When searching, also find customers whose messages contain the search query
   let customers = baseCustomers || []
+  if (searchQuery && messages && messages.length > 0) {
+    const existingIds = new Set(customers.map((c: { id: number }) => c.id))
+    const matchingPhones = new Set<string>()
+    const lowerSearch = searchQuery.toLowerCase()
+    for (const msg of messages as Array<{ phone_number: string; content?: string }>) {
+      if (msg.content && msg.content.toLowerCase().includes(lowerSearch)) {
+        matchingPhones.add(msg.phone_number)
+      }
+    }
+    if (matchingPhones.size > 0) {
+      const phonesArray = Array.from(matchingPhones).slice(0, 50)
+      const { data: msgCustomers } = await client
+        .from("customers")
+        .select("*")
+        .in("phone_number", phonesArray)
+      if (msgCustomers) {
+        for (const c of msgCustomers) {
+          if (!existingIds.has(c.id)) {
+            customers.push(c)
+            existingIds.add(c.id)
+          }
+        }
+      }
+    }
+  }
+
+  // Ensure customers with recent messages are included even if they fell outside limit(200)
   if (!searchQuery && messages && messages.length > 0) {
     const existingPhones = new Set(customers.map((c: { phone_number: string }) => normalizePhoneDigits(c.phone_number)))
 

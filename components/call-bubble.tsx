@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Phone } from "lucide-react"
+import { Phone, ChevronDown, ChevronUp } from "lucide-react"
 
 interface Call {
   id: number
@@ -23,6 +23,7 @@ const SPEED_OPTIONS = [0.8, 1, 1.2, 1.5, 1.7, 2] as const
 
 export function CallBubble({ call }: CallBubbleProps) {
   const isOutbound = call.direction === "outbound"
+  const [showTranscript, setShowTranscript] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(call.duration_seconds || 0)
@@ -263,6 +264,50 @@ export function CallBubble({ call }: CallBubbleProps) {
             </span>
           )}
         </div>
+
+        {/* Transcript toggle */}
+        {call.transcript && (
+          <div className="mt-2">
+            <button
+              onClick={() => setShowTranscript(!showTranscript)}
+              className={`flex items-center gap-1 text-[11px] font-medium transition-colors ${
+                isOutbound
+                  ? "text-purple-300/70 hover:text-purple-200"
+                  : "text-zinc-400 hover:text-zinc-300"
+              }`}
+            >
+              {showTranscript ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showTranscript ? "Hide Transcript" : "View Transcript"}
+            </button>
+
+            {showTranscript && (
+              <div className={`mt-2 pt-2 border-t space-y-1.5 text-sm ${
+                isOutbound ? "border-purple-500/20" : "border-zinc-600/40"
+              }`}>
+                {call.transcript.split("\n").filter(line => line.trim()).map((line, i) => {
+                  const aiMatch = line.match(/^AI:\s*(.*)/)
+                  const userMatch = line.match(/^User:\s*(.*)/)
+                  if (aiMatch) {
+                    return (
+                      <div key={i}>
+                        <span className="text-[10px] font-semibold text-purple-300/80 uppercase tracking-wider">AI</span>
+                        <p className="text-zinc-300 text-[13px] leading-relaxed">{aiMatch[1]}</p>
+                      </div>
+                    )
+                  } else if (userMatch) {
+                    return (
+                      <div key={i}>
+                        <span className="text-[10px] font-semibold text-emerald-400/80 uppercase tracking-wider">Customer</span>
+                        <p className="text-zinc-200 text-[13px] leading-relaxed">{userMatch[1]}</p>
+                      </div>
+                    )
+                  }
+                  return <p key={i} className="text-zinc-400 text-[13px]">{line}</p>
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Hidden audio element */}
         {call.audio_url && (
