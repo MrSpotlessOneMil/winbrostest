@@ -2984,7 +2984,7 @@ export default function AdminPage() {
       {/* Delete Business Confirmation */}
       {showDeleteConfirm && currentTenant && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4 bg-background border-border">
+          <Card className="w-full max-w-md mx-4 !bg-zinc-900 border-border shadow-2xl">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-red-400 flex items-center gap-2">
@@ -3844,7 +3844,7 @@ export default function AdminPage() {
                             <div className="flex items-start gap-2">
                               <span className="text-orange-500 mt-0.5">&#9634;</span>
                               <div>
-                                <p className="font-medium">HousecallPro Webhook</p>
+                                <p className="font-medium">HousecallPro Webhook <a href="https://app.housecallpro.com" target="_blank" rel="noopener noreferrer" className="font-normal text-blue-500 hover:underline ml-1">Settings</a></p>
                                 <p className="text-muted-foreground">Add this URL in HCP → Settings → Webhooks:</p>
                                 <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
                                   {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/housecall-pro
@@ -3856,7 +3856,7 @@ export default function AdminPage() {
                             <div className="flex items-start gap-2">
                               <span className="text-orange-500 mt-0.5">&#9634;</span>
                               <div>
-                                <p className="font-medium">GoHighLevel Webhook</p>
+                                <p className="font-medium">GoHighLevel Webhook <a href="https://app.gohighlevel.com/settings" target="_blank" rel="noopener noreferrer" className="font-normal text-blue-500 hover:underline ml-1">Settings</a></p>
                                 <p className="text-muted-foreground">Add this URL in GHL → Settings → Webhooks:</p>
                                 <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
                                   {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/ghl/{onboardForm.slug}
@@ -3868,7 +3868,7 @@ export default function AdminPage() {
                             <div className="flex items-start gap-2">
                               <span className="text-orange-500 mt-0.5">&#9634;</span>
                               <div>
-                                <p className="font-medium">VAPI Server URL &amp; Phone Setup</p>
+                                <p className="font-medium">VAPI Server URL &amp; Phone Setup <a href="https://dashboard.vapi.ai" target="_blank" rel="noopener noreferrer" className="font-normal text-blue-500 hover:underline ml-1">Dashboard</a></p>
                                 <p className="text-muted-foreground">1. Go to VAPI Dashboard → Phone Numbers → set Server URL to:</p>
                                 <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
                                   {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/vapi/{onboardForm.slug}
