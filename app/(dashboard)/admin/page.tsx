@@ -3509,6 +3509,20 @@ export default function AdminPage() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Gmail (Email Bot)</Label>
                       <span className="text-xs text-muted-foreground">Automated email sending</span>
+                      <div className="flex-1" />
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                        disabled={!onboardForm.gmail_user || !onboardForm.gmail_app_password || !!wizardTesting}
+                        onClick={() => testConnectionDirect("gmail", { gmail_user: onboardForm.gmail_user, gmail_app_password: onboardForm.gmail_app_password })}
+                      >
+                        {wizardTesting === "gmail" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                      </Button>
+                      {wizardTestResults.gmail && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults.gmail.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.gmail.message)}>
+                          {wizardTestResults.gmail.success
+                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                        </span>
+                      )}
                     </div>
                     <div className="space-y-1.5">
                       <Input className="h-8 text-sm" type="email" placeholder="Gmail address (e.g. business@gmail.com)" value={onboardForm.gmail_user} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_user: e.target.value })} />
@@ -3899,11 +3913,9 @@ export default function AdminPage() {
                         onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
                         Back
                       </Button>
-                      <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
+                      <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all" || !!onboardResults}>
                         {onboarding ? (
                           <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
-                        ) : onboardResults ? (
-                          "Retry"
                         ) : (
                           "Create Tenant"
                         )}
