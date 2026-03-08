@@ -3497,11 +3497,6 @@ export default function AdminPage() {
                         <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
                       </div>
                     </details>
-                    <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
-                      <p className="font-medium">After onboarding:</p>
-                      <p>1. Go to VAPI Dashboard &gt; Phone Numbers &gt; set Server URL to <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/vapi/{"{slug}"}</code></p>
-                      <p>2. Assign the inbound assistant to your phone number</p>
-                    </div>
                   </div>
 
                   {/* Gmail (Email Bot) */}
@@ -3873,17 +3868,13 @@ export default function AdminPage() {
                             <div className="flex items-start gap-2">
                               <span className="text-orange-500 mt-0.5">&#9634;</span>
                               <div>
-                                <p className="font-medium">VAPI Assistants</p>
-                                <p className="text-muted-foreground">Make a test call to verify inbound/outbound assistants are working correctly</p>
-                              </div>
-                            </div>
-                          )}
-                          {onboardForm.gmail_user && (
-                            <div className="flex items-start gap-2">
-                              <span className="text-orange-500 mt-0.5">&#9634;</span>
-                              <div>
-                                <p className="font-medium">Gmail App Password</p>
-                                <p className="text-muted-foreground">Verify App Password is active at Google Account → Security → App Passwords</p>
+                                <p className="font-medium">VAPI Server URL &amp; Phone Setup</p>
+                                <p className="text-muted-foreground">1. Go to VAPI Dashboard → Phone Numbers → set Server URL to:</p>
+                                <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
+                                  {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/vapi/{onboardForm.slug}
+                                </code>
+                                <p className="text-muted-foreground mt-1">2. Assign the inbound assistant to your phone number</p>
+                                <p className="text-muted-foreground">3. Make a test call to verify</p>
                               </div>
                             </div>
                           )}
