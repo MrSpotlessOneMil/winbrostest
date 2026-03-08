@@ -19,6 +19,10 @@ yarn-error.log*
 # env files
 .env*
 
+# claude code local settings & worktrees
+.claude/settings.local.json
+.claude/worktrees/
+
 # vercel
 .vercel
 
