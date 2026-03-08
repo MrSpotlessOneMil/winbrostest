@@ -1988,7 +1988,7 @@ export default function AdminPage() {
                         )}
                         {!webhookResults["openphone"] && !currentTenant.openphone_webhook_error && !currentTenant.openphone_webhook_registered_at && currentTenant.openphone_api_key && (
                           <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["openphone"] && (
@@ -2110,7 +2110,7 @@ export default function AdminPage() {
                           </span>
                         ) : testResults["vapi"]?.webhookStatus === "warning" ? (
                           <span className="inline-flex cursor-pointer" title={"No server URL on assistant — may use account-level fallback\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No server URL on assistant — may use account-level fallback")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         ) : testResults["vapi"]?.webhookStatus === "mismatch" ? (
                           <span className="inline-flex cursor-pointer" title={"Webhook URL mismatch — server.url points elsewhere. Click Register Webhook to fix.\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL mismatch — server.url points elsewhere")}>
@@ -2120,9 +2120,9 @@ export default function AdminPage() {
                           <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})`)}>
                             <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
-                        ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id) ? (
+                        ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id && !currentTenant.vapi_webhook_registered_at && !webhookVerification["vapi"]?.active) ? (
                           <span className="inline-flex cursor-pointer" title={"No webhook activity — configure Server URL in VAPI dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure Server URL in VAPI dashboard")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         ) : null}
                         {webhookVerification["vapi"] && (
@@ -2234,7 +2234,7 @@ export default function AdminPage() {
                         )}
                         {!webhookResults["stripe"] && !currentTenant.stripe_webhook_error && !currentTenant.stripe_webhook_registered_at && currentTenant.stripe_secret_key && (
                           <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["stripe"] && (
@@ -2330,7 +2330,7 @@ export default function AdminPage() {
                           </span>
                         ) : currentTenant.housecall_pro_api_key ? (
                           <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in HousecallPro dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in HousecallPro dashboard")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         ) : null}
                       </div>
@@ -2403,7 +2403,7 @@ export default function AdminPage() {
                           </span>
                         ) : currentTenant.ghl_location_id ? (
                           <span className="inline-flex cursor-pointer" title={"No webhook activity — configure in GHL dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure in GHL dashboard")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         ) : null}
                       </div>
@@ -2481,7 +2481,7 @@ export default function AdminPage() {
                         )}
                         {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && !currentTenant.telegram_webhook_registered_at && currentTenant.telegram_bot_token && (
                           <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
-                            <AlertTriangle className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
                         )}
                         {webhookVerification["telegram"] && (
