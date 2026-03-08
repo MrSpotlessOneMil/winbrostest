@@ -224,6 +224,20 @@ export async function testWaveConnection(apiToken: string, businessId: string): 
 }
 
 // ---------------------------------------------------------------------------
+// Gmail SMTP verification (no email sent — just authenticates)
+// ---------------------------------------------------------------------------
+
+export async function testGmailConnection(gmailUser: string, appPassword: string): Promise<StepResult> {
+  const nodemailer = (await import("nodemailer")).default
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: gmailUser, pass: appPassword },
+  })
+  await transporter.verify()
+  return { ok: true, message: `Gmail SMTP authenticated as ${gmailUser}` }
+}
+
+// ---------------------------------------------------------------------------
 // Webhook registration
 // ---------------------------------------------------------------------------
 

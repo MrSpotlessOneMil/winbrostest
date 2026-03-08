@@ -7,6 +7,7 @@ import {
   testVapiKeyOnly,
   testTelegramConnection,
   testWaveConnection,
+  testGmailConnection,
 } from "@/lib/admin-onboard"
 
 /**
@@ -71,6 +72,14 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Wave API token and business ID are required" }, { status: 400 })
         }
         const result = await testWaveConnection(credentials.wave_api_token, credentials.wave_business_id)
+        return NextResponse.json({ success: result.ok, message: result.message })
+      }
+
+      case "gmail": {
+        if (!credentials.gmail_user || !credentials.gmail_app_password) {
+          return NextResponse.json({ success: false, error: "Gmail address and app password are required" }, { status: 400 })
+        }
+        const result = await testGmailConnection(credentials.gmail_user, credentials.gmail_app_password)
         return NextResponse.json({ success: result.ok, message: result.message })
       }
 

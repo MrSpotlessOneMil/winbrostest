@@ -432,6 +432,8 @@ export default function AdminPage() {
       tests.push({ service: "vapi-key-only", credentials: { vapi_api_key: onboardForm.vapi_api_key } })
     if (onboardForm.wave_api_token && onboardForm.wave_business_id)
       tests.push({ service: "wave", credentials: { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id } })
+    if (onboardForm.gmail_user && onboardForm.gmail_app_password)
+      tests.push({ service: "gmail", credentials: { gmail_user: onboardForm.gmail_user, gmail_app_password: onboardForm.gmail_app_password } })
     if (tests.length === 0) return
     setWizardTesting("all")
     const results = await Promise.allSettled(
@@ -3711,7 +3713,7 @@ export default function AdminPage() {
                         { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
                         { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null, needsManual: false },
                         { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
-                        { name: "Gmail", configured: !!onboardForm.gmail_user, testKey: null, registerKey: null, needsManual: false },
+                        { name: "Gmail", configured: !!onboardForm.gmail_user, testKey: "gmail", registerKey: null, needsManual: false },
                       ].filter(s => s.configured)
                       if (configuredServices.length === 0) return (
                         <div className="border-t border-zinc-600 pt-3 mt-3 text-sm">
