@@ -240,6 +240,10 @@ export default function AdminPage() {
   const [wizardRegisterResults, setWizardRegisterResults] = useState<Record<string, { success: boolean; message: string; secret?: string }>>({})
   const [vapiCloning, setVapiCloning] = useState(false)
   const [vapiCloneResult, setVapiCloneResult] = useState<{ inbound?: string; outbound?: string } | null>(null)
+  const [wizardCleaners, setWizardCleaners] = useState<Array<{ name: string; phone: string; telegram_id: string }>>([{ name: "", phone: "", telegram_id: "" }])
+  const [wizardCleanersSaving, setWizardCleanersSaving] = useState(false)
+  const [wizardCleanerError, setWizardCleanerError] = useState<string | null>(null)
+  const [createdTenantId, setCreatedTenantId] = useState<string | null>(null)
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -418,6 +422,10 @@ export default function AdminPage() {
     setCustomServices([])
     setWizardRegistering(null)
     setWizardRegisterResults({})
+    setWizardCleaners([{ name: "", phone: "", telegram_id: "" }])
+    setWizardCleanersSaving(false)
+    setWizardCleanerError(null)
+    setCreatedTenantId(null)
   }
 
   async function testAllConnectionsDirect() {
@@ -594,11 +602,10 @@ export default function AdminPage() {
       }
       const json = await res.json()
       if (json.success && json.result?.tenantId && !json.partial) {
-        // Full success — navigate directly to the new tenant
+        // Full success — advance to cleaners step
         await fetchTenants()
-        selectTenant(json.result.tenantId)
-        setShowAddModal(false)
-        resetOnboardWizard()
+        setCreatedTenantId(json.result.tenantId)
+        setOnboardStep(3)
       } else if (json.result) {
         // Pipeline ran but had partial failures — show step-by-step results
         setOnboardResults(json.result)
@@ -3168,14 +3175,18 @@ export default function AdminPage() {
                   {onboardStep === 0 && "Step 1: Business Info"}
                   {onboardStep === 1 && "Step 2: API Credentials"}
                   {onboardStep === 2 && "Step 3: Review & Setup"}
+                  {onboardStep === 3 && "Step 4: Add Cleaners"}
                 </CardTitle>
-                <Button variant="ghost" size="icon" onClick={() => { setShowAddModal(false); resetOnboardWizard() }}>
+                <Button variant="ghost" size="icon" disabled={wizardCleanersSaving} onClick={() => {
+                  if (onboardStep === 3 && createdTenantId) selectTenant(createdTenantId)
+                  setShowAddModal(false); resetOnboardWizard()
+                }}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
               {/* Step indicators */}
               <div className="flex gap-2 mt-2">
-                {[0, 1, 2].map((s) => (
+                {[0, 1, 2, 3].map((s) => (
                   <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= onboardStep ? "bg-primary" : "bg-muted"}`} />
                 ))}
               </div>
@@ -3918,11 +3929,15 @@ export default function AdminPage() {
                       {onboardResults ? (
                         <Button onClick={() => {
                           const tenantId = onboardResults.tenantId
-                          setShowAddModal(false)
-                          resetOnboardWizard()
-                          if (tenantId) selectTenant(tenantId)
+                          if (tenantId) {
+                            setCreatedTenantId(tenantId)
+                            setOnboardStep(3)
+                          } else {
+                            setShowAddModal(false)
+                            resetOnboardWizard()
+                          }
                         }}>
-                          Finish
+                          {onboardResults.tenantId ? "Next: Add Cleaners" : "Finish"}
                         </Button>
                       ) : (
                         <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
@@ -3937,6 +3952,132 @@ export default function AdminPage() {
                   </>
                 )
               })()}
+
+              {/* STEP 3 — Add Cleaners (optional, post-creation) */}
+              {onboardStep === 3 && (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Add cleaners to get dispatch working. You can skip this and add them later from the Cleaners tab.
+                  </p>
+
+                  <div className="space-y-3">
+                    {wizardCleaners.map((cleaner, idx) => (
+                      <div key={idx} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
+                        <div className="space-y-1">
+                          {idx === 0 && <Label className="text-xs">Name *</Label>}
+                          <Input
+                            placeholder="Cleaner name"
+                            value={cleaner.name}
+                            onChange={(e) => {
+                              const updated = [...wizardCleaners]
+                              updated[idx] = { ...updated[idx], name: e.target.value }
+                              setWizardCleaners(updated)
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          {idx === 0 && <Label className="text-xs">Phone</Label>}
+                          <Input
+                            placeholder="+1234567890"
+                            value={cleaner.phone}
+                            onChange={(e) => {
+                              const updated = [...wizardCleaners]
+                              updated[idx] = { ...updated[idx], phone: e.target.value }
+                              setWizardCleaners(updated)
+                            }}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          {idx === 0 && <Label className="text-xs">Telegram Chat ID</Label>}
+                          <Input
+                            placeholder="e.g. 8521488394"
+                            value={cleaner.telegram_id}
+                            onChange={(e) => {
+                              const updated = [...wizardCleaners]
+                              updated[idx] = { ...updated[idx], telegram_id: e.target.value }
+                              setWizardCleaners(updated)
+                            }}
+                          />
+                        </div>
+                        {wizardCleaners.length > 1 && (
+                          <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => {
+                            setWizardCleaners(wizardCleaners.filter((_, i) => i !== idx))
+                          }}>
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {wizardCleaners.length <= 1 && <div className="h-9 w-9" />}
+                      </div>
+                    ))}
+                  </div>
+
+                  {wizardCleaners.length < 5 && (
+                    <Button variant="outline" size="sm" onClick={() => setWizardCleaners([...wizardCleaners, { name: "", phone: "", telegram_id: "" }])}>
+                      + Add another
+                    </Button>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">
+                    Telegram Chat ID requires the cleaner to message your bot first. You can add this later.
+                  </p>
+
+                  {wizardCleanerError && (
+                    <p className="text-sm text-red-500">{wizardCleanerError}</p>
+                  )}
+
+                  <div className="flex justify-between pt-4">
+                    <Button variant="outline" disabled={wizardCleanersSaving} onClick={() => {
+                      setShowAddModal(false)
+                      resetOnboardWizard()
+                      if (createdTenantId) selectTenant(createdTenantId)
+                    }}>
+                      Skip
+                    </Button>
+                    <Button disabled={wizardCleanersSaving || !createdTenantId} onClick={async () => {
+                      if (!createdTenantId) return
+                      const toSave = wizardCleaners.filter(c => c.name.trim())
+                      if (toSave.length === 0) {
+                        setShowAddModal(false)
+                        resetOnboardWizard()
+                        selectTenant(createdTenantId)
+                        return
+                      }
+                      setWizardCleanersSaving(true)
+                      setWizardCleanerError(null)
+                      let saved = 0
+                      for (const c of toSave) {
+                        const res = await fetch("/api/admin/cleaners", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            tenant_id: createdTenantId,
+                            name: c.name.trim(),
+                            phone: c.phone.trim() || null,
+                            telegram_id: c.telegram_id.trim() || null,
+                          }),
+                        })
+                        if (!res.ok) {
+                          const json = await res.json().catch(() => ({ error: "Failed" }))
+                          setWizardCleanerError(`Saved ${saved}/${toSave.length}. Failed "${c.name}": ${json.error}`)
+                          setWizardCleanersSaving(false)
+                          return
+                        }
+                        saved++
+                      }
+                      setWizardCleanersSaving(false)
+                      setShowAddModal(false)
+                      resetOnboardWizard()
+                      selectTenant(createdTenantId)
+                    }}>
+                      {wizardCleanersSaving ? (
+                        <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving...</>
+                      ) : (
+                        "Save & Finish"
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
