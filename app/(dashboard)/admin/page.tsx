@@ -2984,7 +2984,7 @@ export default function AdminPage() {
       {/* Delete Business Confirmation */}
       {showDeleteConfirm && currentTenant && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md mx-4">
+          <Card className="w-full max-w-md mx-4 bg-background border-border">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-red-400 flex items-center gap-2">
@@ -3904,13 +3904,24 @@ export default function AdminPage() {
                         onClick={() => { setOnboardResults(null); setOnboardStep(1) }}>
                         Back
                       </Button>
-                      <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all" || !!onboardResults}>
-                        {onboarding ? (
-                          <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
-                        ) : (
-                          "Create Tenant"
-                        )}
-                      </Button>
+                      {onboardResults ? (
+                        <Button onClick={() => {
+                          const tenantId = onboardResults.tenantId
+                          setShowAddModal(false)
+                          resetOnboardWizard()
+                          if (tenantId) selectTenant(tenantId)
+                        }}>
+                          Finish
+                        </Button>
+                      ) : (
+                        <Button onClick={runOnboarding} disabled={onboarding || wizardTesting === "all"}>
+                          {onboarding ? (
+                            <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Creating...</>
+                          ) : (
+                            "Create Tenant"
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </>
                 )
