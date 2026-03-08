@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
 import Stripe from "stripe"
 import {
@@ -19,12 +19,6 @@ import {
   StepResult,
 } from "@/lib/admin-onboard"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-function getAdminClient() {
-  return createClient(supabaseUrl, supabaseServiceKey)
-}
 
 interface StepStatus {
   status: "success" | "failed" | "skipped"
@@ -92,6 +86,8 @@ export async function POST(request: NextRequest) {
     wave_business_id,
     wave_income_account_id,
     ghl_location_id,
+    gmail_user,
+    gmail_app_password,
     custom_credentials,
     seed_pricing,
   } = body
@@ -100,11 +96,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Name, slug, and password are required" }, { status: 400 })
   }
 
-  if (!/^[a-z0-9-]+$/.test(slug)) {
-    return NextResponse.json({ success: false, error: "Slug must be lowercase alphanumeric with hyphens only" }, { status: 400 })
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) || slug.length < 3 || slug.length > 50) {
+    return NextResponse.json({ success: false, error: "Slug must be 3-50 chars, lowercase alphanumeric with hyphens (no leading/trailing hyphens)" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
   const result: OnboardResult = {
     tenantId: null,
     steps: {
@@ -287,6 +283,8 @@ export async function POST(request: NextRequest) {
   if (wave_business_id) credentials.wave_business_id = wave_business_id
   if (wave_income_account_id) credentials.wave_income_account_id = wave_income_account_id
   if (ghl_location_id) credentials.ghl_location_id = ghl_location_id
+  if (gmail_user) credentials.gmail_user = gmail_user
+  if (gmail_app_password) credentials.gmail_app_password = gmail_app_password
   if (custom_credentials && typeof custom_credentials === "object" && Object.keys(custom_credentials).length > 0) {
     credentials.custom_credentials = custom_credentials
   }
@@ -461,11 +459,12 @@ export async function POST(request: NextRequest) {
     }
   } else {
     // No base URL — skip webhook registration
-    if (telegram_bot_token || stripe_secret_key || openphone_api_key) {
+    if (telegram_bot_token || stripe_secret_key || openphone_api_key || (vapi_api_key && vapi_assistant_id)) {
       const msg = "Base URL not configured — webhook registration skipped"
       if (telegram_bot_token) result.steps.register_webhooks.telegram = { status: "skipped", message: msg }
       if (stripe_secret_key) result.steps.register_webhooks.stripe = { status: "skipped", message: msg }
       if (openphone_api_key) result.steps.register_webhooks.openphone = { status: "skipped", message: msg }
+      if (vapi_api_key && vapi_assistant_id) result.steps.register_webhooks.vapi = { status: "skipped", message: msg }
     }
   }
 
@@ -570,5 +569,15 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ success: true, result })
+  // Check if any step failed to signal partial success to the client
+  const hasFailures =
+    result.steps.create_tenant.status === "failed" ||
+    result.steps.create_user.status === "failed" ||
+    result.steps.seed_pricing.status === "failed" ||
+    result.steps.save_credentials.status === "failed" ||
+    Object.values(result.steps.test_connections).some((s) => s.status === "failed") ||
+    Object.values(result.steps.register_webhooks).some((s) => s.status === "failed") ||
+    Object.values(result.steps.verify_webhooks).some((s) => s.status === "failed")
+
+  return NextResponse.json({ success: true, partial: hasFailures, result })
 }

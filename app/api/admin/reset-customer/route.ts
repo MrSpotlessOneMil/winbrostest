@@ -236,16 +236,14 @@ export async function POST(request: NextRequest) {
     }
 
     // 12. Delete followup_queue entries (all phone formats)
-    const { data: followups } = await client
-      .from("followup_queue")
-      .select("id")
-      .in("phone_number", allPhoneFormats)
+    const { data: followups } = await withTenant(
+      client.from("followup_queue").select("id")
+    ).in("phone_number", allPhoneFormats)
 
     if (followups && followups.length > 0) {
-      await client
-        .from("followup_queue")
-        .delete()
-        .in("phone_number", allPhoneFormats)
+      await withTenant(
+        client.from("followup_queue").delete()
+      ).in("phone_number", allPhoneFormats)
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 

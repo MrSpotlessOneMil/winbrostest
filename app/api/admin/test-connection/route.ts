@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
 import {
   testStripeConnection,
@@ -10,25 +10,24 @@ import {
   getBaseUrl,
 } from "@/lib/admin-onboard"
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-function getAdminClient() {
-  return createClient(supabaseUrl, supabaseServiceKey)
-}
-
 export async function POST(request: NextRequest) {
   if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const { tenantId, service } = await request.json()
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
+  const { tenantId, service } = body
 
   if (!tenantId || !service) {
     return NextResponse.json({ success: false, error: "tenantId and service are required" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
   const { data: tenant, error: fetchError } = await client
     .from("tenants")
     .select("*")

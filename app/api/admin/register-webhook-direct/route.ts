@@ -16,7 +16,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const { service, credentials } = await request.json()
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
+  const { service, credentials } = body
 
   if (!service || !credentials) {
     return NextResponse.json({ success: false, error: "service and credentials are required" }, { status: 400 })

@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { randomBytes } from "crypto"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-function getAdminClient() {
-  return createClient(supabaseUrl, supabaseServiceKey)
-}
 
 
 // GET - List all tenants with all credential fields
@@ -17,7 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   const { data: tenants, error } = await client
     .from("tenants")
@@ -43,6 +36,7 @@ export async function GET(request: NextRequest) {
       vapi_outbound_assistant_id,
       vapi_phone_id,
       stripe_secret_key,
+      stripe_publishable_key,
       stripe_webhook_secret,
       housecall_pro_api_key,
       housecall_pro_company_id,
@@ -170,7 +164,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const body = await request.json()
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
   const {
     name, slug, email, password,
     business_name, business_name_short, service_area, service_description,
@@ -187,7 +186,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Slug must be lowercase alphanumeric with hyphens only" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   // Check if slug already exists
   const { data: existing } = await client
@@ -348,6 +347,7 @@ export async function PATCH(request: NextRequest) {
     'ghl_location_id', 'ghl_webhook_secret',
     'telegram_bot_token', 'owner_telegram_chat_id',
     'wave_api_token', 'wave_business_id', 'wave_income_account_id',
+    'gmail_user', 'gmail_app_password',
     'workflow_config', 'active',
   ])
   // Secret fields that are masked in GET — skip if the value looks masked
@@ -355,6 +355,7 @@ export async function PATCH(request: NextRequest) {
     'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
     'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+    'gmail_app_password',
   ])
   const updates: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(rawUpdates || {})) {
@@ -364,7 +365,7 @@ export async function PATCH(request: NextRequest) {
     updates[key] = value
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   // If updating workflow_config, merge with existing
   if (updates.workflow_config) {
@@ -464,7 +465,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, error: "tenantId is required" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   // Verify tenant exists
   const { data: tenant } = await client

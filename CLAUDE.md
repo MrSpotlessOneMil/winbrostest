@@ -26,9 +26,10 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - `app/api/actions/` — 7 dashboard action routes
 - `app/api/cron/` — 13 cron routes
 - `app/api/webhooks/` — 10 webhook routes (stripe, openphone, telegram, vapi, ghl, housecall-pro)
+- `app/api/admin/` — ~10 admin routes (tenants CRUD, onboard wizard, connection tests, webhook registration, users)
 - `app/api/automation/` — 3 automation triggers
 - `lib/` — ~60 utility modules
-- `scripts/` — SQL migrations (01-schema through 06-cron-locking)
+- `scripts/` — SQL migrations (01-schema through 07-add-gmail-columns)
 
 ### Core Tables
 - `tenants` — API keys, workflow_config, timezone
@@ -44,6 +45,7 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - **`getSupabaseClient()` = `getSupabaseServiceClient()`** — identical (both service role). Don't flag as bug. Prefer `getSupabaseServiceClient()` in new code for clarity. Real pitfall: never use `getTenantScopedClient()` without a real tenant_id.
 - **`ignoreBuildErrors: true`** — TS errors won't block Vercel builds. Don't rely on build to catch type issues.
 - **Variable shadowing** — routes with existing `tenant` var: destructure auth as `authTenant`.
+- **`getAdminClient()` is dead** — all admin routes now use `getSupabaseServiceClient()`. Don't reintroduce local `createClient` wrappers.
 
 ### Pre-Flight Checklist (verify before finishing ANY route)
 
@@ -53,6 +55,7 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - [ ] External API calls have AbortController with 10-15s timeout
 - [ ] Atomic status transitions: `UPDATE ... WHERE status = 'x'` not SELECT-then-UPDATE
 - [ ] Entity status checked before mutations (double-execution guard)
+- [ ] `request.json()` wrapped in try-catch (return 400 on malformed body)
 - [ ] Error responses: `{ error: string }` with correct HTTP status
 
 **Action routes:**
@@ -91,4 +94,4 @@ User-triggered only. Use Sonnet for high-stakes changes (payments, auth, crons).
 ### Current Priorities
 - All 3 tenants onboarded and live
 - Catching bugs with live tenants
-- Next: tenant onboarding workflow, mobile version
+- Next: tenant onboarding workflow

@@ -47,7 +47,9 @@ import {
   Clock,
   ClipboardList,
   ExternalLink,
+  Users,
 } from "lucide-react"
+import { CleanersManager } from "./cleaners-manager"
 
 interface WorkflowConfig {
   use_housecall_pro: boolean
@@ -224,6 +226,8 @@ export default function AdminPage() {
     wave_business_id: "",
     wave_income_account_id: "",
     ghl_location_id: "",
+    gmail_user: "",
+    gmail_app_password: "",
     seed_pricing: "default" as "default" | "skip",
   })
   const [onboarding, setOnboarding] = useState(false)
@@ -402,6 +406,8 @@ export default function AdminPage() {
       housecall_pro_api_key: "", housecall_pro_company_id: "",
       wave_api_token: "", wave_business_id: "", wave_income_account_id: "",
       ghl_location_id: "",
+      gmail_user: "",
+      gmail_app_password: "",
       seed_pricing: "default",
     })
     setOnboarding(false)
@@ -422,8 +428,8 @@ export default function AdminPage() {
       tests.push({ service: "telegram", credentials: { telegram_bot_token: onboardForm.telegram_bot_token } })
     if (onboardForm.stripe_secret_key)
       tests.push({ service: "stripe", credentials: { stripe_secret_key: onboardForm.stripe_secret_key } })
-    if (onboardForm.vapi_api_key && onboardForm.vapi_assistant_id)
-      tests.push({ service: "vapi", credentials: { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id } })
+    if (onboardForm.vapi_api_key)
+      tests.push({ service: "vapi-key-only", credentials: { vapi_api_key: onboardForm.vapi_api_key } })
     if (onboardForm.wave_api_token && onboardForm.wave_business_id)
       tests.push({ service: "wave", credentials: { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id } })
     if (tests.length === 0) return
@@ -435,16 +441,18 @@ export default function AdminPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(t),
         })
+        if (!res.ok) return { service: t.service, success: false, message: `HTTP ${res.status}` }
         const json = await res.json()
         return { service: t.service, success: json.success, message: json.message || json.error || "Unknown" }
       })
     )
     const newResults: Record<string, { success: boolean; message: string }> = {}
-    for (const r of results) {
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]
       if (r.status === "fulfilled") {
         newResults[r.value.service] = { success: r.value.success, message: r.value.message }
       } else {
-        // Find which service this was for — shouldn't happen but handle gracefully
+        newResults[tests[i].service] = { success: false, message: r.reason?.message || "Test failed" }
       }
     }
     setWizardTestResults((prev) => ({ ...prev, ...newResults }))
@@ -459,6 +467,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ service, credentials }),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = await res.json()
       setWizardTestResults((prev) => ({
         ...prev,
@@ -482,6 +491,7 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ service, credentials }),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const json = await res.json()
       setWizardRegisterResults((prev) => ({
         ...prev,
@@ -514,6 +524,7 @@ export default function AdminPage() {
           sdr_persona: onboardForm.sdr_persona,
         }),
       })
+      if (!res.ok) throw new Error(`Clone failed (HTTP ${res.status})`)
       const json = await res.json()
       if (json.success) {
         const result: { inbound?: string; outbound?: string } = {}
@@ -576,16 +587,20 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
+      if (!res.ok && !res.headers.get("content-type")?.includes("application/json")) {
+        throw new Error(`Server error (HTTP ${res.status})`)
+      }
       const json = await res.json()
-      if (json.success && json.result?.tenantId) {
-        // Success — navigate directly to the new tenant
+      if (json.success && json.result?.tenantId && !json.partial) {
+        // Full success — navigate directly to the new tenant
         await fetchTenants()
         selectTenant(json.result.tenantId)
         setShowAddModal(false)
         resetOnboardWizard()
       } else if (json.result) {
-        // Pipeline ran but had failures — show step-by-step results
+        // Pipeline ran but had partial failures — show step-by-step results
         setOnboardResults(json.result)
+        if (json.result.tenantId) await fetchTenants()
       } else {
         // API returned an error before pipeline started
         setError(json.error || "Onboarding failed")
@@ -626,9 +641,9 @@ export default function AdminPage() {
   function getFieldValue(tenant: Tenant, field: keyof Tenant): string {
     // Check if we have a pending edit
     if (field in editingCredentials) {
-      return (editingCredentials as any)[field] || ""
+      return (editingCredentials as any)[field] ?? ""
     }
-    return (tenant as any)[field] || ""
+    return (tenant as any)[field] ?? ""
   }
 
   function setFieldValue(field: keyof Tenant, value: string) {
@@ -1350,6 +1365,10 @@ export default function AdminPage() {
                     <TabsTrigger value="credentials" className="gap-2">
                       <Key className="h-4 w-4" />
                       Credentials
+                    </TabsTrigger>
+                    <TabsTrigger value="cleaners" className="gap-2">
+                      <Users className="h-4 w-4" />
+                      Cleaners
                     </TabsTrigger>
                     <TabsTrigger value="campaigns" className="gap-2">
                       <Megaphone className="h-4 w-4" />
@@ -2700,6 +2719,11 @@ export default function AdminPage() {
                     </Card>
                   </TabsContent>
 
+                  {/* Cleaners Tab */}
+                  <TabsContent value="cleaners" className="space-y-4">
+                    <CleanersManager tenantId={currentTenant.id} tenantName={currentTenant.name} />
+                  </TabsContent>
+
                   {/* Campaigns Tab */}
                   <TabsContent value="campaigns" className="space-y-4">
                     {/* Master Toggle */}
@@ -3279,8 +3303,11 @@ export default function AdminPage() {
                       placeholder="https://g.page/..."
                     />
                   </div>
-                  <div className="flex justify-end pt-4">
-                    <Button onClick={() => setOnboardStep(1)} disabled={!onboardForm.name || !onboardForm.slug}>
+                  <div className="flex justify-end items-center gap-3 pt-4">
+                    {onboardForm.slug && (onboardForm.slug.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(onboardForm.slug)) && (
+                      <p className="text-xs text-red-400">Slug must be 3+ chars, lowercase alphanumeric with single hyphens (no leading/trailing)</p>
+                    )}
+                    <Button onClick={() => setOnboardStep(1)} disabled={!onboardForm.name || !onboardForm.slug || onboardForm.slug.length < 3 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(onboardForm.slug)}>
                       Next: API Credentials
                     </Button>
                   </div>
@@ -3470,6 +3497,19 @@ export default function AdminPage() {
                     </details>
                   </div>
 
+                  {/* Gmail (Email Bot) */}
+                  <div className="border border-zinc-600 rounded-lg p-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Label className="font-semibold text-sm">Gmail (Email Bot)</Label>
+                      <span className="text-xs text-muted-foreground">Automated email sending</span>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Input className="h-8 text-sm" type="email" placeholder="Gmail address (e.g. business@gmail.com)" value={onboardForm.gmail_user} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_user: e.target.value })} />
+                      <Input className="h-8 text-sm" type="password" placeholder="App Password (not regular password)" value={onboardForm.gmail_app_password} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_app_password: e.target.value })} />
+                      <p className="text-xs text-muted-foreground">Use a Gmail App Password — generate one at Google Account → Security → App Passwords</p>
+                    </div>
+                  </div>
+
                   {/* Additional Services — expandable */}
                   <button
                     type="button"
@@ -3626,7 +3666,7 @@ export default function AdminPage() {
                 if (onboardForm.openphone_api_key && !wizardTestResults.openphone) untestedServices.push("OpenPhone")
                 if (onboardForm.telegram_bot_token && !wizardTestResults.telegram) untestedServices.push("Telegram")
                 if (onboardForm.stripe_secret_key && !wizardTestResults.stripe) untestedServices.push("Stripe")
-                if (onboardForm.vapi_api_key && !wizardTestResults.vapi) untestedServices.push("VAPI")
+                if (onboardForm.vapi_api_key && !wizardTestResults["vapi-key-only"]) untestedServices.push("VAPI")
                 if (onboardForm.wave_api_token && !wizardTestResults.wave) untestedServices.push("Wave")
 
                 return (
@@ -3667,10 +3707,11 @@ export default function AdminPage() {
                         { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone", needsManual: false },
                         { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram", needsManual: false },
                         { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe", needsManual: false },
-                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi", registerKey: null, needsManual: true },
+                        { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi-key-only", registerKey: null, needsManual: false },
                         { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
                         { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null, needsManual: false },
                         { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
+                        { name: "Gmail", configured: !!onboardForm.gmail_user, testKey: null, registerKey: null, needsManual: false },
                       ].filter(s => s.configured)
                       if (configuredServices.length === 0) return (
                         <div className="border-t border-zinc-600 pt-3 mt-3 text-sm">
@@ -3686,8 +3727,10 @@ export default function AdminPage() {
                             const regResult = svc.registerKey ? wizardRegisterResults[svc.registerKey] : null
                             const isTestingThis = wizardTesting === "all" && svc.testKey && !testResult
                             const anyFailed = (testResult && !testResult.success) || (regResult && !regResult.success)
-                            const allAutoPassed = (!testResult || testResult.success) && (!regResult || regResult.success)
-                            const needsManualAttention = svc.needsManual && allAutoPassed && !isTestingThis
+                            const testVerified = svc.testKey ? (testResult && testResult.success) : true
+                            const regVerified = svc.registerKey ? (regResult && regResult.success) : true
+                            const fullyVerified = testVerified && regVerified
+                            const needsManualAttention = svc.needsManual && !anyFailed && !isTestingThis
                             return (
                               <div key={svc.name} className="flex items-center gap-2 pl-2">
                                 {isTestingThis
@@ -3696,7 +3739,9 @@ export default function AdminPage() {
                                     ? <X className="h-4 w-4 text-red-500 shrink-0" />
                                     : needsManualAttention
                                       ? <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
-                                      : <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />}
+                                      : fullyVerified
+                                        ? <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                                        : <X className="h-4 w-4 text-red-500 shrink-0" />}
                                 <span className="w-36 font-medium shrink-0">{svc.name}</span>
                                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                   {testResult && (
@@ -3768,6 +3813,76 @@ export default function AdminPage() {
                             </div>
                           )
                         })}
+                      </div>
+                    )}
+
+                    {/* Post-Onboarding Checklist — shown after successful creation */}
+                    {onboardResults && onboardResults.steps.create_tenant?.status === "success" && (
+                      <div className="border border-orange-500/30 bg-orange-500/5 rounded-lg p-3 mt-4">
+                        <p className="font-medium text-sm mb-2 flex items-center gap-1.5">
+                          <ClipboardList className="h-4 w-4 text-orange-500" />
+                          Manual Setup Required
+                        </p>
+                        <div className="space-y-2 text-xs">
+                          {onboardForm.housecall_pro_api_key && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">&#9634;</span>
+                              <div>
+                                <p className="font-medium">HousecallPro Webhook</p>
+                                <p className="text-muted-foreground">Add this URL in HCP → Settings → Webhooks:</p>
+                                <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
+                                  {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/housecall-pro
+                                </code>
+                              </div>
+                            </div>
+                          )}
+                          {onboardForm.ghl_location_id && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">&#9634;</span>
+                              <div>
+                                <p className="font-medium">GoHighLevel Webhook</p>
+                                <p className="text-muted-foreground">Add this URL in GHL → Settings → Webhooks:</p>
+                                <code className="text-xs bg-zinc-800 px-1.5 py-0.5 rounded select-all cursor-text block mt-0.5">
+                                  {typeof window !== "undefined" ? window.location.origin : ""}/api/webhooks/ghl/{onboardForm.slug}
+                                </code>
+                              </div>
+                            </div>
+                          )}
+                          {onboardForm.vapi_api_key && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">&#9634;</span>
+                              <div>
+                                <p className="font-medium">VAPI Assistants</p>
+                                <p className="text-muted-foreground">Make a test call to verify inbound/outbound assistants are working correctly</p>
+                              </div>
+                            </div>
+                          )}
+                          {onboardForm.gmail_user && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">&#9634;</span>
+                              <div>
+                                <p className="font-medium">Gmail App Password</p>
+                                <p className="text-muted-foreground">Verify App Password is active at Google Account → Security → App Passwords</p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="flex items-start gap-2">
+                            <span className="text-orange-500 mt-0.5">&#9634;</span>
+                            <div>
+                              <p className="font-medium">Add Cleaners</p>
+                              <p className="text-muted-foreground">Add at least one cleaner with Telegram chat ID for dispatch to work</p>
+                            </div>
+                          </div>
+                          {!onboardForm.google_review_link && (
+                            <div className="flex items-start gap-2">
+                              <span className="text-orange-500 mt-0.5">&#9634;</span>
+                              <div>
+                                <p className="font-medium">Google Review Link</p>
+                                <p className="text-muted-foreground">Add a Google review link to enable review request automation</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 

@@ -1,14 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
 import { getTenantById } from "@/lib/tenant"
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-function getAdminClient() {
-  return createClient(supabaseUrl, supabaseServiceKey)
-}
 
 
 // GET - List all users
@@ -17,7 +10,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   const { data: users, error } = await client
     .from("users")
@@ -58,7 +51,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Password must be at least 4 characters" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   // Check if username already exists
   const { data: existing } = await client
@@ -112,7 +105,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: false, error: "userId is required" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   // Don't allow updating password_hash directly - use a separate endpoint
   const { password_hash, ...safeUpdates } = updates
@@ -155,7 +148,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ success: false, error: "userId is required" }, { status: 400 })
   }
 
-  const client = getAdminClient()
+  const client = getSupabaseServiceClient()
 
   const { error } = await client
     .from("users")
