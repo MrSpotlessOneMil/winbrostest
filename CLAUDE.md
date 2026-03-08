@@ -4,6 +4,12 @@
 - Act as a product co-founder: challenge assumptions, surface ambiguity, let me decide
 - Confirm approach before coding. High-level overviews, not code details. Short plans. Bullet points when possible.
 
+### Living Documentation
+- Do NOT auto-update this file. CLAUDE.md is manually curated.
+- When you discover a non-obvious bug, gotcha, or pattern during work, write it to your memory directory (`memory/discoveries.md`) — not here.
+- If a discovery contradicts something in this file, flag it to the user immediately — do not silently edit.
+- Periodically the team will review memory discoveries and promote the important ones here.
+
 ## Project Context
 
 **Osiris** — multi-tenant SaaS automating operations for service businesses (cleaning). Next.js 16 (App Router) on Vercel, Supabase (Postgres + RLS), Stripe. Tenants: WinBros, Cedar Rapids, Spotless Scrubbers.
@@ -11,10 +17,10 @@
 **Core flow:** Lead intake (VAPI, OpenPhone, HCP, GHL, Meta, website) → AI qualification → Job scheduling (FullCalendar) → Cleaner dispatch (Telegram) → Payment (Stripe deposit→final) → Lifecycle automation (reviews, re-engagement, campaigns)
 
 ### Tech Stack
-Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via HS256 JWT) • Stripe • OpenPhone (SMS) • Telegram (dispatch) • VAPI (voice AI) • HouseCall Pro • GoHighLevel • HubSpot • Google Maps • Vercel (13 crons, ~80 routes) • Vitest
+Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via HS256 JWT) • Stripe • OpenPhone (SMS) • Telegram (dispatch) • VAPI (voice AI) • HouseCall Pro • GoHighLevel • HubSpot • Google Maps • Vercel • Vitest
 
 ### Architecture
-- **Supabase clients:** `getSupabaseClient()` = alias for `getSupabaseServiceClient()` (see `lib/supabase.ts:165`), both return service role. `getTenantScopedClient(tenantId)` = anon key + custom HS256 JWT for dashboard reads (RLS enforced)
+- **Supabase clients:** `getSupabaseClient()` = alias for `getSupabaseServiceClient()` (see `lib/supabase.ts`), both return service role. `getTenantScopedClient(tenantId)` = anon key + custom HS256 JWT for dashboard reads (RLS enforced)
 - **Auth:** `requireAuthWithTenant()` (dashboard actions), `requireAdmin()` (admin), `CRON_SECRET` bearer (crons)
 - **Multi-tenancy:** RLS via `tenant_id` JWT claim. Per-tenant API keys, `workflow_config` JSONB (feature flags), webhook endpoints `/api/webhooks/{type}/{slug}`
 - **Cron locking:** Postgres RPC with `SELECT FOR UPDATE SKIP LOCKED` (pattern: `scripts/06-cron-locking.sql`)
@@ -22,16 +28,16 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 - **Dual-caller routes:** Core logic extracted (e.g. `executeCompleteJob()`) — POST adds auth, cron calls directly
 
 ### Key Directories
-- `app/(dashboard)/` — 14 dashboard pages
-- `app/api/actions/` — 7 dashboard action routes
-- `app/api/cron/` — 13 cron routes
-- `app/api/webhooks/` — 10 webhook routes (stripe, openphone, telegram, vapi, ghl, housecall-pro)
-- `app/api/admin/` — ~10 admin routes (tenants CRUD, onboard wizard, connection tests, webhook registration, users)
-- `app/api/automation/` — 3 automation triggers
-- `lib/` — ~60 utility modules
-- `scripts/` — SQL migrations (01-schema through 07-add-gmail-columns)
+- `app/(dashboard)/` — dashboard pages
+- `app/api/actions/` — dashboard action routes
+- `app/api/cron/` — cron routes
+- `app/api/webhooks/` — webhook routes (stripe, openphone, telegram, vapi, ghl, housecall-pro)
+- `app/api/admin/` — admin routes (tenants CRUD, onboard wizard, connection tests, webhook registration, users)
+- `app/api/automation/` — automation triggers
+- `lib/` — utility modules
+- `scripts/` — SQL migrations
 
-### Core Tables
+### Core Tables (not exhaustive)
 - `tenants` — API keys, workflow_config, timezone
 - `jobs` — pending → scheduled → in_progress → completed, payment tracking
 - `leads` — new → contacted → qualified → booked → assigned
@@ -90,8 +96,3 @@ Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via 
 
 ### On-Demand Code Review
 User-triggered only. Use Sonnet for high-stakes changes (payments, auth, crons). Don't fix unapproved items. Don't re-run automatically.
-
-### Current Priorities
-- All 3 tenants onboarded and live
-- Catching bugs with live tenants
-- Next: tenant onboarding workflow
