@@ -3497,6 +3497,11 @@ export default function AdminPage() {
                         <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
                       </div>
                     </details>
+                    <div className="text-xs text-muted-foreground mt-1.5 space-y-0.5">
+                      <p className="font-medium">After onboarding:</p>
+                      <p>1. Go to VAPI Dashboard &gt; Phone Numbers &gt; set Server URL to <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/vapi/{"{slug}"}</code></p>
+                      <p>2. Assign the inbound assistant to your phone number</p>
+                    </div>
                   </div>
 
                   {/* Gmail (Email Bot) */}
@@ -3762,7 +3767,7 @@ export default function AdminPage() {
                                       registered
                                     </span>
                                   )}
-                                  {svc.needsManual && <span className="text-orange-500">manual setup needed</span>}
+                                  {svc.needsManual && <span className="text-orange-500">unverified — manual setup needed</span>}
                                 </div>
                               </div>
                             )
