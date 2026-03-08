@@ -85,6 +85,12 @@ export interface WorkflowConfig {
   use_card_on_file?: boolean         // Save card at booking, charge on completion (no upfront deposit)
   cancellation_fee_cents?: number    // Fee charged for late cancellations (e.g. 5000 = $50)
   cancellation_window_hours?: number // Hours before service when cancellation fee applies (e.g. 24)
+
+  // Business hours & scheduling (configurable via Settings)
+  business_hours_start?: number      // Minutes since midnight (e.g. 480 = 8:00 AM). Default: 480
+  business_hours_end?: number        // Minutes since midnight (e.g. 1020 = 5:00 PM). Default: 1020
+  salesman_buffer_minutes?: number   // Gap between salesman estimate appointments (e.g. 60). Default: 30
+  technician_buffer_minutes?: number // Gap between technician cleaning appointments (e.g. 60). Default: 30
 }
 
 export interface SeasonalCampaign {
