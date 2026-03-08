@@ -14,7 +14,7 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Osiris',
+  title: 'Clean Machine',
   description: 'Operations dashboard - Lead tracking, team dispatch, and business intelligence',
   icons: {
     icon: [

@@ -20,8 +20,10 @@ import {
   Target,
   Lightbulb,
   FileText,
+  Settings,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
+import { SettingsModal } from "./settings-modal"
 
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
@@ -52,6 +54,7 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
   const [loginError, setLoginError] = useState("")
   const [loggingIn, setLoggingIn] = useState(false)
   const [switchingTo, setSwitchingTo] = useState<number | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Animate dropdown open/close
@@ -144,13 +147,13 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
           <Link href="/" className="font-semibold text-zinc-100 tracking-tight hover:text-purple-300 transition-colors text-sm">
-            OSIRIS
+            CLEAN MACHINE
           </Link>
         )}
         {collapsed && (
           <Link href="/" className="w-full flex justify-center">
             <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300 logo-glow">
-              O
+              CM
             </div>
           </Link>
         )}
@@ -326,6 +329,18 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
 
                 <div className="border-t border-zinc-800 mt-1" />
 
+                {/* Settings */}
+                <button
+                  onClick={() => {
+                    closeDropdown()
+                    setSettingsOpen(true)
+                  }}
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Settings
+                </button>
+
                 {/* Logout */}
                 <button
                   onClick={() => {
@@ -352,6 +367,7 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
           </div>
         )}
       </div>
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
   )
 }

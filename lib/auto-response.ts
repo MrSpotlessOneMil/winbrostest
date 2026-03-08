@@ -893,13 +893,37 @@ async function getAvailableCleaningSlots(
     const { getSupabaseServiceClient } = await import('./supabase')
     const client = getSupabaseServiceClient()
 
-    // Same time tiers as vapi-estimate-scheduler.ts
-    const TIME_TIERS = [
-      { minutes: 480, label: '8:00 AM' },   // 8:00 AM
-      { minutes: 660, label: '11:00 AM' },  // 11:00 AM
-      { minutes: 840, label: '2:00 PM' },   // 2:00 PM
-      { minutes: 1020, label: '5:00 PM' },  // 5:00 PM
-    ]
+    // Load tenant config for business hours
+    const { data: tenantRow } = await client
+      .from('tenants')
+      .select('workflow_config')
+      .eq('id', tenantId)
+      .single()
+
+    const wc = (tenantRow?.workflow_config ?? {}) as Record<string, unknown>
+    const hoursStart = typeof wc.business_hours_start === 'number' ? wc.business_hours_start : 480
+    const hoursEnd = typeof wc.business_hours_end === 'number' ? wc.business_hours_end : 1020
+
+    // Build time tiers dynamically from business hours
+    function buildTiers(startMin: number, endMin: number): Array<{ minutes: number; label: string }> {
+      const fmt = (m: number) => {
+        const h24 = Math.floor(m / 60)
+        const min = m % 60
+        const period = h24 >= 12 ? 'PM' : 'AM'
+        const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24
+        return `${h12}:${String(min).padStart(2, '0')} ${period}`
+      }
+      const range = endMin - startMin
+      if (range <= 0) return [{ minutes: startMin, label: fmt(startMin) }]
+      const tiers = [startMin]
+      if (range >= 180) tiers.push(startMin + Math.round(range / 3))
+      if (range >= 360) tiers.push(startMin + Math.round((2 * range) / 3))
+      tiers.push(endMin)
+      const snapped = [...new Set(tiers.map(t => Math.round(t / 30) * 30))]
+      return snapped.map(m => ({ minutes: m, label: fmt(m) }))
+    }
+
+    const TIME_TIERS = buildTiers(hoursStart, hoursEnd)
     const LOOKAHEAD_DAYS = 7
 
     // Get current time in tenant timezone
@@ -912,9 +936,9 @@ async function getAvailableCleaningSlots(
     const minute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(now))
     const nowMinutes = (hour === 24 ? 0 : hour) * 60 + minute
 
-    // Build candidate dates (skip Sundays, skip today if past 5 PM)
+    // Build candidate dates (skip Sundays, skip today if past business hours end)
     const cursor = new Date(year, month - 1, day)
-    if (nowMinutes >= 1020) cursor.setDate(cursor.getDate() + 1) // skip today if past 5 PM
+    if (nowMinutes >= hoursEnd) cursor.setDate(cursor.getDate() + 1)
     const candidates: string[] = []
     while (candidates.length < LOOKAHEAD_DAYS) {
       if (cursor.getDay() !== 0) {

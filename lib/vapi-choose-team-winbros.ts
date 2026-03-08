@@ -13,13 +13,13 @@ import { getSupabaseServiceClient } from './supabase'
 import { getCleanerBlockedDates } from './supabase'
 import type { VapiAvailabilityResponse, VapiAlternative } from './vapi-choose-team'
 
-// ── Constants ──────────────────────────────────────────────────
+// ── Constants (defaults — overridden by tenant workflow_config) ──
 const TIMEZONE = 'America/Chicago'
 const ESTIMATE_DURATION_HOURS = 0.5 // 30 minutes
-const BUFFER_MINUTES = 15
-const STEP_MINUTES = 30
-const SLOT_START_MINUTES = 8 * 60 // 8:00 AM
-const LAST_SLOT_MINUTES = 15 * 60 // 3:00 PM
+const DEFAULT_BUFFER_MINUTES = 15
+const DEFAULT_STEP_MINUTES = 30
+const DEFAULT_SLOT_START_MINUTES = 8 * 60 // 8:00 AM
+const DEFAULT_LAST_SLOT_MINUTES = 15 * 60 // 3:00 PM
 const MAX_DAYS_AHEAD = 7
 const WINBROS_TENANT_ID = 'e954fbd6-b3e1-4271-88b0-341c9df56beb'
 
@@ -261,10 +261,10 @@ function formatTimeFromMinutes(totalMinutes: number): string {
   return `${hours12}:${String(mins).padStart(2, '0')} ${period}`
 }
 
-function getNextCandidateDates(count: number): string[] {
+function getNextCandidateDates(count: number, lastSlotMinutes = DEFAULT_LAST_SLOT_MINUTES): string[] {
   const pacific = getLocalNow()
   const todayMinutes = pacific.hour * 60 + pacific.minute
-  const skipToday = todayMinutes >= LAST_SLOT_MINUTES
+  const skipToday = todayMinutes >= lastSlotMinutes
 
   const dates: string[] = []
   const cursor = new Date(pacific.year, pacific.month - 1, pacific.day)
@@ -293,10 +293,12 @@ function isSlotAvailable(
   salesmen: Salesman[],
   scheduleMap: Map<number, Map<string, Set<number>>>,
   jobCountMap: Map<number, Map<string, number>>,
-  blockedDatesMap: Map<number, Set<string>>
+  blockedDatesMap: Map<number, Set<string>>,
+  slotStartMinutes = DEFAULT_SLOT_START_MINUTES,
+  lastSlotMinutes = DEFAULT_LAST_SLOT_MINUTES
 ): boolean {
-  // Must be within working hours (8am - 3pm)
-  if (requestedTimeMinutes < SLOT_START_MINUTES || requestedTimeMinutes > LAST_SLOT_MINUTES) {
+  // Must be within working hours
+  if (requestedTimeMinutes < slotStartMinutes || requestedTimeMinutes > lastSlotMinutes) {
     return false
   }
 
@@ -322,7 +324,10 @@ function findAlternatives(
   scheduleMap: Map<number, Map<string, Set<number>>>,
   jobCountMap: Map<number, Map<string, number>>,
   blockedDatesMap: Map<number, Set<string>>,
-  allDates: string[]
+  allDates: string[],
+  slotStartMinutes = DEFAULT_SLOT_START_MINUTES,
+  lastSlotMinutes = DEFAULT_LAST_SLOT_MINUTES,
+  stepMinutes = DEFAULT_STEP_MINUTES
 ): VapiAlternative[] {
   const pacific = getLocalNow()
   const todayStr = `${pacific.year}-${String(pacific.month).padStart(2, '0')}-${String(pacific.day).padStart(2, '0')}`
@@ -331,14 +336,16 @@ function findAlternatives(
   const alternatives: VapiAlternative[] = []
   const seenDatetimes = new Set<string>()
 
-  // Phase 1: Prioritize 8am slots across the next few days
+  // Phase 1: Prioritize first-slot-of-day across the next few days
   for (const date of allDates) {
     if (alternatives.length >= count) break
-    if (date === todayStr && nowMinutes >= SLOT_START_MINUTES + 90) continue // Need 90 min buffer
+    if (date === todayStr && nowMinutes >= slotStartMinutes + 90) continue // Need 90 min buffer
 
-    if (isSlotAvailable(SLOT_START_MINUTES, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap)) {
+    if (isSlotAvailable(slotStartMinutes, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap, slotStartMinutes, lastSlotMinutes)) {
       const [year, month, day] = date.split('-').map(Number)
-      const slotDate = createLocalDate(year, month - 1, day, 8, 0)
+      const startHour = Math.floor(slotStartMinutes / 60)
+      const startMin = slotStartMinutes % 60
+      const slotDate = createLocalDate(year, month - 1, day, startHour, startMin)
       alternatives.push(toAlternative(slotDate))
       seenDatetimes.add(toIsoWithTimezone(slotDate))
     }
@@ -349,14 +356,14 @@ function findAlternatives(
     for (const date of allDates) {
       if (alternatives.length >= count) break
 
-      for (let slotMin = SLOT_START_MINUTES; slotMin <= LAST_SLOT_MINUTES; slotMin += STEP_MINUTES) {
+      for (let slotMin = slotStartMinutes; slotMin <= lastSlotMinutes; slotMin += stepMinutes) {
         if (alternatives.length >= count) break
         if (date === todayStr && slotMin <= nowMinutes + 90) continue
 
-        // Skip 8am — already handled in Phase 1
-        if (slotMin === SLOT_START_MINUTES) continue
+        // Skip first slot — already handled in Phase 1
+        if (slotMin === slotStartMinutes) continue
 
-        if (isSlotAvailable(slotMin, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap)) {
+        if (isSlotAvailable(slotMin, date, salesmen, scheduleMap, jobCountMap, blockedDatesMap, slotStartMinutes, lastSlotMinutes)) {
           const [year, month, day] = date.split('-').map(Number)
           const hours = Math.floor(slotMin / 60)
           const mins = slotMin % 60
@@ -423,8 +430,24 @@ export async function getWinBrosAvailabilityResponse(
 
   console.log(`${LOG} Checking availability at ${adjustedStart.toISOString()} for tenant ${resolvedTenantId}`)
 
-  // 2. Load active salesmen
+  // 2. Load tenant config + active salesmen
   const client = getSupabaseServiceClient()
+
+  const { data: tenantRow } = await client
+    .from('tenants')
+    .select('workflow_config')
+    .eq('id', resolvedTenantId)
+    .single()
+
+  const wc = (tenantRow?.workflow_config ?? {}) as Record<string, unknown>
+  const SLOT_START_MINUTES = typeof wc.business_hours_start === 'number' ? wc.business_hours_start : DEFAULT_SLOT_START_MINUTES
+  const LAST_SLOT_MINUTES = typeof wc.business_hours_end === 'number' ? wc.business_hours_end : DEFAULT_LAST_SLOT_MINUTES
+  const STEP_MINUTES = typeof wc.salesman_buffer_minutes === 'number'
+    ? 30 + (wc.salesman_buffer_minutes as number) // estimate duration + buffer
+    : DEFAULT_STEP_MINUTES
+
+  console.log(`${LOG} Config: hours ${formatTimeFromMinutes(SLOT_START_MINUTES)}-${formatTimeFromMinutes(LAST_SLOT_MINUTES)}, step ${STEP_MINUTES}min`)
+
   const { data: salesmenRows, error: salesmenError } = await client
     .from('cleaners')
     .select('id, name, max_jobs_per_day')
@@ -466,7 +489,7 @@ export async function getWinBrosAvailabilityResponse(
   console.log(`${LOG} Found ${salesmen.length} salesmen: ${salesmen.map(s => s.name).join(', ')}`)
 
   // 3. Get candidate dates
-  const allDates = getNextCandidateDates(MAX_DAYS_AHEAD)
+  const allDates = getNextCandidateDates(MAX_DAYS_AHEAD, LAST_SLOT_MINUTES)
 
   // 4. Load existing estimate jobs
   const { data: jobRows, error: jobError } = await client
@@ -557,7 +580,7 @@ export async function getWinBrosAvailabilityResponse(
   console.log(`${LOG} Requested: ${requestedDate} at ${formatTimeFromMinutes(snappedMinutes)} (${snappedMinutes} min)`)
 
   // Check if requested slot is available
-  const available = isSlotAvailable(snappedMinutes, requestedDate, salesmen, scheduleMap, jobCountMap, blockedDatesMap)
+  const available = isSlotAvailable(snappedMinutes, requestedDate, salesmen, scheduleMap, jobCountMap, blockedDatesMap, SLOT_START_MINUTES, LAST_SLOT_MINUTES)
 
   if (available) {
     const confirmedIso = toIsoWithTimezone(adjustedStart)
@@ -575,7 +598,8 @@ export async function getWinBrosAvailabilityResponse(
 
   // Not available — find alternatives
   const alternatives = findAlternatives(
-    2, salesmen, scheduleMap, jobCountMap, blockedDatesMap, allDates
+    2, salesmen, scheduleMap, jobCountMap, blockedDatesMap, allDates,
+    SLOT_START_MINUTES, LAST_SLOT_MINUTES, STEP_MINUTES
   )
   console.log(`${LOG} Requested time unavailable. Alternatives: ${alternatives.map(a => a.datetime).join(', ')}`)
 

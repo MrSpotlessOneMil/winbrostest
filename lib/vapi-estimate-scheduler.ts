@@ -19,23 +19,29 @@ import { getSupabaseServiceClient } from './supabase'
 import { geocodeAddress, getDistanceMatrix, LatLng, haversineMinutes } from './google-maps'
 import { getCleanerBlockedDates } from './supabase'
 
-// ── Constants ──────────────────────────────────────────────────
+// ── Constants (defaults — overridden by tenant workflow_config) ──
 
 const TIMEZONE = 'America/Los_Angeles'
 const ESTIMATE_DURATION_MINUTES = 30
-const SLOT_START_MINUTES = 8 * 60 // 8:00 AM = 480
-const LAST_SLOT_MINUTES = 17 * 60 // 5:00 PM = 1020
-const SLOT_STEP_MINUTES = 30
+const DEFAULT_SLOT_START_MINUTES = 8 * 60 // 8:00 AM = 480
+const DEFAULT_LAST_SLOT_MINUTES = 17 * 60 // 5:00 PM = 1020
+const DEFAULT_SLOT_STEP_MINUTES = 30
 const PRIORITY_LOOKAHEAD_DAYS = 3
 const MAX_LOOKAHEAD_DAYS = 7
 
-/** Cascading time tiers — fill 8 AM first, then 11 AM, 2 PM, 5 PM */
-const TIME_TIERS = [
-  { minutes: 480, label: '8:00 AM' },
-  { minutes: 660, label: '11:00 AM' },
-  { minutes: 840, label: '2:00 PM' },
-  { minutes: 1020, label: '5:00 PM' },
-] as const
+/** Build cascading time tiers from business hours */
+function buildTimeTiers(startMin: number, endMin: number): Array<{ minutes: number; label: string }> {
+  const range = endMin - startMin
+  if (range <= 0) return [{ minutes: startMin, label: formatTimeFromMinutes(startMin) }]
+  // Distribute tiers: start, ~1/3, ~2/3, end
+  const tiers = [startMin]
+  if (range >= 180) tiers.push(startMin + Math.round(range / 3))
+  if (range >= 360) tiers.push(startMin + Math.round((2 * range) / 3))
+  tiers.push(endMin)
+  // Snap to nearest 30 min and deduplicate
+  const snapped = [...new Set(tiers.map(t => Math.round(t / 30) * 30))]
+  return snapped.map(m => ({ minutes: m, label: formatTimeFromMinutes(m) }))
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -152,10 +158,10 @@ function getPacificNow(): { year: number; month: number; day: number; hour: numb
  * Get the next N candidate dates (YYYY-MM-DD) for scheduling.
  * Skips today if past 3:00 PM Pacific. Skips Sundays.
  */
-function getNextCandidateDates(count: number): string[] {
+function getNextCandidateDates(count: number, lastSlotMinutes = DEFAULT_LAST_SLOT_MINUTES): string[] {
   const pacific = getPacificNow()
   const todayMinutes = pacific.hour * 60 + pacific.minute
-  const skipToday = todayMinutes >= LAST_SLOT_MINUTES
+  const skipToday = todayMinutes >= lastSlotMinutes
 
   const dates: string[] = []
   const cursor = new Date(pacific.year, pacific.month - 1, pacific.day)
@@ -247,9 +253,25 @@ export async function scheduleEstimate(
     return { scheduled: false, options: [], error: 'GEOCODE_FAILED' }
   }
 
-  // 3. Load active salesmen
+  // 3. Load tenant config for business hours + buffer settings
   const resolvedTenantId = tenantId || 'e954fbd6-b3e1-4271-88b0-341c9df56beb' // WinBros fallback
   const client = getSupabaseServiceClient()
+
+  const { data: tenantRow } = await client
+    .from('tenants')
+    .select('workflow_config')
+    .eq('id', resolvedTenantId)
+    .single()
+
+  const wc = (tenantRow?.workflow_config ?? {}) as Record<string, unknown>
+  const SLOT_START_MINUTES = typeof wc.business_hours_start === 'number' ? wc.business_hours_start : DEFAULT_SLOT_START_MINUTES
+  const LAST_SLOT_MINUTES = typeof wc.business_hours_end === 'number' ? wc.business_hours_end : DEFAULT_LAST_SLOT_MINUTES
+  const SLOT_STEP_MINUTES = typeof wc.salesman_buffer_minutes === 'number'
+    ? ESTIMATE_DURATION_MINUTES + (wc.salesman_buffer_minutes as number)
+    : DEFAULT_SLOT_STEP_MINUTES
+  const TIME_TIERS = buildTimeTiers(SLOT_START_MINUTES, LAST_SLOT_MINUTES)
+
+  console.log(`${LOG} Config: hours ${formatTimeFromMinutes(SLOT_START_MINUTES)}-${formatTimeFromMinutes(LAST_SLOT_MINUTES)}, step ${SLOT_STEP_MINUTES}min`)
 
   const { data: salesmenRows, error: salesmenError } = await client
     .from('cleaners')
@@ -282,7 +304,7 @@ export async function scheduleEstimate(
   console.log(`${LOG} Found ${salesmen.length} salesmen: ${salesmen.map((s) => s.name).join(', ')}`)
 
   // 4. Compute candidate dates (3 initially, extend to 7 if needed)
-  const allDates = getNextCandidateDates(MAX_LOOKAHEAD_DAYS)
+  const allDates = getNextCandidateDates(MAX_LOOKAHEAD_DAYS, LAST_SLOT_MINUTES)
   const priorityDates = allDates.slice(0, PRIORITY_LOOKAHEAD_DAYS)
 
   // 5. Load existing estimate jobs for the full date range

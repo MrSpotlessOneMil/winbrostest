@@ -125,7 +125,7 @@ function LoginForm() {
           <div className="mb-8 text-center">
             <h1 className="font-mono text-3xl font-bold tracking-tighter text-neutral-100">
               <span className="text-emerald-400">{">"}</span>
-              _OSIRIS
+              _CLEAN MACHINE
               <span className="animate-pulse text-emerald-400">_</span>
             </h1>
             <p className="mt-2 font-mono text-xs uppercase tracking-widest text-neutral-500">
@@ -230,7 +230,7 @@ function LoginFormFallback() {
           <div className="mb-8 text-center">
             <h1 className="font-mono text-3xl font-bold tracking-tighter text-neutral-100">
               <span className="text-emerald-400">{">"}</span>
-              _OSIRIS
+              _CLEAN MACHINE
               <span className="animate-pulse text-emerald-400">_</span>
             </h1>
             <p className="mt-2 font-mono text-xs uppercase tracking-widest text-neutral-500">
