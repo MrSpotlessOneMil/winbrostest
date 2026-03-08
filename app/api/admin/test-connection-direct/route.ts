@@ -4,6 +4,7 @@ import {
   testStripeConnection,
   testOpenPhoneConnection,
   testVapiConnection,
+  testVapiKeyOnly,
   testTelegramConnection,
   testWaveConnection,
 } from "@/lib/admin-onboard"
@@ -46,6 +47,14 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "VAPI API key and assistant ID are required" }, { status: 400 })
         }
         const result = await testVapiConnection(credentials.vapi_api_key, credentials.vapi_assistant_id)
+        return NextResponse.json({ success: result.ok, message: result.message })
+      }
+
+      case "vapi-key-only": {
+        if (!credentials.vapi_api_key) {
+          return NextResponse.json({ success: false, error: "VAPI API key is required" }, { status: 400 })
+        }
+        const result = await testVapiKeyOnly(credentials.vapi_api_key)
         return NextResponse.json({ success: result.ok, message: result.message })
       }
 

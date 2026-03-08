@@ -113,6 +113,21 @@ export async function testOpenPhoneConnection(key: string, phoneId: string): Pro
   return { ok: true, message: `Connected. Phone: ${match.formattedNumber || match.phoneNumber || "OK"}` }
 }
 
+export async function testVapiKeyOnly(key: string): Promise<StepResult> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+  const res = await fetch("https://api.vapi.ai/assistant?limit=1", {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: controller.signal,
+  })
+  clearTimeout(timeout)
+  if (!res.ok) {
+    const errText = await res.text()
+    throw new Error(`VAPI API returned ${res.status}: ${errText}`)
+  }
+  return { ok: true, message: "API key is valid" }
+}
+
 export async function testVapiConnection(
   key: string,
   assistantId: string,

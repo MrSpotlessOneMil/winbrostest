@@ -234,6 +234,8 @@ export default function AdminPage() {
   const [customServices, setCustomServices] = useState<Array<{ name: string; fields: Array<{ key: string; value: string }> }>>([])
   const [wizardRegistering, setWizardRegistering] = useState<string | null>(null)
   const [wizardRegisterResults, setWizardRegisterResults] = useState<Record<string, { success: boolean; message: string; secret?: string }>>({})
+  const [vapiCloning, setVapiCloning] = useState(false)
+  const [vapiCloneResult, setVapiCloneResult] = useState<{ inbound?: string; outbound?: string } | null>(null)
 
   // Credentials editing state
   const [editingCredentials, setEditingCredentials] = useState<Partial<Tenant>>({})
@@ -492,6 +494,52 @@ export default function AdminPage() {
       }))
     } finally {
       setWizardRegistering(null)
+    }
+  }
+
+  async function cloneVapiAssistants() {
+    setVapiCloning(true)
+    setVapiCloneResult(null)
+    try {
+      const res = await fetch("/api/admin/clone-vapi-assistants", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vapi_api_key: onboardForm.vapi_api_key,
+          flow_type: onboardForm.flow_type,
+          slug: onboardForm.slug,
+          business_name: onboardForm.business_name || onboardForm.name,
+          service_area: onboardForm.service_area,
+          service_type: onboardForm.service_description,
+          sdr_persona: onboardForm.sdr_persona,
+        }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        const result: { inbound?: string; outbound?: string } = {}
+        if (json.inbound_assistant_id) {
+          result.inbound = json.inbound_assistant_id
+          setOnboardForm((prev) => ({ ...prev, vapi_assistant_id: json.inbound_assistant_id }))
+        }
+        if (json.outbound_assistant_id) {
+          result.outbound = json.outbound_assistant_id
+          setOnboardForm((prev) => ({ ...prev, vapi_outbound_assistant_id: json.outbound_assistant_id }))
+        }
+        setVapiCloneResult(result)
+      } else {
+        setVapiCloneResult(null)
+        setWizardTestResults((prev) => ({
+          ...prev,
+          "vapi-clone": { success: false, message: json.error || "Clone failed" },
+        }))
+      }
+    } catch (e: any) {
+      setWizardTestResults((prev) => ({
+        ...prev,
+        "vapi-clone": { success: false, message: e.message || "Clone failed" },
+      }))
+    } finally {
+      setVapiCloning(false)
     }
   }
 
@@ -3365,26 +3413,61 @@ export default function AdminPage() {
                       <a href="https://dashboard.vapi.ai" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">Dashboard</a>
                       <div className="flex-1" />
                       <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
-                        disabled={!onboardForm.vapi_api_key || !onboardForm.vapi_assistant_id || !!wizardTesting}
-                        onClick={() => testConnectionDirect("vapi", { vapi_api_key: onboardForm.vapi_api_key, vapi_assistant_id: onboardForm.vapi_assistant_id })}
+                        disabled={!onboardForm.vapi_api_key || !!wizardTesting}
+                        onClick={() => testConnectionDirect("vapi-key-only", { vapi_api_key: onboardForm.vapi_api_key })}
                       >
-                        {wizardTesting === "vapi" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                        {wizardTesting === "vapi-key-only" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test Key"}
                       </Button>
-                      {wizardTestResults.vapi && (
-                        <span className="inline-flex cursor-pointer" title={wizardTestResults.vapi.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.vapi.message)}>
-                          {wizardTestResults.vapi.success
+                      {wizardTestResults["vapi-key-only"] && (
+                        <span className="inline-flex cursor-pointer" title={wizardTestResults["vapi-key-only"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults["vapi-key-only"].message)}>
+                          {wizardTestResults["vapi-key-only"].success
                             ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                             : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
                         </span>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
-                      <Input className="h-8 text-sm" placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
-                      <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
-                      <Input className="h-8 text-sm" placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
+                    <Input className="h-8 text-sm" placeholder="API Key" value={onboardForm.vapi_api_key} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_api_key: e.target.value })} />
+                    <Input className="h-8 text-sm mt-1.5" placeholder="Phone ID" value={onboardForm.vapi_phone_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_phone_id: e.target.value })} />
+
+                    {/* Clone from template */}
+                    <div className="mt-2 border border-dashed border-zinc-500 rounded p-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium">Clone from template</span>
+                        <span className="text-xs text-muted-foreground">({onboardForm.flow_type})</span>
+                        <div className="flex-1" />
+                        <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                          disabled={!onboardForm.vapi_api_key || !onboardForm.slug || vapiCloning || !!vapiCloneResult}
+                          onClick={cloneVapiAssistants}
+                        >
+                          {vapiCloning ? <Loader2 className="h-3 w-3 animate-spin" /> : vapiCloneResult ? "Cloned" : "Clone Assistants"}
+                        </Button>
+                        {vapiCloneResult && (
+                          <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                        )}
+                        {wizardTestResults["vapi-clone"] && !wizardTestResults["vapi-clone"].success && (
+                          <span className="inline-flex cursor-pointer" title={wizardTestResults["vapi-clone"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults["vapi-clone"].message)}>
+                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                          </span>
+                        )}
+                      </div>
+                      {vapiCloneResult && (
+                        <p className="text-xs text-green-400 mt-1">
+                          Inbound: {vapiCloneResult.inbound}{vapiCloneResult.outbound ? ` | Outbound: ${vapiCloneResult.outbound}` : ""}
+                        </p>
+                      )}
+                      {wizardTestResults["vapi-clone"] && !wizardTestResults["vapi-clone"].success && (
+                        <p className="text-xs text-red-400 mt-1">{wizardTestResults["vapi-clone"].message}</p>
+                      )}
                     </div>
-                    <p className="text-xs text-muted-foreground mt-1">VAPI Server URL must be set manually in VAPI dashboard to: <code className="bg-muted px-1 rounded">{"{baseUrl}"}/api/webhooks/vapi</code></p>
+
+                    {/* Manual override / advanced */}
+                    <details className="mt-1.5">
+                      <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">Advanced: manual assistant IDs</summary>
+                      <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+                        <Input className="h-8 text-sm" placeholder="Inbound Assistant ID" value={onboardForm.vapi_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_assistant_id: e.target.value })} />
+                        <Input className="h-8 text-sm" placeholder="Outbound Assistant ID" value={onboardForm.vapi_outbound_assistant_id} onChange={(e) => setOnboardForm({ ...onboardForm, vapi_outbound_assistant_id: e.target.value })} />
+                      </div>
+                    </details>
                   </div>
 
                   {/* Additional Services — expandable */}
