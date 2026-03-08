@@ -7,6 +7,7 @@ import {
   testVapiConnection,
   testTelegramConnection,
   testWaveConnection,
+  testGmailConnection,
   getBaseUrl,
 } from "@/lib/admin-onboard"
 
@@ -82,6 +83,14 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Wave API token or business ID not configured" }, { status: 400 })
         }
         const result = await testWaveConnection(tenant.wave_api_token, tenant.wave_business_id)
+        return NextResponse.json({ success: result.ok, message: result.message })
+      }
+
+      case "gmail": {
+        if (!tenant.gmail_user || !tenant.gmail_app_password) {
+          return NextResponse.json({ success: false, error: "Gmail address or app password not configured" }, { status: 400 })
+        }
+        const result = await testGmailConnection(tenant.gmail_user, tenant.gmail_app_password)
         return NextResponse.json({ success: result.ok, message: result.message })
       }
 

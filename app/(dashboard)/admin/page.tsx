@@ -2589,6 +2589,17 @@ export default function AdminPage() {
                           </div>
                         </div>
                       </div>
+                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
+                        <Button variant="outline" size="sm" onClick={() => testConnection("gmail")} disabled={testingService === "gmail" || !currentTenant.gmail_user || !currentTenant.gmail_app_password}>
+                          {testingService === "gmail" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                          Test Connection
+                        </Button>
+                        {testResults["gmail"] && (
+                          <span className="inline-flex cursor-pointer" title={testResults["gmail"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["gmail"].message)}>
+                            {testResults["gmail"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </TabsContent>
 
