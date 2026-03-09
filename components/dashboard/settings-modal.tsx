@@ -278,7 +278,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 )}
 
                 {/* Save bar */}
-                <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4 bg-gradient-to-t from-zinc-950 via-zinc-950/95 to-transparent">
+                <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4 bg-zinc-950">
                   <button
                     onClick={handleSave}
                     disabled={saving}
