@@ -41,12 +41,14 @@ function getStripeClient(): Stripe {
 
 /**
  * Create a Stripe client using a specific secret key (for multi-tenant).
- * Falls back to the default getStripeClient() if no key provided.
+ * NEVER falls back to env var — throws if no key provided.
+ * This prevents cross-tenant charge contamination.
  */
-export function getStripeClientForTenant(stripeSecretKey?: string): Stripe {
-  if (!stripeSecretKey) return getStripeClient()
-  const secretKey = stripeSecretKey.replace(/[\r\n]/g, '').trim()
-  if (!secretKey) throw new Error('Invalid Stripe secret key')
+export function getStripeClientForTenant(stripeSecretKey: string): Stripe {
+  const secretKey = stripeSecretKey?.replace(/[\r\n]/g, '').trim()
+  if (!secretKey) {
+    throw new Error('[Stripe] CRITICAL: No tenant Stripe key provided. Set stripe_secret_key on the tenant. Refusing to fall back to default key to prevent cross-tenant charges.')
+  }
   return new Stripe(secretKey, { apiVersion: '2025-02-24.acacia' })
 }
 
@@ -102,11 +104,11 @@ export function resolveStripeChargeCents(
 
 /**
  * Create a Stripe customer
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createStripeCustomer(
   customer: Partial<Customer>,
-  stripeSecretKey?: string
+  stripeSecretKey: string
 ): Promise<Stripe.Customer> {
   try {
     const stripe = getStripeClientForTenant(stripeSecretKey)
@@ -139,11 +141,11 @@ export async function createStripeCustomer(
 
 /**
  * Find or create a Stripe customer by email
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function findOrCreateStripeCustomer(
   customer: Partial<Customer>,
-  stripeSecretKey?: string
+  stripeSecretKey: string
 ): Promise<Stripe.Customer> {
   if (!customer.email) {
     throw new Error('Cannot create Stripe customer without email')
@@ -174,12 +176,12 @@ export async function findOrCreateStripeCustomer(
 
 /**
  * Create and send an invoice for a job.
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createAndSendInvoice(
   job: Job,
   customer: Customer,
-  stripeSecretKey?: string
+  stripeSecretKey: string
 ): Promise<{ success: boolean; invoiceId?: string; invoiceUrl?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required for invoice' }
@@ -363,9 +365,9 @@ export function validateStripeWebhook(
 
 /**
  * Get invoice details from Stripe
- * Pass stripeSecretKey for multi-tenant support.
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
-export async function getInvoice(invoiceId: string, stripeSecretKey?: string): Promise<Stripe.Invoice | null> {
+export async function getInvoice(invoiceId: string, stripeSecretKey: string): Promise<Stripe.Invoice | null> {
   try {
     const stripe = getStripeClientForTenant(stripeSecretKey)
     return await stripe.invoices.retrieve(invoiceId)
@@ -378,13 +380,13 @@ export async function getInvoice(invoiceId: string, stripeSecretKey?: string): P
 /**
  * Create a setup intent checkout session for card on file
  * Sent after deposit payment succeeds
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createCardOnFileLink(
   customer: Customer,
   jobId: string,
-  tenantId?: string,
-  stripeSecretKey?: string
+  tenantId: string,
+  stripeSecretKey: string
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -436,14 +438,14 @@ export async function createCardOnFileLink(
 /**
  * Create a deposit payment link (50% + 3% fee)
  * Per PRD: Deposit amount = (price * 1.03) / 2
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createDepositPaymentLink(
   customer: Customer,
   job: Job,
-  extraMetadata?: Record<string, string>,
-  tenantId?: string,
-  stripeSecretKey?: string
+  extraMetadata: Record<string, string> | undefined,
+  tenantId: string,
+  stripeSecretKey: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }
@@ -519,13 +521,14 @@ export async function createDepositPaymentLink(
 /**
  * Create a payment link for any custom dollar amount.
  * Used by the assistant to generate ad-hoc payment links for tenants.
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createCustomPaymentLink(
   customer: Customer,
   amount: number,
   description: string,
-  tenantId?: string,
-  stripeSecretKey?: string,
+  tenantId: string,
+  stripeSecretKey: string,
   jobId?: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
@@ -591,14 +594,14 @@ export async function createCustomPaymentLink(
 
 /**
  * Create an add-on payment link for after-the-fact upgrades
- * Pass stripeSecretKey for multi-tenant support (uses tenant's Stripe account).
+ * stripeSecretKey is REQUIRED — must be the tenant's own Stripe key.
  */
 export async function createAddOnPaymentLink(
   customer: Customer,
   job: Job,
   addOnAmount: number,
   addOns: AddOnKey[],
-  stripeSecretKey?: string
+  stripeSecretKey: string
 ): Promise<{ success: boolean; url?: string; amount?: number; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required' }

@@ -139,7 +139,14 @@ export async function executeCompleteJob(jobId: string): Promise<{
   )
   const chargeAmount = chargeAmountCents / 100
 
-  const stripeKey = tenant?.stripe_secret_key || undefined
+  // Guard: tenant must have its own Stripe key — never fall back to default
+  if (!tenant?.stripe_secret_key) {
+    return {
+      success: false,
+      error: 'Stripe not configured for this tenant. Set stripe_secret_key in admin.',
+    }
+  }
+  const stripeKey = tenant.stripe_secret_key
 
   // ──────────────────────────────────────────────────────────────────────
   // CARD-ON-FILE AUTO-CHARGE: Charge saved card instead of sending payment link
@@ -148,7 +155,7 @@ export async function executeCompleteJob(jobId: string): Promise<{
   const useCardOnFile = tenant?.workflow_config?.use_card_on_file === true
   const customerStripeId = (customer as any).stripe_customer_id as string | null
 
-  if (useCardOnFile && customerStripeId && stripeKey) {
+  if (useCardOnFile && customerStripeId) {
     const autoChargeResult = await chargeCardOnFile(stripeKey, customerStripeId, chargeAmountCents, {
       job_id: jobId,
       phone_number: job.phone_number,

@@ -884,23 +884,32 @@ async function executeTool(
         if (!paymentAmount || paymentAmount <= 0) {
           return "Please specify an amount for the payment link. E.g. 'generate a $150 payment link for Dale'"
         }
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createCustomPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant?.stripe_secret_key || undefined, job ? String(job.id) : undefined)
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined)
         if (result.success && result.url) {
           return `Here's the payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nAmount: $${paymentAmount.toFixed(2)} — ${paymentDesc}`
         }
         return `Failed to generate payment link: ${result.error || "Unknown error"}`
       } else if (linkType === "deposit") {
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key)
         if (result.success && result.url) {
           const depositAmt = result.amount ? `$${result.amount.toFixed(2)}` : `$${(Math.round((job.price / 2) * 1.03 * 100) / 100).toFixed(2)}`
           return `Here's the deposit payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nDeposit amount: ${depositAmt} (50% of $${job.price} + 3% processing fee)`
         }
         return `Failed to generate deposit link: ${result.error || "Unknown error"}`
       } else {
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId, tenant.stripe_secret_key)
         if (result.success && result.url) {
           return `Here's the card-on-file link for ${customer.first_name || phone}:\n\n${result.url}\n\nThis saves their card for future charges — no payment is taken now.`
         }
@@ -1390,22 +1399,31 @@ async function executeTool(
         if (!paymentAmount || paymentAmount <= 0) {
           return "Please specify an amount for the payment link. E.g. 'send Dale a $150 payment link for deep clean'"
         }
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createCustomPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant?.stripe_secret_key || undefined, job ? String(job.id) : undefined)
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined)
         if (!result.success || !result.url) return `Failed to generate payment link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = paymentAmount
         linkLabel = `$${paymentAmount.toFixed(2)} payment`
       } else if (linkType === "deposit") {
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job, undefined, tenantId)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key)
         if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
         linkLabel = `$${amount.toFixed(2)} deposit`
       } else {
+        if (!tenant?.stripe_secret_key || !tenantId) {
+          return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
+        }
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
-        const result = await createCardOnFileLink(customer, String(job.id), tenantId)
+        const result = await createCardOnFileLink(customer, String(job.id), tenantId, tenant.stripe_secret_key)
         if (!result.success || !result.url) return `Failed to generate card-on-file link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         linkLabel = "card-on-file"

@@ -441,10 +441,13 @@ async function processLeadFollowup(
             // Create Stripe payment link
             const customer = lead.customers || { email: null, phone_number: leadPhone }
 
-            if (customer.email) {
+            if (customer.email && tenant?.stripe_secret_key && tenantId) {
               const paymentResult = await createDepositPaymentLink(
                 customer,
-                { id: String(job.id), price: estimate.totalPrice, phone_number: leadPhone, service_type: String(serviceType) } as any
+                { id: String(job.id), price: estimate.totalPrice, phone_number: leadPhone, service_type: String(serviceType) } as any,
+                undefined,
+                tenantId,
+                tenant.stripe_secret_key
               )
 
               if (paymentResult.success && paymentResult.url) {

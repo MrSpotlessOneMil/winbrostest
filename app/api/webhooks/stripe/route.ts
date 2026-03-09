@@ -227,11 +227,15 @@ async function handleDepositPayment(
     try {
       const custEmail = await getCustomerEmail(updatedJob.phone_number, tenant.id)
       if (custEmail) {
+        if (!tenant.stripe_secret_key) {
+          console.error(`[Stripe Webhook] CRITICAL: Tenant ${tenant.slug} has no stripe_secret_key — cannot create card-on-file link. Skipping.`)
+          throw new Error('Tenant has no Stripe key')
+        }
         const cardResult = await createCardOnFileLink(
           { email: custEmail, phone_number: updatedJob.phone_number } as any,
           jobId,
           jobTenantId,
-          tenant?.stripe_secret_key || undefined,
+          tenant.stripe_secret_key,
         )
 
         if (cardResult.success && cardResult.url) {

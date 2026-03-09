@@ -55,7 +55,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
 
-    const stripeKey = authTenant.stripe_secret_key || undefined
+    if (!authTenant.stripe_secret_key) {
+      return NextResponse.json({ error: 'Stripe not configured for this tenant' }, { status: 400 })
+    }
+    const stripeKey = authTenant.stripe_secret_key
     const tenant = await getTenantById(authTenant.id)
 
     // Resolve job if needed

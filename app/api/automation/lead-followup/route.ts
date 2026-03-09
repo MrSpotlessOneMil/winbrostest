@@ -348,7 +348,11 @@ async function executeStage5(
     const job = await getJobById(lead.job_id)
 
     if (job && customer.email) {
-      paymentLinkResult = await createDepositPaymentLink(customer, job, undefined, tenant?.id, tenant?.stripe_secret_key || undefined)
+      if (!tenant?.stripe_secret_key) {
+        console.error(`[lead-followup] Tenant ${tenant?.slug || 'unknown'} has no stripe_secret_key — cannot create deposit link`)
+        return { success: false, error: 'Stripe not configured for this tenant' }
+      }
+      paymentLinkResult = await createDepositPaymentLink(customer, job, undefined, tenant.id, tenant.stripe_secret_key)
 
       if (paymentLinkResult.success && paymentLinkResult.url) {
         // Send SMS with payment link

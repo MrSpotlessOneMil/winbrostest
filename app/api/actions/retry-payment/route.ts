@@ -100,10 +100,13 @@ export async function executeRetryPayment(jobId: string): Promise<{
   )
   const chargeAmount = chargeAmountCents / 100
 
-  // Use tenant's Stripe key if available
+  // Use tenant's Stripe key — REQUIRED, never fall back to default
   const jobTenantId = (job as any).tenant_id
   const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
-  const stripeKey = tenant?.stripe_secret_key || undefined
+  if (!tenant?.stripe_secret_key) {
+    return { success: false, error: 'Stripe not configured for this tenant' }
+  }
+  const stripeKey = tenant.stripe_secret_key
   const stripe = getStripeClientForTenant(stripeKey)
   // Ensure customer exists in Stripe so payment is associated correctly
   await findOrCreateStripeCustomer(customer, stripeKey)

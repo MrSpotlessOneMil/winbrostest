@@ -1,27 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
-import { getApiKey } from '@/lib/user-api-keys'
-import { getClientConfig } from '@/lib/client-config'
-
-function getStripeClient(): Stripe {
-  const rawKey = getApiKey('stripeSecretKey')
-  const secretKey = rawKey ? rawKey.replace(/[\r\n]/g, '').trim() : ''
-
-  if (!secretKey) {
-    throw new Error('STRIPE_SECRET_KEY not configured')
-  }
-
-  return new Stripe(secretKey, {
-    apiVersion: '2025-02-24.acacia',
-  })
-}
-
-function getClientDomain(): string {
-  const domain = getClientConfig().domain
-  return domain.endsWith('/') ? domain.slice(0, -1) : domain
-}
+import { getStripeClientForTenant, getTenantRedirectDomain } from '@/lib/stripe-client'
+import { getTenantById } from '@/lib/tenant'
 
 /**
  * POST /api/tip/create
@@ -60,7 +41,7 @@ export async function POST(request: NextRequest) {
     // Get job with cleaner info — validate job exists and is in a tippable state
     const { data: job, error: jobError } = await client
       .from('jobs')
-      .select('id, cleaner_id, phone_number, service_type, status')
+      .select('id, cleaner_id, phone_number, service_type, status, tenant_id')
       .eq('id', jobId)
       .single()
 
@@ -110,9 +91,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create Stripe checkout session
-    const stripe = getStripeClient()
-    const domain = getClientDomain()
+    // Resolve tenant and use tenant's Stripe key — NEVER fall back to env var
+    const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+    if (!tenant?.stripe_secret_key) {
+      return NextResponse.json(
+        { success: false, error: 'Stripe not configured for this business' },
+        { status: 400 }
+      )
+    }
+
+    const stripe = getStripeClientForTenant(tenant.stripe_secret_key)
+    const domain = await getTenantRedirectDomain(job.tenant_id)
     const amountCents = Math.round(tipAmount * 100)
 
     const session = await stripe.checkout.sessions.create({

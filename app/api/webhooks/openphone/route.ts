@@ -818,11 +818,15 @@ export async function POST(request: NextRequest) {
       // WinBros (or fallback): Send card-on-file link
       try {
         const { createCardOnFileLink } = await import("@/lib/stripe-client")
+        if (!tenant?.stripe_secret_key) {
+          console.error(`[OpenPhone] Tenant ${tenant?.slug || 'unknown'} has no stripe_secret_key — cannot create card-on-file link`)
+          throw new Error('Tenant has no Stripe key')
+        }
         const cardResult = await createCardOnFileLink(
           { ...customer, email: providedEmail } as any,
           jobId || `lead-${bookedLead.id}`,
-          tenant?.id,
-          tenant?.stripe_secret_key || undefined,
+          tenant.id,
+          tenant.stripe_secret_key,
         )
 
         if (cardResult.success && cardResult.url) {
@@ -2594,11 +2598,15 @@ async function sendDepositPaymentFlow(params: {
 
       // Create card-on-file link
       const { createCardOnFileLink } = await import("@/lib/stripe-client")
+      if (!tenant.stripe_secret_key) {
+        console.error(`[OpenPhone] Tenant ${tenant.slug} has no stripe_secret_key — cannot create card-on-file link for terms flow`)
+        throw new Error('Tenant has no Stripe key')
+      }
       const cardResult = await createCardOnFileLink(
         { ...customer, email } as any,
         jobId || `lead-${leadId}`,
         tenant.id,
-        tenant.stripe_secret_key || undefined
+        tenant.stripe_secret_key
       )
 
       if (cardResult.success && cardResult.url) {
@@ -2772,11 +2780,15 @@ async function sendDepositPaymentFlow(params: {
   // 2. Create Stripe card-on-file link (save card for later charging)
   try {
     const { createCardOnFileLink } = await import("@/lib/stripe-client")
+    if (!tenant.stripe_secret_key) {
+      console.error(`[OpenPhone] Tenant ${tenant.slug} has no stripe_secret_key — cannot create card-on-file link for deposit flow`)
+      throw new Error('Tenant has no Stripe key')
+    }
     const cardResult = await createCardOnFileLink(
       { ...customer, email } as any,
       jobId || `lead-${leadId}`,
       tenant.id,
-      tenant.stripe_secret_key || undefined
+      tenant.stripe_secret_key
     )
 
     if (cardResult.success && cardResult.url) {

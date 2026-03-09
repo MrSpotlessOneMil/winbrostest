@@ -89,8 +89,16 @@ export async function POST(request: NextRequest) {
     // Update job with price
     const jobWithPrice = { ...job, price }
 
+    // Guard: tenant must have its own Stripe key — never fall back to default
+    if (!tenant?.stripe_secret_key) {
+      return NextResponse.json(
+        { error: 'Stripe not configured for this tenant. Set stripe_secret_key in admin.' },
+        { status: 400 }
+      )
+    }
+
     // Create deposit payment link (using tenant's Stripe key)
-    const depositResult = await createDepositPaymentLink(customer, jobWithPrice, undefined, tenant?.id, tenant?.stripe_secret_key || undefined)
+    const depositResult = await createDepositPaymentLink(customer, jobWithPrice, undefined, tenant.id, tenant.stripe_secret_key)
     if (!depositResult.success) {
       await alertOwner('Deposit link failed. Manual follow-up required.', {
         jobId,
