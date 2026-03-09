@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react"
 import { Sidebar } from "@/components/dashboard/sidebar"
 import { TopNav } from "@/components/dashboard/top-nav"
+import { SettingsModal } from "@/components/dashboard/settings-modal"
 import { AuthProvider } from "@/lib/auth-context"
 
 export default function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -13,6 +14,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     return false
   })
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   useEffect(() => {
     localStorage.setItem("sidebar-collapsed", String(sidebarCollapsed))
@@ -42,7 +44,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       <div className="flex h-[100dvh] overflow-hidden bg-zinc-950">
         {/* Desktop sidebar */}
         <div className="hidden md:block">
-          <Sidebar collapsed={sidebarCollapsed} />
+          <Sidebar collapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
 
         {/* Mobile sidebar drawer */}
@@ -55,17 +57,23 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             />
             {/* Drawer */}
             <div className="absolute inset-y-0 left-0 w-64 animate-in slide-in-from-left duration-200">
-              <Sidebar collapsed={false} onNavClick={() => setMobileMenuOpen(false)} />
+              <Sidebar collapsed={false} onNavClick={() => setMobileMenuOpen(false)} onOpenSettings={() => { setMobileMenuOpen(false); setSettingsOpen(true) }} />
             </div>
           </div>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0 m-1 md:m-2 md:ml-0 rounded-xl bg-zinc-900/80 border border-zinc-800/60 overflow-hidden">
-          <TopNav
-            onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-            onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
-          />
-          <main className="flex-1 flex flex-col overflow-y-auto overscroll-contain p-3 md:p-4">{children}</main>
+        <div className="flex-1 flex flex-col min-w-0 m-1 md:m-2 md:ml-0 rounded-xl bg-zinc-900/80 border border-zinc-800/60 overflow-hidden relative">
+          {settingsOpen ? (
+            <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+          ) : (
+            <>
+              <TopNav
+                onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+                onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
+              />
+              <main className="flex-1 flex flex-col overflow-y-auto overscroll-contain p-3 md:p-4">{children}</main>
+            </>
+          )}
         </div>
       </div>
     </AuthProvider>

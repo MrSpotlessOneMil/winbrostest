@@ -96,10 +96,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[100] flex">
-      {/* Full-page background */}
-      <div className="absolute inset-0 bg-zinc-950/95 backdrop-blur-md" />
-
+    <div className="flex flex-col w-full h-full bg-zinc-900/80">
       {/* Full-page content */}
       <div className="relative w-full h-full flex flex-col overflow-hidden">
         {/* Header bar */}

@@ -23,7 +23,6 @@ import {
   Settings,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
-import { SettingsModal } from "./settings-modal"
 
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
@@ -41,9 +40,10 @@ const navigation = [
 interface SidebarProps {
   collapsed: boolean
   onNavClick?: () => void  // Called when a nav item is clicked (closes mobile drawer)
+  onOpenSettings?: () => void  // Opens full-page settings from dashboard shell
 }
 
-export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
+export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps) {
   const pathname = usePathname()
   const { isAdmin, user, logout, accounts, addAccount, switchAccount } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -54,7 +54,6 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
   const [loginError, setLoginError] = useState("")
   const [loggingIn, setLoggingIn] = useState(false)
   const [switchingTo, setSwitchingTo] = useState<number | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
   // Animate dropdown open/close
@@ -333,7 +332,7 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
                 <button
                   onClick={() => {
                     closeDropdown()
-                    setSettingsOpen(true)
+                    onOpenSettings?.()
                   }}
                   className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left"
                 >
@@ -367,7 +366,6 @@ export function Sidebar({ collapsed, onNavClick }: SidebarProps) {
           </div>
         )}
       </div>
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </aside>
   )
 }
