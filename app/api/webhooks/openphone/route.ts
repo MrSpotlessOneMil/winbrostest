@@ -2014,55 +2014,105 @@ export async function POST(request: NextRequest) {
                 })
                 .eq("id", existingLead.id)
 
-              // Non-WinBros: Invoice (Stripe or Wave) + Stripe deposit link flow (house cleaning)
+              // Non-WinBros: Create a quote and send the customer a link to pick their package
               if (!isWindowCleaningTenant && tenant) {
-                const depositFlowResult = await sendDepositPaymentFlow({
-                  tenant,
-                  phone,
-                  email: finalEmail,
-                  customer,
-                  job: {
-                    id: newJob?.id,
-                    service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-                    address: bookingData.address || customer.address || null,
-                    date: jobDate,
-                    scheduled_at: bookingData.preferredTime || '09:00',
-                    price: servicePrice || null,
+                // Determine service_category from booking data
+                const svcType = (bookingData.serviceType || '').toLowerCase()
+                const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
+
+                // Create quote record
+                const { data: newQuote, error: quoteError } = await client
+                  .from("quotes")
+                  .insert({
+                    tenant_id: tenant.id,
+                    customer_id: customer.id,
+                    customer_name: [bookingData.firstName, bookingData.lastName].filter(Boolean).join(' ') || customer.first_name || null,
+                    customer_phone: phone,
+                    customer_email: finalEmail || null,
+                    customer_address: bookingData.address || customer.address || null,
+                    bedrooms: bookingData.bedrooms || null,
+                    bathrooms: bookingData.bathrooms || null,
+                    square_footage: bookingData.squareFootage || null,
+                    service_category: quoteCategory,
+                    notes: [
+                      bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
+                      bookingData.hasPets ? 'Has pets' : null,
+                      jobDate ? `Preferred date: ${jobDate}` : null,
+                      bookingData.preferredTime ? `Preferred time: ${bookingData.preferredTime}` : null,
+                    ].filter(Boolean).join(' | ') || null,
+                  })
+                  .select("id, token")
+                  .single()
+
+                if (quoteError || !newQuote) {
+                  console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
+                  // Fall back to a simple confirmation if quote creation fails
+                  const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
+                  await sendSMS(tenant as any, phone, fallbackMsg)
+                  return NextResponse.json({
+                    success: true,
+                    flow: "sms_booking_quote_fallback",
+                    existingLeadId: existingLead.id,
+                    jobId: newJob?.id,
+                  })
+                }
+
+                // Get tenant domain for quote URL
+                const { getTenantRedirectDomain } = await import("@/lib/stripe-client")
+                const domain = await getTenantRedirectDomain(tenant.id)
+                const quoteUrl = `${domain}/quote/${newQuote.token}`
+
+                // Send short SMS with quote link
+                const customerFirstName = bookingData.firstName || customer.first_name || ''
+                const quoteMsg = customerFirstName
+                  ? `Hey ${customerFirstName}! Your quote is ready. Pick your package, review the details, and book your cleaning here:\n${quoteUrl}`
+                  : `Your quote is ready! Pick your package, review the details, and book your cleaning here:\n${quoteUrl}`
+
+                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg)
+                if (quoteSms.success) {
+                  await client.from("messages").insert({
+                    tenant_id: tenant.id,
+                    customer_id: customer.id,
                     phone_number: phone,
-                    notes: jobNotes || null,
-                  },
-                  jobId: newJob?.id || null,
-                  leadId: existingLead.id,
-                  servicePrice,
-                  client,
-                })
+                    role: "assistant",
+                    content: quoteMsg,
+                    direction: "outbound",
+                    message_type: "sms",
+                    ai_generated: false,
+                    timestamp: new Date().toISOString(),
+                    source: "estimate_booked",
+                    metadata: { lead_id: existingLead.id, job_id: newJob?.id, quote_id: newQuote.id, quote_token: newQuote.token },
+                  })
+                }
+                console.log(`[OpenPhone] Quote SMS sent to ${maskPhone(phone)} — quote ${newQuote.id}, token ${newQuote.token}`)
 
                 // NOTE: Cleaner assignment is NOT triggered here — it happens AFTER the customer
-                // pays the deposit, via handleDepositPayment in stripe/route.ts. Triggering it
-                // here would cause a double assignment (one before payment, one after).
+                // pays the deposit via the quote page (Stripe Checkout → stripe webhook).
 
                 await logSystemEvent({
-                  tenant_id: tenant?.id,
+                  tenant_id: tenant.id,
                   source: "openphone",
                   event_type: "SMS_BOOKING_COMPLETED",
-                  message: `SMS booking completed for ${phone} — job ${newJob?.id}, deposit flow (invoice + deposit link)`,
+                  message: `SMS booking completed for ${phone} — job ${newJob?.id}, quote ${newQuote.id} sent`,
                   phone_number: phone,
                   metadata: {
                     lead_id: existingLead.id,
                     job_id: newJob?.id,
+                    quote_id: newQuote.id,
+                    quote_url: quoteUrl,
                     booking_data: bookingData,
-                    flow: "deposit_payment",
-                    invoice_url: depositFlowResult.invoiceUrl,
-                    deposit_url: depositFlowResult.depositUrl,
+                    flow: "quote_link",
                     email_sent_to: finalEmail,
                   },
                 })
 
                 return NextResponse.json({
                   success: true,
-                  flow: "sms_booking_deposit_flow",
+                  flow: "sms_booking_quote_sent",
                   existingLeadId: existingLead.id,
                   jobId: newJob?.id,
+                  quoteId: newQuote.id,
+                  quoteUrl,
                 })
               }
 
