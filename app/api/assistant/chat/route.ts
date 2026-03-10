@@ -2034,6 +2034,8 @@ async function executeTool(
           source: dbSource,
           status: dbStatus,
           form_data: formData,
+          followup_stage: 0,
+          followup_started_at: new Date().toISOString(),
         })
         .select("id, phone_number, first_name, last_name, source, status")
         .single()
@@ -2041,7 +2043,15 @@ async function executeTool(
       if (error) return `Failed to create lead: ${error.message}`
 
       const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown"
-      return `Lead created!\n- ID: ${lead.id}\n- Name: ${name}\n- Phone: ${lead.phone_number}\n- Source: ${toolInput.source || rawSource}\n- Status: ${toolInput.status || rawStatus}\n- Service: ${toolInput.service_interest || "Not specified"}\n- Quote: ${toolInput.quote_details || "Not specified"}\n- Property: ${toolInput.property_details || "Not specified"}`
+
+      // Schedule the 5-stage follow-up sequence (text → call → double call → text → call)
+      const { scheduleLeadFollowUp } = await import("@/lib/scheduler")
+      const followupResult = await scheduleLeadFollowUp(tenantId, lead.id.toString(), e164, name)
+      const followupMsg = followupResult.success
+        ? `\n- Follow-up: Auto-text sequence scheduled (${followupResult.taskIds.length} stages)`
+        : `\n- Follow-up: ⚠️ Failed to schedule auto-texts`
+
+      return `Lead created!\n- ID: ${lead.id}\n- Name: ${name}\n- Phone: ${lead.phone_number}\n- Source: ${toolInput.source || rawSource}\n- Status: ${toolInput.status || rawStatus}\n- Service: ${toolInput.service_interest || "Not specified"}\n- Quote: ${toolInput.quote_details || "Not specified"}\n- Property: ${toolInput.property_details || "Not specified"}${followupMsg}`
     } catch (err: any) {
       return `Error creating lead: ${err.message}`
     }
