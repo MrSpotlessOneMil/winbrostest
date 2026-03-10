@@ -2,7 +2,7 @@
  * Extend Recurring Jobs — Daily Cron
  *
  * Scans for recurring jobs (weekly, bi-weekly, monthly) and generates
- * new future instances to maintain a 12-week rolling horizon.
+ * new future instances to maintain a 52-week rolling horizon (effectively infinite).
  *
  * Schedule: Daily at 6 AM UTC (1 AM CT)
  */
@@ -12,7 +12,7 @@ import { verifyCronAuth, unauthorizedResponse } from "@/lib/cron-auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getAllActiveTenants } from "@/lib/tenant"
 
-const HORIZON_WEEKS = 12
+const HORIZON_WEEKS = 52 // 1 year ahead — runs daily so horizon never shrinks
 
 function calculateNextDate(dateStr: string, frequency: string): string {
   const d = new Date(dateStr + "T12:00:00")

@@ -649,7 +649,7 @@ export async function POST(request: NextRequest) {
 
 // ─── Recurring Job Generation ───────────────────────────────────────────────
 
-const RECURRING_HORIZON_WEEKS = 12 // Generate 3 months of future instances
+const RECURRING_HORIZON_WEEKS = 52 // Generate 1 year ahead — cron extends daily, so effectively infinite
 
 function calculateNextDate(dateStr: string, frequency: string): string {
   const d = new Date(dateStr + "T12:00:00")
