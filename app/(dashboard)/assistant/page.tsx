@@ -8,8 +8,8 @@ function AnimatedCheck({ className = "" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
       <polyline
-        points="20 6 9 17 4 12"
-        style={{ strokeDasharray: 28, strokeDashoffset: 0, animation: "checkDraw 0.35s ease-out forwards" }}
+        points="4 12 9 17 20 6"
+        style={{ strokeDasharray: 28, strokeDashoffset: 28, animation: "checkDraw 0.35s ease-out forwards" }}
       />
     </svg>
   )
@@ -542,7 +542,7 @@ export default function AssistantPage() {
               <button
                 data-no-splat
                 onClick={handleCopyChat}
-                className={`sticky top-4 z-10 ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all duration-200 ${
+                className={`sticky top-0 z-10 ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all duration-200 ${
                   copiedChat
                     ? "bg-green-500/20 text-green-400 border border-green-500/30"
                     : "bg-zinc-800/70 text-zinc-500 border border-zinc-700/40 hover:text-zinc-200 hover:bg-zinc-700/80 active:scale-95"
