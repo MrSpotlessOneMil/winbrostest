@@ -1,10 +1,8 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { useParams } from "next/navigation"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useParams, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -30,7 +28,7 @@ import {
   Home,
 } from "lucide-react"
 
-// ── Types matching the tenant-aware API response ─────────────────────
+// ── Types ────────────────────────────────────────────────────────────
 
 interface QuoteTier {
   key: string
@@ -121,111 +119,133 @@ interface APIResponse {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(amount)
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount)
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })
+  return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
 }
 
-// Dynamic tier visuals — works for 3 tiers (WinBros) or 4+ tiers (house cleaning)
-const TIER_ICON_MAP: Record<string, React.ReactNode> = {
-  good: <Shield className="size-6" />,
-  better: <Star className="size-6" />,
-  best: <Crown className="size-6" />,
-  standard: <Shield className="size-6" />,
-  deep: <Star className="size-6" />,
-  extra_deep: <Crown className="size-6" />,
-  move_good: <Shield className="size-6" />,
-  move_better: <Star className="size-6" />,
-  move_best: <Crown className="size-6" />,
+// ── Theme Definitions ────────────────────────────────────────────────
+
+type ThemeKey = "1" | "2" | "3"
+
+const THEMES: Record<ThemeKey, {
+  name: string
+  bg: string
+  cardBg: string
+  cardBorder: string
+  headerBg: string
+  accent: string
+  accentLight: string
+  accentBtn: string
+  accentBtnHover: string
+  textPrimary: string
+  textSecondary: string
+  textMuted: string
+  tierSelected: (idx: number) => string
+  tierUnselected: string
+  tierRing: (idx: number) => string
+  addonChecked: string
+  addonUnchecked: string
+  agreementBg: string
+  agreementBorder: string
+  agreementCheckedBg: string
+  summaryBg: string
+  summaryBorder: string
+  topBar: string
+}> = {
+  // Theme 1: Clean & Airy — white bg, soft blue accents
+  "1": {
+    name: "Clean & Airy",
+    bg: "bg-slate-50",
+    cardBg: "bg-white",
+    cardBorder: "border-slate-200",
+    headerBg: "bg-white",
+    accent: "text-blue-600",
+    accentLight: "text-blue-500",
+    accentBtn: "bg-blue-600 hover:bg-blue-700",
+    accentBtnHover: "hover:bg-blue-700",
+    textPrimary: "text-slate-900",
+    textSecondary: "text-slate-600",
+    textMuted: "text-slate-400",
+    tierSelected: (i) => ["bg-blue-50 border-blue-300 ring-2 ring-blue-200", "bg-violet-50 border-violet-300 ring-2 ring-violet-200", "bg-amber-50 border-amber-300 ring-2 ring-amber-200"][i] || "bg-blue-50 border-blue-300 ring-2 ring-blue-200",
+    tierUnselected: "bg-white border-slate-200 hover:border-slate-300 hover:shadow-md",
+    tierRing: (i) => ["text-blue-600", "text-violet-600", "text-amber-600"][i] || "text-blue-600",
+    addonChecked: "bg-blue-50 border-blue-200",
+    addonUnchecked: "bg-white border-slate-200 hover:border-slate-300",
+    agreementBg: "bg-white",
+    agreementBorder: "border-slate-200",
+    agreementCheckedBg: "bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200",
+    summaryBg: "bg-white",
+    summaryBorder: "border-slate-200",
+    topBar: "bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600",
+  },
+  // Theme 2: Warm & Friendly — cream tones, teal accents
+  "2": {
+    name: "Warm & Friendly",
+    bg: "bg-amber-50/40",
+    cardBg: "bg-white",
+    cardBorder: "border-orange-100",
+    headerBg: "bg-white",
+    accent: "text-teal-600",
+    accentLight: "text-teal-500",
+    accentBtn: "bg-teal-600 hover:bg-teal-700",
+    accentBtnHover: "hover:bg-teal-700",
+    textPrimary: "text-stone-900",
+    textSecondary: "text-stone-600",
+    textMuted: "text-stone-400",
+    tierSelected: (i) => ["bg-teal-50 border-teal-300 ring-2 ring-teal-200", "bg-orange-50 border-orange-300 ring-2 ring-orange-200", "bg-rose-50 border-rose-300 ring-2 ring-rose-200"][i] || "bg-teal-50 border-teal-300 ring-2 ring-teal-200",
+    tierUnselected: "bg-white border-orange-100 hover:border-orange-200 hover:shadow-md",
+    tierRing: (i) => ["text-teal-600", "text-orange-600", "text-rose-600"][i] || "text-teal-600",
+    addonChecked: "bg-teal-50 border-teal-200",
+    addonUnchecked: "bg-white border-orange-100 hover:border-orange-200",
+    agreementBg: "bg-white",
+    agreementBorder: "border-orange-100",
+    agreementCheckedBg: "bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200",
+    summaryBg: "bg-white",
+    summaryBorder: "border-orange-100",
+    topBar: "bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-600",
+  },
+  // Theme 3: Bold & Modern — light gray, vivid gradient cards
+  "3": {
+    name: "Bold & Modern",
+    bg: "bg-gray-50",
+    cardBg: "bg-white",
+    cardBorder: "border-gray-200",
+    headerBg: "bg-white",
+    accent: "text-purple-600",
+    accentLight: "text-purple-500",
+    accentBtn: "bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700",
+    accentBtnHover: "",
+    textPrimary: "text-gray-900",
+    textSecondary: "text-gray-600",
+    textMuted: "text-gray-400",
+    tierSelected: (i) => ["bg-purple-50 border-purple-300 ring-2 ring-purple-200 shadow-lg shadow-purple-100", "bg-pink-50 border-pink-300 ring-2 ring-pink-200 shadow-lg shadow-pink-100", "bg-amber-50 border-amber-300 ring-2 ring-amber-200 shadow-lg shadow-amber-100"][i] || "bg-purple-50 border-purple-300 ring-2 ring-purple-200",
+    tierUnselected: "bg-white border-gray-200 hover:border-gray-300 hover:shadow-lg",
+    tierRing: (i) => ["text-purple-600", "text-pink-600", "text-amber-600"][i] || "text-purple-600",
+    addonChecked: "bg-purple-50 border-purple-200",
+    addonUnchecked: "bg-white border-gray-200 hover:border-gray-300",
+    agreementBg: "bg-white",
+    agreementBorder: "border-gray-200",
+    agreementCheckedBg: "bg-emerald-50 border-emerald-300 ring-2 ring-emerald-200",
+    summaryBg: "bg-white",
+    summaryBorder: "border-gray-200",
+    topBar: "bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500",
+  },
 }
 
-const TIER_COLOR_MAP: Record<string, { ring: string; bg: string; glow: string; text: string; indicator: string }> = {
-  good: {
-    ring: "ring-blue-500/60",
-    bg: "bg-blue-500/10",
-    glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
-    text: "text-blue-400",
-    indicator: "bg-blue-500",
-  },
-  better: {
-    ring: "ring-violet-500/60",
-    bg: "bg-violet-500/10",
-    glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
-    text: "text-violet-400",
-    indicator: "bg-violet-500",
-  },
-  best: {
-    ring: "ring-amber-500/60",
-    bg: "bg-amber-500/10",
-    glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
-    text: "text-amber-400",
-    indicator: "bg-amber-500",
-  },
-  standard: {
-    ring: "ring-blue-500/60",
-    bg: "bg-blue-500/10",
-    glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
-    text: "text-blue-400",
-    indicator: "bg-blue-500",
-  },
-  deep: {
-    ring: "ring-violet-500/60",
-    bg: "bg-violet-500/10",
-    glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
-    text: "text-violet-400",
-    indicator: "bg-violet-500",
-  },
-  extra_deep: {
-    ring: "ring-amber-500/60",
-    bg: "bg-amber-500/10",
-    glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
-    text: "text-amber-400",
-    indicator: "bg-amber-500",
-  },
-  move_good: {
-    ring: "ring-blue-500/60",
-    bg: "bg-blue-500/10",
-    glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
-    text: "text-blue-400",
-    indicator: "bg-blue-500",
-  },
-  move_better: {
-    ring: "ring-violet-500/60",
-    bg: "bg-violet-500/10",
-    glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
-    text: "text-violet-400",
-    indicator: "bg-violet-500",
-  },
-  move_best: {
-    ring: "ring-amber-500/60",
-    bg: "bg-amber-500/10",
-    glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
-    text: "text-amber-400",
-    indicator: "bg-amber-500",
-  },
-}
-
-const DEFAULT_COLORS = {
-  ring: "ring-violet-500/60",
-  bg: "bg-violet-500/10",
-  glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
-  text: "text-violet-400",
-  indicator: "bg-violet-500",
-}
+const TIER_ICONS = [
+  <Shield key="s" className="size-6" />,
+  <Star key="st" className="size-6" />,
+  <Crown key="c" className="size-6" />,
+]
 
 // ── Component ────────────────────────────────────────────────────────
 
 export default function QuotePage() {
   const params = useParams()
+  const searchParams = useSearchParams()
   const token = params.token as string
 
   const [data, setData] = useState<APIResponse | null>(null)
@@ -240,6 +260,9 @@ export default function QuotePage() {
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
+  const [themeKey, setThemeKey] = useState<ThemeKey>((searchParams.get("v") as ThemeKey) || "1")
+
+  const t = THEMES[themeKey]
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -251,12 +274,10 @@ export default function QuotePage() {
         if (!res.ok) throw new Error(json.error || "Quote not found")
         setData(json)
 
-        // Default to middle tier
         const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
         const middleIndex = Math.min(1, tierKeys.length - 1)
         setSelectedTierKey(tierKeys[middleIndex] || tierKeys[0])
 
-        // Pre-fill customer info
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
 
@@ -264,7 +285,6 @@ export default function QuotePage() {
           setSelectedTierKey(json.quote.selected_tier)
         }
 
-        // Initialize addon quantities for per-unit addons
         const quantities: Record<string, number> = {}
         json.addons.forEach((addon: QuoteAddon) => {
           if (addon.priceType === "per_unit") quantities[addon.key] = 1
@@ -295,35 +315,19 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
-  const isAddonIncluded = useCallback(
-    (addon: QuoteAddon): boolean => {
-      return !!selectedTier && selectedTier.included.includes(addon.key)
-    },
-    [selectedTier]
-  )
-
   const getAddonPrice = useCallback(
     (addon: QuoteAddon): number => {
       if (!selectedTierPrice) return 0
-      // For WinBros flat-price addons that are part of tier breakdowns
       if (addon.key === "interior" && selectedTierPrice) {
-        const interiorItem = selectedTierPrice.breakdown.find(
-          (b) => b.service === "Interior Window Cleaning"
-        )
+        const interiorItem = selectedTierPrice.breakdown.find((b) => b.service === "Interior Window Cleaning")
         if (interiorItem) return interiorItem.price
-        const betterPrice = tierPrices.better?.breakdown.find(
-          (b) => b.service === "Interior Window Cleaning"
-        )
+        const betterPrice = tierPrices.better?.breakdown.find((b) => b.service === "Interior Window Cleaning")
         return betterPrice?.price ?? 0
       }
       if (addon.key === "track_detailing" && selectedTierPrice) {
-        const trackItem = selectedTierPrice.breakdown.find(
-          (b) => b.service === "Track Detailing"
-        )
+        const trackItem = selectedTierPrice.breakdown.find((b) => b.service === "Track Detailing")
         if (trackItem) return trackItem.price
-        const bestPrice = tierPrices.best?.breakdown.find(
-          (b) => b.service === "Track Detailing"
-        )
+        const bestPrice = tierPrices.best?.breakdown.find((b) => b.service === "Track Detailing")
         return bestPrice?.price ?? 0
       }
       if (addon.priceType === "per_unit") {
@@ -337,7 +341,6 @@ export default function QuotePage() {
   const subtotal = selectedTierPrice
     ? selectedTierPrice.price +
       addons.reduce((sum, addon) => {
-        if (isAddonIncluded(addon)) return sum
         if (selectedAddons[addon.key]) return sum + getAddonPrice(addon)
         return sum
       }, 0)
@@ -349,14 +352,7 @@ export default function QuotePage() {
   const discountAmount = existingDiscount + membershipDiscount
   const total = Math.max(0, subtotal - discountAmount)
 
-  // Deposit calculation (mirrors server-side)
-  const depositPct = serviceAgreement?.deposit_percentage ? serviceAgreement.deposit_percentage / 100 : 0.5
-  const processingFeePct = serviceAgreement?.processing_fee_percentage ? serviceAgreement.processing_fee_percentage / 100 : 0.03
-  const depositBase = total * depositPct
-  const depositWithFee = depositBase * (1 + processingFeePct)
-  const depositAmount = Math.round(depositWithFee * 100) / 100
-
-  // ── Approve handler — redirects to Stripe Checkout ─────────────
+  // ── Approve handler ──────────────────────────────────────────────
 
   async function handleApprove() {
     if (!selectedTierKey || !quote) return
@@ -382,7 +378,6 @@ export default function QuotePage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Failed to process quote")
 
-      // Redirect to Stripe Checkout
       if (json.checkout_url) {
         window.location.href = json.checkout_url
       } else {
@@ -394,33 +389,29 @@ export default function QuotePage() {
     }
   }
 
-  // ── Loading state ────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <div className={`min-h-screen ${t.bg} flex items-center justify-center`}>
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="size-8 animate-spin text-violet-400" />
-          <p className="text-zinc-400 text-sm">Loading your quote...</p>
+          <Loader2 className={`size-8 animate-spin ${t.accent}`} />
+          <p className={`${t.textSecondary} text-sm`}>Loading your quote...</p>
         </div>
       </div>
     )
   }
 
-  // ── Error state ──────────────────────────────────────────────────
-
   if (error && !quote) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-        <Card className="max-w-md w-full">
-          <CardContent className="flex flex-col items-center gap-4 py-12">
-            <AlertTriangle className="size-12 text-red-400" />
-            <h2 className="text-lg font-semibold text-white">Quote Not Found</h2>
-            <p className="text-zinc-400 text-sm text-center">
-              {error || "This quote may have been removed or the link is invalid."}
-            </p>
-          </CardContent>
-        </Card>
+      <div className={`min-h-screen ${t.bg} flex items-center justify-center px-4`}>
+        <div className={`${t.cardBg} border ${t.cardBorder} rounded-2xl shadow-lg max-w-md w-full p-8`}>
+          <div className="flex flex-col items-center gap-4">
+            <AlertTriangle className="size-12 text-red-500" />
+            <h2 className={`text-lg font-semibold ${t.textPrimary}`}>Quote Not Found</h2>
+            <p className={`${t.textSecondary} text-sm text-center`}>{error}</p>
+          </div>
+        </div>
       </div>
     )
   }
@@ -430,150 +421,150 @@ export default function QuotePage() {
   const isExpired = quote.status === "expired"
   const isApproved = quote.status === "approved"
   const quoteNumber = token.slice(0, 8).toUpperCase()
-
-  // Grid columns: 3 for WinBros (good/better/best), 2x2 for house cleaning (4 tiers)
   const tierGridCols = tiers.length <= 3 ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"
 
-  // ── Approved state — redirect to success page ──────────────────
+  const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
+
+  // ── Approved state ───────────────────────────────────────────────
 
   if (isApproved) {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
-        <Card className="max-w-lg w-full">
-          <CardContent className="flex flex-col items-center gap-6 py-12">
-            <div className="size-20 rounded-full bg-emerald-500/10 flex items-center justify-center ring-2 ring-emerald-500/30">
-              <CheckCircle className="size-10 text-emerald-400" />
+      <div className={`min-h-screen ${t.bg} flex items-center justify-center px-4`}>
+        <div className={`${t.cardBg} border ${t.cardBorder} rounded-2xl shadow-lg max-w-lg w-full p-8`}>
+          <div className="flex flex-col items-center gap-6">
+            <div className="size-20 rounded-full bg-emerald-100 flex items-center justify-center">
+              <CheckCircle className="size-10 text-emerald-600" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold text-white">Quote Approved</h2>
-              <p className="text-zinc-400">
-                This quote has been approved
-                {quote.deposit_amount ? ` and a deposit of ${formatCurrency(Number(quote.deposit_amount))} has been paid` : ""}.
-                We&apos;ll be in touch to schedule your service.
+              <h2 className={`text-2xl font-bold ${t.textPrimary}`}>You&apos;re All Set!</h2>
+              <p className={t.textSecondary}>
+                Your card is on file and your cleaning is booked. We&apos;ll be in touch with scheduling details!
               </p>
             </div>
             {tenant?.phone && (
-              <a
-                href={`tel:${tenant.phone}`}
-                className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm"
-              >
+              <a href={`tel:${tenant.phone}`} className={`flex items-center gap-2 ${t.textSecondary} hover:${t.textPrimary} text-sm`}>
                 <Phone className="size-4" />
                 {tenant.phone}
               </a>
             )}
-            <p className="text-zinc-600 text-xs mt-4">
-              Powered by {businessName}
-            </p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       </div>
     )
   }
 
-  // ── Determine whether approve button should be enabled ──────────
-
-  const canApprove =
-    selectedTierKey &&
-    !approving &&
-    agreementAccepted &&
-    !isExpired
-
-  // ── Main quote page ──────────────────────────────────────────────
+  // ── Main page ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-zinc-950">
-      {/* Top gradient accent */}
-      <div className="h-1 bg-gradient-to-r from-violet-600 via-purple-500 to-indigo-600" />
+    <div className={`min-h-screen ${t.bg}`}>
+      {/* Top accent bar */}
+      <div className={`h-1.5 ${t.topBar}`} />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8">
-        {/* ── Header ──────────────────────────────────────────────── */}
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <div className="size-10 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center">
-                <Sparkles className="size-5 text-white" />
+
+        {/* ── Theme Switcher (for review — remove later) ───────── */}
+        <div className="flex items-center gap-2 justify-center">
+          <span className={`text-xs ${t.textMuted}`}>Theme:</span>
+          {(["1", "2", "3"] as ThemeKey[]).map((k) => (
+            <button
+              key={k}
+              onClick={() => setThemeKey(k)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all ${
+                themeKey === k
+                  ? `${t.accentBtn} text-white shadow-md`
+                  : `${t.cardBg} border ${t.cardBorder} ${t.textSecondary} hover:shadow-md`
+              }`}
+            >
+              {THEMES[k].name}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Header ───────────────────────────────────────────── */}
+        <div className={`${t.cardBg} border ${t.cardBorder} rounded-2xl shadow-sm p-6 sm:p-8`}>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-6">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div className={`size-11 rounded-xl ${t.topBar} flex items-center justify-center shadow-md`}>
+                  <Sparkles className="size-5 text-white" />
+                </div>
+                <div>
+                  <h1 className={`text-xl sm:text-2xl font-bold ${t.textPrimary}`}>{businessName}</h1>
+                  <p className={`text-sm ${t.textSecondary}`}>Your Custom Quote</p>
+                </div>
               </div>
-              <h1 className="text-xl sm:text-2xl font-bold text-white">
-                {businessName}
-              </h1>
+
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                <div className={`flex items-center gap-1.5 ${t.textMuted} text-sm`}>
+                  <FileText className="size-4" />
+                  <span>Quote #{quoteNumber}</span>
+                </div>
+                <StatusBadge status={quote.status} />
+              </div>
+
+              <div className={`flex items-center gap-1.5 ${t.textMuted} text-xs`}>
+                <Clock className="size-3.5" />
+                <span>Valid until {formatDate(quote.valid_until)}</span>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5 text-zinc-400 text-sm">
-                <FileText className="size-4" />
-                <span>Quote #{quoteNumber}</span>
-              </div>
-              <StatusBadge status={quote.status} />
+            {/* Customer info card */}
+            <div className="bg-slate-50 rounded-xl px-5 py-4 space-y-2 sm:text-right border border-slate-100">
+              {quote.customer_name && (
+                <div className={`flex items-center gap-2 sm:justify-end ${t.textPrimary} font-medium`}>
+                  <User className="size-4 text-slate-400" />
+                  {quote.customer_name}
+                </div>
+              )}
+              {quote.customer_address && (
+                <div className={`flex items-center gap-2 sm:justify-end ${t.textSecondary} text-sm`}>
+                  <MapPin className="size-4" />
+                  {quote.customer_address}
+                </div>
+              )}
+              {quote.customer_phone && (
+                <div className={`flex items-center gap-2 sm:justify-end ${t.textSecondary} text-sm`}>
+                  <Phone className="size-4" />
+                  {quote.customer_phone}
+                </div>
+              )}
+              {serviceType === "house_cleaning" && (quote.bedrooms || quote.bathrooms) && (
+                <div className={`flex items-center gap-2 sm:justify-end ${t.textSecondary} text-sm`}>
+                  <Home className="size-4" />
+                  {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
+                </div>
+              )}
             </div>
-
-            <div className="flex items-center gap-1.5 text-zinc-500 text-xs">
-              <Clock className="size-3.5" />
-              <span>Valid until {formatDate(quote.valid_until)}</span>
-            </div>
-          </div>
-
-          {/* Customer info */}
-          <div className="bg-zinc-900/60 backdrop-blur rounded-lg px-5 py-4 space-y-2 sm:text-right">
-            {quote.customer_name && (
-              <div className="flex items-center gap-2 sm:justify-end text-white font-medium">
-                <User className="size-4 text-zinc-400" />
-                {quote.customer_name}
-              </div>
-            )}
-            {quote.customer_address && (
-              <div className="flex items-center gap-2 sm:justify-end text-zinc-400 text-sm">
-                <MapPin className="size-4" />
-                {quote.customer_address}
-              </div>
-            )}
-            {quote.customer_phone && (
-              <div className="flex items-center gap-2 sm:justify-end text-zinc-400 text-sm">
-                <Phone className="size-4" />
-                {quote.customer_phone}
-              </div>
-            )}
-            {/* Bed/bath info for house cleaning */}
-            {serviceType === "house_cleaning" && (quote.bedrooms || quote.bathrooms) && (
-              <div className="flex items-center gap-2 sm:justify-end text-zinc-400 text-sm">
-                <Home className="size-4" />
-                {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
-              </div>
-            )}
           </div>
         </div>
 
-        {/* ── Expired Banner ──────────────────────────────────────── */}
+        {/* ── Expired Banner ──────────────────────────────────── */}
         {isExpired && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
-            <AlertTriangle className="size-5 text-red-400 shrink-0" />
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+            <AlertTriangle className="size-5 text-red-500 shrink-0" />
             <div>
-              <p className="text-red-400 font-medium text-sm">This quote has expired</p>
-              <p className="text-red-400/70 text-xs">
-                Please contact us for an updated quote.
-              </p>
+              <p className="text-red-700 font-medium text-sm">This quote has expired</p>
+              <p className="text-red-500 text-xs">Please contact us for an updated quote.</p>
             </div>
           </div>
         )}
 
-        {/* ── Error Banner ────────────────────────────────────────── */}
+        {/* ── Error Banner ────────────────────────────────────── */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
-            <AlertTriangle className="size-5 text-red-400 shrink-0" />
-            <p className="text-red-400 text-sm">{error}</p>
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
+            <AlertTriangle className="size-5 text-red-500 shrink-0" />
+            <p className="text-red-600 text-sm">{error}</p>
           </div>
         )}
 
-        {/* ── Tier Selection ──────────────────────────────────────── */}
+        {/* ── Tier Selection ──────────────────────────────────── */}
         <div>
-          <h2 className="text-lg font-semibold text-white mb-1">Choose Your Package</h2>
-          <p className="text-zinc-400 text-sm mb-6">
-            Select the service level that fits your needs.
-          </p>
+          <h2 className={`text-xl font-bold ${t.textPrimary} mb-1`}>Choose Your Package</h2>
+          <p className={`${t.textSecondary} text-sm mb-6`}>Select the service level that fits your needs.</p>
 
           <div className={`grid grid-cols-1 ${tierGridCols} gap-4`}>
-            {tiers.map((tier) => {
+            {tiers.map((tier, tierIdx) => {
               const isSelected = selectedTierKey === tier.key
-              const colors = TIER_COLOR_MAP[tier.key] ?? DEFAULT_COLORS
               const price = tierPrices[tier.key]?.price ?? 0
               const breakdown = tierPrices[tier.key]?.breakdown ?? []
               const isBestValue = !!tier.badge
@@ -585,89 +576,55 @@ export default function QuotePage() {
                   disabled={isExpired}
                   onClick={() => setSelectedTierKey(tier.key)}
                   className={`
-                    relative text-left rounded-xl border transition-all duration-200
-                    ${
-                      isSelected
-                        ? `ring-2 ${colors.ring} border-white/10 ${colors.glow} ${colors.bg}`
-                        : "border-white/[0.06] bg-zinc-900/40 hover:border-white/[0.12] hover:bg-zinc-900/60"
-                    }
+                    relative text-left rounded-2xl border-2 transition-all duration-200 p-6 flex flex-col
+                    ${isSelected ? t.tierSelected(tierIdx) : t.tierUnselected}
                     ${isExpired ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-                    p-6 flex flex-col
                   `}
                 >
-                  {/* Badge */}
                   {isBestValue && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                      <Badge className="bg-violet-600 text-white border-violet-500 text-xs px-3 py-0.5">
+                      <span className="bg-gradient-to-r from-violet-600 to-pink-600 text-white text-xs font-bold px-4 py-1 rounded-full shadow-md">
                         {tier.badge}
-                      </Badge>
+                      </span>
                     </div>
                   )}
 
-                  {/* Tier icon + name */}
                   <div className="flex items-center gap-3 mb-3">
-                    <div
-                      className={`
-                        size-10 rounded-lg flex items-center justify-center
-                        ${isSelected ? colors.bg : "bg-zinc-800/60"}
-                        ${isSelected ? colors.text : "text-zinc-400"}
-                      `}
-                    >
-                      {TIER_ICON_MAP[tier.key] ?? <Shield className="size-6" />}
+                    <div className={`size-11 rounded-xl flex items-center justify-center ${
+                      isSelected ? `${t.tierSelected(tierIdx).split(' ')[0]}` : "bg-slate-100"
+                    } ${isSelected ? t.tierRing(tierIdx) : "text-slate-400"}`}>
+                      {TIER_ICONS[tierIdx] ?? <Shield className="size-6" />}
                     </div>
                     <div>
-                      <h3 className="text-white font-semibold text-lg">{tier.name}</h3>
-                      <p className="text-zinc-400 text-xs">{tier.tagline}</p>
+                      <h3 className={`${t.textPrimary} font-bold text-lg`}>{tier.name}</h3>
+                      <p className={`${t.textMuted} text-xs`}>{tier.tagline}</p>
                     </div>
                   </div>
 
-                  {/* Description for house cleaning tiers */}
                   {serviceType === "house_cleaning" && tier.description && (
-                    <p className="text-zinc-500 text-xs leading-relaxed mb-4">
-                      {tier.description}
-                    </p>
+                    <p className={`${t.textMuted} text-xs leading-relaxed mb-4`}>{tier.description}</p>
                   )}
 
-                  {/* Services list */}
                   <div className="flex-1 space-y-2 mb-5">
                     {breakdown.map((item) => (
                       <div key={item.service} className="flex items-start gap-2">
-                        <Check
-                          className={`size-4 shrink-0 mt-0.5 ${
-                            isSelected ? colors.text : "text-zinc-500"
-                          }`}
-                        />
-                        <span className="text-sm text-zinc-300">
+                        <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? t.tierRing(tierIdx) : t.textMuted}`} />
+                        <span className={`text-sm ${t.textSecondary}`}>
                           {item.service}
-                          {item.price > 0 && (
-                            <span className="text-zinc-500 text-xs ml-1">
-                              +{formatCurrency(item.price)}
-                            </span>
-                          )}
-                          {item.price === 0 && (
-                            <span className="text-emerald-400 text-xs ml-1">Included</span>
-                          )}
+                          {item.price > 0 && <span className={`${t.textMuted} text-xs ml-1`}>+{formatCurrency(item.price)}</span>}
+                          {item.price === 0 && <span className="text-emerald-500 text-xs ml-1">Included</span>}
                         </span>
                       </div>
                     ))}
                   </div>
 
-                  {/* Price */}
-                  <div className="border-t border-white/[0.06] pt-4 mt-auto">
-                    <div className="text-2xl font-bold text-white">
-                      {formatCurrency(price)}
-                    </div>
-                    {tierPrices[tier.key]?.tier && (
-                      <p className="text-zinc-500 text-xs mt-1">
-                        {tierPrices[tier.key].tier}
-                      </p>
-                    )}
+                  <div className="border-t border-slate-100 pt-4 mt-auto">
+                    <div className={`text-2xl font-bold ${t.textPrimary}`}>{formatCurrency(price)}</div>
                   </div>
 
-                  {/* Select indicator */}
                   {isSelected && (
                     <div className="absolute top-4 right-4">
-                      <div className={`size-6 rounded-full flex items-center justify-center ${colors.indicator}`}>
+                      <div className={`size-7 rounded-full flex items-center justify-center bg-emerald-500 shadow-md`}>
                         <Check className="size-4 text-white" />
                       </div>
                     </div>
@@ -678,194 +635,136 @@ export default function QuotePage() {
           </div>
         </div>
 
-        {/* ── Add-ons Section ─────────────────────────────────────── */}
+        {/* ── Add-ons Section ─────────────────────────────────── */}
         {addons.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-1">Add-ons</h2>
-            <p className="text-zinc-400 text-sm mb-6">
-              Customize your service with optional extras.
-            </p>
+            <h2 className={`text-xl font-bold ${t.textPrimary} mb-1`}>Customize with Add-ons</h2>
+            <p className={`${t.textSecondary} text-sm mb-6`}>Mix and match extras to build your perfect clean.</p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {addons.map((addon) => {
-                const included = isAddonIncluded(addon)
-                const checked = included || !!selectedAddons[addon.key]
+                const checked = !!selectedAddons[addon.key]
                 const addonPrice = getAddonPrice(addon)
 
                 return (
-                  <div
+                  <button
                     key={addon.key}
+                    type="button"
+                    disabled={isExpired}
+                    onClick={() => {
+                      if (isExpired) return
+                      setSelectedAddons((prev) => ({ ...prev, [addon.key]: !prev[addon.key] }))
+                    }}
                     className={`
-                      rounded-lg border p-4 transition-all duration-150
-                      ${
-                        checked
-                          ? "border-violet-500/30 bg-violet-500/5"
-                          : "border-white/[0.06] bg-zinc-900/30 hover:border-white/[0.1]"
-                      }
-                      ${isExpired ? "opacity-50" : ""}
+                      rounded-xl border-2 p-4 transition-all duration-150 text-left
+                      ${checked ? t.addonChecked : t.addonUnchecked}
+                      ${isExpired ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
                     `}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="pt-0.5">
-                        <Checkbox
-                          checked={checked}
-                          disabled={included || isExpired}
-                          onCheckedChange={(val) => {
-                            if (included) return
-                            setSelectedAddons((prev) => ({
-                              ...prev,
-                              [addon.key]: !!val,
-                            }))
-                          }}
-                        />
+                      <div className={`size-6 rounded-md border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                        checked
+                          ? "bg-emerald-500 border-emerald-500"
+                          : "border-slate-300 bg-white"
+                      }`}>
+                        {checked && <Check className="size-4 text-white" />}
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <Label className="text-sm font-medium text-white">
-                              {addon.name}
-                            </Label>
+                            <span className={`text-sm font-semibold ${t.textPrimary}`}>{addon.name}</span>
                             {addon.description && (
-                              <p className="text-xs text-zinc-500 mt-0.5">{addon.description}</p>
+                              <p className={`text-xs ${t.textMuted} mt-0.5`}>{addon.description}</p>
                             )}
                           </div>
-                          {included ? (
-                            <Badge variant="secondary" className="text-xs shrink-0">
-                              Included
-                            </Badge>
-                          ) : addonPrice === 0 ? (
-                            <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs shrink-0">
-                              FREE
-                            </Badge>
-                          ) : (
-                            <span className="text-sm font-medium text-zinc-300 shrink-0">
-                              {addon.priceType === "per_unit"
-                                ? `${formatCurrency(addon.price)}/${addon.unit || "unit"}`
-                                : formatCurrency(addonPrice)}
-                            </span>
-                          )}
+                          <span className={`text-sm font-bold ${checked ? "text-emerald-600" : t.textSecondary} shrink-0`}>
+                            {addon.priceType === "per_unit"
+                              ? `${formatCurrency(addon.price)}/${addon.unit || "unit"}`
+                              : addonPrice === 0
+                              ? "FREE"
+                              : formatCurrency(addonPrice)}
+                          </span>
                         </div>
 
-                        {/* Per-unit quantity controls */}
-                        {addon.priceType === "per_unit" &&
-                          !included &&
-                          selectedAddons[addon.key] && (
-                            <div className="flex items-center gap-2 mt-3">
-                              <span className="text-xs text-zinc-400">Qty:</span>
-                              <div className="flex items-center gap-1">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 w-7 p-0"
-                                  disabled={
-                                    isExpired ||
-                                    (addonQuantities[addon.key] || 1) <= 1
-                                  }
-                                  onClick={() =>
-                                    setAddonQuantities((prev) => ({
-                                      ...prev,
-                                      [addon.key]: Math.max(
-                                        1,
-                                        (prev[addon.key] || 1) - 1
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  <Minus className="size-3" />
-                                </Button>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  value={addonQuantities[addon.key] || 1}
-                                  onChange={(e) =>
-                                    setAddonQuantities((prev) => ({
-                                      ...prev,
-                                      [addon.key]: Math.max(
-                                        1,
-                                        parseInt(e.target.value) || 1
-                                      ),
-                                    }))
-                                  }
-                                  className="w-14 h-7 text-center text-sm bg-zinc-900/60 border-white/[0.08]"
-                                  disabled={isExpired}
-                                />
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 w-7 p-0"
-                                  disabled={isExpired}
-                                  onClick={() =>
-                                    setAddonQuantities((prev) => ({
-                                      ...prev,
-                                      [addon.key]: (prev[addon.key] || 1) + 1,
-                                    }))
-                                  }
-                                >
-                                  <Plus className="size-3" />
-                                </Button>
-                              </div>
-                              <span className="text-xs text-zinc-500">
-                                ={" "}
-                                {formatCurrency(
-                                  addon.price * (addonQuantities[addon.key] || 1)
-                                )}
-                              </span>
+                        {addon.priceType === "per_unit" && checked && (
+                          <div className="flex items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                            <span className={`text-xs ${t.textMuted}`}>Qty:</span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className={`h-7 w-7 rounded-md border ${t.cardBorder} ${t.cardBg} flex items-center justify-center`}
+                                disabled={isExpired || (addonQuantities[addon.key] || 1) <= 1}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setAddonQuantities((prev) => ({ ...prev, [addon.key]: Math.max(1, (prev[addon.key] || 1) - 1) }))
+                                }}
+                              >
+                                <Minus className="size-3" />
+                              </button>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={addonQuantities[addon.key] || 1}
+                                onChange={(e) => {
+                                  setAddonQuantities((prev) => ({ ...prev, [addon.key]: Math.max(1, parseInt(e.target.value) || 1) }))
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-14 h-7 text-center text-sm"
+                                disabled={isExpired}
+                              />
+                              <button
+                                type="button"
+                                className={`h-7 w-7 rounded-md border ${t.cardBorder} ${t.cardBg} flex items-center justify-center`}
+                                disabled={isExpired}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setAddonQuantities((prev) => ({ ...prev, [addon.key]: (prev[addon.key] || 1) + 1 }))
+                                }}
+                              >
+                                <Plus className="size-3" />
+                              </button>
                             </div>
-                          )}
+                            <span className={`text-xs ${t.textMuted}`}>= {formatCurrency(addon.price * (addonQuantities[addon.key] || 1))}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>
           </div>
         )}
 
-        {/* ── Membership Plans ───────────────────────────────────── */}
+        {/* ── Membership Plans ────────────────────────────────── */}
         {!isExpired && servicePlans.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-1">
-              Save with a Membership
-            </h2>
-            <p className="text-zinc-400 text-sm mb-6">
-              Commit to regular service and save on every visit.
-            </p>
+            <h2 className={`text-xl font-bold ${t.textPrimary} mb-1`}>Save with a Membership</h2>
+            <p className={`${t.textSecondary} text-sm mb-6`}>Commit to regular service and save on every visit.</p>
 
-            <div className={`grid grid-cols-1 sm:grid-cols-2 ${servicePlans.length >= 3 ? 'lg:grid-cols-4' : ''} gap-3`}>
-              {/* No Membership option */}
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${servicePlans.length >= 3 ? "lg:grid-cols-4" : ""} gap-3`}>
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedMembership(null)
-                }}
-                className={`
-                  relative text-left rounded-xl border p-5 transition-all duration-200
-                  ${
-                    selectedMembership === null
-                      ? "ring-2 ring-zinc-500/60 border-white/10 bg-zinc-800/40"
-                      : "border-white/[0.06] bg-zinc-900/40 hover:border-white/[0.12] hover:bg-zinc-900/60"
-                  }
-                  cursor-pointer
-                `}
+                onClick={() => setSelectedMembership(null)}
+                className={`relative text-left rounded-2xl border-2 p-5 transition-all duration-200 cursor-pointer ${
+                  selectedMembership === null
+                    ? "ring-2 ring-slate-300 border-slate-300 bg-slate-50"
+                    : `${t.tierUnselected}`
+                }`}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <h3 className="text-white font-semibold">No Membership</h3>
-                </div>
-                <p className="text-zinc-400 text-xs mb-3">One-time service at regular price</p>
-                <p className="text-zinc-500 text-sm">No commitment</p>
+                <h3 className={`${t.textPrimary} font-semibold mb-1`}>No Membership</h3>
+                <p className={`${t.textMuted} text-xs mb-3`}>One-time service at regular price</p>
+                <p className={`${t.textSecondary} text-sm`}>No commitment</p>
                 {selectedMembership === null && (
                   <div className="absolute top-3 right-3">
-                    <div className="size-5 rounded-full bg-zinc-500 flex items-center justify-center">
+                    <div className="size-6 rounded-full bg-slate-400 flex items-center justify-center">
                       <Check className="size-3 text-white" />
                     </div>
                   </div>
                 )}
               </button>
 
-              {/* Membership plan cards from API */}
               {servicePlans.map((plan) => {
                 const isSelected = selectedMembership === plan.slug
                 const freeAddons = plan.free_addons || []
@@ -873,52 +772,34 @@ export default function QuotePage() {
                   <button
                     key={plan.slug}
                     type="button"
-                    onClick={() => {
-                      setSelectedMembership(plan.slug)
-                    }}
-                    className={`
-                      relative text-left rounded-xl border p-5 transition-all duration-200
-                      ${
-                        isSelected
-                          ? "ring-2 ring-emerald-500/60 border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_30px_rgba(16,185,129,0.1)]"
-                          : "border-white/[0.06] bg-zinc-900/40 hover:border-white/[0.12] hover:bg-zinc-900/60"
-                      }
-                      cursor-pointer
-                    `}
-                    style={
+                    onClick={() => setSelectedMembership(plan.slug)}
+                    className={`relative text-left rounded-2xl border-2 p-5 transition-all duration-200 cursor-pointer ${
                       isSelected
-                        ? {}
-                        : {
-                            backgroundImage:
-                              "linear-gradient(135deg, rgba(16,185,129,0.03) 0%, transparent 50%)",
-                          }
-                    }
+                        ? "ring-2 ring-emerald-300 border-emerald-300 bg-emerald-50"
+                        : t.tierUnselected
+                    }`}
                   >
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-white font-semibold text-sm">{plan.name}</h3>
-                    </div>
-                    <p className="text-zinc-400 text-xs mb-3">
-                      {plan.visits_per_year} visits/year &middot; Every {plan.interval_months} month{plan.interval_months !== 1 ? 's' : ''}
+                    <h3 className={`${t.textPrimary} font-semibold text-sm mb-1`}>{plan.name}</h3>
+                    <p className={`${t.textMuted} text-xs mb-3`}>
+                      {plan.visits_per_year} visits/year &middot; Every {plan.interval_months} month{plan.interval_months !== 1 ? "s" : ""}
                     </p>
                     <div className="mb-3">
-                      <span className="text-emerald-400 font-semibold text-sm">
-                        Save {formatCurrency(Number(plan.discount_per_visit))}/visit
-                      </span>
+                      <span className="text-emerald-600 font-bold text-sm">Save {formatCurrency(Number(plan.discount_per_visit))}/visit</span>
                     </div>
                     {freeAddons.length > 0 && (
                       <div className="space-y-1">
-                        <p className="text-zinc-500 text-xs font-medium">Free perks:</p>
+                        <p className={`${t.textMuted} text-xs font-medium`}>Free perks:</p>
                         {freeAddons.map((perk) => (
                           <div key={perk} className="flex items-center gap-1.5">
-                            <Check className="size-3 text-emerald-400 shrink-0" />
-                            <span className="text-zinc-400 text-xs">{perk}</span>
+                            <Check className="size-3 text-emerald-500 shrink-0" />
+                            <span className={`${t.textSecondary} text-xs`}>{perk}</span>
                           </div>
                         ))}
                       </div>
                     )}
                     {isSelected && (
                       <div className="absolute top-3 right-3">
-                        <div className="size-5 rounded-full bg-emerald-500 flex items-center justify-center">
+                        <div className="size-6 rounded-full bg-emerald-500 flex items-center justify-center">
                           <Check className="size-3 text-white" />
                         </div>
                       </div>
@@ -928,90 +809,76 @@ export default function QuotePage() {
               })}
             </div>
 
-            {/* Membership Agreement Text */}
             {selectedPlan?.agreement_text && (
-              <div className="mt-6">
-                <div className="border border-white/[0.08] rounded-lg overflow-hidden">
-                  <div className="px-4 py-2.5 bg-zinc-900/60 border-b border-white/[0.06]">
-                    <p className="text-sm font-medium text-white">
-                      Membership Agreement &mdash; {selectedPlan.name}
-                    </p>
-                  </div>
-                  <div
-                    className="px-4 py-3 max-h-[200px] overflow-y-auto text-sm text-zinc-400 leading-relaxed"
-                    style={{ scrollbarWidth: "thin" }}
-                  >
-                    {selectedPlan.agreement_text}
-                  </div>
+              <div className={`mt-6 border ${t.cardBorder} rounded-xl overflow-hidden`}>
+                <div className={`px-4 py-2.5 bg-slate-50 border-b ${t.cardBorder}`}>
+                  <p className={`text-sm font-medium ${t.textPrimary}`}>Membership Agreement — {selectedPlan.name}</p>
+                </div>
+                <div className={`px-4 py-3 max-h-[200px] overflow-y-auto text-sm ${t.textSecondary} leading-relaxed bg-white`}>
+                  {selectedPlan.agreement_text}
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* ── Customer Info (optional — pre-fill or collect) ───── */}
+        {/* ── Customer Info ───────────────────────────────────── */}
         {!isExpired && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-1">Your Information</h2>
-            <p className="text-zinc-400 text-sm mb-4">
-              Confirm your details for the service.
-            </p>
+            <h2 className={`text-xl font-bold ${t.textPrimary} mb-1`}>Your Information</h2>
+            <p className={`${t.textSecondary} text-sm mb-4`}>Confirm your details for the service.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
               <div className="space-y-1.5">
-                <Label htmlFor="customer-name" className="text-sm text-zinc-300">Name</Label>
+                <Label htmlFor="customer-name" className={`text-sm ${t.textSecondary}`}>Name</Label>
                 <Input
                   id="customer-name"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Your full name"
-                  className="bg-zinc-900/60 border-white/[0.08]"
+                  placeholder="Your name"
+                  className="bg-white border-slate-200"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="customer-email" className="text-sm text-zinc-300">Email</Label>
+                <Label htmlFor="customer-email" className={`text-sm ${t.textSecondary}`}>Email</Label>
                 <Input
                   id="customer-email"
                   type="email"
                   value={customerEmail}
                   onChange={(e) => setCustomerEmail(e.target.value)}
                   placeholder="your@email.com"
-                  className="bg-zinc-900/60 border-white/[0.08]"
+                  className="bg-white border-slate-200"
                 />
               </div>
             </div>
           </div>
         )}
 
-        {/* ── Service Agreement ────────────────────────────────────── */}
+        {/* ── Service Agreement — BIG AND OBVIOUS ────────────── */}
         {!isExpired && serviceAgreement && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
-              <ShieldCheck className="size-5 text-emerald-400" />
+            <h2 className={`text-xl font-bold ${t.textPrimary} mb-1 flex items-center gap-2`}>
+              <ShieldCheck className="size-5 text-emerald-500" />
               Service Agreement
             </h2>
-            <p className="text-zinc-400 text-sm mb-4">
-              Please review and accept our terms before proceeding to payment.
-            </p>
+            <p className={`${t.textSecondary} text-sm mb-4`}>Please review and accept before booking.</p>
 
-            <div className="border border-white/[0.08] rounded-xl overflow-hidden">
-              {/* Terms list */}
-              <div className="p-5 space-y-4">
+            <div className={`border-2 ${t.agreementBorder} rounded-2xl overflow-hidden ${t.agreementBg}`}>
+              <div className="p-5 sm:p-6 space-y-4">
                 {serviceAgreement.terms.map((term, i) => (
                   <div key={i} className="flex items-start gap-3">
-                    <div className="size-6 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 mt-0.5">
-                      <span className="text-zinc-400 text-xs font-bold">{i + 1}</span>
+                    <div className="size-7 rounded-full bg-slate-100 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className={`${t.textSecondary} text-xs font-bold`}>{i + 1}</span>
                     </div>
-                    <p className="text-sm text-zinc-300 leading-relaxed">{term}</p>
+                    <p className={`text-sm ${t.textSecondary} leading-relaxed`}>{term}</p>
                   </div>
                 ))}
 
-                {/* Satisfaction guarantee highlight */}
                 {serviceAgreement.satisfaction_guarantee && (
-                  <div className="flex items-start gap-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-4 mt-4">
-                    <ShieldCheck className="size-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4 mt-4">
+                    <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-emerald-400 font-medium text-sm">100% Satisfaction Guarantee</p>
-                      <p className="text-zinc-400 text-xs mt-1">
+                      <p className="text-emerald-700 font-semibold text-sm">100% Satisfaction Guarantee</p>
+                      <p className="text-emerald-600 text-xs mt-1">
                         If you&apos;re not happy with the service, we&apos;ll come back and make it right at no extra charge.
                       </p>
                     </div>
@@ -1019,158 +886,116 @@ export default function QuotePage() {
                 )}
               </div>
 
-              {/* Acceptance checkbox */}
-              <div className="border-t border-white/[0.06] px-5 py-4 bg-zinc-900/40">
-                <div className="flex items-start gap-3">
-                  <Checkbox
-                    id="service-agreement"
-                    checked={agreementAccepted}
-                    onCheckedChange={(val) => setAgreementAccepted(!!val)}
-                  />
-                  <Label
-                    htmlFor="service-agreement"
-                    className="text-sm text-zinc-300 cursor-pointer leading-snug"
-                  >
-                    I have read and agree to the service terms, cancellation policy, and payment terms above.
-                  </Label>
+              {/* Big obvious acceptance toggle */}
+              <div
+                onClick={() => setAgreementAccepted(!agreementAccepted)}
+                className={`
+                  border-t-2 px-5 sm:px-6 py-5 cursor-pointer transition-all duration-200
+                  ${agreementAccepted
+                    ? "bg-emerald-50 border-emerald-300"
+                    : "bg-amber-50 border-amber-200 hover:bg-amber-100"
+                  }
+                `}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`
+                    size-8 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all duration-200
+                    ${agreementAccepted
+                      ? "bg-emerald-500 border-emerald-500"
+                      : "bg-white border-slate-300"
+                    }
+                  `}>
+                    {agreementAccepted && <Check className="size-5 text-white" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`font-semibold text-sm ${agreementAccepted ? "text-emerald-700" : t.textPrimary}`}>
+                      {agreementAccepted ? "Service Agreement Accepted" : "Tap here to accept the Service Agreement"}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${agreementAccepted ? "text-emerald-600" : "text-amber-600"}`}>
+                      {agreementAccepted
+                        ? "You've agreed to the terms, cancellation policy, and payment terms above."
+                        : "You must accept the terms above to continue with your booking."
+                      }
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── Price Summary ───────────────────────────────────────── */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Price Summary</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {/* Tier line */}
-              {selectedTier && selectedTierPrice && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-300">
-                    {selectedTier.name}
-                  </span>
-                  <span className="text-white font-medium">
-                    {formatCurrency(selectedTierPrice.price)}
-                  </span>
-                </div>
-              )}
-
-              {/* Addon lines */}
-              {addons
-                .filter((a) => !isAddonIncluded(a) && selectedAddons[a.key])
-                .map((addon) => (
-                  <div key={addon.key} className="flex justify-between text-sm">
-                    <span className="text-zinc-400">
-                      {addon.name}
-                      {addon.priceType === "per_unit" &&
-                      (addonQuantities[addon.key] || 1) > 1
-                        ? ` x${addonQuantities[addon.key]}`
-                        : ""}
-                    </span>
-                    <span className="text-zinc-300">
-                      {formatCurrency(getAddonPrice(addon))}
-                    </span>
-                  </div>
-                ))}
-
-              {/* Included addons */}
-              {addons
-                .filter((a) => isAddonIncluded(a))
-                .map((addon) => (
-                  <div key={addon.key} className="flex justify-between text-sm">
-                    <span className="text-zinc-500">{addon.name}</span>
-                    <span className="text-emerald-400 text-xs">Included</span>
-                  </div>
-                ))}
-
-              <div className="border-t border-white/[0.06] my-2" />
-
-              {/* Subtotal */}
+        {/* ── Price Summary ───────────────────────────────────── */}
+        <div className={`${t.summaryBg} border-2 ${t.summaryBorder} rounded-2xl shadow-sm overflow-hidden`}>
+          <div className={`px-6 py-4 border-b ${t.cardBorder} bg-slate-50`}>
+            <h3 className={`font-bold ${t.textPrimary}`}>Price Summary</h3>
+          </div>
+          <div className="p-6 space-y-3">
+            {selectedTier && selectedTierPrice && (
               <div className="flex justify-between text-sm">
-                <span className="text-zinc-400">Subtotal</span>
-                <span className="text-zinc-300">{formatCurrency(subtotal)}</span>
+                <span className={t.textSecondary}>{selectedTier.name}</span>
+                <span className={`${t.textPrimary} font-medium`}>{formatCurrency(selectedTierPrice.price)}</span>
               </div>
+            )}
 
-              {/* Existing discount */}
-              {existingDiscount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-emerald-400">Discount</span>
-                  <span className="text-emerald-400">
-                    -{formatCurrency(existingDiscount)}
+            {addons
+              .filter((a) => selectedAddons[a.key])
+              .map((addon) => (
+                <div key={addon.key} className="flex justify-between text-sm">
+                  <span className={t.textMuted}>
+                    {addon.name}
+                    {addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}
                   </span>
+                  <span className={t.textSecondary}>{formatCurrency(getAddonPrice(addon))}</span>
                 </div>
-              )}
+              ))}
 
-              {/* Membership discount */}
-              {membershipDiscount > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-emerald-400">
-                    Membership ({selectedPlan?.name})
-                  </span>
-                  <span className="text-emerald-400">
-                    -{formatCurrency(membershipDiscount)}
-                  </span>
-                </div>
-              )}
+            <div className="border-t border-slate-100 my-2" />
 
-              {/* Total */}
-              <div className="border-t border-white/[0.06] pt-3">
-                <div className="flex justify-between">
-                  <span className="text-white font-semibold text-lg">Service Total</span>
-                  <span className="text-white font-bold text-2xl">
-                    {formatCurrency(total)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Deposit breakdown */}
-              {!isExpired && total > 0 && (
-                <div className="border-t border-white/[0.06] pt-3 mt-3 space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-zinc-400">
-                      Deposit ({Math.round(depositPct * 100)}%)
-                    </span>
-                    <span className="text-zinc-300">{formatCurrency(depositBase)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-zinc-400">
-                      Processing fee ({Math.round(processingFeePct * 100)}%)
-                    </span>
-                    <span className="text-zinc-300">{formatCurrency(depositWithFee - depositBase)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm font-medium pt-1">
-                    <span className="text-white">Due today (deposit)</span>
-                    <span className="text-white">{formatCurrency(depositAmount)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-zinc-500">Remaining balance (due on completion)</span>
-                    <span className="text-zinc-500">{formatCurrency(total - (total * depositPct))}</span>
-                  </div>
-                </div>
-              )}
+            <div className="flex justify-between text-sm">
+              <span className={t.textMuted}>Subtotal</span>
+              <span className={t.textSecondary}>{formatCurrency(subtotal)}</span>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* ── Approve & Pay Button ──────────────────────────────── */}
+            {existingDiscount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-emerald-600">Discount</span>
+                <span className="text-emerald-600">-{formatCurrency(existingDiscount)}</span>
+              </div>
+            )}
+
+            {membershipDiscount > 0 && (
+              <div className="flex justify-between text-sm">
+                <span className="text-emerald-600">Membership ({selectedPlan?.name})</span>
+                <span className="text-emerald-600">-{formatCurrency(membershipDiscount)}</span>
+              </div>
+            )}
+
+            <div className="border-t-2 border-slate-200 pt-3">
+              <div className="flex justify-between items-baseline">
+                <span className={`${t.textPrimary} font-bold text-lg`}>Total</span>
+                <span className={`${t.textPrimary} font-bold text-3xl`}>{formatCurrency(total)}</span>
+              </div>
+              <p className={`${t.textMuted} text-xs mt-2`}>
+                Your card will be saved on file. You&apos;ll only be charged the final amount after your service is complete.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Save Card & Book Button ─────────────────────────── */}
         {!isExpired && (
-          <div className="flex flex-col items-center gap-4 pb-8">
+          <div className="flex flex-col items-center gap-4 pb-4">
             <Button
               size="lg"
               disabled={!canApprove}
               onClick={handleApprove}
-              className="
-                w-full sm:w-auto sm:min-w-[320px] h-14 text-base font-semibold
-                bg-gradient-to-r from-emerald-600 to-emerald-500
-                hover:from-emerald-500 hover:to-emerald-400
-                shadow-[0_0_30px_rgba(16,185,129,0.25)]
-                hover:shadow-[0_0_40px_rgba(16,185,129,0.35)]
+              className={`
+                w-full sm:w-auto sm:min-w-[340px] h-14 text-base font-bold rounded-xl
+                ${t.accentBtn} text-white
+                shadow-lg hover:shadow-xl
                 transition-all duration-200 border-0
-                disabled:opacity-50 disabled:cursor-not-allowed
-              "
+                disabled:opacity-40 disabled:cursor-not-allowed
+              `}
             >
               {approving ? (
                 <>
@@ -1180,60 +1005,58 @@ export default function QuotePage() {
               ) : (
                 <>
                   <CreditCard className="size-5" />
-                  Approve &amp; Pay Deposit — {formatCurrency(depositAmount)}
+                  Save Card &amp; Book — {formatCurrency(total)}
                 </>
               )}
             </Button>
 
             {!agreementAccepted && !isExpired && (
-              <p className="text-zinc-500 text-xs flex items-center gap-1.5">
-                <Lock className="size-3" />
-                Accept the service agreement above to continue
+              <p className="text-amber-600 text-sm font-medium flex items-center gap-1.5 bg-amber-50 px-4 py-2 rounded-lg">
+                <AlertTriangle className="size-4" />
+                Please accept the service agreement above to continue
               </p>
             )}
 
-            <div className="flex items-center gap-1.5 text-zinc-600 text-xs">
+            <div className={`flex items-center gap-1.5 ${t.textMuted} text-xs`}>
               <Lock className="size-3" />
               Secure payment powered by Stripe
             </div>
           </div>
         )}
 
-        {/* ── Footer ──────────────────────────────────────────────── */}
+        {/* ── Footer ──────────────────────────────────────────── */}
         <div className="text-center pb-8">
-          <p className="text-zinc-600 text-xs">
-            Powered by {businessName}
-          </p>
+          <p className={`${t.textMuted} text-xs`}>Powered by {businessName}</p>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Status Badge Sub-component ───────────────────────────────────────
+// ── Status Badge ────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: Quote["status"] }) {
   switch (status) {
     case "pending":
       return (
-        <Badge className="bg-amber-500/10 text-amber-400 border-amber-500/20">
+        <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 border border-amber-200 text-xs font-medium px-2.5 py-1 rounded-full">
           <Clock className="size-3" />
           Awaiting Response
-        </Badge>
+        </span>
       )
     case "approved":
       return (
-        <Badge className="bg-emerald-500/10 text-emerald-400 border-emerald-500/20">
+        <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs font-medium px-2.5 py-1 rounded-full">
           <CheckCircle className="size-3" />
           Approved
-        </Badge>
+        </span>
       )
     case "expired":
       return (
-        <Badge className="bg-red-500/10 text-red-400 border-red-500/20">
+        <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 border border-red-200 text-xs font-medium px-2.5 py-1 rounded-full">
           <AlertTriangle className="size-3" />
           Expired
-        </Badge>
+        </span>
       )
     default:
       return null
