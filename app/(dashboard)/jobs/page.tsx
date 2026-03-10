@@ -2072,7 +2072,7 @@ export default function JobsPage() {
             )}
 
             {/* Frequency (house cleaning) or Membership (WinBros) & Cleaner (all tenants) */}
-            <div style={{ display: "grid", gridTemplateColumns: isHouseCleaning || (!isHouseCleaning && lookedUpCustomerId) ? "1fr 1fr" : "1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
               {isHouseCleaning && (
                 <div>
                   <label className="cal-form-label">Frequency *</label>
@@ -2090,7 +2090,7 @@ export default function JobsPage() {
                   </select>
                 </div>
               )}
-              {!isHouseCleaning && lookedUpCustomerId && (
+              {!isHouseCleaning && (
                 <div>
                   <label className="cal-form-label">Membership</label>
                   <select
