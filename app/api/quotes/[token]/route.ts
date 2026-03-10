@@ -3,6 +3,18 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getQuotePricing, computeQuoteTotal, isWindowCleaningTenant } from "@/lib/quote-pricing"
 import { getStripeClientForTenant, getTenantRedirectDomain, findOrCreateStripeCustomer } from "@/lib/stripe-client"
 
+/** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  const day = result.getDate()
+  result.setMonth(result.getMonth() + months)
+  // If the day overflowed (e.g., 31 → 3), clamp to last day of target month
+  if (result.getDate() !== day) {
+    result.setDate(0) // Sets to last day of previous month
+  }
+  return result
+}
+
 /**
  * Public quote endpoints — NO auth required.
  * The token in the URL acts as the authorization.
@@ -118,7 +130,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Token is required" }, { status: 400 })
   }
 
-  const body = await request.json()
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const {
     selected_tier,
     selected_addons,
@@ -186,14 +204,26 @@ export async function PATCH(
     return NextResponse.json({ error: "Payment not configured for this business" }, { status: 400 })
   }
 
+  // Normalize addons — support both {key, quantity} objects and plain strings
+  const rawAddons = (selected_addons || []) as unknown[]
+  const normalizedAddons: { key: string; quantity: number }[] = rawAddons
+    .filter((a): a is string | { key: string; quantity?: number } =>
+      typeof a === "string" || (typeof a === "object" && a !== null && "key" in a)
+    )
+    .map((a) =>
+      typeof a === "string"
+        ? { key: a, quantity: 1 }
+        : { key: a.key, quantity: Math.max(1, Math.floor(a.quantity ?? 1)) }
+    )
+
   // Compute price server-side (never trust client-side price)
-  const addons: string[] = selected_addons || []
+  const addonKeys: string[] = normalizedAddons.map(a => a.key)
   const quoteServiceCategory = quote.service_category || 'standard'
   const { subtotal } = await computeQuoteTotal(
     tenant.id,
     tenant.slug,
-    selected_tier,
-    addons,
+    selected_tier as string,
+    addonKeys,
     {
       squareFootage: quote.square_footage,
       bedrooms: quote.bedrooms,
@@ -206,7 +236,7 @@ export async function PATCH(
   let plan: { id: string; slug: string; discount_per_visit: number; interval_months: number; visits_per_year: number; free_addons: string[] | null } | null = null
   let membershipDiscount = 0
 
-  if (membership_plan) {
+  if (membership_plan && typeof membership_plan === "string") {
     const { data: planData } = await supabase
       .from("service_plans")
       .select("id, slug, discount_per_visit, interval_months, visits_per_year, free_addons")
@@ -215,10 +245,12 @@ export async function PATCH(
       .eq("active", true)
       .single()
 
-    if (planData) {
-      plan = planData
-      membershipDiscount = Number(plan.discount_per_visit) || 0
+    if (!planData) {
+      return NextResponse.json({ error: `Membership plan "${membership_plan}" not found or inactive` }, { status: 400 })
     }
+
+    plan = planData
+    membershipDiscount = Number(plan.discount_per_visit) || 0
   }
 
   const total = Math.max(subtotal - (Number(quote.discount) || 0) - membershipDiscount, 0)
@@ -235,13 +267,13 @@ export async function PATCH(
     bathrooms: quote.bathrooms,
   }, quoteServiceCategory)
   const tierDef = pricing.tiers.find(t => t.key === selected_tier)
-  const serviceName = tierDef?.name || selected_tier
+  const serviceName = tierDef?.name || (selected_tier as string)
   const businessName = tenant.business_name || tenant.name
 
   // Update quote with selection (but keep status pending until payment)
   const updatePayload: Record<string, unknown> = {
     selected_tier,
-    selected_addons: addons,
+    selected_addons: normalizedAddons,
     subtotal,
     total,
     service_agreement_accepted: true,

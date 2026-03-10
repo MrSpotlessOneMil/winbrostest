@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 
+/** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  const day = result.getDate()
+  result.setMonth(result.getMonth() + months)
+  if (result.getDate() !== day) {
+    result.setDate(0)
+  }
+  return result
+}
+
 /**
  * GET -- List memberships for the tenant
  * Query params: status (optional), limit (default 50)
@@ -51,11 +62,17 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const body = await request.json()
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const { customer_id, plan_slug } = body
 
-  if (!customer_id || !plan_slug) {
-    return NextResponse.json({ error: "customer_id and plan_slug are required" }, { status: 400 })
+  if (!customer_id || !plan_slug || typeof plan_slug !== "string") {
+    return NextResponse.json({ error: "customer_id and plan_slug (string) are required" }, { status: 400 })
   }
 
   const supabase = getSupabaseServiceClient()
@@ -99,8 +116,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Calculate next_visit_at based on plan interval
-  const nextVisit = new Date()
-  nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
+  const nextVisit = addMonths(new Date(), plan.interval_months)
 
   const { data: membership, error: insertError } = await supabase
     .from("customer_memberships")
@@ -112,7 +128,6 @@ export async function POST(request: NextRequest) {
       started_at: new Date().toISOString(),
       next_visit_at: nextVisit.toISOString(),
       visits_completed: 0,
-      credits: 0,
     })
     .select("*")
     .single()
@@ -134,14 +149,20 @@ export async function PATCH(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const body = await request.json()
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const { membership_id, action } = body
 
   if (!membership_id || !action) {
     return NextResponse.json({ error: "membership_id and action are required" }, { status: 400 })
   }
 
-  if (!["pause", "cancel", "resume"].includes(action)) {
+  if (!["pause", "cancel", "resume"].includes(action as string)) {
     return NextResponse.json({ error: "action must be pause, cancel, or resume" }, { status: 400 })
   }
 
@@ -152,7 +173,7 @@ export async function PATCH(request: NextRequest) {
     .from("customer_memberships")
     .select(`
       *,
-      service_plans ( early_cancel_repay, visits_per_year, interval_months )
+      service_plans ( visits_per_year, interval_months )
     `)
     .eq("id", membership_id)
     .single()
@@ -167,7 +188,6 @@ export async function PATCH(request: NextRequest) {
 
   const plan = membership.service_plans as any
   const updates: Record<string, any> = { updated_at: new Date().toISOString() }
-  let earlyCancelFee: number | null = null
 
   switch (action) {
     case "pause": {
@@ -179,17 +199,11 @@ export async function PATCH(request: NextRequest) {
     }
 
     case "cancel": {
-      if (membership.status === "cancelled") {
-        return NextResponse.json({ error: "Membership is already cancelled" }, { status: 400 })
+      if (membership.status === "cancelled" || membership.status === "completed") {
+        return NextResponse.json({ error: `Cannot cancel a ${membership.status} membership` }, { status: 400 })
       }
       updates.status = "cancelled"
       updates.cancelled_at = new Date().toISOString()
-
-      // Calculate early cancellation repayment if applicable (returned in response, not stored)
-      const earlyRepay = parseFloat(plan?.early_cancel_repay || "0")
-      if (earlyRepay > 0 && (membership.visits_completed || 0) < (plan?.visits_per_year || 0)) {
-        earlyCancelFee = earlyRepay * (membership.visits_completed || 0)
-      }
       break
     }
 
@@ -201,9 +215,7 @@ export async function PATCH(request: NextRequest) {
 
       // If next_visit_at is in the past, recalculate from now
       if (membership.next_visit_at && new Date(membership.next_visit_at) < new Date()) {
-        const nextVisit = new Date()
-        nextVisit.setMonth(nextVisit.getMonth() + (plan?.interval_months || 1))
-        updates.next_visit_at = nextVisit.toISOString()
+        updates.next_visit_at = addMonths(new Date(), plan?.interval_months || 1).toISOString()
       }
       break
     }
@@ -226,6 +238,5 @@ export async function PATCH(request: NextRequest) {
     success: true,
     membership: updated,
     action,
-    ...(earlyCancelFee !== null && { early_cancel_fee: earlyCancelFee }),
   })
 }

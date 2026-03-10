@@ -409,6 +409,98 @@ export async function POST(request: NextRequest) {
   const messageContent = extracted.content || ""
 
   // ============================================
+  // MEMBERSHIP RENEWAL REPLY HANDLER
+  // Intercept RENEW/CANCEL from customers with pending renewal questions.
+  // Must run before AI intent analysis to prevent false positives.
+  // ============================================
+  if (tenant && customer) {
+    const normalizedReply = messageContent.trim().toUpperCase()
+    // Only match explicit RENEW/CANCEL keywords — avoid intercepting YES/NO
+    // which could be replies to booking questions
+    const isRenewalReply = /^(RENEW|CANCEL)$/i.test(normalizedReply)
+
+    if (isRenewalReply) {
+      try {
+        // Check if this customer has a pending renewal question
+        const { data: pendingMembership } = await client
+          .from("customer_memberships")
+          .select(`
+            id, customer_id, renewal_asked_at, renewal_choice,
+            service_plans!inner( name, slug )
+          `)
+          .eq("tenant_id", tenant.id)
+          .eq("customer_id", customer.id)
+          .eq("status", "active")
+          .not("renewal_asked_at", "is", null)
+          .is("renewal_choice", null)
+          .limit(1)
+          .maybeSingle()
+
+        if (pendingMembership) {
+          const plan = pendingMembership.service_plans as any
+          const isRenew = normalizedReply === "RENEW"
+          const choice = isRenew ? "renew" : "cancel"
+
+          // Record the customer's choice — return updated row to verify it was actually changed
+          const { data: updatedRows, error: updateErr } = await client
+            .from("customer_memberships")
+            .update({
+              renewal_choice: choice,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", pendingMembership.id)
+            .eq("status", "active")
+            .is("renewal_choice", null) // Atomic: only set if not already set
+            .select("id")
+
+          if (!updateErr && updatedRows && updatedRows.length > 0) {
+            const businessName = (tenant as any).business_name_short || (tenant as any).business_name || (tenant as any).name || 'us'
+
+            // Confirm to customer
+            const confirmMsg = isRenew
+              ? `Great! Your ${plan.name} membership with ${businessName} will renew after your final visit. Thank you!`
+              : `Got it. Your ${plan.name} membership with ${businessName} will end after your final visit. Thank you for being a member!`
+            await sendSMS(tenant, phone, confirmMsg)
+
+            // Notify tenant via Telegram
+            if ((tenant as any).owner_telegram_chat_id) {
+              const { sendTelegramMessage } = await import("@/lib/telegram")
+              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || phone
+              const emoji = isRenew ? '✅' : '❌'
+              await sendTelegramMessage(
+                tenant,
+                (tenant as any).owner_telegram_chat_id,
+                `${emoji} <b>Membership ${isRenew ? 'Renewal Confirmed' : 'Cancellation'}</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nChoice: ${choice.toUpperCase()}`,
+              )
+            }
+
+            // Log system event
+            await logSystemEvent({
+              tenant_id: tenant.id,
+              source: "openphone",
+              event_type: isRenew ? "MEMBERSHIP_RENEWAL_CONFIRMED" : "MEMBERSHIP_RENEWAL_DECLINED",
+              message: `Customer replied "${normalizedReply}" to renewal SMS for membership ${pendingMembership.id}`,
+              phone_number: phone,
+              metadata: {
+                membership_id: pendingMembership.id,
+                plan_slug: plan.slug,
+                renewal_choice: choice,
+                raw_reply: messageContent,
+              },
+            })
+
+            console.log(`[OpenPhone] Membership renewal reply processed: ${choice} for membership ${pendingMembership.id}`)
+            return NextResponse.json({ success: true, action: "membership_renewal_reply", choice })
+          }
+        }
+      } catch (err) {
+        console.error("[OpenPhone] Membership renewal reply handler error:", err)
+        // Fall through to normal processing if handler fails
+      }
+    }
+  }
+
+  // ============================================
   // RECURRING INTENT DETECTION (cleaning tenants only)
   // Detect "weekly", "bi-weekly", "every Monday" etc. and persist preference
   // ============================================

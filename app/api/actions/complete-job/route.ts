@@ -24,6 +24,232 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
+import { sendTelegramMessage } from '@/lib/telegram'
+
+/** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  const day = result.getDate()
+  result.setMonth(result.getMonth() + months)
+  if (result.getDate() !== day) {
+    result.setDate(0)
+  }
+  return result
+}
+
+/**
+ * Handle membership lifecycle after a membership-linked job completes.
+ * - Increments visits_completed
+ * - Advances next_visit_at
+ * - Penultimate visit: sends renewal SMS to customer
+ * - Final visit: renews or completes membership based on customer's choice
+ */
+async function handleMembershipLifecycle(
+  jobId: string,
+  membershipId: string,
+  tenant: any,
+  customerPhone: string | null,
+): Promise<void> {
+  const supabase = getSupabaseServiceClient()
+
+  // Fetch membership with its plan
+  const { data: membership, error: fetchErr } = await supabase
+    .from("customer_memberships")
+    .select(`
+      id, tenant_id, customer_id, status, visits_completed, next_visit_at,
+      renewal_choice, renewal_asked_at,
+      service_plans!inner( id, name, slug, visits_per_year, interval_months, discount_per_visit )
+    `)
+    .eq("id", membershipId)
+    .eq("status", "active")
+    .single()
+
+  if (fetchErr || !membership) {
+    console.log(`[complete-job] Membership ${membershipId} not found or not active — skipping lifecycle`)
+    return
+  }
+
+  const plan = membership.service_plans as any
+  if (!plan) {
+    console.error(`[complete-job] Membership ${membershipId} has no linked service plan — skipping lifecycle`)
+    return
+  }
+  const visitsPerYear = plan.visits_per_year || 0
+  const intervalMonths = plan.interval_months || 3
+  const prevVisitsCompleted = membership.visits_completed || 0
+  const newVisitsCompleted = prevVisitsCompleted + 1
+
+  // Increment visits_completed and advance next_visit_at
+  const nextVisit = addMonths(new Date(), intervalMonths)
+  const updates: Record<string, unknown> = {
+    visits_completed: newVisitsCompleted,
+    next_visit_at: nextVisit.toISOString(),
+    updated_at: new Date().toISOString(),
+  }
+
+  // Track which lifecycle event occurred (used for post-update notifications)
+  let lifecycleEvent: 'penultimate' | 'final_renew' | 'final_complete' | null = null
+  let completionReason = ''
+
+  // Penultimate visit: queue renewal SMS (sent after DB update succeeds)
+  if (visitsPerYear > 0 && newVisitsCompleted === visitsPerYear - 1) {
+    updates.renewal_asked_at = new Date().toISOString()
+    updates.renewal_choice = null // Reset in case it was set from a previous cycle
+    lifecycleEvent = 'penultimate'
+  }
+
+  // Final visit: act on renewal choice
+  if (visitsPerYear > 0 && newVisitsCompleted >= visitsPerYear) {
+    if (membership.renewal_choice === 'renew') {
+      // Renew: reset visits, advance next_visit_at, clear renewal fields
+      updates.visits_completed = 0
+      updates.renewal_choice = null
+      updates.renewal_asked_at = null
+      lifecycleEvent = 'final_renew'
+    } else {
+      // Cancel or no response: mark membership as completed
+      updates.status = 'completed'
+      updates.next_visit_at = null
+      completionReason = membership.renewal_choice === 'cancel' ? 'customer chose CANCEL' : 'no renewal response received'
+      lifecycleEvent = 'final_complete'
+    }
+  }
+
+  // Apply all updates atomically — include visits_completed in WHERE to prevent race conditions
+  // If two jobs complete simultaneously for the same membership, only one will succeed
+  const { data: updatedRows, error: updateErr } = await supabase
+    .from("customer_memberships")
+    .update(updates)
+    .eq("id", membershipId)
+    .eq("status", "active") // Only update if still active (prevents race)
+    .eq("visits_completed", prevVisitsCompleted) // Optimistic lock: reject stale writes
+    .select("id")
+
+  if (updateErr) {
+    console.error(`[complete-job] Failed to update membership ${membershipId}:`, updateErr.message)
+    return
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    console.warn(`[complete-job] Membership ${membershipId} was not updated — likely a concurrent update (visits_completed mismatch). Will be retried on next job completion.`)
+    return
+  }
+
+  // === DB update succeeded — now send notifications ===
+
+  if (lifecycleEvent === 'penultimate') {
+    // Send renewal SMS to customer
+    if (customerPhone && tenant) {
+      const businessName = tenant.business_name_short || tenant.business_name || tenant.name || 'us'
+      const remainingVisits = visitsPerYear - newVisitsCompleted
+      const renewalMsg = `Hi! You have ${remainingVisits} visit${remainingVisits > 1 ? 's' : ''} left on your ${plan.name} membership with ${businessName}. Would you like to renew? Reply RENEW or CANCEL.`
+
+      try {
+        const smsResult = await sendSMS(tenant, customerPhone, renewalMsg)
+        if (smsResult.success) {
+          console.log(`[complete-job] Renewal SMS sent to ${customerPhone} for membership ${membershipId}`)
+        } else {
+          console.error(`[complete-job] Failed to send renewal SMS: ${smsResult.error}`)
+        }
+      } catch (err) {
+        console.error(`[complete-job] Renewal SMS error:`, err)
+      }
+
+      // Notify tenant via Telegram
+      if (tenant.owner_telegram_chat_id) {
+        try {
+          const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
+          await sendTelegramMessage(
+            tenant,
+            tenant.owner_telegram_chat_id,
+            `🔄 <b>Membership Renewal Pending</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nVisits completed: ${newVisitsCompleted}/${visitsPerYear}\n\nRenewal SMS sent — waiting for customer reply.`,
+          )
+        } catch (err) {
+          console.error(`[complete-job] Telegram notification error:`, err)
+        }
+      }
+    }
+
+    await logSystemEvent({
+      source: 'actions',
+      event_type: 'MEMBERSHIP_RENEWAL_ASKED',
+      message: `Renewal SMS sent for membership ${membershipId} (visit ${newVisitsCompleted}/${visitsPerYear})`,
+      job_id: jobId,
+      phone_number: customerPhone || undefined,
+      metadata: { membership_id: membershipId, plan_slug: plan.slug, visits_completed: newVisitsCompleted, visits_per_year: visitsPerYear },
+    })
+  }
+
+  if (lifecycleEvent === 'final_renew') {
+    console.log(`[complete-job] Membership ${membershipId} renewed (customer chose RENEW)`)
+
+    await logSystemEvent({
+      source: 'actions',
+      event_type: 'MEMBERSHIP_RENEWED',
+      message: `Membership ${membershipId} renewed after final visit`,
+      job_id: jobId,
+      phone_number: customerPhone || undefined,
+      metadata: { membership_id: membershipId, plan_slug: plan.slug },
+    })
+
+    if (tenant?.owner_telegram_chat_id) {
+      const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
+      try {
+        await sendTelegramMessage(
+          tenant,
+          tenant.owner_telegram_chat_id,
+          `✅ <b>Membership Renewed</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nVisits reset to 0/${visitsPerYear}`,
+        )
+      } catch {}
+    }
+  }
+
+  if (lifecycleEvent === 'final_complete') {
+    console.log(`[complete-job] Membership ${membershipId} completed (${completionReason})`)
+
+    await logSystemEvent({
+      source: 'actions',
+      event_type: 'MEMBERSHIP_COMPLETED',
+      message: `Membership ${membershipId} completed: ${completionReason}`,
+      job_id: jobId,
+      phone_number: customerPhone || undefined,
+      metadata: { membership_id: membershipId, plan_slug: plan.slug, renewal_choice: membership.renewal_choice },
+    })
+
+    if (tenant?.owner_telegram_chat_id) {
+      const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
+      try {
+        await sendTelegramMessage(
+          tenant,
+          tenant.owner_telegram_chat_id,
+          `📋 <b>Membership Completed</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nReason: ${completionReason}\n\nAll ${visitsPerYear} visits used.`,
+        )
+      } catch {}
+    }
+
+    // Inform customer
+    if (customerPhone && tenant) {
+      const businessName = tenant.business_name_short || tenant.business_name || tenant.name || 'us'
+      const completedMsg = `Your ${plan.name} membership with ${businessName} is now complete. Thank you for being a member! Contact us anytime to start a new plan.`
+      try {
+        await sendSMS(tenant, customerPhone, completedMsg)
+      } catch {}
+    }
+  }
+}
+
+/** Helper to get customer display name (tenant-scoped) */
+async function getCustomerName(supabase: any, customerId: string | null, tenantId?: string): Promise<string> {
+  if (!customerId) return 'Unknown'
+  let query = supabase
+    .from("customers")
+    .select("first_name, last_name, phone_number")
+    .eq("id", customerId)
+  if (tenantId) query = query.eq("tenant_id", tenantId)
+  const { data } = await query.single()
+  if (!data) return 'Unknown'
+  const name = [data.first_name, data.last_name].filter(Boolean).join(' ')
+  return name || data.phone_number || 'Unknown'
+}
 
 /**
  * Core complete-job logic — callable from both the API route (with auth) and the cron (without auth).
@@ -125,6 +351,11 @@ export async function executeCompleteJob(jobId: string): Promise<{
       },
     })
 
+    // Membership lifecycle
+    if (job.membership_id) {
+      await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
+    }
+
     return {
       success: true,
       message: 'Job completed - was fully prepaid',
@@ -203,6 +434,11 @@ export async function executeCompleteJob(jobId: string): Promise<{
           total_due: totalDue,
         },
       })
+
+      // Membership lifecycle
+      if (job.membership_id) {
+        await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
+      }
 
       return {
         success: true,
@@ -341,6 +577,11 @@ export async function executeCompleteJob(jobId: string): Promise<{
       test_charge_cents: testChargeCents ?? undefined,
     },
   })
+
+  // Membership lifecycle
+  if (job.membership_id) {
+    await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
+  }
 
   return {
     success: true,

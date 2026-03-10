@@ -119,6 +119,12 @@ export type SystemEventType =
   | 'AUTO_SCHEDULE_DISPATCHED'
   // Telegram Onboarding
   | 'TELEGRAM_ONBOARDING'
+  // Membership Lifecycle
+  | 'MEMBERSHIP_RENEWAL_ASKED'
+  | 'MEMBERSHIP_RENEWED'
+  | 'MEMBERSHIP_COMPLETED'
+  | 'MEMBERSHIP_RENEWAL_CONFIRMED'
+  | 'MEMBERSHIP_RENEWAL_DECLINED'
 
 export interface SystemEventInput {
   tenant_id?: string

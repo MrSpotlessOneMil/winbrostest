@@ -73,6 +73,8 @@ export interface Job {
   team_id?: number
   // Salesman/technician split (WinBros)
   job_type?: 'estimate' | 'cleaning'
+  // Membership link
+  membership_id?: string
 }
 
 export interface Cleaner {
