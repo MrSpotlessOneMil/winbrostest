@@ -13,6 +13,8 @@ const publicRoutes = [
   '/api/quotes',
   '/tip',
   '/api/tip',
+  '/crew',
+  '/api/crew',
 ]
 
 // Webhook and cron routes (external callbacks and server-side jobs)
