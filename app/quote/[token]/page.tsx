@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useMemo } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useParams } from "next/navigation"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -48,27 +48,17 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
 }
 
-/** Convert hex to HSL components for CSS vars */
-function hexToHSL(hex: string): { h: number; s: number; l: number } {
-  const r = parseInt(hex.slice(1, 3), 16) / 255
-  const g = parseInt(hex.slice(3, 5), 16) / 255
-  const b = parseInt(hex.slice(5, 7), 16) / 255
-  const max = Math.max(r, g, b), min = Math.min(r, g, b)
-  const l = (max + min) / 2
-  if (max === min) return { h: 0, s: 0, l: l * 100 }
-  const d = max - min
-  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-  let h = 0
-  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6
-  else if (max === g) h = ((b - r) / d + 2) / 6
-  else h = ((r - g) / d + 4) / 6
-  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) }
-}
-
 const TIER_ICONS = [
   <Shield key="0" className="size-6" />,
   <Star key="1" className="size-6" />,
   <Crown key="2" className="size-6" />,
+]
+
+// Tier accent colors — clean, bright, professional
+const TIER_COLORS = [
+  { bg: "bg-sky-50", border: "border-sky-400", ring: "ring-sky-200", icon: "bg-sky-500", check: "text-sky-500", badge: "bg-sky-500" },
+  { bg: "bg-blue-50", border: "border-blue-500", ring: "ring-blue-200", icon: "bg-blue-600", check: "text-blue-600", badge: "bg-blue-600" },
+  { bg: "bg-indigo-50", border: "border-indigo-500", ring: "ring-indigo-200", icon: "bg-indigo-600", check: "text-indigo-600", badge: "bg-indigo-600" },
 ]
 
 // ── Component ────────────────────────────────────────────────────────
@@ -89,7 +79,7 @@ export default function QuotePage() {
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
-  const [showAgreementTerms, setShowAgreementTerms] = useState(false)
+  const [showTerms, setShowTerms] = useState(false)
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -109,21 +99,18 @@ export default function QuotePage() {
         // Pre-select included addons for default tier
         const defaultTierDef = (json.tiers as QuoteTier[]).find((t) => t.key === defaultTier)
         if (defaultTierDef) {
-          const included: Record<string, boolean> = {}
-          defaultTierDef.included.forEach((k) => { included[k] = true })
-          setSelectedAddons(included)
+          const inc: Record<string, boolean> = {}
+          defaultTierDef.included.forEach((k) => { inc[k] = true })
+          setSelectedAddons(inc)
         }
 
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
-
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
-        const quantities: Record<string, number> = {}
-        json.addons.forEach((addon: QuoteAddon) => {
-          if (addon.priceType === "per_unit") quantities[addon.key] = 1
-        })
-        setAddonQuantities(quantities)
+        const q: Record<string, number> = {}
+        json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") q[a.key] = 1 })
+        setAddonQuantities(q)
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load quote")
       } finally {
@@ -140,10 +127,8 @@ export default function QuotePage() {
     if (!data) return
     const tierDef = data.tiers.find((t) => t.key === tierKey)
     if (!tierDef) return
-    // Pre-select included addons, keep any manually added ones
     setSelectedAddons((prev) => {
       const next = { ...prev }
-      // Add included addons
       tierDef.included.forEach((k) => { next[k] = true })
       return next
     })
@@ -191,7 +176,7 @@ export default function QuotePage() {
   const subtotal = selectedTierPrice
     ? selectedTierPrice.price + addons.reduce((sum, addon) => {
         if (!selectedAddons[addon.key]) return sum
-        if (isAddonIncluded(addon.key)) return sum // included = already in tier price
+        if (isAddonIncluded(addon.key)) return sum
         return sum + getAddonPrice(addon)
       }, 0)
     : 0
@@ -200,21 +185,6 @@ export default function QuotePage() {
   const membershipDiscount = selectedPlan ? Number(selectedPlan.discount_per_visit) || 0 : 0
   const existingDiscount = Number(quote?.discount) || 0
   const total = Math.max(0, subtotal - existingDiscount - membershipDiscount)
-
-  // ── Brand colors via CSS custom properties ───────────────────────
-
-  const brandStyle = useMemo(() => {
-    const brandHex = tenant?.brand_color || "#2563EB"
-    const hsl = hexToHSL(brandHex)
-    return {
-      "--brand": brandHex,
-      "--brand-h": `${hsl.h}`,
-      "--brand-s": `${hsl.s}%`,
-      "--brand-l": `${hsl.l}%`,
-      "--brand-light": tenant?.brand_color_light || `hsl(${hsl.h}, ${Math.min(hsl.s + 20, 100)}%, 95%)`,
-      "--brand-ring": `hsl(${hsl.h}, ${hsl.s}%, ${Math.min(hsl.l + 30, 85)}%)`,
-    } as React.CSSProperties
-  }, [tenant])
 
   // ── Approve handler ──────────────────────────────────────────────
 
@@ -252,10 +222,10 @@ export default function QuotePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <Loader2 className="size-8 animate-spin text-gray-400" />
-          <p className="text-gray-500 text-sm">Loading your quote...</p>
+          <Loader2 className="size-8 animate-spin text-blue-400" />
+          <p className="text-slate-500 text-sm">Loading your quote...</p>
         </div>
       </div>
     )
@@ -263,11 +233,11 @@ export default function QuotePage() {
 
   if (error && !quote) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm max-w-md w-full p-8 text-center">
-          <AlertTriangle className="size-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-lg font-bold text-gray-900 mb-2">Quote Not Found</h2>
-          <p className="text-gray-500 text-sm">{error}</p>
+      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center px-4">
+        <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-md w-full p-8 text-center">
+          <AlertTriangle className="size-12 text-red-400 mx-auto mb-4" />
+          <h2 className="text-lg font-bold text-slate-800 mb-2">Quote Not Found</h2>
+          <p className="text-slate-500 text-sm">{error}</p>
         </div>
       </div>
     )
@@ -279,20 +249,21 @@ export default function QuotePage() {
   const isApproved = quote.status === "approved"
   const quoteNumber = token.slice(0, 8).toUpperCase()
   const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
+  const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).length
 
-  // ── Approved state ───────────────────────────────────────────────
+  // ── Approved ─────────────────────────────────────────────────────
 
   if (isApproved) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4" style={brandStyle}>
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm max-w-lg w-full p-8 text-center">
-          <div className="size-20 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-6">
-            <CheckCircle className="size-10 text-emerald-600" />
+      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center px-4">
+        <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-lg w-full p-8 text-center">
+          <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6 ring-4 ring-emerald-100">
+            <CheckCircle className="size-10 text-emerald-500" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">You&apos;re All Set!</h2>
-          <p className="text-gray-600 mb-6">Your card is on file and your cleaning is booked. We&apos;ll be in touch!</p>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
+          <p className="text-slate-500 mb-6">Your card is on file and your cleaning is booked. We&apos;ll be in touch!</p>
           {tenant?.phone && (
-            <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-gray-500 hover:text-gray-900 text-sm">
+            <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
               <Phone className="size-4" /> {tenant.phone}
             </a>
           )}
@@ -301,23 +272,19 @@ export default function QuotePage() {
     )
   }
 
-  // ── Active addon count for summary ───────────────────────────────
-  const activeAddonCount = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).length
-
   // ── Main page ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-32 sm:pb-8" style={brandStyle}>
-      {/* Top accent bar — brand color */}
-      <div className="h-1.5" style={{ background: `var(--brand)` }} />
+    <div className="min-h-screen bg-blue-50/30 pb-36 sm:pb-8">
+      {/* Clean gradient top bar */}
+      <div className="h-1.5 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500" />
 
-      <div className="max-w-3xl mx-auto px-4 py-6 sm:py-10 space-y-6 sm:space-y-8">
+      <div className="max-w-3xl mx-auto px-4 py-6 sm:py-10 space-y-6">
 
         {/* ── Header ───────────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5 sm:p-6">
+        <div className="bg-white border border-blue-100 rounded-2xl shadow-sm p-5 sm:p-6">
           <div className="flex items-start gap-4">
-            {/* Logo or brand icon */}
-            <div className="size-12 sm:size-14 rounded-xl flex items-center justify-center shrink-0 shadow-md" style={{ background: `var(--brand)` }}>
+            <div className="size-12 sm:size-14 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shrink-0 shadow-md">
               {tenant?.logo_url ? (
                 <img src={tenant.logo_url} alt={businessName} className="size-8 sm:size-10 object-contain" />
               ) : (
@@ -325,10 +292,10 @@ export default function QuotePage() {
               )}
             </div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-lg sm:text-xl font-bold text-gray-900 leading-tight">{businessName}</h1>
-              <p className="text-sm text-gray-500 mt-0.5">Your Custom Quote</p>
+              <h1 className="text-lg sm:text-xl font-bold text-slate-800 leading-tight">{businessName}</h1>
+              <p className="text-sm text-slate-400 mt-0.5">Your Custom Quote</p>
               <div className="flex flex-wrap items-center gap-2 mt-2">
-                <span className="text-xs text-gray-400 flex items-center gap-1">
+                <span className="text-xs text-slate-400 flex items-center gap-1">
                   <FileText className="size-3.5" /> #{quoteNumber}
                 </span>
                 <StatusBadge status={quote.status} />
@@ -336,43 +303,42 @@ export default function QuotePage() {
             </div>
           </div>
 
-          {/* Customer info */}
-          <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+          <div className="mt-4 pt-4 border-t border-blue-50 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
             {quote.customer_name && (
-              <div className="flex items-center gap-2 text-gray-700">
-                <User className="size-4 text-gray-400 shrink-0" /> {quote.customer_name}
+              <div className="flex items-center gap-2 text-slate-700">
+                <User className="size-4 text-blue-300 shrink-0" /> {quote.customer_name}
               </div>
             )}
             {quote.customer_address && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <MapPin className="size-4 text-gray-400 shrink-0" />
+              <div className="flex items-center gap-2 text-slate-500">
+                <MapPin className="size-4 text-blue-300 shrink-0" />
                 <span className="truncate">{quote.customer_address}</span>
               </div>
             )}
             {quote.customer_phone && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Phone className="size-4 text-gray-400 shrink-0" /> {quote.customer_phone}
+              <div className="flex items-center gap-2 text-slate-500">
+                <Phone className="size-4 text-blue-300 shrink-0" /> {quote.customer_phone}
               </div>
             )}
             {serviceType === "house_cleaning" && (quote.bedrooms || quote.bathrooms) && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Home className="size-4 text-gray-400 shrink-0" /> {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
+              <div className="flex items-center gap-2 text-slate-500">
+                <Home className="size-4 text-blue-300 shrink-0" /> {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
               </div>
             )}
           </div>
 
-          <div className="mt-3 flex items-center gap-1.5 text-gray-400 text-xs">
+          <div className="mt-3 flex items-center gap-1.5 text-slate-400 text-xs">
             <Clock className="size-3.5" /> Valid until {fmtDate(quote.valid_until)}
           </div>
         </div>
 
-        {/* ── Expired / Error Banners ─────────────────────────── */}
+        {/* ── Banners ─────────────────────────────────────────── */}
         {isExpired && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
             <AlertTriangle className="size-5 text-red-500 shrink-0" />
             <div>
               <p className="text-red-700 font-semibold text-sm">This quote has expired</p>
-              <p className="text-red-500 text-xs">Contact us for an updated quote.</p>
+              <p className="text-red-400 text-xs">Contact us for an updated quote.</p>
             </div>
           </div>
         )}
@@ -385,15 +351,15 @@ export default function QuotePage() {
 
         {/* ── Tier Selection ──────────────────────────────────── */}
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">Choose Your Package</h2>
-          <p className="text-gray-500 text-sm mb-5">Select the service level that fits your needs.</p>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Choose Your Package</h2>
+          <p className="text-slate-400 text-sm mb-5">Select the service level that fits your needs.</p>
 
           <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
             {tiers.map((tier, idx) => {
               const isSelected = selectedTierKey === tier.key
               const price = tierPrices[tier.key]?.price ?? 0
               const breakdown = tierPrices[tier.key]?.breakdown ?? []
-              const isBestValue = !!tier.badge
+              const colors = TIER_COLORS[idx] || TIER_COLORS[0]
 
               return (
                 <button
@@ -404,58 +370,50 @@ export default function QuotePage() {
                   className={`
                     relative w-full text-left rounded-2xl border-2 transition-all duration-200 p-5 flex flex-col
                     ${isSelected
-                      ? "shadow-lg"
-                      : "bg-white border-gray-200 hover:border-gray-300 hover:shadow-md"
+                      ? `${colors.bg} ${colors.border} ring-2 ${colors.ring} shadow-lg`
+                      : "bg-white border-blue-100 hover:border-blue-200 hover:shadow-md"
                     }
                     ${isExpired ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-[0.98]"}
                   `}
-                  style={isSelected ? {
-                    borderColor: `var(--brand)`,
-                    backgroundColor: `var(--brand-light)`,
-                    boxShadow: `0 4px 20px color-mix(in srgb, var(--brand) 20%, transparent)`,
-                  } : undefined}
                 >
-                  {isBestValue && (
+                  {tier.badge && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-                      <span className="text-white text-xs font-bold px-4 py-1 rounded-full shadow-md whitespace-nowrap" style={{ background: `var(--brand)` }}>
+                      <span className={`${colors.badge} text-white text-xs font-bold px-4 py-1 rounded-full shadow-md whitespace-nowrap`}>
                         {tier.badge}
                       </span>
                     </div>
                   )}
 
                   <div className="flex items-center gap-3 mb-3">
-                    <div
-                      className={`size-11 rounded-xl flex items-center justify-center shrink-0 ${isSelected ? "text-white" : "bg-gray-100 text-gray-400"}`}
-                      style={isSelected ? { background: `var(--brand)` } : undefined}
-                    >
+                    <div className={`size-11 rounded-xl flex items-center justify-center shrink-0 text-white shadow-sm ${isSelected ? colors.icon : "bg-slate-200 text-slate-400"}`}>
                       {TIER_ICONS[idx] ?? <Shield className="size-6" />}
                     </div>
                     <div>
-                      <h3 className="text-gray-900 font-bold text-base sm:text-lg">{tier.name}</h3>
-                      <p className="text-gray-400 text-xs">{tier.tagline}</p>
+                      <h3 className="text-slate-800 font-bold text-base sm:text-lg">{tier.name}</h3>
+                      <p className="text-slate-400 text-xs">{tier.tagline}</p>
                     </div>
                   </div>
 
                   {tier.description && (
-                    <p className="text-gray-400 text-xs leading-relaxed mb-3">{tier.description}</p>
+                    <p className="text-slate-400 text-xs leading-relaxed mb-3">{tier.description}</p>
                   )}
 
                   <div className="flex-1 space-y-1.5 mb-4">
                     {breakdown.map((item) => (
                       <div key={item.service} className="flex items-start gap-2">
-                        <Check className="size-4 shrink-0 mt-0.5" style={isSelected ? { color: `var(--brand)` } : { color: '#9ca3af' }} />
-                        <span className="text-sm text-gray-600">{item.service}</span>
+                        <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
+                        <span className="text-sm text-slate-600">{item.service}</span>
                       </div>
                     ))}
                   </div>
 
-                  <div className="border-t border-gray-100 pt-3 mt-auto">
-                    <span className="text-2xl font-bold text-gray-900">{fmt(price)}</span>
+                  <div className="border-t border-blue-50 pt-3 mt-auto">
+                    <span className="text-2xl font-bold text-slate-800">{fmt(price)}</span>
                   </div>
 
                   {isSelected && (
                     <div className="absolute top-4 right-4">
-                      <div className="size-7 rounded-full flex items-center justify-center text-white shadow-md" style={{ background: `var(--brand)` }}>
+                      <div className={`size-7 rounded-full flex items-center justify-center text-white shadow-md ${colors.icon}`}>
                         <Check className="size-4" />
                       </div>
                     </div>
@@ -469,8 +427,8 @@ export default function QuotePage() {
         {/* ── Add-ons ─────────────────────────────────────────── */}
         {addons.length > 0 && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">Customize Your Clean</h2>
-            <p className="text-gray-500 text-sm mb-5">Tap to add or remove extras. Build your perfect package.</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
+            <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
 
             <div className="space-y-2">
               {addons.map((addon) => {
@@ -479,8 +437,10 @@ export default function QuotePage() {
                 const addonPrice = getAddonPrice(addon)
 
                 return (
-                  <div key={addon.key} className="rounded-xl border-2 transition-all duration-150 overflow-hidden"
-                    style={checked ? { borderColor: `var(--brand)`, backgroundColor: `var(--brand-light)` } : { borderColor: '#e5e7eb', backgroundColor: 'white' }}
+                  <div key={addon.key}
+                    className={`rounded-xl border-2 transition-all duration-150 overflow-hidden ${
+                      checked ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white hover:border-blue-200"
+                    } ${isExpired ? "opacity-50" : ""}`}
                   >
                     <button
                       type="button"
@@ -489,49 +449,47 @@ export default function QuotePage() {
                         if (isExpired) return
                         setSelectedAddons((prev) => ({ ...prev, [addon.key]: !prev[addon.key] }))
                       }}
-                      className={`w-full text-left p-4 flex items-center gap-3 ${isExpired ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:bg-gray-50"}`}
+                      className="w-full text-left p-4 flex items-center gap-3 cursor-pointer active:bg-blue-50"
                     >
-                      {/* Big checkbox */}
                       <div className={`size-7 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
-                        checked ? "border-transparent text-white" : "border-gray-300 bg-white"
-                      }`} style={checked ? { background: `var(--brand)` } : undefined}>
+                        checked ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 bg-white"
+                      }`}>
                         {checked && <Check className="size-4" />}
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-gray-900">{addon.name}</span>
+                          <span className="text-sm font-semibold text-slate-800">{addon.name}</span>
                           {included && checked && (
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">INCLUDED</span>
                           )}
                         </div>
-                        {addon.description && <p className="text-xs text-gray-400 mt-0.5">{addon.description}</p>}
+                        {addon.description && <p className="text-xs text-slate-400 mt-0.5">{addon.description}</p>}
                       </div>
 
-                      <span className={`text-sm font-bold shrink-0 ${included && checked ? "text-emerald-600" : "text-gray-700"}`}>
+                      <span className={`text-sm font-bold shrink-0 ${included && checked ? "text-emerald-600" : "text-slate-700"}`}>
                         {included && checked ? "FREE" : addonPrice === 0 ? "FREE" : addon.priceType === "per_unit" ? `${fmt(addon.price)}/${addon.unit || "ea"}` : fmt(addonPrice)}
                       </span>
                     </button>
 
-                    {/* Per-unit quantity controls */}
                     {addon.priceType === "per_unit" && checked && !included && (
                       <div className="px-4 pb-4 flex items-center gap-3">
-                        <span className="text-xs text-gray-500">Qty:</span>
+                        <span className="text-xs text-slate-500">Qty:</span>
                         <div className="flex items-center gap-1">
-                          <button type="button" className="h-8 w-8 rounded-lg border border-gray-200 bg-white flex items-center justify-center active:bg-gray-100"
+                          <button type="button" className="h-8 w-8 rounded-lg border border-blue-100 bg-white flex items-center justify-center active:bg-blue-50"
                             disabled={isExpired || (addonQuantities[addon.key] || 1) <= 1}
                             onClick={() => setAddonQuantities((p) => ({ ...p, [addon.key]: Math.max(1, (p[addon.key] || 1) - 1) }))}
                           ><Minus className="size-3.5" /></button>
                           <Input type="number" min={1} value={addonQuantities[addon.key] || 1}
                             onChange={(e) => setAddonQuantities((p) => ({ ...p, [addon.key]: Math.max(1, parseInt(e.target.value) || 1) }))}
-                            className="w-14 h-8 text-center text-sm" disabled={isExpired}
+                            className="w-14 h-8 text-center text-sm border-blue-100" disabled={isExpired}
                           />
-                          <button type="button" className="h-8 w-8 rounded-lg border border-gray-200 bg-white flex items-center justify-center active:bg-gray-100"
+                          <button type="button" className="h-8 w-8 rounded-lg border border-blue-100 bg-white flex items-center justify-center active:bg-blue-50"
                             disabled={isExpired}
                             onClick={() => setAddonQuantities((p) => ({ ...p, [addon.key]: (p[addon.key] || 1) + 1 }))}
                           ><Plus className="size-3.5" /></button>
                         </div>
-                        <span className="text-xs text-gray-500">= {fmt(addon.price * (addonQuantities[addon.key] || 1))}</span>
+                        <span className="text-xs text-slate-500">= {fmt(addon.price * (addonQuantities[addon.key] || 1))}</span>
                       </div>
                     )}
                   </div>
@@ -544,19 +502,19 @@ export default function QuotePage() {
         {/* ── Membership Plans ────────────────────────────────── */}
         {!isExpired && servicePlans.length > 0 && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">Save with a Membership</h2>
-            <p className="text-gray-500 text-sm mb-5">Regular service = bigger savings every visit.</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Save with a Membership</h2>
+            <p className="text-slate-400 text-sm mb-5">Regular service = bigger savings every visit.</p>
 
             <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
               <button type="button" onClick={() => setSelectedMembership(null)}
                 className={`relative w-full text-left rounded-xl border-2 p-4 transition-all cursor-pointer active:scale-[0.98] ${
-                  selectedMembership === null ? "border-gray-400 bg-gray-50 shadow-sm" : "border-gray-200 bg-white hover:border-gray-300"
+                  selectedMembership === null ? "border-slate-400 bg-slate-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
                 }`}
               >
-                <h3 className="text-gray-900 font-semibold text-sm">No Membership</h3>
-                <p className="text-gray-400 text-xs mt-1">One-time service, no commitment</p>
+                <h3 className="text-slate-800 font-semibold text-sm">No Membership</h3>
+                <p className="text-slate-400 text-xs mt-1">One-time service, no commitment</p>
                 {selectedMembership === null && (
-                  <div className="absolute top-3 right-3 size-6 rounded-full bg-gray-500 flex items-center justify-center">
+                  <div className="absolute top-3 right-3 size-6 rounded-full bg-slate-500 flex items-center justify-center">
                     <Check className="size-3 text-white" />
                   </div>
                 )}
@@ -568,20 +526,18 @@ export default function QuotePage() {
                 return (
                   <button key={plan.slug} type="button" onClick={() => setSelectedMembership(plan.slug)}
                     className={`relative w-full text-left rounded-xl border-2 p-4 transition-all cursor-pointer active:scale-[0.98] ${
-                      isSelected ? "border-emerald-400 bg-emerald-50 shadow-sm" : "border-gray-200 bg-white hover:border-gray-300"
+                      isSelected ? "border-emerald-400 bg-emerald-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
                     }`}
                   >
-                    <h3 className="text-gray-900 font-semibold text-sm">{plan.name}</h3>
-                    <p className="text-gray-400 text-xs mt-1">
-                      {plan.visits_per_year} visits/yr &middot; Every {plan.interval_months}mo
-                    </p>
+                    <h3 className="text-slate-800 font-semibold text-sm">{plan.name}</h3>
+                    <p className="text-slate-400 text-xs mt-1">{plan.visits_per_year} visits/yr &middot; Every {plan.interval_months}mo</p>
                     <p className="text-emerald-600 font-bold text-sm mt-2">Save {fmt(Number(plan.discount_per_visit))}/visit</p>
                     {freeAddons.length > 0 && (
                       <div className="mt-2 space-y-0.5">
                         {freeAddons.map((perk) => (
                           <div key={perk} className="flex items-center gap-1.5">
                             <Check className="size-3 text-emerald-500 shrink-0" />
-                            <span className="text-gray-500 text-xs">{perk}</span>
+                            <span className="text-slate-500 text-xs">{perk}</span>
                           </div>
                         ))}
                       </div>
@@ -601,51 +557,53 @@ export default function QuotePage() {
         {/* ── Customer Info ───────────────────────────────────── */}
         {!isExpired && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1">Your Information</h2>
-            <p className="text-gray-500 text-sm mb-4">Confirm your details for the service.</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Information</h2>
+            <p className="text-slate-400 text-sm mb-4">Confirm your details for the service.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="cname" className="text-sm text-gray-600">Name</Label>
-                <Input id="cname" value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Your name" className="h-12 bg-white border-gray-200 text-base" />
+                <Label htmlFor="cname" className="text-sm text-slate-600">Name</Label>
+                <Input id="cname" value={customerName} onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Your name" className="h-12 bg-white border-blue-100 text-base focus:border-blue-400 focus:ring-blue-200" />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="cemail" className="text-sm text-gray-600">Email</Label>
-                <Input id="cemail" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="your@email.com" className="h-12 bg-white border-gray-200 text-base" />
+                <Label htmlFor="cemail" className="text-sm text-slate-600">Email</Label>
+                <Input id="cemail" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="your@email.com" className="h-12 bg-white border-blue-100 text-base focus:border-blue-400 focus:ring-blue-200" />
               </div>
             </div>
           </div>
         )}
 
-        {/* ── Service Agreement — BIG & OBVIOUS ──────────────── */}
+        {/* ── Service Agreement ───────────────────────────────── */}
         {!isExpired && serviceAgreement && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-gray-900 mb-1 flex items-center gap-2">
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
               <ShieldCheck className="size-5 text-emerald-500" />
               Service Agreement
             </h2>
 
-            <div className={`border-2 rounded-2xl overflow-hidden transition-all ${agreementAccepted ? "border-emerald-400" : "border-gray-200"}`}>
+            <div className={`border-2 rounded-2xl overflow-hidden transition-all ${agreementAccepted ? "border-emerald-400" : "border-blue-100"}`}>
               {/* Expandable terms */}
-              <button type="button" onClick={() => setShowAgreementTerms(!showAgreementTerms)}
-                className="w-full flex items-center justify-between p-4 text-left bg-white active:bg-gray-50"
+              <button type="button" onClick={() => setShowTerms(!showTerms)}
+                className="w-full flex items-center justify-between p-4 text-left bg-white active:bg-blue-50/50"
               >
-                <span className="text-sm text-gray-600 font-medium">View Terms &amp; Conditions</span>
-                {showAgreementTerms ? <ChevronUp className="size-5 text-gray-400" /> : <ChevronDown className="size-5 text-gray-400" />}
+                <span className="text-sm text-slate-600 font-medium">View Terms &amp; Conditions</span>
+                {showTerms ? <ChevronUp className="size-5 text-slate-400" /> : <ChevronDown className="size-5 text-slate-400" />}
               </button>
 
-              {showAgreementTerms && (
-                <div className="px-4 pb-4 space-y-3 bg-white border-t border-gray-100">
+              {showTerms && (
+                <div className="px-4 pb-4 space-y-3 bg-white border-t border-blue-50">
                   {serviceAgreement.terms.map((term, i) => (
                     <div key={i} className="flex items-start gap-3">
-                      <div className="size-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-                        <span className="text-gray-500 text-xs font-bold">{i + 1}</span>
+                      <div className="size-6 rounded-full bg-blue-50 flex items-center justify-center shrink-0 mt-0.5">
+                        <span className="text-blue-500 text-xs font-bold">{i + 1}</span>
                       </div>
-                      <p className="text-sm text-gray-600 leading-relaxed">{term}</p>
+                      <p className="text-sm text-slate-600 leading-relaxed">{term}</p>
                     </div>
                   ))}
                   {serviceAgreement.satisfaction_guarantee && (
                     <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-                      <ShieldCheck className="size-5 text-emerald-600 shrink-0 mt-0.5" />
+                      <ShieldCheck className="size-5 text-emerald-500 shrink-0 mt-0.5" />
                       <div>
                         <p className="text-emerald-700 font-semibold text-sm">100% Satisfaction Guarantee</p>
                         <p className="text-emerald-600 text-xs mt-1">Not happy? We&apos;ll come back and make it right — free.</p>
@@ -655,23 +613,21 @@ export default function QuotePage() {
                 </div>
               )}
 
-              {/* BIG acceptance toggle */}
+              {/* Big accept bar */}
               <button
                 type="button"
                 onClick={() => setAgreementAccepted(!agreementAccepted)}
                 className={`w-full border-t-2 px-4 py-5 flex items-center gap-4 transition-all active:opacity-80 ${
-                  agreementAccepted
-                    ? "bg-emerald-50 border-emerald-300"
-                    : "bg-amber-50 border-amber-200"
+                  agreementAccepted ? "bg-emerald-50 border-emerald-300" : "bg-amber-50/70 border-amber-200"
                 }`}
               >
-                <div className={`size-8 sm:size-9 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
-                  agreementAccepted ? "bg-emerald-500 border-emerald-500" : "bg-white border-gray-300"
+                <div className={`size-9 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
+                  agreementAccepted ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-300"
                 }`}>
                   {agreementAccepted && <Check className="size-5 text-white" />}
                 </div>
                 <div className="text-left">
-                  <p className={`font-bold text-sm ${agreementAccepted ? "text-emerald-700" : "text-gray-900"}`}>
+                  <p className={`font-bold text-sm ${agreementAccepted ? "text-emerald-700" : "text-slate-800"}`}>
                     {agreementAccepted ? "Service Agreement Accepted" : "Tap to Accept Service Agreement"}
                   </p>
                   <p className={`text-xs mt-0.5 ${agreementAccepted ? "text-emerald-600" : "text-amber-600"}`}>
@@ -684,43 +640,39 @@ export default function QuotePage() {
         )}
 
         {/* ── Price Summary ───────────────────────────────────── */}
-        <div className="bg-white border-2 border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 bg-gray-50">
-            <h3 className="font-bold text-gray-900">Price Summary</h3>
+        <div className="bg-white border-2 border-blue-100 rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-blue-50 bg-blue-50/50">
+            <h3 className="font-bold text-slate-800">Price Summary</h3>
           </div>
           <div className="p-5 space-y-2.5">
             {selectedTier && selectedTierPrice && (
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">{selectedTier.name}</span>
-                <span className="text-gray-900 font-semibold">{fmt(selectedTierPrice.price)}</span>
+                <span className="text-slate-600">{selectedTier.name}</span>
+                <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
               </div>
             )}
 
-            {/* Extra add-ons (non-included) */}
             {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
-                <span className="text-gray-500">
-                  + {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}
-                </span>
-                <span className="text-gray-700">{fmt(getAddonPrice(addon))}</span>
+                <span className="text-slate-500">+ {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}</span>
+                <span className="text-slate-700">{fmt(getAddonPrice(addon))}</span>
               </div>
             ))}
 
-            {/* Included add-ons */}
             {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
-                <span className="text-gray-400">{addon.name}</span>
-                <span className="text-emerald-600 text-xs font-medium">Included</span>
+                <span className="text-slate-400">{addon.name}</span>
+                <span className="text-emerald-500 text-xs font-medium">Included</span>
               </div>
             ))}
 
-            <div className="border-t border-gray-100 my-1" />
+            <div className="border-t border-blue-50 my-1" />
 
             {(existingDiscount > 0 || membershipDiscount > 0) && (
               <>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Subtotal</span>
-                  <span className="text-gray-600">{fmt(subtotal)}</span>
+                  <span className="text-slate-500">Subtotal</span>
+                  <span className="text-slate-600">{fmt(subtotal)}</span>
                 </div>
                 {existingDiscount > 0 && (
                   <div className="flex justify-between text-sm">
@@ -737,28 +689,28 @@ export default function QuotePage() {
               </>
             )}
 
-            <div className="border-t-2 border-gray-200 pt-3">
+            <div className="border-t-2 border-blue-100 pt-3">
               <div className="flex justify-between items-baseline">
-                <span className="text-gray-900 font-bold text-lg">Total</span>
-                <span className="text-gray-900 font-bold text-3xl">{fmt(total)}</span>
+                <span className="text-slate-800 font-bold text-lg">Total</span>
+                <span className="text-slate-800 font-bold text-3xl">{fmt(total)}</span>
               </div>
-              <p className="text-gray-400 text-xs mt-2">
+              <p className="text-slate-400 text-xs mt-2">
                 Your card will be saved on file. You&apos;ll only be charged after your service is complete.
               </p>
             </div>
           </div>
         </div>
 
-        {/* Spacer for mobile sticky bar */}
-        <div className="h-4 sm:hidden" />
-
         {/* ── Desktop CTA ─────────────────────────────────────── */}
         <div className="hidden sm:flex flex-col items-center gap-3 pb-8">
           <button
             disabled={!canApprove}
             onClick={handleApprove}
-            className="w-full sm:max-w-md h-14 rounded-xl text-white font-bold text-base shadow-lg hover:shadow-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            style={{ background: canApprove ? `var(--brand)` : undefined, backgroundColor: canApprove ? undefined : '#d1d5db' }}
+            className={`w-full sm:max-w-md h-14 rounded-xl text-white font-bold text-base shadow-lg transition-all flex items-center justify-center gap-2 ${
+              canApprove
+                ? "bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 hover:shadow-xl active:scale-[0.98]"
+                : "bg-slate-300 cursor-not-allowed"
+            }`}
           >
             {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Save Card &amp; Book — {fmt(total)}</>}
           </button>
@@ -767,34 +719,37 @@ export default function QuotePage() {
               <AlertTriangle className="size-4" /> Accept the service agreement to continue
             </p>
           )}
-          <p className="flex items-center gap-1.5 text-gray-400 text-xs"><Lock className="size-3" /> Secure payment powered by Stripe</p>
+          <p className="flex items-center gap-1.5 text-slate-400 text-xs"><Lock className="size-3" /> Secure payment powered by Stripe</p>
         </div>
 
         <div className="text-center pb-4 sm:pb-8">
-          <p className="text-gray-300 text-xs">Powered by {businessName}</p>
+          <p className="text-slate-300 text-xs">Powered by {businessName}</p>
         </div>
       </div>
 
       {/* ── Mobile Sticky Bottom Bar ──────────────────────────── */}
-      <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-gray-200 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.08)] z-50">
-        <div className="flex items-center justify-between mb-2">
+      <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t-2 border-blue-100 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-50">
+        <div className="flex items-center justify-between mb-2.5">
           <div>
-            <span className="text-xs text-gray-500">Total</span>
-            <p className="text-xl font-bold text-gray-900">{fmt(total)}</p>
+            <span className="text-xs text-slate-400">Total</span>
+            <p className="text-xl font-bold text-slate-800">{fmt(total)}</p>
           </div>
-          {activeAddonCount > 0 && (
-            <span className="text-xs text-gray-400">{activeAddonCount} add-on{activeAddonCount !== 1 ? 's' : ''}</span>
+          {activeExtraAddons > 0 && (
+            <span className="text-xs text-slate-400 bg-blue-50 px-2 py-1 rounded-full">{activeExtraAddons} add-on{activeExtraAddons !== 1 ? "s" : ""}</span>
           )}
         </div>
         <button
           disabled={!canApprove}
           onClick={handleApprove}
-          className="w-full h-13 rounded-xl text-white font-bold text-base transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 py-3.5"
-          style={{ background: canApprove ? `var(--brand)` : undefined, backgroundColor: canApprove ? undefined : '#d1d5db' }}
+          className={`w-full h-[52px] rounded-xl text-white font-bold text-base transition-all flex items-center justify-center gap-2 ${
+            canApprove
+              ? "bg-gradient-to-r from-sky-500 to-blue-600 shadow-lg active:scale-[0.98]"
+              : "bg-slate-300 cursor-not-allowed"
+          }`}
         >
           {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Save Card &amp; Book</>}
         </button>
-        <p className="text-center text-gray-400 text-[10px] mt-1.5 flex items-center justify-center gap-1"><Lock className="size-2.5" /> Secure payment by Stripe</p>
+        <p className="text-center text-slate-400 text-[10px] mt-1.5 flex items-center justify-center gap-1"><Lock className="size-2.5" /> Secure payment by Stripe</p>
       </div>
     </div>
   )
@@ -803,21 +758,16 @@ export default function QuotePage() {
 // ── Status Badge ────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: Quote["status"] }) {
-  const styles = {
-    pending: "bg-amber-100 text-amber-700 border-amber-200",
-    approved: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    expired: "bg-red-100 text-red-700 border-red-200",
+  const cfg: Record<string, { style: string; icon: React.ReactNode; label: string }> = {
+    pending: { style: "bg-amber-100 text-amber-700 border-amber-200", icon: <Clock className="size-3" />, label: "Awaiting Response" },
+    approved: { style: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: <CheckCircle className="size-3" />, label: "Approved" },
+    expired: { style: "bg-red-100 text-red-700 border-red-200", icon: <AlertTriangle className="size-3" />, label: "Expired" },
   }
-  const icons = {
-    pending: <Clock className="size-3" />,
-    approved: <CheckCircle className="size-3" />,
-    expired: <AlertTriangle className="size-3" />,
-  }
-  const labels = { pending: "Awaiting Response", approved: "Approved", expired: "Expired" }
-  if (!styles[status]) return null
+  const c = cfg[status]
+  if (!c) return null
   return (
-    <span className={`inline-flex items-center gap-1 ${styles[status]} border text-xs font-medium px-2.5 py-0.5 rounded-full`}>
-      {icons[status]} {labels[status]}
+    <span className={`inline-flex items-center gap-1 ${c.style} border text-xs font-medium px-2.5 py-0.5 rounded-full`}>
+      {c.icon} {c.label}
     </span>
   )
 }
