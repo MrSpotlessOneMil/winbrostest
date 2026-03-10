@@ -351,21 +351,17 @@ export async function POST(request: NextRequest) {
       metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone", cleaner_id: matchedCleaner.id },
     })
 
-    // Parse cleaner intent from message
-    const { parseCleanerSMS, processCleanerStatusUpdate, processCleanerAssignmentReply } = await import("@/lib/cleaner-sms")
+    // Parse cleaner intent — only YES/NO for assignment replies
+    // Status updates (OMW/HERE/DONE) are portal-only
+    const { parseCleanerSMS, processCleanerAssignmentReply } = await import("@/lib/cleaner-sms")
     const intent = parseCleanerSMS(extracted.content || "")
 
-    if (intent && tenant) {
-      if (intent === "omw" || intent === "here" || intent === "done") {
-        const result = await processCleanerStatusUpdate(tenant, matchedCleaner.id, intent)
-        console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} status update: ${intent} — ${result.success ? "ok" : result.error}`)
-      } else if (intent === "accept" || intent === "decline") {
-        const result = await processCleanerAssignmentReply(tenant, matchedCleaner.id, intent === "accept")
-        console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} assignment reply: ${intent} — ${result.success ? "ok" : result.error}`)
-      }
+    if (intent && tenant && (intent === "accept" || intent === "decline")) {
+      const result = await processCleanerAssignmentReply(tenant, matchedCleaner.id, intent === "accept")
+      console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} assignment reply: ${intent} — ${result.success ? "ok" : result.error}`)
     } else {
-      console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} sent unrecognized message — stored, forwarding to owner`)
-      // Forward unrecognized cleaner messages to owner
+      console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} sent message — stored, forwarding to owner`)
+      // Forward cleaner messages to owner
       if (tenant?.owner_phone) {
         const { sendSMS: sendOwnerSMS } = await import("@/lib/openphone")
         await sendOwnerSMS(tenant, tenant.owner_phone, `Message from cleaner ${matchedCleaner.name}: ${(extracted.content || "").slice(0, 200)}`)
