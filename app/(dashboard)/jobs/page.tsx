@@ -102,6 +102,18 @@ type CreateForm = {
   assignment_mode: AssignmentMode
   is_quote: boolean
   selected_addons: string[]
+  membership_id: string
+}
+
+type CustomerMembership = {
+  id: string
+  status: string
+  visits_completed: number
+  service_plans: {
+    name: string
+    visits_per_year: number
+    discount_per_visit: number
+  }
 }
 
 type RainDayPreview = {
@@ -346,10 +358,13 @@ export default function JobsPage() {
     assignment_mode: "auto_broadcast" as AssignmentMode,
     is_quote: false,
     selected_addons: [],
+    membership_id: "",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
+  const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
   // Add charge state (card-on-file tenants)
   const [addChargeOpen, setAddChargeOpen] = useState(false)
   const [addChargeType, setAddChargeType] = useState("")
@@ -429,9 +444,14 @@ export default function JobsPage() {
       fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`)
         .then((r) => r.json())
         .then((res) => {
-          if (!res.success || !res.data?.length) return
+          if (!res.success || !res.data?.length) {
+            setLookedUpCustomerId(null)
+            setCustomerMemberships([])
+            return
+          }
           const c = res.data[0]
           setPhoneLookedUp(digits)
+          setLookedUpCustomerId(c.id || null)
           setCreateForm((prev) => ({
             ...prev,
             customer_name: prev.customer_name || [c.first_name, c.last_name].filter(Boolean).join(" "),
@@ -440,7 +460,18 @@ export default function JobsPage() {
             bedrooms: prev.bedrooms || (c.bedrooms ? String(c.bedrooms) : ""),
             bathrooms: prev.bathrooms || (c.bathrooms ? String(c.bathrooms) : ""),
             sqft: prev.sqft || (c.sqft ? String(c.sqft) : ""),
+            membership_id: "",
           }))
+          // Fetch active memberships for this customer (WinBros only)
+          if (c.id && !isHouseCleaning) {
+            fetch(`/api/actions/memberships?customer_id=${c.id}&status=active`)
+              .then((r) => r.json())
+              .then((mRes) => {
+                if (mRes.data) setCustomerMemberships(mRes.data)
+                else setCustomerMemberships([])
+              })
+              .catch(() => setCustomerMemberships([]))
+          }
         })
         .catch(() => {})
     }, 500)
@@ -602,11 +633,14 @@ export default function JobsPage() {
       assignment_mode: "auto_broadcast",
       is_quote: false,
       selected_addons: [],
+      membership_id: "",
     })
     setCreateError("")
     setPhoneLookedUp("")
     setBasePrice(0)
     setAddressSuggestions([])
+    setLookedUpCustomerId(null)
+    setCustomerMemberships([])
     setCreateOpen(true)
 
     // Fetch cleaners list if not already loaded
@@ -1059,6 +1093,7 @@ export default function JobsPage() {
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
+          membership_id: createForm.membership_id || undefined,
           cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
           assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
@@ -1076,6 +1111,9 @@ export default function JobsPage() {
       }
 
       setCreateOpen(false)
+      setPhoneLookedUp("")
+      setLookedUpCustomerId(null)
+      setCustomerMemberships([])
       await refreshJobs()
     } catch {
       setCreateError("Connection error. Please try again.")
@@ -1205,11 +1243,14 @@ export default function JobsPage() {
             assignment_mode: "auto_broadcast",
             is_quote: false,
             selected_addons: [],
+            membership_id: "",
           })
           setCreateError("")
           setPhoneLookedUp("")
           setBasePrice(0)
           setAddressSuggestions([])
+          setLookedUpCustomerId(null)
+          setCustomerMemberships([])
           setCreateOpen(true)
           if (cleanersList.length === 0) {
             fetch("/api/teams")
@@ -2030,8 +2071,8 @@ export default function JobsPage() {
               </div>
             )}
 
-            {/* Frequency (house cleaning) & Cleaner (all tenants) */}
-            <div style={{ display: "grid", gridTemplateColumns: isHouseCleaning ? "1fr 1fr" : "1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            {/* Frequency (house cleaning) or Membership (WinBros) & Cleaner (all tenants) */}
+            <div style={{ display: "grid", gridTemplateColumns: isHouseCleaning || (!isHouseCleaning && lookedUpCustomerId) ? "1fr 1fr" : "1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
               {isHouseCleaning && (
                 <div>
                   <label className="cal-form-label">Frequency *</label>
@@ -2046,6 +2087,38 @@ export default function JobsPage() {
                     <option value="weekly">Weekly</option>
                     <option value="bi-weekly">Bi-weekly</option>
                     <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+              )}
+              {!isHouseCleaning && lookedUpCustomerId && (
+                <div>
+                  <label className="cal-form-label">Membership</label>
+                  <select
+                    className="cal-form-control"
+                    value={createForm.membership_id}
+                    onChange={(e) => {
+                      const memId = e.target.value
+                      const mem = memId ? customerMemberships.find((m) => m.id === memId) : null
+                      setCreateForm((prev) => {
+                        const updated = { ...prev, membership_id: memId }
+                        const currentBase = basePrice || Number(prev.price) || 0
+                        if (mem?.service_plans?.discount_per_visit && currentBase > 0) {
+                          updated.price = String(Math.max(0, currentBase - mem.service_plans.discount_per_visit))
+                        } else if (!memId && currentBase > 0) {
+                          // Deselected membership — restore base price
+                          updated.price = String(currentBase)
+                        }
+                        return updated
+                      })
+                    }}
+                  >
+                    <option value="">No membership</option>
+                    {customerMemberships.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.service_plans.name} — {m.visits_completed}/{m.service_plans.visits_per_year} visits
+                        {m.service_plans.discount_per_visit ? ` (-$${m.service_plans.discount_per_visit})` : ""}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}

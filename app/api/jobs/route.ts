@@ -460,6 +460,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Validate membership belongs to this tenant before linking
+    let validatedMembershipId: string | undefined
+    if (body.membership_id) {
+      const { data: mem } = await client
+        .from("customer_memberships")
+        .select("id")
+        .eq("id", body.membership_id)
+        .eq("tenant_id", tenant.id)
+        .eq("status", "active")
+        .maybeSingle()
+      if (!mem) {
+        return NextResponse.json({ error: "Invalid or inactive membership" }, { status: 404 })
+      }
+      validatedMembershipId = mem.id
+    }
+
     const scheduledDate = body.scheduled_date || body.date || undefined
     const scheduledAt = body.scheduled_time || body.scheduled_at || undefined
     const inserted = await client
@@ -482,6 +498,7 @@ export async function POST(request: NextRequest) {
         bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
         sqft: body.sqft != null ? Number(body.sqft) : undefined,
         frequency: body.frequency || "one-time",
+        membership_id: validatedMembershipId,
       })
       .select("*, customers (*)")
       .single()

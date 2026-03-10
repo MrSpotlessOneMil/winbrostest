@@ -19,6 +19,17 @@ import { paymentFailed as paymentFailedTemplate } from '@/lib/sms-templates'
 import { cancelTask } from '@/lib/scheduler'
 import { cancelPendingTasks } from '@/lib/lifecycle-engine'
 
+/** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
+function addMonths(date: Date, months: number): Date {
+  const result = new Date(date)
+  const day = result.getDate()
+  result.setMonth(result.getMonth() + months)
+  if (result.getDate() !== day) {
+    result.setDate(0)
+  }
+  return result
+}
+
 /**
  * Process a pre-validated Stripe event. Exported so tenant-specific routes
  * (e.g. /api/webhooks/stripe/winbros) can validate with their own secret
@@ -487,7 +498,56 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   }
   const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
 
-  // Create job from the approved quote
+  // Create membership first (if plan selected) so we can link it atomically to the job
+  let membershipId: string | null = null
+  if (membership_plan && quote.customer_id) {
+    try {
+      const { data: plan } = await serviceClient
+        .from('service_plans')
+        .select('id, interval_months')
+        .eq('slug', membership_plan)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('active', true)
+        .single()
+
+      if (plan) {
+        // Guard: check for existing active membership to prevent duplicates on webhook replay
+        const { data: existing } = await serviceClient
+          .from('customer_memberships')
+          .select('id')
+          .eq('tenant_id', quote.tenant_id)
+          .eq('customer_id', quote.customer_id)
+          .eq('plan_id', plan.id)
+          .eq('status', 'active')
+          .maybeSingle()
+
+        if (existing) {
+          membershipId = existing.id
+          console.log(`[Stripe Webhook] Reusing existing active membership ${existing.id} for customer ${quote.customer_id}`)
+        } else {
+          const nextVisit = addMonths(new Date(), plan.interval_months)
+
+          const { data: membership } = await serviceClient.from('customer_memberships').insert({
+            tenant_id: quote.tenant_id,
+            customer_id: quote.customer_id,
+            plan_id: plan.id,
+            status: 'active',
+            started_at: new Date().toISOString(),
+            next_visit_at: nextVisit.toISOString(),
+            visits_completed: 0,
+          }).select('id').single()
+
+          membershipId = membership?.id || null
+        }
+      } else {
+        console.error(`[Stripe Webhook] Plan "${membership_plan}" not found or inactive for tenant ${quote.tenant_id}`)
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Membership creation error:', err)
+    }
+  }
+
+  // Create job from the approved quote (with membership_id if applicable)
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -503,6 +563,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     stripe_checkout_session_id: session.id,
     notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved — card on file — ${serviceName} package`,
     quote_id: quote.id,
+    ...(membershipId ? { membership_id: membershipId } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
@@ -513,45 +574,6 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
 
   if (jobError) {
     console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
-  }
-
-  // Create membership if plan was selected
-  let membershipId: string | null = null
-  if (membership_plan && quote.customer_id) {
-    try {
-      const { data: plan } = await serviceClient
-        .from('service_plans')
-        .select('id, interval_months')
-        .eq('slug', membership_plan)
-        .eq('tenant_id', quote.tenant_id)
-        .eq('active', true)
-        .single()
-
-      if (plan) {
-        const nextVisit = new Date()
-        nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
-
-        const { data: membership } = await serviceClient.from('customer_memberships').insert({
-          tenant_id: quote.tenant_id,
-          customer_id: quote.customer_id,
-          plan_id: plan.id,
-          status: 'active',
-          started_at: new Date().toISOString(),
-          next_visit_at: nextVisit.toISOString(),
-          visits_completed: 0,
-          credits: 0,
-        }).select('id').single()
-
-        membershipId = membership?.id || null
-      }
-    } catch (err) {
-      console.error('[Stripe Webhook] Membership creation error:', err)
-    }
-  }
-
-  // Link membership to job if both exist
-  if (membershipId && newJob?.id) {
-    await serviceClient.from('jobs').update({ membership_id: membershipId }).eq('id', newJob.id)
   }
 
   // Send confirmation SMS (no deposit mention)
@@ -664,7 +686,56 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
   }
   const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
 
-  // Create job from the approved quote
+  // Create membership first (if plan selected) so we can link it atomically to the job
+  let depositMembershipId: string | null = null
+  if (membership_plan && quote.customer_id) {
+    try {
+      const { data: plan } = await serviceClient
+        .from('service_plans')
+        .select('id, interval_months')
+        .eq('slug', membership_plan)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('active', true)
+        .single()
+
+      if (plan) {
+        // Guard: check for existing active membership to prevent duplicates on webhook replay
+        const { data: existing } = await serviceClient
+          .from('customer_memberships')
+          .select('id')
+          .eq('tenant_id', quote.tenant_id)
+          .eq('customer_id', quote.customer_id)
+          .eq('plan_id', plan.id)
+          .eq('status', 'active')
+          .maybeSingle()
+
+        if (existing) {
+          depositMembershipId = existing.id
+          console.log(`[Stripe Webhook] Reusing existing active membership ${existing.id} for customer ${quote.customer_id}`)
+        } else {
+          const nextVisit = addMonths(new Date(), plan.interval_months)
+
+          const { data: membership } = await serviceClient.from('customer_memberships').insert({
+            tenant_id: quote.tenant_id,
+            customer_id: quote.customer_id,
+            plan_id: plan.id,
+            status: 'active',
+            started_at: new Date().toISOString(),
+            next_visit_at: nextVisit.toISOString(),
+            visits_completed: 0,
+          }).select('id').single()
+
+          depositMembershipId = membership?.id || null
+        }
+      } else {
+        console.error(`[Stripe Webhook] Plan "${membership_plan}" not found or inactive for tenant ${quote.tenant_id}`)
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Membership creation error:', err)
+    }
+  }
+
+  // Create job from the approved quote (with membership_id if applicable)
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -680,6 +751,7 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     stripe_checkout_session_id: session.id,
     notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved & deposit paid — ${serviceName} package`,
     quote_id: quote.id,
+    ...(depositMembershipId ? { membership_id: depositMembershipId } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
@@ -690,37 +762,6 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
 
   if (jobError) {
     console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
-  }
-
-  // Create membership if plan was selected
-  if (membership_plan && quote.customer_id) {
-    try {
-      const { data: plan } = await serviceClient
-        .from('service_plans')
-        .select('id, interval_months')
-        .eq('slug', membership_plan)
-        .eq('tenant_id', quote.tenant_id)
-        .eq('active', true)
-        .single()
-
-      if (plan) {
-        const nextVisit = new Date()
-        nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
-
-        await serviceClient.from('customer_memberships').insert({
-          tenant_id: quote.tenant_id,
-          customer_id: quote.customer_id,
-          plan_id: plan.id,
-          status: 'active',
-          started_at: new Date().toISOString(),
-          next_visit_at: nextVisit.toISOString(),
-          visits_completed: 0,
-          credits: 0,
-        })
-      }
-    } catch (err) {
-      console.error('[Stripe Webhook] Membership creation error:', err)
-    }
   }
 
   // Send confirmation SMS

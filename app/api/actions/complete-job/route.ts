@@ -63,6 +63,7 @@ async function handleMembershipLifecycle(
       service_plans!inner( id, name, slug, visits_per_year, interval_months, discount_per_visit )
     `)
     .eq("id", membershipId)
+    .eq("tenant_id", tenant?.id)
     .eq("status", "active")
     .single()
 
@@ -77,9 +78,14 @@ async function handleMembershipLifecycle(
     return
   }
   const visitsPerYear = plan.visits_per_year || 0
-  const intervalMonths = plan.interval_months || 3
+  const intervalMonths = Math.max(1, plan.interval_months || 3)
   const prevVisitsCompleted = membership.visits_completed || 0
   const newVisitsCompleted = prevVisitsCompleted + 1
+
+  if (visitsPerYear <= 0) {
+    console.error(`[complete-job] Invalid visits_per_year=${visitsPerYear} for membership ${membershipId} — skipping lifecycle`)
+    return
+  }
 
   // Increment visits_completed and advance next_visit_at
   const nextVisit = addMonths(new Date(), intervalMonths)
@@ -90,19 +96,25 @@ async function handleMembershipLifecycle(
   }
 
   // Track which lifecycle event occurred (used for post-update notifications)
-  let lifecycleEvent: 'penultimate' | 'final_renew' | 'final_complete' | null = null
+  let lifecycleEvent: 'penultimate' | 'final_renew' | 'final_complete' | 'single_visit_complete' | null = null
   let completionReason = ''
 
   // Penultimate visit: queue renewal SMS (sent after DB update succeeds)
-  if (visitsPerYear > 0 && newVisitsCompleted === visitsPerYear - 1) {
+  if (newVisitsCompleted === visitsPerYear - 1) {
     updates.renewal_asked_at = new Date().toISOString()
     updates.renewal_choice = null // Reset in case it was set from a previous cycle
     lifecycleEvent = 'penultimate'
-  }
-
-  // Final visit: act on renewal choice
-  if (visitsPerYear > 0 && newVisitsCompleted >= visitsPerYear) {
-    if (membership.renewal_choice === 'renew') {
+  } else if (newVisitsCompleted >= visitsPerYear) {
+    // Final visit: act on renewal choice
+    if (visitsPerYear === 1) {
+      // Single-visit plan: complete immediately and send informational re-enrollment SMS
+      updates.status = 'completed'
+      updates.next_visit_at = null
+      updates.renewal_asked_at = new Date().toISOString() // Mark so OpenPhone handler can match RENEW replies
+      updates.renewal_choice = null
+      completionReason = 'single-visit plan completed'
+      lifecycleEvent = 'single_visit_complete'
+    } else if (membership.renewal_choice === 'renew') {
       // Renew: reset visits, advance next_visit_at, clear renewal fields
       updates.visits_completed = 0
       updates.renewal_choice = null
@@ -129,10 +141,22 @@ async function handleMembershipLifecycle(
 
   if (updateErr) {
     console.error(`[complete-job] Failed to update membership ${membershipId}:`, updateErr.message)
+    await logSystemEvent({
+      tenant_id: membership.tenant_id,
+      source: 'complete-job',
+      event_type: 'MEMBERSHIP_UPDATE_FAILED',
+      details: { membership_id: membershipId, job_id: jobId, error: updateErr.message },
+    }).catch(() => {}) // best-effort
     return
   }
   if (!updatedRows || updatedRows.length === 0) {
     console.warn(`[complete-job] Membership ${membershipId} was not updated — likely a concurrent update (visits_completed mismatch). Will be retried on next job completion.`)
+    await logSystemEvent({
+      tenant_id: membership.tenant_id,
+      source: 'complete-job',
+      event_type: 'MEMBERSHIP_UPDATE_SKIPPED',
+      details: { membership_id: membershipId, job_id: jobId, reason: 'optimistic lock collision — concurrent update detected' },
+    }).catch(() => {}) // best-effort
     return
   }
 
@@ -151,9 +175,21 @@ async function handleMembershipLifecycle(
           console.log(`[complete-job] Renewal SMS sent to ${customerPhone} for membership ${membershipId}`)
         } else {
           console.error(`[complete-job] Failed to send renewal SMS: ${smsResult.error}`)
+          await logSystemEvent({
+            tenant_id: membership.tenant_id,
+            source: 'complete-job',
+            event_type: 'MEMBERSHIP_RENEWAL_SMS_FAILED',
+            details: { membership_id: membershipId, phone: customerPhone, error: smsResult.error },
+          }).catch(() => {})
         }
       } catch (err) {
         console.error(`[complete-job] Renewal SMS error:`, err)
+        await logSystemEvent({
+          tenant_id: membership.tenant_id,
+          source: 'complete-job',
+          event_type: 'MEMBERSHIP_RENEWAL_SMS_FAILED',
+          details: { membership_id: membershipId, phone: customerPhone, error: String(err) },
+        }).catch(() => {})
       }
 
       // Notify tenant owner via SMS
@@ -234,16 +270,50 @@ async function handleMembershipLifecycle(
       } catch {}
     }
   }
+
+  if (lifecycleEvent === 'single_visit_complete') {
+    console.log(`[complete-job] Single-visit membership ${membershipId} completed — sending re-enrollment SMS`)
+
+    await logSystemEvent({
+      source: 'actions',
+      event_type: 'MEMBERSHIP_COMPLETED',
+      message: `Single-visit membership ${membershipId} completed`,
+      job_id: jobId,
+      phone_number: customerPhone || undefined,
+      metadata: { membership_id: membershipId, plan_slug: plan.slug, single_visit: true },
+    })
+
+    // Send informational SMS with RENEW option
+    if (customerPhone && tenant) {
+      const businessName = tenant.business_name_short || tenant.business_name || tenant.name || 'us'
+      const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
+      const firstName = customerName.split(' ')[0] || 'there'
+      const reEnrollMsg = `Hi ${firstName}! Your ${plan.name} cleaning with ${businessName} is complete. Would you like to sign up for another? Reply RENEW to re-enroll.`
+      try {
+        await sendSMS(tenant, customerPhone, reEnrollMsg)
+      } catch {}
+    }
+
+    if (tenant?.owner_phone) {
+      const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
+      try {
+        await notifyOwnerSMS(
+          tenant,
+          `Single-Visit Membership Completed - Customer: ${customerName}, Plan: ${plan.name}. Re-enrollment SMS sent.`,
+        )
+      } catch {}
+    }
+  }
 }
 
 /** Helper to get customer display name (tenant-scoped) */
-async function getCustomerName(supabase: any, customerId: string | null, tenantId?: string): Promise<string> {
+async function getCustomerName(supabase: any, customerId: string | null, tenantId: string): Promise<string> {
   if (!customerId) return 'Unknown'
-  let query = supabase
+  const query = supabase
     .from("customers")
     .select("first_name, last_name, phone_number")
     .eq("id", customerId)
-  if (tenantId) query = query.eq("tenant_id", tenantId)
+    .eq("tenant_id", tenantId)
   const { data } = await query.single()
   if (!data) return 'Unknown'
   const name = [data.first_name, data.last_name].filter(Boolean).join(' ')

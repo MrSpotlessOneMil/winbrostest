@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const status = searchParams.get("status")
+  const customerId = searchParams.get("customer_id")
   const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10) || 50, 200)
 
   let query = supabase
@@ -42,6 +43,9 @@ export async function GET(request: NextRequest) {
   if (status) {
     query = query.eq("status", status)
   }
+  if (customerId) {
+    query = query.eq("customer_id", customerId)
+  }
 
   const { data: memberships, error } = await query
 
@@ -50,7 +54,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Failed to load memberships" }, { status: 500 })
   }
 
-  return NextResponse.json({ success: true, memberships })
+  return NextResponse.json({ success: true, data: memberships, memberships })
 }
 
 /**

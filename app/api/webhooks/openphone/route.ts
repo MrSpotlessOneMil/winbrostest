@@ -933,6 +933,71 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: true, action: "membership_renewal_reply", choice })
           }
         }
+
+        // Check for completed single-visit memberships (Option B: informational re-enrollment)
+        // These have status='completed', renewal_asked_at set, and no renewal_choice yet
+        if (normalizedReply === "RENEW") {
+          const { data: completedMembership } = await client
+            .from("customer_memberships")
+            .select(`
+              id, customer_id, renewal_asked_at,
+              service_plans!inner( name, slug )
+            `)
+            .eq("tenant_id", tenant.id)
+            .eq("customer_id", customer.id)
+            .eq("status", "completed")
+            .not("renewal_asked_at", "is", null)
+            .is("renewal_choice", null)
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (completedMembership) {
+            const completedPlan = completedMembership.service_plans as any
+            const businessName = (tenant as any).business_name_short || (tenant as any).business_name || (tenant as any).name || 'us'
+
+            // Record the choice so we don't process duplicate replies
+            const { data: updatedRows } = await client
+              .from("customer_memberships")
+              .update({ renewal_choice: 'renew', updated_at: new Date().toISOString() })
+              .eq("id", completedMembership.id)
+              .is("renewal_choice", null)
+              .select("id")
+
+            if (!updatedRows || updatedRows.length === 0) {
+              // Another reply already processed — skip to avoid duplicate SMS
+              return NextResponse.json({ success: true, action: "membership_renewal_already_processed" })
+            }
+
+            // Confirm to customer
+            await sendSMS(tenant, phone, `Great! We'll get you set up for another ${completedPlan.name} cycle with ${businessName}. Someone from our team will reach out shortly!`)
+
+            // Notify tenant owner — they need to manually create the new membership
+            if (tenant.owner_phone) {
+              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || phone
+              await sendSMS(
+                tenant,
+                tenant.owner_phone,
+                `Re-enrollment Request\n\nCustomer: ${customerName}\nPlan: ${completedPlan.name}\nAction needed: Create a new membership for this customer.`,
+              )
+            }
+
+            await logSystemEvent({
+              tenant_id: tenant.id,
+              source: "openphone",
+              event_type: "MEMBERSHIP_REENROLLMENT_REQUESTED",
+              message: `Customer replied RENEW to single-visit re-enrollment SMS for completed membership ${completedMembership.id}`,
+              phone_number: phone,
+              metadata: {
+                membership_id: completedMembership.id,
+                plan_slug: completedPlan.slug,
+              },
+            })
+
+            console.log(`[OpenPhone] Single-visit re-enrollment request for completed membership ${completedMembership.id}`)
+            return NextResponse.json({ success: true, action: "membership_reenrollment_request" })
+          }
+        }
       } catch (err) {
         console.error("[OpenPhone] Membership renewal reply handler error:", err)
         // Fall through to normal processing if handler fails

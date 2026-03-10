@@ -78,7 +78,7 @@ export async function GET(
   // Fetch membership/service plans for this tenant
   const { data: servicePlans } = await supabase
     .from("service_plans")
-    .select("id, slug, name, visits_per_year, interval_months, discount_per_visit, early_cancel_repay, free_addons, agreement_text")
+    .select("id, slug, name, visits_per_year, interval_months, discount_per_visit, free_addons, agreement_text")
     .eq("tenant_id", tenant.id)
     .eq("active", true)
     .order("discount_per_visit", { ascending: true })
