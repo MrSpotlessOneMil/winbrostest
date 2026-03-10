@@ -9,6 +9,10 @@ const publicRoutes = [
   '/api/auth/login',
   '/api/auth/logout',
   '/api/auth/session',
+  '/quote',
+  '/api/quotes',
+  '/tip',
+  '/api/tip',
 ]
 
 // Webhook and cron routes (external callbacks and server-side jobs)
