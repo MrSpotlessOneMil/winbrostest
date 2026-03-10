@@ -634,6 +634,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Store the inbound message for dashboard display
+  // Use external_message_id with unique index to prevent duplicate inserts from racing webhooks
   const receivedAt = new Date().toISOString()
   const { data: insertedMsg, error: msgErr } = await client.from("messages").insert({
     tenant_id: tenant?.id,
@@ -646,10 +647,16 @@ export async function POST(request: NextRequest) {
     ai_generated: false,
     timestamp: receivedAt,
     source: "openphone",
+    external_message_id: opMessageId || null,
     metadata: { ...payload, openphone_message_id: opMessageId || null },
   }).select("id").single()
 
   if (msgErr) {
+    // Unique constraint violation on external_message_id = duplicate webhook, not an error
+    if (msgErr.code === '23505' && opMessageId) {
+      console.log(`[OpenPhone] Duplicate insert blocked by unique index for ${maskPhone(phone)} (msgId: ${opMessageId})`)
+      return NextResponse.json({ success: true, action: "duplicate_insert_blocked" })
+    }
     return NextResponse.json({ success: false, error: `Failed to insert message: ${msgErr.message}` }, { status: 500 })
   }
 
@@ -2411,16 +2418,16 @@ export async function POST(request: NextRequest) {
                   })
                 }
 
-                // Get tenant domain for quote URL
-                const { getTenantRedirectDomain } = await import("@/lib/stripe-client")
-                const domain = await getTenantRedirectDomain(tenant.id)
-                const quoteUrl = `${domain}/quote/${newQuote.token}`
+                // Get app domain for quote URL (quote page lives on Vercel, not tenant marketing site)
+                const { getClientConfig } = await import("@/lib/client-config")
+                const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
                 // Send short SMS with quote link
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
                 const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Your quote is ready. Pick your package, review the details, and book your cleaning here:\n${quoteUrl}`
-                  : `Your quote is ready! Pick your package, review the details, and book your cleaning here:\n${quoteUrl}`
+                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg)
                 if (quoteSms.success) {
@@ -2449,7 +2456,7 @@ export async function POST(request: NextRequest) {
                   tenantId: tenant.id,
                   taskType: "quote_followup_urgent",
                   taskKey: `quote-${newQuote.id}-urgent`,
-                  scheduledFor: new Date(Date.now() + 7 * 60 * 1000),
+                  scheduledFor: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours
                   payload: {
                     quoteId: newQuote.id,
                     customerId: customer.id,
@@ -2474,7 +2481,7 @@ export async function POST(request: NextRequest) {
                   .update({ followup_enrolled_at: new Date().toISOString() })
                   .eq("id", newQuote.id)
 
-                console.log(`[OpenPhone] Quote follow-up wired: 7min nudge + retargeting for quote ${newQuote.id}`)
+                console.log(`[OpenPhone] Quote follow-up wired: 2hr nudge + retargeting for quote ${newQuote.id}`)
 
                 await logSystemEvent({
                   tenant_id: tenant.id,

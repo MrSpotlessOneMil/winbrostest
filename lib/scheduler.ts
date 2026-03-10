@@ -406,7 +406,7 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
     { step: 3, delay_days: 7, template: 'closing_file' },
   ],
   quoted_not_booked: [
-    { step: 1, delay_days: 0, template: 'quote_followup' },
+    { step: 1, delay_days: 1, template: 'quote_followup' },
     { step: 2, delay_days: 2, template: 'question_based' },
     { step: 3, delay_days: 4, template: 'limited_time' },
     { step: 4, delay_days: 7, template: 'check_in' },
