@@ -531,7 +531,7 @@ export default function AssistantPage() {
               <button
                 data-no-splat
                 onClick={handleCopyChat}
-                className={`absolute top-3 right-5 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all ${
+                className={`absolute top-5 right-7 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all ${
                   copiedChat
                     ? "opacity-100 bg-green-500/20 text-green-400 border border-green-500/30"
                     : "opacity-0 hover:opacity-100 focus:opacity-100 bg-zinc-800/70 text-zinc-400 border border-zinc-700/40 hover:text-zinc-200"
