@@ -18,6 +18,17 @@ function AnimatedCheck({ className = "" }: { className?: string }) {
 interface Message {
   role: "user" | "assistant"
   content: string
+  timestamp?: string
+}
+
+function formatTimestamp(iso?: string) {
+  if (!iso) return null
+  const date = new Date(iso)
+  const now = new Date()
+  const isToday = date.toDateString() === now.toDateString()
+  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+  if (isToday) return time
+  return date.toLocaleDateString([], { month: "short", day: "numeric" }) + ", " + time
 }
 
 const STORAGE_KEY = "osiris_conversations"
@@ -366,7 +377,7 @@ export default function AssistantPage() {
     const text = input.trim()
     if (!text || loading) return
 
-    const userMsg: Message = { role: "user", content: text }
+    const userMsg: Message = { role: "user", content: text, timestamp: new Date().toISOString() }
     const newMessages = [...messages, userMsg]
     setMessages(newMessages)
     persistMessages(newMessages)
@@ -386,7 +397,7 @@ export default function AssistantPage() {
       const data = await res.json()
 
       if (data.success && data.message) {
-        const withReply = [...newMessages, { role: "assistant" as const, content: data.message }]
+        const withReply = [...newMessages, { role: "assistant" as const, content: data.message, timestamp: new Date().toISOString() }]
         setMessages(withReply)
         persistMessages(withReply)
       } else {
@@ -395,6 +406,7 @@ export default function AssistantPage() {
           {
             role: "assistant" as const,
             content: data.error || "Something went wrong. Try again.",
+            timestamp: new Date().toISOString(),
           },
         ]
         setMessages(withError)
@@ -403,7 +415,7 @@ export default function AssistantPage() {
     } catch {
       const withError = [
         ...newMessages,
-        { role: "assistant" as const, content: "Connection error. Please try again." },
+        { role: "assistant" as const, content: "Connection error. Please try again.", timestamp: new Date().toISOString() },
       ]
       setMessages(withError)
       persistMessages(withError)
@@ -574,36 +586,46 @@ export default function AssistantPage() {
                 className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "user" ? (
-                  <div
-                    data-no-splat
-                    className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap bg-purple-500/20 border border-purple-500/20 text-zinc-100"
-                  >
-                    {msg.content}
-                  </div>
-                ) : (
-                  <div className="group relative max-w-[80%]">
+                  <div className="flex flex-col items-end">
                     <div
                       data-no-splat
-                      className="px-4 py-3 rounded-2xl bg-zinc-800 border border-zinc-700/30 text-zinc-200"
+                      className="max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap bg-purple-500/20 border border-purple-500/20 text-zinc-100"
                     >
-                      <AssistantMessageContent content={msg.content} />
+                      {msg.content}
                     </div>
-                    {/* Copy whole message button — visible on hover */}
-                    <button
-                      onClick={() => handleCopyMessage(msg.content, i)}
-                      className={`absolute -top-2 -right-2 p-1.5 rounded-lg border transition-all ${
-                        copiedIdx === i
-                          ? "opacity-100 bg-green-500/20 border-green-500/30 text-green-400"
-                          : "opacity-0 group-hover:opacity-100 bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-zinc-200"
-                      }`}
-                      title={copiedIdx === i ? "Copied!" : "Copy message"}
-                    >
-                      {copiedIdx === i ? (
-                        <AnimatedCheck className="w-3.5 h-3.5" />
-                      ) : (
-                        <Copy className="w-3.5 h-3.5" />
-                      )}
-                    </button>
+                    {formatTimestamp(msg.timestamp) && (
+                      <span className="text-[11px] text-zinc-500 mt-1 mr-1">{formatTimestamp(msg.timestamp)}</span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-start">
+                    <div className="group relative max-w-[80%]">
+                      <div
+                        data-no-splat
+                        className="px-4 py-3 rounded-2xl bg-zinc-800 border border-zinc-700/30 text-zinc-200"
+                      >
+                        <AssistantMessageContent content={msg.content} />
+                      </div>
+                      {/* Copy whole message button — visible on hover */}
+                      <button
+                        onClick={() => handleCopyMessage(msg.content, i)}
+                        className={`absolute -top-2 -right-2 p-1.5 rounded-lg border transition-all ${
+                          copiedIdx === i
+                            ? "opacity-100 bg-green-500/20 border-green-500/30 text-green-400"
+                            : "opacity-0 group-hover:opacity-100 bg-zinc-800/80 border-zinc-700/50 text-zinc-400 hover:text-zinc-200"
+                        }`}
+                        title={copiedIdx === i ? "Copied!" : "Copy message"}
+                      >
+                        {copiedIdx === i ? (
+                          <AnimatedCheck className="w-3.5 h-3.5" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                    {formatTimestamp(msg.timestamp) && (
+                      <span className="text-[11px] text-zinc-500 mt-1 ml-1">{formatTimestamp(msg.timestamp)}</span>
+                    )}
                   </div>
                 )}
               </div>
