@@ -533,8 +533,8 @@ export default function AssistantPage() {
                 onClick={handleCopyChat}
                 className={`absolute top-5 right-7 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all duration-200 ${
                   copiedChat
-                    ? "opacity-100 scale-105 bg-green-500/20 text-green-400 border border-green-500/30"
-                    : "opacity-0 hover:opacity-100 focus:opacity-100 bg-zinc-800/70 text-zinc-400 border border-zinc-700/40 hover:text-zinc-200 active:scale-95"
+                    ? "scale-105 bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "bg-zinc-800/70 text-zinc-500 border border-zinc-700/40 hover:text-zinc-200 hover:bg-zinc-700/80 active:scale-95"
                 }`}
                 title="Copy last 100 messages"
               >
