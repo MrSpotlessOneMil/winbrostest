@@ -222,7 +222,7 @@ export default function QuotePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="size-8 animate-spin text-blue-400" />
           <p className="text-slate-500 text-sm">Loading your quote...</p>
@@ -233,7 +233,7 @@ export default function QuotePage() {
 
   if (error && !quote) {
     return (
-      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-white flex items-center justify-center px-4">
         <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-md w-full p-8 text-center">
           <AlertTriangle className="size-12 text-red-400 mx-auto mb-4" />
           <h2 className="text-lg font-bold text-slate-800 mb-2">Quote Not Found</h2>
@@ -255,7 +255,7 @@ export default function QuotePage() {
 
   if (isApproved) {
     return (
-      <div className="min-h-screen bg-blue-50/30 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-white flex items-center justify-center px-4">
         <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-lg w-full p-8 text-center">
           <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6 ring-4 ring-emerald-100">
             <CheckCircle className="size-10 text-emerald-500" />
@@ -275,7 +275,7 @@ export default function QuotePage() {
   // ── Main page ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-blue-50/30 pb-36 sm:pb-8">
+    <div className="min-h-screen bg-white pb-36 sm:pb-8">
       {/* Clean gradient top bar */}
       <div className="h-1.5 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500" />
 
