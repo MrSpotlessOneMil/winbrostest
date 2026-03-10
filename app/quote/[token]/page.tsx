@@ -582,25 +582,7 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Customer Info ───────────────────────────────────── */}
-        {!isExpired && (
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Information</h2>
-            <p className="text-slate-400 text-sm mb-4">Confirm your details for the service.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="cname" className="text-sm text-slate-600">Name</Label>
-                <Input id="cname" value={customerName} onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Your name" className="h-12 bg-white border-blue-100 text-base focus:border-blue-400 focus:ring-blue-200" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cemail" className="text-sm text-slate-600">Email</Label>
-                <Input id="cemail" type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)}
-                  placeholder="your@email.com" className="h-12 bg-white border-blue-100 text-base focus:border-blue-400 focus:ring-blue-200" />
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Customer info (name/email) collected during SMS conversation, not needed here */}
 
         {/* ── Service Agreement ───────────────────────────────── */}
         {!isExpired && serviceAgreement && (

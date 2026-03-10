@@ -12,6 +12,56 @@ import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { analyzeSimpleSentiment, recordMessageSent, cancelPendingTasks } from "@/lib/lifecycle-engine"
 
+/**
+ * Send a multi-part AI response as separate SMS messages.
+ * The AI uses ||| to separate messages that should be sent as individual texts.
+ * Returns the full concatenated content for DB storage.
+ */
+async function sendMultiPartSMS(
+  tenant: any,
+  phone: string,
+  fullResponse: string,
+  client: any,
+  customerId: number,
+  metadata: Record<string, any>
+): Promise<{ success: boolean; fullContent: string; messageIds: string[] }> {
+  const parts = fullResponse.split('|||').map(p => p.trim()).filter(Boolean)
+  const messageIds: string[] = []
+  let allSuccess = true
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i]
+    const result = await sendSMS(tenant, phone, part)
+    if (result.success) {
+      messageIds.push(result.messageId || '')
+    } else {
+      allSuccess = false
+    }
+
+    // Store each part as a separate message in DB for dashboard display
+    await client.from("messages").insert({
+      tenant_id: tenant.id,
+      customer_id: customerId,
+      phone_number: phone,
+      role: "assistant",
+      content: part,
+      direction: "outbound",
+      message_type: "sms",
+      ai_generated: true,
+      timestamp: new Date(Date.now() + i).toISOString(), // offset by 1ms for ordering
+      source: "openphone",
+      metadata: { ...metadata, part: i + 1, total_parts: parts.length },
+    })
+
+    // Small delay between texts so they arrive in order
+    if (i < parts.length - 1) {
+      await new Promise(r => setTimeout(r, 800))
+    }
+  }
+
+  return { success: allSuccess, fullContent: parts.join('\n'), messageIds }
+}
+
 /** Format raw ISO dates/timestamps to human-readable for SMS and LLM context */
 function formatDateHuman(raw: string, tz = 'America/Chicago'): string {
   try {
@@ -1664,27 +1714,14 @@ export async function POST(request: NextRequest) {
           .trim()
 
         if (cleanedResponse) {
-          const sendResult = await sendSMS(tenant, phone, cleanedResponse)
-          if (sendResult.success) {
-            await client.from("messages").insert({
-              tenant_id: tenant.id,
-              customer_id: customer.id,
-              phone_number: phone,
-              role: "assistant",
-              content: cleanedResponse,
-              direction: "outbound",
-              message_type: "sms",
-              ai_generated: true,
-              timestamp: new Date().toISOString(),
-              source: "openphone",
-              metadata: {
-                auto_response: true,
-                assigned_lead_id: assignedLead.id,
-                job_id: assignedJob?.id || null,
-                reason: "post_booking_assigned",
-              },
-            })
+          const sendResult = await sendMultiPartSMS(tenant, phone, cleanedResponse, client, customer.id, {
+            auto_response: true,
+            assigned_lead_id: assignedLead.id,
+            job_id: assignedJob?.id || null,
+            reason: "post_booking_assigned",
+          })
 
+          if (sendResult.success) {
             // Schedule mid-convo nudge (5 min)
             await client.from("customers").update({ awaiting_reply_since: new Date().toISOString() }).eq("id", customer.id)
             await scheduleTask({
@@ -2024,39 +2061,22 @@ export async function POST(request: NextRequest) {
           if (cleanedResponse) {
             console.log(`[OpenPhone] Sending auto-response to existing lead: "${cleanedResponse.slice(0, 50)}..."`)
 
-            const sendResult = await sendSMS(tenant!, phone, cleanedResponse)
+            const sendResult = await sendMultiPartSMS(tenant!, phone, cleanedResponse, client, customer.id, {
+              auto_response: true,
+              existing_lead_id: existingLead.id,
+              reason: autoResponse.reason,
+              combined_message: combinedMessage,
+            })
 
-            // Store message in DB regardless of send success (preserves conversation context)
-            const { data: msgRow } = await client.from("messages").insert({
-              tenant_id: tenant?.id,
-              customer_id: customer.id,
-              phone_number: phone,
-              role: "assistant",
-              content: cleanedResponse,
-              direction: "outbound",
-              message_type: "sms",
-              ai_generated: true,
-              status: sendResult.success ? "sent" : "failed",
-              timestamp: new Date().toISOString(),
-              source: "openphone",
-              metadata: {
-                auto_response: true,
-                existing_lead_id: existingLead.id,
-                reason: autoResponse.reason,
-                combined_message: combinedMessage,
-                openphone_message_id: sendResult.messageId,
-                ...(sendResult.success ? {} : { send_error: sendResult.error }),
-              },
-            }).select("id").single()
             if (!sendResult.success) {
-              console.error(`[OpenPhone] Failed to send auto-response to existing lead:`, sendResult.error)
+              console.error(`[OpenPhone] Failed to send auto-response to existing lead`)
               // Schedule a retry in 60 seconds
               await scheduleTask({
                 tenantId: tenant?.id,
                 taskType: 'sms_retry',
                 taskKey: `sms-retry-${phone}-${Date.now()}`,
                 scheduledFor: new Date(Date.now() + 60_000),
-                payload: { phone, message: cleanedResponse, messageId: msgRow?.id },
+                payload: { phone, message: cleanedResponse },
                 maxAttempts: 2,
               })
             }
@@ -2648,41 +2668,28 @@ export async function POST(request: NextRequest) {
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {
-        console.log(`[OpenPhone] Sending auto-response: "${autoResponse.response.slice(0, 50)}..."`)
+        // Strip [BOOKING_COMPLETE] tags for new inquiries too
+        const cleanedNewResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
+        console.log(`[OpenPhone] Sending auto-response: "${cleanedNewResponse.slice(0, 50)}..."`)
 
-        const sendResult = await sendSMS(tenant!, phone, autoResponse.response)
-
-        if (sendResult.success) {
-          await client.from("messages").insert({
-            tenant_id: tenant?.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "assistant",
-            content: autoResponse.response,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: true,
-            timestamp: new Date().toISOString(),
-            source: "openphone",
-            metadata: {
-              auto_response: true,
-              reason: autoResponse.reason,
-              intent_analysis: intentResult,
-              combined_message: combinedMessage,
-              openphone_message_id: sendResult.messageId,
-            },
+        if (cleanedNewResponse) {
+          const sendResult = await sendMultiPartSMS(tenant!, phone, cleanedNewResponse, client, customer.id, {
+            auto_response: true,
+            reason: autoResponse.reason,
+            intent_analysis: intentResult,
+            combined_message: combinedMessage,
           })
 
           await logSystemEvent({
             tenant_id: tenant?.id,
             source: "openphone",
             event_type: "AUTO_RESPONSE_SENT",
-            message: `Auto-response sent to ${phone}: "${autoResponse.response.slice(0, 50)}..."`,
+            message: `Auto-response sent to ${phone}: "${cleanedNewResponse.slice(0, 50)}..."`,
             phone_number: phone,
             metadata: {
-              response: autoResponse.response,
+              response: cleanedNewResponse,
               reason: autoResponse.reason,
-              message_id: sendResult.messageId,
+              message_ids: sendResult.messageIds,
             },
           })
 
@@ -2746,46 +2753,6 @@ export async function POST(request: NextRequest) {
               console.error("[OpenPhone] Failed to send escalation notification:", escErr)
             }
           }
-        } else {
-          console.error(`[OpenPhone] Failed to send auto-response:`, sendResult.error)
-          // Store the failed message so conversation context is preserved for future AI interactions
-          const { data: failedMsg } = await client.from("messages").insert({
-            tenant_id: tenant?.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "assistant",
-            content: autoResponse.response,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: true,
-            status: "failed",
-            timestamp: new Date().toISOString(),
-            source: "openphone",
-            metadata: {
-              auto_response: true,
-              reason: autoResponse.reason,
-              intent_analysis: intentResult,
-              combined_message: combinedMessage,
-              send_error: sendResult.error,
-            },
-          }).select("id").single()
-          // Schedule a retry in 60 seconds via scheduled_tasks cron
-          await scheduleTask({
-            tenantId: tenant?.id,
-            taskType: 'sms_retry',
-            taskKey: `sms-retry-${phone}-${Date.now()}`,
-            scheduledFor: new Date(Date.now() + 60_000),
-            payload: { phone, message: autoResponse.response, messageId: failedMsg?.id },
-            maxAttempts: 2,
-          })
-          await logSystemEvent({
-            tenant_id: tenant?.id,
-            source: "openphone",
-            event_type: "AUTO_RESPONSE_SEND_FAILED",
-            message: `Auto-response SMS send failed for ${phone}: ${sendResult.error || 'unknown'} — retry scheduled`,
-            phone_number: phone,
-            metadata: { error: sendResult.error, response_preview: autoResponse.response?.slice(0, 100) },
-          })
         }
       } else {
         console.log(`[OpenPhone] Auto-response skipped: shouldSend=${autoResponse.shouldSend}, hasResponse=${!!autoResponse.response}, reason=${autoResponse.reason}`)
