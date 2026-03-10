@@ -531,14 +531,16 @@ export default function AssistantPage() {
               <button
                 data-no-splat
                 onClick={handleCopyChat}
-                className={`absolute top-5 right-7 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all ${
+                className={`absolute top-5 right-7 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all duration-200 ${
                   copiedChat
-                    ? "opacity-100 bg-green-500/20 text-green-400 border border-green-500/30"
-                    : "opacity-0 hover:opacity-100 focus:opacity-100 bg-zinc-800/70 text-zinc-400 border border-zinc-700/40 hover:text-zinc-200"
+                    ? "opacity-100 scale-105 bg-green-500/20 text-green-400 border border-green-500/30"
+                    : "opacity-0 hover:opacity-100 focus:opacity-100 bg-zinc-800/70 text-zinc-400 border border-zinc-700/40 hover:text-zinc-200 active:scale-95"
                 }`}
                 title="Copy last 100 messages"
               >
-                {copiedChat ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span className={`inline-flex transition-transform duration-300 ${copiedChat ? "animate-[checkPop_0.3s_ease-out]" : ""}`}>
+                  {copiedChat ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </span>
                 {copiedChat ? "Copied!" : "Copy Chat"}
               </button>
             )}
@@ -588,7 +590,7 @@ export default function AssistantPage() {
                       title={copiedIdx === i ? "Copied!" : "Copy message"}
                     >
                       {copiedIdx === i ? (
-                        <Check className="w-3.5 h-3.5" />
+                        <Check className="w-3.5 h-3.5 animate-[checkPop_0.3s_ease-out]" />
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
