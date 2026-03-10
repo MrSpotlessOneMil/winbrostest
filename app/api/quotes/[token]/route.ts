@@ -96,7 +96,7 @@ export async function GET(
     processing_fee_percentage: 3,
     terms: [
       `A $${cancellationFee.toFixed(0)} cancellation fee applies if cancelled within ${cancellationWindow} hours of your scheduled appointment.`,
-      `A ${Number(wc.deposit_percentage || 50)}% deposit is required to confirm your booking. The remaining balance is due upon completion.`,
+      `A card on file is required to confirm your booking. Your card will be charged the final amount after the service is completed.`,
       `A 3% processing fee is applied to all card payments.`,
       `100% Satisfaction Guarantee — if you're not happy with the service, we'll come back and make it right at no extra charge.`,
     ],
@@ -116,6 +116,9 @@ export async function GET(
       slug: tenant.slug,
       phone: tenant.owner_phone,
       email: tenant.owner_email,
+      brand_color: wc.brand_color || null,
+      brand_color_light: wc.brand_color_light || null,
+      logo_url: wc.logo_url || null,
     },
   })
 }
