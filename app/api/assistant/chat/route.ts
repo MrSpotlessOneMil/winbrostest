@@ -572,6 +572,132 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
       required: ["task_id"],
     },
   },
+  // ===== LEAD MANAGEMENT TOOLS =====
+  {
+    name: "create_lead",
+    description:
+      "Create a new lead in the pipeline. Use this EVERY TIME the owner says 'save as a lead', 'save this lead', or wants to track a potential customer. Stores source, status, service interest, quote details, and property info.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Lead's phone number (required)" },
+        first_name: { type: "string", description: "Lead's first name" },
+        last_name: { type: "string", description: "Lead's last name" },
+        email: { type: "string", description: "Lead's email address" },
+        source: {
+          type: "string",
+          description: "Where the lead came from. Use exactly as the owner says it: 'Facebook', 'Instagram', 'Google', 'Thumbtack', 'Inbound Call', 'Realtor', 'Referral', 'Website', 'SMS', etc.",
+        },
+        status: {
+          type: "string",
+          description: "Lead stage. Use exactly as the owner says it: 'New', 'Quoted', 'Still Deciding', 'No Response', 'Booked', 'Lost', etc.",
+        },
+        service_interest: {
+          type: "string",
+          description: "What services they're interested in, e.g. 'Deep Cleaning / Bi-Weekly Standard' or 'Move Out Cleaning'",
+        },
+        quote_details: {
+          type: "string",
+          description: "Quote amounts given, e.g. '$385 deep / $215 bi-weekly / $245 monthly'",
+        },
+        property_details: {
+          type: "string",
+          description: "Property info, e.g. '3 bed / 2 bath, ~1,704 sq ft' or '2 bed condo'",
+        },
+        notes: { type: "string", description: "Any additional notes about this lead" },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "update_lead",
+    description:
+      "Update an existing lead's status, source, quote details, service interest, or other info. Find the lead by phone number or lead ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Lead's phone number (to find them)" },
+        lead_id: { type: "number", description: "Or the lead ID directly" },
+        status: { type: "string", description: "New status: 'Quoted', 'Still Deciding', 'Booked', 'No Response', 'Lost', etc." },
+        source: { type: "string", description: "Updated source: 'Facebook', 'Google', 'Realtor', etc." },
+        service_interest: { type: "string", description: "Updated service interest" },
+        quote_details: { type: "string", description: "Updated quote amounts" },
+        property_details: { type: "string", description: "Updated property info" },
+        notes: { type: "string", description: "Updated notes" },
+        email: { type: "string", description: "Updated email" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "list_leads",
+    description:
+      "List all leads in the pipeline. Use this EVERY TIME the owner asks to see their leads, pipeline, or lead list. Can filter by status or source.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: { type: "string", description: "Filter by status: 'New', 'Quoted', 'Still Deciding', 'Booked', 'No Response', 'Lost', etc. Leave empty for all." },
+        source: { type: "string", description: "Filter by source: 'Facebook', 'Google', 'Realtor', etc. Leave empty for all." },
+        limit: { type: "number", description: "Max leads to return (default 50, max 100)" },
+      },
+      required: [],
+    },
+  },
+  // ===== CLEANER MANAGEMENT =====
+  {
+    name: "unassign_cleaner",
+    description:
+      "Remove a cleaner's assignment from a job. Cancels the assignment and clears the job's assigned cleaner. Use this when the owner wants to unassign a cleaner or put a job as 'unassigned'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: { type: "number", description: "The job ID to unassign from" },
+        cleaner_id: { type: "number", description: "Optional: specific cleaner ID to unassign. If not provided, unassigns ALL cleaners from the job." },
+      },
+      required: ["job_id"],
+    },
+  },
+  // ===== BUSINESS DATA / ANALYTICS =====
+  {
+    name: "query_business_data",
+    description:
+      "Query business data from any table for analytics, revenue, pipeline reports, cleaner performance, or any data question. Returns raw data you can analyze and summarize.\n\nAvailable tables and key columns:\n- jobs: id, phone_number, customer_id, service_type, date, scheduled_at, status (scheduled/in_progress/completed/cancelled), price, hours, cleaners, address, assigned_cleaner_id, notes, booked, created_at\n- leads: id, phone_number, first_name, last_name, email, source, status, followup_stage, form_data (JSONB), converted_to_job_id, created_at\n- customers: id, phone_number, first_name, last_name, email, address, created_at\n- cleaner_assignments: id, job_id, cleaner_id, status (pending/confirmed/declined/cancelled), created_at\n- cleaners: id, name, phone, email, is_team_lead, active, created_at\n- messages: id, phone_number, direction (inbound/outbound), body, channel, created_at",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        table: {
+          type: "string",
+          description: "Table to query: 'jobs', 'leads', 'customers', 'cleaner_assignments', 'cleaners', 'messages'",
+        },
+        select: {
+          type: "string",
+          description: "Columns to select (Supabase select syntax). Examples: '*', 'id, price, status, date', 'id, price, service_type, date, assigned_cleaner_id'",
+        },
+        filters: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              column: { type: "string", description: "Column name" },
+              operator: { type: "string", description: "Operator: eq, neq, gt, gte, lt, lte, like, ilike, in, is, not" },
+              value: { type: "string", description: "Value to compare (for 'in' operator, use JSON array string like '[\"a\",\"b\"]')" },
+            },
+            required: ["column", "operator", "value"],
+          },
+          description: "Array of filters to apply",
+        },
+        order_by: {
+          type: "string",
+          description: "Column to order by. Prefix with '-' for descending. Examples: '-created_at', 'date', '-price'",
+        },
+        limit: {
+          type: "number",
+          description: "Max rows to return (default 50, max 200)",
+        },
+      },
+      required: ["table", "select"],
+    },
+  },
 ]
 
   return TOOLS
