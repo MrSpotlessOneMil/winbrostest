@@ -132,8 +132,9 @@ export default function QuotePage() {
     if (!data) return
     const tierDef = data.tiers.find((t) => t.key === tierKey)
     if (!tierDef) return
-    setSelectedAddons((prev) => {
-      const next = { ...prev }
+    // Reset all add-ons: turn ON included ones, turn OFF everything else
+    setSelectedAddons(() => {
+      const next: Record<string, boolean> = {}
       tierDef.included.forEach((k) => { next[k] = true })
       return next
     })

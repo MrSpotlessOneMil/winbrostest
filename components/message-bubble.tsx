@@ -35,8 +35,16 @@ export function MessageBubble({ role, content, timestamp, showTimestamp = true }
           {role === "client" ? "Customer" : role === "system" ? "System" : "OSIRIS"}
         </div>
 
-        {/* Message content */}
-        <div className="text-sm leading-relaxed whitespace-pre-wrap">{content}</div>
+        {/* Message content — break long URLs, make links clickable */}
+        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+          {content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+            /^https?:\/\//.test(part) ? (
+              <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">
+                {part}
+              </a>
+            ) : part
+          )}
+        </div>
 
         {/* Timestamp */}
         {showTimestamp && timestamp && (

@@ -386,7 +386,7 @@ async function generateWithClaude(
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
   const historyContext = conversationHistory?.length
-    ? `\nRecent conversation:\n${conversationHistory.slice(-5).map(m => `${m.role === 'client' ? 'Customer' : 'Us'}: ${m.content}`).join('\n')}\n`
+    ? `\nRecent conversation:\n${conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : 'Us'}: ${m.content}`).join('\n')}\n`
     : ''
 
   // Build context about the response type
@@ -481,7 +481,7 @@ async function generateWithOpenAI(
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
   const historyContext = conversationHistory?.length
-    ? `\nRecent conversation:\n${conversationHistory.slice(-5).map(m => `${m.role === 'client' ? 'Customer' : 'Us'}: ${m.content}`).join('\n')}\n`
+    ? `\nRecent conversation:\n${conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : 'Us'}: ${m.content}`).join('\n')}\n`
     : ''
 
   // Build context about the response type
@@ -636,7 +636,7 @@ async function generateWinBrosResponse(
   const systemPrompt = buildWinBrosEstimatePrompt()
 
   const historyContext = conversationHistory?.length
-    ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
+    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
 
   // Build known info context so the AI can confirm rather than re-ask
@@ -1177,7 +1177,7 @@ async function generateHouseCleaningResponse(
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length
-    ? conversationHistory.slice(-10).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
+    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
 
   // Build known info context so the AI can confirm rather than re-ask
