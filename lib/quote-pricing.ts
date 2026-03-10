@@ -1,0 +1,679 @@
+/**
+ * Tenant-aware quote pricing engine.
+ *
+ * WinBros  → pane-based window tiers from pricebook.ts
+ * House cleaning tenants → bed/bath tiers from pricing_tiers + pricing_addons tables
+ *
+ * Service categories:
+ *   'standard'    → Standard / Deep / Extra Deep (3 tiers)
+ *   'move_in_out' → Standard Move / Deep Move / White Glove Move (3 tiers)
+ */
+
+import { computeTierPrice, QUOTE_TIERS, QUOTE_ADDONS, type QuoteTier, type QuoteAddon } from './pricebook'
+import { getSupabaseServiceClient } from './supabase'
+
+// ── Types ────────────────────────────────────────────────────────────
+
+export interface TierDefinition {
+  key: string
+  name: string
+  tagline: string
+  badge?: string
+  included: string[]
+  description: string
+}
+
+export interface AddonDefinition {
+  key: string
+  name: string
+  description: string
+  priceType: 'flat' | 'per_unit'
+  price: number
+  unit?: string
+}
+
+export interface TierPriceResult {
+  price: number
+  breakdown: { service: string; price: number }[]
+  tier: string
+}
+
+export interface QuotePricingResult {
+  tiers: TierDefinition[]
+  tierPrices: Record<string, TierPriceResult>
+  addons: AddonDefinition[]
+  serviceType: 'window_cleaning' | 'house_cleaning'
+}
+
+// ── Standard House Cleaning Tier Definitions (3 tiers) ──────────────
+
+const CLEANING_TIERS: TierDefinition[] = [
+  {
+    key: 'standard',
+    name: 'Standard Clean',
+    tagline: 'Fresh & tidy',
+    included: [
+      'kitchen_surfaces',
+      'bathroom_sanitize',
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+    ],
+    description:
+      'A thorough surface-level clean — kitchens, bathrooms, floors, dusting, and trash. Everything you need to keep your home looking great between deep cleans.',
+  },
+  {
+    key: 'deep',
+    name: 'Deep Clean',
+    tagline: 'Most popular',
+    badge: 'Best Value',
+    included: [
+      'kitchen_surfaces',
+      'bathroom_sanitize',
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+      'baseboards',
+      'ceiling_fans',
+      'light_fixtures',
+      'window_sills',
+      'inside_microwave',
+    ],
+    description:
+      'Everything in Standard plus baseboards, ceiling fans, light fixtures, window sills, and inside microwave. A top-to-bottom refresh.',
+  },
+  {
+    key: 'extra_deep',
+    name: 'Extra Deep Clean',
+    tagline: 'Like brand new',
+    badge: 'Premium',
+    included: [
+      'kitchen_surfaces',
+      'bathroom_sanitize',
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+      'baseboards',
+      'ceiling_fans',
+      'light_fixtures',
+      'window_sills',
+      'inside_microwave',
+      'inside_fridge',
+      'inside_oven',
+      'inside_cabinets',
+      'range_hood',
+      'blinds',
+      'wall_cleaning',
+    ],
+    description:
+      'The works — everything in Deep Clean plus inside fridge, oven, cabinets, range hood, blinds, and wall spot cleaning. Your home will feel brand new.',
+  },
+]
+
+// ── Move-In/Move-Out Tier Definitions (3 tiers) ─────────────────────
+
+const MOVE_TIERS: TierDefinition[] = [
+  {
+    key: 'move_good',
+    name: 'Standard Move Clean',
+    tagline: 'Ready for walkthrough',
+    included: [
+      // Kitchen
+      'kitchen_surfaces',
+      'stovetop_clean',
+      'inside_microwave',
+      'cabinet_exteriors',
+      'garbage_disposal',
+      // Bathrooms
+      'bathroom_sanitize',
+      'shower_tub_scrub',
+      'mirrors',
+      // Whole home
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+      'baseboards',
+      'ceiling_fans',
+      'light_fixtures',
+      'window_sills',
+      'light_switches',
+      'door_knobs',
+      'cobweb_removal',
+      'wall_spot_cleaning',
+      'closet_interiors',
+    ],
+    description:
+      'A thorough move-out clean — all surfaces, kitchen & bathrooms scrubbed, floors done, baseboards, light switches, door knobs, closets swept, and wall spot cleaning. Ready for the walkthrough.',
+  },
+  {
+    key: 'move_better',
+    name: 'Deep Move Clean',
+    tagline: 'Most popular',
+    badge: 'Best Value',
+    included: [
+      // Everything in Good
+      'kitchen_surfaces',
+      'stovetop_clean',
+      'inside_microwave',
+      'cabinet_exteriors',
+      'garbage_disposal',
+      'bathroom_sanitize',
+      'shower_tub_scrub',
+      'mirrors',
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+      'baseboards',
+      'ceiling_fans',
+      'light_fixtures',
+      'window_sills',
+      'light_switches',
+      'door_knobs',
+      'cobweb_removal',
+      'wall_spot_cleaning',
+      'closet_interiors',
+      // Deep additions
+      'inside_oven',
+      'inside_fridge',
+      'inside_dishwasher',
+      'inside_cabinets',
+      'range_hood',
+      'behind_under_appliances',
+      'window_tracks',
+      'grout_scrubbing',
+      'baseboards_hand_wipe',
+      'light_fixtures_detailed',
+    ],
+    description:
+      'Everything in Standard Move plus inside oven, fridge, dishwasher, all cabinets & drawers, range hood degreased, behind/under appliances, window tracks, and bathroom grout scrubbing.',
+  },
+  {
+    key: 'move_best',
+    name: 'White Glove Move Clean',
+    tagline: 'Deposit-ready perfection',
+    badge: 'Premium',
+    included: [
+      // Everything in Better
+      'kitchen_surfaces',
+      'stovetop_clean',
+      'inside_microwave',
+      'cabinet_exteriors',
+      'garbage_disposal',
+      'bathroom_sanitize',
+      'shower_tub_scrub',
+      'mirrors',
+      'vacuum_mop',
+      'dusting',
+      'trash_removal',
+      'baseboards',
+      'ceiling_fans',
+      'light_fixtures',
+      'window_sills',
+      'light_switches',
+      'door_knobs',
+      'cobweb_removal',
+      'wall_spot_cleaning',
+      'closet_interiors',
+      'inside_oven',
+      'inside_fridge',
+      'inside_dishwasher',
+      'inside_cabinets',
+      'range_hood',
+      'behind_under_appliances',
+      'window_tracks',
+      'grout_scrubbing',
+      'baseboards_hand_wipe',
+      'light_fixtures_detailed',
+      // White Glove additions
+      'full_wall_washing',
+      'windows_interior',
+      'mineral_deposit_removal',
+      'mold_mildew_treatment',
+      'blinds',
+      'exhaust_fans',
+    ],
+    description:
+      'The ultimate move clean — everything in Deep Move plus full wall washing (every wall), interior window glass, mineral deposit & hard water removal, mold/mildew treatment, blinds deep cleaned, and exhaust fans.',
+  },
+]
+
+// Move-specific add-ons (offered alongside the move tiers)
+const MOVE_ADDON_KEYS = [
+  'windows_exterior',
+  'carpet_steam',
+  'garage_sweep',
+  'patio_balcony',
+  'inside_washer_dryer',
+  'pet_hair_removal',
+]
+
+// Base cleaning services included in every standard tier (not chargeable addons)
+const BASE_SERVICES: Record<string, string> = {
+  kitchen_surfaces: 'Kitchen counters, sink & appliance exteriors',
+  bathroom_sanitize: 'Bathroom deep sanitize (tub, toilet, vanity)',
+  vacuum_mop: 'Vacuum & mop all floors',
+  dusting: 'Dust all surfaces & furniture',
+  trash_removal: 'Empty trash & replace liners',
+}
+
+// ── Core Functions ───────────────────────────────────────────────────
+
+/**
+ * Determine if a tenant is a window cleaning business (WinBros) or house cleaning.
+ */
+export function isWindowCleaningTenant(tenantSlug: string): boolean {
+  return tenantSlug === 'winbros'
+}
+
+/**
+ * Get quote tiers, prices, and addons for a tenant.
+ * serviceCategory determines which tier set to return for house cleaning.
+ */
+export async function getQuotePricing(
+  tenantId: string,
+  tenantSlug: string,
+  params: {
+    squareFootage?: number | null
+    bedrooms?: number | null
+    bathrooms?: number | null
+  },
+  serviceCategory: 'standard' | 'move_in_out' = 'standard'
+): Promise<QuotePricingResult> {
+  if (isWindowCleaningTenant(tenantSlug)) {
+    return getWindowCleaningPricing(params.squareFootage)
+  }
+  return getHouseCleaningPricing(tenantId, params, serviceCategory)
+}
+
+// ── Window Cleaning (WinBros) ────────────────────────────────────────
+
+function getWindowCleaningPricing(squareFootage?: number | null): QuotePricingResult {
+  const tierPrices: Record<string, TierPriceResult> = {
+    good: computeTierPrice('good', squareFootage),
+    better: computeTierPrice('better', squareFootage),
+    best: computeTierPrice('best', squareFootage),
+  }
+
+  return {
+    tiers: QUOTE_TIERS as TierDefinition[],
+    tierPrices,
+    addons: QUOTE_ADDONS as AddonDefinition[],
+    serviceType: 'window_cleaning',
+  }
+}
+
+// ── House Cleaning (Spotless / Cedar Rapids / etc.) ───────────────────
+
+async function getHouseCleaningPricing(
+  tenantId: string,
+  params: { bedrooms?: number | null; bathrooms?: number | null; squareFootage?: number | null },
+  serviceCategory: 'standard' | 'move_in_out'
+): Promise<QuotePricingResult> {
+  const supabase = getSupabaseServiceClient()
+
+  // Fetch pricing tiers for this tenant
+  const { data: pricingTiers } = await supabase
+    .from('pricing_tiers')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('service_type')
+    .order('bedrooms')
+    .order('bathrooms')
+
+  // Fetch addons for this tenant
+  const { data: pricingAddons } = await supabase
+    .from('pricing_addons')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('active', true)
+    .order('addon_key')
+
+  const bedrooms = params.bedrooms || 2
+  const bathrooms = params.bathrooms || 1
+  const bedbathLabel = `${bedrooms} bed / ${bathrooms} bath`
+
+  if (serviceCategory === 'move_in_out') {
+    return buildMoveInOutPricing(pricingTiers || [], pricingAddons || [], bedrooms, bathrooms, bedbathLabel)
+  }
+
+  return buildStandardPricing(pricingTiers || [], pricingAddons || [], bedrooms, bathrooms, bedbathLabel)
+}
+
+// ── Standard Cleaning Pricing (3 tiers) ──────────────────────────────
+
+function buildStandardPricing(
+  pricingTiers: Array<{ service_type: string; bedrooms: number; bathrooms: string; price: string; labor_hours: string; cleaners: number; max_sq_ft: number }>,
+  pricingAddons: Array<{ addon_key: string; label: string; flat_price: string }>,
+  bedrooms: number,
+  bathrooms: number,
+  bedbathLabel: string,
+): QuotePricingResult {
+  const standardPrice = findPricingRow(pricingTiers, 'standard', bedrooms, bathrooms)
+  const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
+
+  // Extra deep = deep price + sum of premium addon prices
+  const premiumAddonKeys = ['inside_fridge', 'inside_oven', 'inside_cabinets', 'range_hood', 'blinds', 'wall_cleaning']
+  const premiumAddons = pricingAddons.filter(a => premiumAddonKeys.includes(a.addon_key))
+  const premiumAddonTotal = premiumAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
+  const extraDeepPrice = (deepPrice?.price || 0) + premiumAddonTotal
+
+  const tierPrices: Record<string, TierPriceResult> = {
+    standard: {
+      price: Number(standardPrice?.price) || 0,
+      breakdown: buildCleaningBreakdown('standard', standardPrice, pricingAddons),
+      tier: bedbathLabel,
+    },
+    deep: {
+      price: Number(deepPrice?.price) || 0,
+      breakdown: buildCleaningBreakdown('deep', deepPrice, pricingAddons),
+      tier: bedbathLabel,
+    },
+    extra_deep: {
+      price: extraDeepPrice,
+      breakdown: buildCleaningBreakdown('extra_deep', deepPrice, pricingAddons, premiumAddons),
+      tier: bedbathLabel,
+    },
+  }
+
+  // Build selectable addons
+  const addons: AddonDefinition[] = pricingAddons.map(a => ({
+    key: a.addon_key,
+    name: a.label,
+    description: getAddonDescription(a.addon_key),
+    priceType: 'flat' as const,
+    price: Number(a.flat_price) || 0,
+    unit: undefined,
+  }))
+
+  return {
+    tiers: CLEANING_TIERS,
+    tierPrices,
+    addons,
+    serviceType: 'house_cleaning',
+  }
+}
+
+// ── Move-In/Move-Out Pricing (3 tiers) ──────────────────────────────
+
+function buildMoveInOutPricing(
+  pricingTiers: Array<{ service_type: string; bedrooms: number; bathrooms: string; price: string; labor_hours: string; cleaners: number; max_sq_ft: number }>,
+  pricingAddons: Array<{ addon_key: string; label: string; flat_price: string }>,
+  bedrooms: number,
+  bathrooms: number,
+  bedbathLabel: string,
+): QuotePricingResult {
+  // Base price from deep cleaning tier (move cleans start at deep clean level)
+  const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
+  const baseDeepPrice = deepPrice?.price || 0
+
+  // Move Good = deep price + base move surcharge items
+  // (closet interiors, light switches, door knobs, cobwebs, wall spot cleaning are labor — included in price markup)
+  const moveGoodMarkup = 0.15 // 15% over deep for standard move tasks
+  const moveGoodPrice = Math.round(baseDeepPrice * (1 + moveGoodMarkup))
+
+  // Move Better = move good + appliance interiors + behind/under appliances + grout
+  const deepAddonKeys = ['inside_oven', 'inside_fridge', 'inside_dishwasher', 'inside_cabinets', 'range_hood']
+  const deepAddons = pricingAddons.filter(a => deepAddonKeys.includes(a.addon_key))
+  const deepAddonTotal = deepAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
+  const moveBetterPrice = moveGoodPrice + deepAddonTotal
+
+  // Move Best = move better + wall washing + interior windows + mineral/mold + blinds + exhaust
+  const premiumAddonKeys = ['blinds', 'wall_cleaning', 'windows_interior']
+  const premiumAddons = pricingAddons.filter(a => premiumAddonKeys.includes(a.addon_key))
+  const premiumAddonTotal = premiumAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
+  // Add flat amounts for services not in addon table (mineral removal, mold treatment, exhaust fans)
+  const specialtyTotal = 75 // $75 for mineral deposits, mold treatment, exhaust fans
+  const moveBestPrice = moveBetterPrice + premiumAddonTotal + specialtyTotal
+
+  const tierPrices: Record<string, TierPriceResult> = {
+    move_good: {
+      price: moveGoodPrice,
+      breakdown: buildMoveBreakdown('move_good', moveGoodPrice, pricingAddons),
+      tier: bedbathLabel,
+    },
+    move_better: {
+      price: moveBetterPrice,
+      breakdown: buildMoveBreakdown('move_better', moveGoodPrice, pricingAddons, deepAddons),
+      tier: bedbathLabel,
+    },
+    move_best: {
+      price: moveBestPrice,
+      breakdown: buildMoveBreakdown('move_best', moveGoodPrice, pricingAddons, [...deepAddons, ...premiumAddons], specialtyTotal),
+      tier: bedbathLabel,
+    },
+  }
+
+  // Move-specific add-ons only
+  const moveAddons: AddonDefinition[] = MOVE_ADDON_KEYS
+    .map(key => {
+      const dbAddon = pricingAddons.find(a => a.addon_key === key)
+      if (dbAddon) {
+        return {
+          key: dbAddon.addon_key,
+          name: dbAddon.label,
+          description: getAddonDescription(dbAddon.addon_key),
+          priceType: 'flat' as const,
+          price: Number(dbAddon.flat_price) || 0,
+          unit: undefined,
+        }
+      }
+      // Fallback for addons not yet in the DB
+      const fallbacks: Record<string, { name: string; price: number }> = {
+        windows_exterior: { name: 'Exterior Window Washing', price: 75 },
+        carpet_steam: { name: 'Carpet Steam Cleaning', price: 150 },
+        garage_sweep: { name: 'Garage Sweep & Cobwebs', price: 50 },
+        patio_balcony: { name: 'Patio / Balcony Cleaning', price: 50 },
+        inside_washer_dryer: { name: 'Inside Washer & Dryer', price: 40 },
+        pet_hair_removal: { name: 'Pet Hair Deep Removal', price: 40 },
+      }
+      const fb = fallbacks[key]
+      if (!fb) return null
+      return {
+        key,
+        name: fb.name,
+        description: getAddonDescription(key),
+        priceType: 'flat' as const,
+        price: fb.price,
+        unit: undefined,
+      }
+    })
+    .filter((a): a is AddonDefinition => a !== null)
+
+  return {
+    tiers: MOVE_TIERS,
+    tierPrices,
+    addons: moveAddons,
+    serviceType: 'house_cleaning',
+  }
+}
+
+// ── Shared Helpers ───────────────────────────────────────────────────
+
+function findPricingRow(
+  tiers: Array<{ service_type: string; bedrooms: number; bathrooms: string; price: string; labor_hours: string; cleaners: number; max_sq_ft: number }>,
+  serviceType: string,
+  bedrooms: number,
+  bathrooms: number
+): { price: number; labor_hours: number; cleaners: number } | null {
+  // Find exact match first
+  const exact = tiers.find(
+    t => t.service_type === serviceType && t.bedrooms === bedrooms && Number(t.bathrooms) === bathrooms
+  )
+  if (exact) {
+    return { price: Number(exact.price), labor_hours: Number(exact.labor_hours), cleaners: exact.cleaners }
+  }
+
+  // Find closest match (same service type, closest bed/bath)
+  const sametype = tiers.filter(t => t.service_type === serviceType)
+  if (sametype.length === 0) return null
+
+  // Sort by distance to requested bed/bath
+  const sorted = sametype.sort((a, b) => {
+    const distA = Math.abs(a.bedrooms - bedrooms) + Math.abs(Number(a.bathrooms) - bathrooms)
+    const distB = Math.abs(b.bedrooms - bedrooms) + Math.abs(Number(b.bathrooms) - bathrooms)
+    return distA - distB
+  })
+
+  const best = sorted[0]
+  return { price: Number(best.price), labor_hours: Number(best.labor_hours), cleaners: best.cleaners }
+}
+
+function buildCleaningBreakdown(
+  tierKey: string,
+  basePrice: { price: number } | null,
+  _addons: Array<{ addon_key: string; label: string; flat_price: string }>,
+  includedAddons?: Array<{ addon_key: string; label: string; flat_price: string }>
+): { service: string; price: number }[] {
+  const breakdown: { service: string; price: number }[] = []
+
+  // Base cleaning service
+  const tierNames: Record<string, string> = {
+    standard: 'Standard Cleaning',
+    deep: 'Deep Cleaning',
+    extra_deep: 'Deep Cleaning (base)',
+  }
+  breakdown.push({ service: tierNames[tierKey] || 'Cleaning', price: Number(basePrice?.price) || 0 })
+
+  // Base services included free
+  if (tierKey === 'standard') {
+    Object.values(BASE_SERVICES).forEach(svc => {
+      breakdown.push({ service: svc, price: 0 })
+    })
+  } else if (tierKey === 'deep') {
+    Object.values(BASE_SERVICES).forEach(svc => {
+      breakdown.push({ service: svc, price: 0 })
+    })
+    breakdown.push({ service: 'Baseboards', price: 0 })
+    breakdown.push({ service: 'Ceiling Fans', price: 0 })
+    breakdown.push({ service: 'Light Fixtures', price: 0 })
+    breakdown.push({ service: 'Window Sills', price: 0 })
+    breakdown.push({ service: 'Inside Microwave', price: 0 })
+  }
+
+  // Premium included addons (for extra_deep)
+  if (includedAddons && includedAddons.length > 0) {
+    for (const addon of includedAddons) {
+      breakdown.push({ service: addon.label, price: Number(addon.flat_price) || 0 })
+    }
+  }
+
+  return breakdown
+}
+
+function buildMoveBreakdown(
+  tierKey: string,
+  basePrice: number,
+  _allAddons: Array<{ addon_key: string; label: string; flat_price: string }>,
+  includedAddons?: Array<{ addon_key: string; label: string; flat_price: string }>,
+  specialtyTotal?: number,
+): { service: string; price: number }[] {
+  const breakdown: { service: string; price: number }[] = []
+
+  const tierNames: Record<string, string> = {
+    move_good: 'Standard Move Clean',
+    move_better: 'Standard Move Clean (base)',
+    move_best: 'Standard Move Clean (base)',
+  }
+
+  breakdown.push({ service: tierNames[tierKey] || 'Move Clean', price: basePrice })
+
+  // Base move services — always included
+  const moveBaseServices = [
+    'Kitchen surfaces, stovetop & microwave interior',
+    'Cabinet & drawer exteriors',
+    'Bathroom full scrub (toilet, tub, shower, vanity)',
+    'All floors vacuumed & mopped',
+    'Baseboards, ceiling fans & light fixtures',
+    'Light switches, door knobs & outlet covers',
+    'Windowsills & cobweb removal',
+    'Closet interiors swept',
+    'Wall spot cleaning (scuffs & fingerprints)',
+  ]
+
+  for (const svc of moveBaseServices) {
+    breakdown.push({ service: svc, price: 0 })
+  }
+
+  // Deep-level included addons (for move_better and move_best)
+  if (includedAddons && includedAddons.length > 0) {
+    for (const addon of includedAddons) {
+      breakdown.push({ service: addon.label, price: Number(addon.flat_price) || 0 })
+    }
+  }
+
+  // Specialty services for white glove
+  if (specialtyTotal && specialtyTotal > 0) {
+    breakdown.push({ service: 'Mineral deposit & hard water removal', price: 25 })
+    breakdown.push({ service: 'Mold & mildew treatment', price: 25 })
+    breakdown.push({ service: 'Exhaust fans removed & cleaned', price: 25 })
+  }
+
+  return breakdown
+}
+
+function getAddonDescription(key: string): string {
+  const descriptions: Record<string, string> = {
+    inside_fridge: 'Full interior fridge cleaning — shelves, drawers, and door compartments',
+    inside_oven: 'Interior oven deep clean — racks, walls, and door glass',
+    inside_cabinets: 'Wipe down all cabinet interiors — shelves and doors',
+    inside_microwave: 'Interior microwave cleaning and degreasing',
+    inside_dishwasher: 'Deep clean dishwasher interior, filter, and door',
+    range_hood: 'Degrease range hood, exhaust fan, and filter',
+    baseboards: 'Detailed wipe-down of all baseboards throughout the home',
+    blinds: 'Clean all blinds and shutters — dust and wipe each slat',
+    ceiling_fans: 'Dust and wipe all ceiling fan blades',
+    light_fixtures: 'Clean light fixtures and chandeliers',
+    wall_cleaning: 'Spot clean walls — remove scuffs, marks, and fingerprints',
+    window_sills: 'Clean all window sills and ledges',
+    windows_interior: 'Interior window glass cleaning throughout the home',
+    windows_exterior: 'Exterior window glass cleaning — all accessible windows',
+    windows_both: 'Complete interior and exterior window cleaning',
+    pet_fee: 'Additional cleaning for homes with pets — extra hair and dander removal',
+    pet_hair_removal: 'Deep pet hair removal from carpets, furniture, and upholstery',
+    laundry: 'One load of laundry — wash, dry, and fold',
+    dishes: 'Load and run dishwasher or hand-wash dishes',
+    change_sheets: 'Strip and replace bed linens on all beds',
+    garage_sweep: 'Sweep and tidy garage floor with cobweb removal',
+    patio_balcony: 'Sweep and wipe down patio or balcony surfaces',
+    carpet_steam: 'Professional carpet steam cleaning — whole home',
+    inside_washer_dryer: 'Deep clean inside washer drum and dryer lint trap area',
+  }
+  return descriptions[key] || ''
+}
+
+/**
+ * Compute the total price for a quote approval (server-side validation).
+ */
+export async function computeQuoteTotal(
+  tenantId: string,
+  tenantSlug: string,
+  selectedTier: string,
+  selectedAddons: string[],
+  params: {
+    squareFootage?: number | null
+    bedrooms?: number | null
+    bathrooms?: number | null
+  },
+  serviceCategory: 'standard' | 'move_in_out' = 'standard'
+): Promise<{ subtotal: number; breakdown: { service: string; price: number }[] }> {
+  const pricing = await getQuotePricing(tenantId, tenantSlug, params, serviceCategory)
+  const tierPrice = pricing.tierPrices[selectedTier]
+
+  if (!tierPrice) {
+    throw new Error(`Invalid tier: ${selectedTier}`)
+  }
+
+  let subtotal = tierPrice.price
+
+  // Add selected addon prices (only those not already included in the tier)
+  const tier = pricing.tiers.find(t => t.key === selectedTier)
+  for (const addonKey of selectedAddons) {
+    if (tier?.included.includes(addonKey)) continue // Skip — already in tier
+    const addon = pricing.addons.find(a => a.key === addonKey)
+    if (addon && addon.price > 0) {
+      subtotal += addon.price
+    }
+  }
+
+  return { subtotal, breakdown: tierPrice.breakdown }
+}

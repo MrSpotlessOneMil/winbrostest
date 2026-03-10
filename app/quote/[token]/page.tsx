@@ -24,12 +24,16 @@ import {
   Phone,
   User,
   FileText,
+  CreditCard,
+  ShieldCheck,
+  Lock,
+  Home,
 } from "lucide-react"
 
-// ── Types matching our API response ─────────────────────────────────
+// ── Types matching the tenant-aware API response ─────────────────────
 
 interface QuoteTier {
-  key: "good" | "better" | "best"
+  key: string
   name: string
   tagline: string
   badge?: string
@@ -52,6 +56,27 @@ interface TierPrice {
   tier: string
 }
 
+interface ServicePlan {
+  id: string
+  slug: string
+  name: string
+  visits_per_year: number
+  interval_months: number
+  discount_per_visit: number
+  early_cancel_repay: number | null
+  free_addons: string[] | null
+  agreement_text: string | null
+}
+
+interface ServiceAgreement {
+  cancellation_fee: number
+  cancellation_window_hours: number
+  satisfaction_guarantee: boolean
+  deposit_percentage: number
+  processing_fee_percentage: number
+  terms: string[]
+}
+
 interface Quote {
   id: string
   token: string
@@ -61,6 +86,8 @@ interface Quote {
   customer_email: string | null
   customer_address: string | null
   square_footage: number | null
+  bedrooms: number | null
+  bathrooms: number | null
   selected_tier: string | null
   selected_addons: string[]
   subtotal: string | null
@@ -68,6 +95,7 @@ interface Quote {
   total: string | null
   membership_discount: string | null
   membership_plan: string | null
+  deposit_amount: string | null
   valid_until: string
   approved_at: string | null
   created_at: string
@@ -79,6 +107,15 @@ interface APIResponse {
   tierPrices: Record<string, TierPrice>
   tiers: QuoteTier[]
   addons: QuoteAddon[]
+  serviceType: "window_cleaning" | "house_cleaning"
+  servicePlans: ServicePlan[]
+  serviceAgreement: ServiceAgreement
+  tenant: {
+    name: string
+    slug: string
+    phone: string | null
+    email: string | null
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -98,77 +135,92 @@ function formatDate(iso: string): string {
   })
 }
 
-const TIER_ICONS: Record<string, React.ReactNode> = {
+// Dynamic tier visuals — works for 3 tiers (WinBros) or 4+ tiers (house cleaning)
+const TIER_ICON_MAP: Record<string, React.ReactNode> = {
   good: <Shield className="size-6" />,
   better: <Star className="size-6" />,
   best: <Crown className="size-6" />,
+  standard: <Shield className="size-6" />,
+  deep: <Star className="size-6" />,
+  extra_deep: <Crown className="size-6" />,
+  move_good: <Shield className="size-6" />,
+  move_better: <Star className="size-6" />,
+  move_best: <Crown className="size-6" />,
 }
 
-const TIER_COLORS: Record<string, { ring: string; bg: string; glow: string; text: string }> = {
+const TIER_COLOR_MAP: Record<string, { ring: string; bg: string; glow: string; text: string; indicator: string }> = {
   good: {
     ring: "ring-blue-500/60",
     bg: "bg-blue-500/10",
     glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
     text: "text-blue-400",
+    indicator: "bg-blue-500",
   },
   better: {
     ring: "ring-violet-500/60",
     bg: "bg-violet-500/10",
     glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
     text: "text-violet-400",
+    indicator: "bg-violet-500",
   },
   best: {
     ring: "ring-amber-500/60",
     bg: "bg-amber-500/10",
     glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
     text: "text-amber-400",
+    indicator: "bg-amber-500",
+  },
+  standard: {
+    ring: "ring-blue-500/60",
+    bg: "bg-blue-500/10",
+    glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
+    text: "text-blue-400",
+    indicator: "bg-blue-500",
+  },
+  deep: {
+    ring: "ring-violet-500/60",
+    bg: "bg-violet-500/10",
+    glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
+    text: "text-violet-400",
+    indicator: "bg-violet-500",
+  },
+  extra_deep: {
+    ring: "ring-amber-500/60",
+    bg: "bg-amber-500/10",
+    glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
+    text: "text-amber-400",
+    indicator: "bg-amber-500",
+  },
+  move_good: {
+    ring: "ring-blue-500/60",
+    bg: "bg-blue-500/10",
+    glow: "shadow-[0_0_30px_rgba(59,130,246,0.15)]",
+    text: "text-blue-400",
+    indicator: "bg-blue-500",
+  },
+  move_better: {
+    ring: "ring-violet-500/60",
+    bg: "bg-violet-500/10",
+    glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
+    text: "text-violet-400",
+    indicator: "bg-violet-500",
+  },
+  move_best: {
+    ring: "ring-amber-500/60",
+    bg: "bg-amber-500/10",
+    glow: "shadow-[0_0_30px_rgba(245,158,11,0.15)]",
+    text: "text-amber-400",
+    indicator: "bg-amber-500",
   },
 }
 
-// ── Membership Plans ─────────────────────────────────────────────────
-
-interface MembershipPlan {
-  slug: string
-  name: string
-  visits: number
-  interval: string
-  discount: number
-  freeAddons: string[]
-  agreement: string
+const DEFAULT_COLORS = {
+  ring: "ring-violet-500/60",
+  bg: "bg-violet-500/10",
+  glow: "shadow-[0_0_30px_rgba(139,92,246,0.2)]",
+  text: "text-violet-400",
+  indicator: "bg-violet-500",
 }
-
-const MEMBERSHIP_PLANS: MembershipPlan[] = [
-  {
-    slug: "biannual",
-    name: "BiAnnual Membership",
-    visits: 2,
-    interval: "6 months",
-    discount: 50,
-    freeAddons: ["Rain Repellent", "Screen Cleaning"],
-    agreement:
-      "By approving this agreement, you commit to receiving 2 exterior window cleaning visits within a 12-month period. In exchange, a $50 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every 6 months. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent and Screen Cleaning on every visit.",
-  },
-  {
-    slug: "quarterly",
-    name: "Quarterly Membership",
-    visits: 4,
-    interval: "3 months",
-    discount: 100,
-    freeAddons: ["Rain Repellent", "Screen Cleaning", "7-Day Rain Guarantee"],
-    agreement:
-      "By approving this agreement, you commit to receiving 4 exterior window cleaning visits within a 12-month period. In exchange, a $100 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every 3 months. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent, Screen Cleaning, and 7-Day Rain Guarantee on every visit.",
-  },
-  {
-    slug: "monthly",
-    name: "Monthly Membership",
-    visits: 12,
-    interval: "month",
-    discount: 150,
-    freeAddons: ["Rain Repellent", "Screen Cleaning", "7-Day Rain Guarantee"],
-    agreement:
-      "By approving this agreement, you commit to receiving 12 exterior window cleaning visits within a 12-month period. In exchange, a $150 discount will be applied to each of your cleaning visits included in this plan. Visits are scheduled approximately every month. Cancellation before completing all visits may result in retroactive charges for the discounts received. Free add-ons included: Rain Repellent, Screen Cleaning, and 7-Day Rain Guarantee on every visit.",
-  },
-]
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -184,9 +236,10 @@ export default function QuotePage() {
   const [selectedAddons, setSelectedAddons] = useState<Record<string, boolean>>({})
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({})
   const [approving, setApproving] = useState(false)
-  const [approved, setApproved] = useState(false)
   const [selectedMembership, setSelectedMembership] = useState<string | null>(null)
   const [agreementAccepted, setAgreementAccepted] = useState(false)
+  const [customerName, setCustomerName] = useState("")
+  const [customerEmail, setCustomerEmail] = useState("")
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -198,11 +251,16 @@ export default function QuotePage() {
         if (!res.ok) throw new Error(json.error || "Quote not found")
         setData(json)
 
-        // Default to "better" (middle tier)
-        setSelectedTierKey("better")
+        // Default to middle tier
+        const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
+        const middleIndex = Math.min(1, tierKeys.length - 1)
+        setSelectedTierKey(tierKeys[middleIndex] || tierKeys[0])
+
+        // Pre-fill customer info
+        if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
+        if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
 
         if (json.quote.status === "approved") {
-          setApproved(true)
           setSelectedTierKey(json.quote.selected_tier)
         }
 
@@ -227,6 +285,12 @@ export default function QuotePage() {
   const tiers = data?.tiers ?? []
   const addons = data?.addons ?? []
   const tierPrices = data?.tierPrices ?? {}
+  const servicePlans = data?.servicePlans ?? []
+  const serviceAgreement = data?.serviceAgreement ?? null
+  const tenant = data?.tenant ?? null
+  const serviceType = data?.serviceType ?? "house_cleaning"
+
+  const businessName = tenant?.name || "Our Team"
 
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
@@ -241,14 +305,12 @@ export default function QuotePage() {
   const getAddonPrice = useCallback(
     (addon: QuoteAddon): number => {
       if (!selectedTierPrice) return 0
-      // For flat-price addons that are part of a tier (interior, track_detailing),
-      // get price from the tier's pricebook tier
+      // For WinBros flat-price addons that are part of tier breakdowns
       if (addon.key === "interior" && selectedTierPrice) {
         const interiorItem = selectedTierPrice.breakdown.find(
           (b) => b.service === "Interior Window Cleaning"
         )
         if (interiorItem) return interiorItem.price
-        // Fallback: compute from tier prices
         const betterPrice = tierPrices.better?.breakdown.find(
           (b) => b.service === "Interior Window Cleaning"
         )
@@ -281,13 +343,20 @@ export default function QuotePage() {
       }, 0)
     : 0
 
-  const selectedPlan = MEMBERSHIP_PLANS.find((p) => p.slug === selectedMembership) ?? null
-  const membershipDiscount = selectedPlan?.discount ?? 0
+  const selectedPlan = servicePlans.find((p) => p.slug === selectedMembership) ?? null
+  const membershipDiscount = selectedPlan ? Number(selectedPlan.discount_per_visit) || 0 : 0
   const existingDiscount = Number(quote?.discount) || 0
   const discountAmount = existingDiscount + membershipDiscount
   const total = Math.max(0, subtotal - discountAmount)
 
-  // ── Approve handler ──────────────────────────────────────────────
+  // Deposit calculation (mirrors server-side)
+  const depositPct = serviceAgreement?.deposit_percentage ? serviceAgreement.deposit_percentage / 100 : 0.5
+  const processingFeePct = serviceAgreement?.processing_fee_percentage ? serviceAgreement.processing_fee_percentage / 100 : 0.03
+  const depositBase = total * depositPct
+  const depositWithFee = depositBase * (1 + processingFeePct)
+  const depositAmount = Math.round(depositWithFee * 100) / 100
+
+  // ── Approve handler — redirects to Stripe Checkout ─────────────
 
   async function handleApprove() {
     if (!selectedTierKey || !quote) return
@@ -304,16 +373,23 @@ export default function QuotePage() {
           selected_tier: selectedTierKey,
           selected_addons: activeAddons,
           membership_plan: selectedPlan?.slug || null,
+          customer_name: customerName || undefined,
+          customer_email: customerEmail || undefined,
+          service_agreement_accepted: true,
         }),
       })
 
       const json = await res.json()
-      if (!res.ok) throw new Error(json.error || "Failed to approve quote")
+      if (!res.ok) throw new Error(json.error || "Failed to process quote")
 
-      setApproved(true)
+      // Redirect to Stripe Checkout
+      if (json.checkout_url) {
+        window.location.href = json.checkout_url
+      } else {
+        setError("Payment session could not be created. Please try again.")
+      }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to approve quote")
-    } finally {
+      setError(err instanceof Error ? err.message : "Failed to process quote")
       setApproving(false)
     }
   }
@@ -333,7 +409,7 @@ export default function QuotePage() {
 
   // ── Error state ──────────────────────────────────────────────────
 
-  if (error || !quote) {
+  if (error && !quote) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
         <Card className="max-w-md w-full">
@@ -349,12 +425,18 @@ export default function QuotePage() {
     )
   }
 
+  if (!quote) return null
+
   const isExpired = quote.status === "expired"
+  const isApproved = quote.status === "approved"
   const quoteNumber = token.slice(0, 8).toUpperCase()
 
-  // ── Approved confirmation ────────────────────────────────────────
+  // Grid columns: 3 for WinBros (good/better/best), 2x2 for house cleaning (4 tiers)
+  const tierGridCols = tiers.length <= 3 ? "md:grid-cols-3" : "md:grid-cols-2 lg:grid-cols-4"
 
-  if (approved) {
+  // ── Approved state — redirect to success page ──────────────────
+
+  if (isApproved) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-4">
         <Card className="max-w-lg w-full">
@@ -363,27 +445,38 @@ export default function QuotePage() {
               <CheckCircle className="size-10 text-emerald-400" />
             </div>
             <div className="text-center space-y-2">
-              <h2 className="text-2xl font-bold text-white">Quote Approved!</h2>
+              <h2 className="text-2xl font-bold text-white">Quote Approved</h2>
               <p className="text-zinc-400">
-                Thank you, {quote.customer_name}. Your quote #{quoteNumber} has been
-                approved for {formatCurrency(total)}.
+                This quote has been approved
+                {quote.deposit_amount ? ` and a deposit of ${formatCurrency(Number(quote.deposit_amount))} has been paid` : ""}.
+                We&apos;ll be in touch to schedule your service.
               </p>
             </div>
-            {selectedTier && (
-              <div className="bg-zinc-900/60 rounded-lg px-6 py-4 w-full max-w-sm">
-                <p className="text-sm text-zinc-400 mb-1">Selected Package</p>
-                <p className="text-white font-semibold text-lg">{selectedTier.name}</p>
-                <p className="text-zinc-400 text-sm">{selectedTier.tagline}</p>
-              </div>
+            {tenant?.phone && (
+              <a
+                href={`tel:${tenant.phone}`}
+                className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors text-sm"
+              >
+                <Phone className="size-4" />
+                {tenant.phone}
+              </a>
             )}
-            <p className="text-zinc-500 text-xs mt-4">
-              We will be in touch shortly to schedule your service.
+            <p className="text-zinc-600 text-xs mt-4">
+              Powered by {businessName}
             </p>
           </CardContent>
         </Card>
       </div>
     )
   }
+
+  // ── Determine whether approve button should be enabled ──────────
+
+  const canApprove =
+    selectedTierKey &&
+    !approving &&
+    agreementAccepted &&
+    !isExpired
 
   // ── Main quote page ──────────────────────────────────────────────
 
@@ -401,7 +494,7 @@ export default function QuotePage() {
                 <Sparkles className="size-5 text-white" />
               </div>
               <h1 className="text-xl sm:text-2xl font-bold text-white">
-                WinBros Window Cleaning
+                {businessName}
               </h1>
             </div>
 
@@ -439,6 +532,13 @@ export default function QuotePage() {
                 {quote.customer_phone}
               </div>
             )}
+            {/* Bed/bath info for house cleaning */}
+            {serviceType === "house_cleaning" && (quote.bedrooms || quote.bathrooms) && (
+              <div className="flex items-center gap-2 sm:justify-end text-zinc-400 text-sm">
+                <Home className="size-4" />
+                {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
+              </div>
+            )}
           </div>
         </div>
 
@@ -455,6 +555,14 @@ export default function QuotePage() {
           </div>
         )}
 
+        {/* ── Error Banner ────────────────────────────────────────── */}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-3">
+            <AlertTriangle className="size-5 text-red-400 shrink-0" />
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
+
         {/* ── Tier Selection ──────────────────────────────────────── */}
         <div>
           <h2 className="text-lg font-semibold text-white mb-1">Choose Your Package</h2>
@@ -462,10 +570,10 @@ export default function QuotePage() {
             Select the service level that fits your needs.
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className={`grid grid-cols-1 ${tierGridCols} gap-4`}>
             {tiers.map((tier) => {
               const isSelected = selectedTierKey === tier.key
-              const colors = TIER_COLORS[tier.key] ?? TIER_COLORS.good
+              const colors = TIER_COLOR_MAP[tier.key] ?? DEFAULT_COLORS
               const price = tierPrices[tier.key]?.price ?? 0
               const breakdown = tierPrices[tier.key]?.breakdown ?? []
               const isBestValue = !!tier.badge
@@ -487,7 +595,7 @@ export default function QuotePage() {
                     p-6 flex flex-col
                   `}
                 >
-                  {/* Best Value badge */}
+                  {/* Badge */}
                   {isBestValue && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                       <Badge className="bg-violet-600 text-white border-violet-500 text-xs px-3 py-0.5">
@@ -505,13 +613,20 @@ export default function QuotePage() {
                         ${isSelected ? colors.text : "text-zinc-400"}
                       `}
                     >
-                      {TIER_ICONS[tier.key] ?? <Shield className="size-6" />}
+                      {TIER_ICON_MAP[tier.key] ?? <Shield className="size-6" />}
                     </div>
                     <div>
                       <h3 className="text-white font-semibold text-lg">{tier.name}</h3>
                       <p className="text-zinc-400 text-xs">{tier.tagline}</p>
                     </div>
                   </div>
+
+                  {/* Description for house cleaning tiers */}
+                  {serviceType === "house_cleaning" && tier.description && (
+                    <p className="text-zinc-500 text-xs leading-relaxed mb-4">
+                      {tier.description}
+                    </p>
+                  )}
 
                   {/* Services list */}
                   <div className="flex-1 space-y-2 mb-5">
@@ -524,8 +639,13 @@ export default function QuotePage() {
                         />
                         <span className="text-sm text-zinc-300">
                           {item.service}
+                          {item.price > 0 && (
+                            <span className="text-zinc-500 text-xs ml-1">
+                              +{formatCurrency(item.price)}
+                            </span>
+                          )}
                           {item.price === 0 && (
-                            <span className="text-emerald-400 text-xs ml-1">FREE</span>
+                            <span className="text-emerald-400 text-xs ml-1">Included</span>
                           )}
                         </span>
                       </div>
@@ -547,15 +667,7 @@ export default function QuotePage() {
                   {/* Select indicator */}
                   {isSelected && (
                     <div className="absolute top-4 right-4">
-                      <div
-                        className={`size-6 rounded-full flex items-center justify-center ${
-                          tier.key === "good"
-                            ? "bg-blue-500"
-                            : tier.key === "better"
-                            ? "bg-violet-500"
-                            : "bg-amber-500"
-                        }`}
-                      >
+                      <div className={`size-6 rounded-full flex items-center justify-center ${colors.indicator}`}>
                         <Check className="size-4 text-white" />
                       </div>
                     </div>
@@ -614,7 +726,9 @@ export default function QuotePage() {
                             <Label className="text-sm font-medium text-white">
                               {addon.name}
                             </Label>
-                            <p className="text-xs text-zinc-500 mt-0.5">{addon.description}</p>
+                            {addon.description && (
+                              <p className="text-xs text-zinc-500 mt-0.5">{addon.description}</p>
+                            )}
                           </div>
                           {included ? (
                             <Badge variant="secondary" className="text-xs shrink-0">
@@ -711,22 +825,21 @@ export default function QuotePage() {
         )}
 
         {/* ── Membership Plans ───────────────────────────────────── */}
-        {!isExpired && (
+        {!isExpired && servicePlans.length > 0 && (
           <div>
             <h2 className="text-lg font-semibold text-white mb-1">
               Save with a Membership
             </h2>
             <p className="text-zinc-400 text-sm mb-6">
-              Commit to regular cleanings and save on every visit.
+              Commit to regular service and save on every visit.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 ${servicePlans.length >= 3 ? 'lg:grid-cols-4' : ''} gap-3`}>
               {/* No Membership option */}
               <button
                 type="button"
                 onClick={() => {
                   setSelectedMembership(null)
-                  setAgreementAccepted(false)
                 }}
                 className={`
                   relative text-left rounded-xl border p-5 transition-all duration-200
@@ -752,16 +865,16 @@ export default function QuotePage() {
                 )}
               </button>
 
-              {/* Membership plan cards */}
-              {MEMBERSHIP_PLANS.map((plan) => {
+              {/* Membership plan cards from API */}
+              {servicePlans.map((plan) => {
                 const isSelected = selectedMembership === plan.slug
+                const freeAddons = plan.free_addons || []
                 return (
                   <button
                     key={plan.slug}
                     type="button"
                     onClick={() => {
                       setSelectedMembership(plan.slug)
-                      setAgreementAccepted(false)
                     }}
                     className={`
                       relative text-left rounded-xl border p-5 transition-all duration-200
@@ -785,22 +898,24 @@ export default function QuotePage() {
                       <h3 className="text-white font-semibold text-sm">{plan.name}</h3>
                     </div>
                     <p className="text-zinc-400 text-xs mb-3">
-                      {plan.visits} visits/year &middot; Every {plan.interval}
+                      {plan.visits_per_year} visits/year &middot; Every {plan.interval_months} month{plan.interval_months !== 1 ? 's' : ''}
                     </p>
                     <div className="mb-3">
                       <span className="text-emerald-400 font-semibold text-sm">
-                        Save {formatCurrency(plan.discount)}/visit
+                        Save {formatCurrency(Number(plan.discount_per_visit))}/visit
                       </span>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-zinc-500 text-xs font-medium">Free perks:</p>
-                      {plan.freeAddons.map((perk) => (
-                        <div key={perk} className="flex items-center gap-1.5">
-                          <Check className="size-3 text-emerald-400 shrink-0" />
-                          <span className="text-zinc-400 text-xs">{perk}</span>
-                        </div>
-                      ))}
-                    </div>
+                    {freeAddons.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-zinc-500 text-xs font-medium">Free perks:</p>
+                        {freeAddons.map((perk) => (
+                          <div key={perk} className="flex items-center gap-1.5">
+                            <Check className="size-3 text-emerald-400 shrink-0" />
+                            <span className="text-zinc-400 text-xs">{perk}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {isSelected && (
                       <div className="absolute top-3 right-3">
                         <div className="size-5 rounded-full bg-emerald-500 flex items-center justify-center">
@@ -813,38 +928,114 @@ export default function QuotePage() {
               })}
             </div>
 
-            {/* Service Agreement */}
-            {selectedPlan && (
-              <div className="mt-6 space-y-4">
+            {/* Membership Agreement Text */}
+            {selectedPlan?.agreement_text && (
+              <div className="mt-6">
                 <div className="border border-white/[0.08] rounded-lg overflow-hidden">
                   <div className="px-4 py-2.5 bg-zinc-900/60 border-b border-white/[0.06]">
                     <p className="text-sm font-medium text-white">
-                      Service Agreement &mdash; {selectedPlan.name}
+                      Membership Agreement &mdash; {selectedPlan.name}
                     </p>
                   </div>
                   <div
                     className="px-4 py-3 max-h-[200px] overflow-y-auto text-sm text-zinc-400 leading-relaxed"
                     style={{ scrollbarWidth: "thin" }}
                   >
-                    {selectedPlan.agreement}
+                    {selectedPlan.agreement_text}
                   </div>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
 
+        {/* ── Customer Info (optional — pre-fill or collect) ───── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-1">Your Information</h2>
+            <p className="text-zinc-400 text-sm mb-4">
+              Confirm your details for the service.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-name" className="text-sm text-zinc-300">Name</Label>
+                <Input
+                  id="customer-name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                  placeholder="Your full name"
+                  className="bg-zinc-900/60 border-white/[0.08]"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="customer-email" className="text-sm text-zinc-300">Email</Label>
+                <Input
+                  id="customer-email"
+                  type="email"
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  className="bg-zinc-900/60 border-white/[0.08]"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Service Agreement ────────────────────────────────────── */}
+        {!isExpired && serviceAgreement && (
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
+              <ShieldCheck className="size-5 text-emerald-400" />
+              Service Agreement
+            </h2>
+            <p className="text-zinc-400 text-sm mb-4">
+              Please review and accept our terms before proceeding to payment.
+            </p>
+
+            <div className="border border-white/[0.08] rounded-xl overflow-hidden">
+              {/* Terms list */}
+              <div className="p-5 space-y-4">
+                {serviceAgreement.terms.map((term, i) => (
+                  <div key={i} className="flex items-start gap-3">
+                    <div className="size-6 rounded-full bg-zinc-800 flex items-center justify-center shrink-0 mt-0.5">
+                      <span className="text-zinc-400 text-xs font-bold">{i + 1}</span>
+                    </div>
+                    <p className="text-sm text-zinc-300 leading-relaxed">{term}</p>
+                  </div>
+                ))}
+
+                {/* Satisfaction guarantee highlight */}
+                {serviceAgreement.satisfaction_guarantee && (
+                  <div className="flex items-start gap-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg p-4 mt-4">
+                    <ShieldCheck className="size-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-emerald-400 font-medium text-sm">100% Satisfaction Guarantee</p>
+                      <p className="text-zinc-400 text-xs mt-1">
+                        If you&apos;re not happy with the service, we&apos;ll come back and make it right at no extra charge.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Acceptance checkbox */}
+              <div className="border-t border-white/[0.06] px-5 py-4 bg-zinc-900/40">
                 <div className="flex items-start gap-3">
                   <Checkbox
-                    id="agreement-checkbox"
+                    id="service-agreement"
                     checked={agreementAccepted}
                     onCheckedChange={(val) => setAgreementAccepted(!!val)}
                   />
                   <Label
-                    htmlFor="agreement-checkbox"
+                    htmlFor="service-agreement"
                     className="text-sm text-zinc-300 cursor-pointer leading-snug"
                   >
-                    I agree to the membership terms above
+                    I have read and agree to the service terms, cancellation policy, and payment terms above.
                   </Label>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         )}
 
@@ -859,7 +1050,7 @@ export default function QuotePage() {
               {selectedTier && selectedTierPrice && (
                 <div className="flex justify-between text-sm">
                   <span className="text-zinc-300">
-                    {selectedTier.name} Package
+                    {selectedTier.name}
                   </span>
                   <span className="text-white font-medium">
                     {formatCurrency(selectedTierPrice.price)}
@@ -917,7 +1108,7 @@ export default function QuotePage() {
               {membershipDiscount > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-emerald-400">
-                    Membership Discount ({selectedPlan?.name})
+                    Membership ({selectedPlan?.name})
                   </span>
                   <span className="text-emerald-400">
                     -{formatCurrency(membershipDiscount)}
@@ -928,51 +1119,90 @@ export default function QuotePage() {
               {/* Total */}
               <div className="border-t border-white/[0.06] pt-3">
                 <div className="flex justify-between">
-                  <span className="text-white font-semibold text-lg">Total</span>
+                  <span className="text-white font-semibold text-lg">Service Total</span>
                   <span className="text-white font-bold text-2xl">
                     {formatCurrency(total)}
                   </span>
                 </div>
               </div>
+
+              {/* Deposit breakdown */}
+              {!isExpired && total > 0 && (
+                <div className="border-t border-white/[0.06] pt-3 mt-3 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">
+                      Deposit ({Math.round(depositPct * 100)}%)
+                    </span>
+                    <span className="text-zinc-300">{formatCurrency(depositBase)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">
+                      Processing fee ({Math.round(processingFeePct * 100)}%)
+                    </span>
+                    <span className="text-zinc-300">{formatCurrency(depositWithFee - depositBase)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-medium pt-1">
+                    <span className="text-white">Due today (deposit)</span>
+                    <span className="text-white">{formatCurrency(depositAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-500">Remaining balance (due on completion)</span>
+                    <span className="text-zinc-500">{formatCurrency(total - (total * depositPct))}</span>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        {/* ── Approve Button ──────────────────────────────────────── */}
+        {/* ── Approve & Pay Button ──────────────────────────────── */}
         {!isExpired && (
-          <div className="flex justify-center pb-8">
+          <div className="flex flex-col items-center gap-4 pb-8">
             <Button
               size="lg"
-              disabled={!selectedTierKey || approving || (selectedPlan !== null && !agreementAccepted)}
+              disabled={!canApprove}
               onClick={handleApprove}
               className="
-                w-full sm:w-auto sm:min-w-[280px] h-14 text-base font-semibold
+                w-full sm:w-auto sm:min-w-[320px] h-14 text-base font-semibold
                 bg-gradient-to-r from-emerald-600 to-emerald-500
                 hover:from-emerald-500 hover:to-emerald-400
                 shadow-[0_0_30px_rgba(16,185,129,0.25)]
                 hover:shadow-[0_0_40px_rgba(16,185,129,0.35)]
                 transition-all duration-200 border-0
+                disabled:opacity-50 disabled:cursor-not-allowed
               "
             >
               {approving ? (
                 <>
                   <Loader2 className="size-5 animate-spin" />
-                  Approving...
+                  Processing...
                 </>
               ) : (
                 <>
-                  <CheckCircle className="size-5" />
-                  Approve Quote
+                  <CreditCard className="size-5" />
+                  Approve &amp; Pay Deposit — {formatCurrency(depositAmount)}
                 </>
               )}
             </Button>
+
+            {!agreementAccepted && !isExpired && (
+              <p className="text-zinc-500 text-xs flex items-center gap-1.5">
+                <Lock className="size-3" />
+                Accept the service agreement above to continue
+              </p>
+            )}
+
+            <div className="flex items-center gap-1.5 text-zinc-600 text-xs">
+              <Lock className="size-3" />
+              Secure payment powered by Stripe
+            </div>
           </div>
         )}
 
         {/* ── Footer ──────────────────────────────────────────────── */}
         <div className="text-center pb-8">
           <p className="text-zinc-600 text-xs">
-            Powered by WinBros Window Cleaning
+            Powered by {businessName}
           </p>
         </div>
       </div>

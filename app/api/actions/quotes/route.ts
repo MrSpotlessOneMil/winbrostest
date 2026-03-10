@@ -51,7 +51,10 @@ export async function POST(request: NextRequest) {
     customer_email,
     customer_address,
     square_footage,
+    bedrooms,
+    bathrooms,
     property_type,
+    service_category,
     notes,
   } = body
 
@@ -74,6 +77,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Validate service_category if provided
+  const validCategories = ['standard', 'move_in_out']
+  const category = service_category && validCategories.includes(service_category) ? service_category : 'standard'
+
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
@@ -84,7 +91,10 @@ export async function POST(request: NextRequest) {
       customer_email: customer_email || null,
       customer_address: customer_address || null,
       square_footage: square_footage || null,
+      bedrooms: bedrooms || null,
+      bathrooms: bathrooms || null,
       property_type: property_type || null,
+      service_category: category,
       notes: notes || null,
     })
     .select()

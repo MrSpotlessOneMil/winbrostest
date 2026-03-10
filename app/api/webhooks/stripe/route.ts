@@ -132,6 +132,12 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
     return
   }
 
+  // Handle QUOTE_DEPOSIT — quote approval with payment
+  if (payment_type === 'QUOTE_DEPOSIT') {
+    await handleQuoteDepositPayment(session)
+    return
+  }
+
   if (!job_id) {
     console.error('[Stripe Webhook] Missing job_id in session metadata')
     return
@@ -345,6 +351,168 @@ async function handleDepositPayment(
   })
 
   console.log(`[Stripe Webhook] DEPOSIT payment processed successfully for job ${jobId}`)
+}
+
+/**
+ * Handle QUOTE_DEPOSIT payment — customer approved a quote and paid the deposit.
+ * Creates a job, marks quote approved, creates membership if applicable, sends SMS.
+ */
+async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
+  const metadata = session.metadata || {}
+  const { quote_id, quote_token, selected_tier, phone_number, tenant_id, membership_plan } = metadata
+
+  if (!quote_id) {
+    console.error('[Stripe Webhook] QUOTE_DEPOSIT missing quote_id')
+    return
+  }
+
+  console.log(`[Stripe Webhook] Quote deposit paid — quote_id: ${quote_id}, tier: ${selected_tier}`)
+
+  const serviceClient = getSupabaseServiceClient()
+
+  // Fetch the quote
+  const { data: quote } = await serviceClient
+    .from('quotes')
+    .select('*')
+    .eq('id', quote_id)
+    .single()
+
+  if (!quote) {
+    console.error(`[Stripe Webhook] Quote not found: ${quote_id}`)
+    return
+  }
+
+  // Mark quote as approved atomically
+  const { error: approveError } = await serviceClient
+    .from('quotes')
+    .update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+    })
+    .eq('id', quote_id)
+    .in('status', ['pending']) // Only if still pending (idempotent)
+
+  if (approveError) {
+    console.error(`[Stripe Webhook] Failed to approve quote ${quote_id}:`, approveError.message)
+  }
+
+  // Resolve tenant
+  let tenant: Tenant | null = null
+  if (tenant_id) {
+    tenant = await getTenantById(tenant_id)
+  }
+
+  // Determine service name from tier
+  const tierNames: Record<string, string> = {
+    good: 'Exterior Clean',
+    better: 'Complete Clean',
+    best: 'Full Detail',
+    standard: 'Standard Clean',
+    deep: 'Deep Clean',
+    extra_deep: 'Extra Deep Clean',
+    move: 'Move-In/Move-Out Clean',
+  }
+  const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
+
+  // Create job from the approved quote
+  const jobInsert: Record<string, unknown> = {
+    tenant_id: quote.tenant_id,
+    customer_id: quote.customer_id || null,
+    phone_number: quote.customer_phone || phone_number || null,
+    address: quote.customer_address || null,
+    service_type: serviceName,
+    price: Number(quote.total) || 0,
+    status: 'pending',
+    booked: true,
+    paid: false,
+    payment_status: 'deposit_paid',
+    confirmed_at: new Date().toISOString(),
+    stripe_checkout_session_id: session.id,
+    notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved & deposit paid — ${serviceName} package`,
+    quote_id: quote.id,
+  }
+
+  const { data: newJob, error: jobError } = await serviceClient
+    .from('jobs')
+    .insert(jobInsert)
+    .select('id')
+    .single()
+
+  if (jobError) {
+    console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
+  }
+
+  // Create membership if plan was selected
+  if (membership_plan && quote.customer_id) {
+    try {
+      const { data: plan } = await serviceClient
+        .from('service_plans')
+        .select('id, interval_months')
+        .eq('slug', membership_plan)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('active', true)
+        .single()
+
+      if (plan) {
+        const nextVisit = new Date()
+        nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
+
+        await serviceClient.from('customer_memberships').insert({
+          tenant_id: quote.tenant_id,
+          customer_id: quote.customer_id,
+          plan_id: plan.id,
+          status: 'active',
+          started_at: new Date().toISOString(),
+          next_visit_at: nextVisit.toISOString(),
+          visits_completed: 0,
+          credits: 0,
+        })
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Membership creation error:', err)
+    }
+  }
+
+  // Send confirmation SMS
+  const smsPhone = quote.customer_phone || phone_number
+  if (smsPhone && tenant) {
+    try {
+      const customerName = quote.customer_name?.split(' ')[0] || 'there'
+      const businessName = tenant.business_name || tenant.name
+      const depositStr = quote.deposit_amount ? `$${Number(quote.deposit_amount).toFixed(2)}` : 'your deposit'
+      const message = `Hey ${customerName}! Your ${depositStr} deposit for ${serviceName} with ${businessName} has been received. We'll be in touch to schedule your service. Thank you!`
+      await sendSMS(tenant, smsPhone, message)
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to send quote confirmation SMS:', err)
+    }
+  }
+
+  // Log system event
+  await logSystemEvent({
+    tenant_id: quote.tenant_id,
+    source: 'stripe',
+    event_type: 'QUOTE_DEPOSIT_PAID',
+    message: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved and deposit paid — ${serviceName}`,
+    phone_number: smsPhone || undefined,
+    job_id: newJob?.id ? String(newJob.id) : undefined,
+    metadata: {
+      quote_id,
+      selected_tier,
+      total: quote.total,
+      deposit_amount: quote.deposit_amount,
+      membership_plan: membership_plan || null,
+      stripe_session_id: session.id,
+    },
+  })
+
+  // Trigger cleaner assignment if job was created
+  if (newJob?.id) {
+    try {
+      await triggerCleanerAssignment(String(newJob.id))
+    } catch (err) {
+      console.error('[Stripe Webhook] Cleaner assignment from quote failed:', err)
+    }
+  }
 }
 
 /**
