@@ -46,7 +46,7 @@ async function resolveContext(token: string, jobId: string) {
     .from('jobs')
     .select(`
       id, date, scheduled_at, address, service_type, status, notes,
-      bedrooms, bathrooms, square_footage, hours, price,
+      bedrooms, bathrooms, sqft, hours, price,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
       customers(id, first_name, last_name, address, phone_number)
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       notes: job.notes,
       bedrooms: job.bedrooms,
       bathrooms: job.bathrooms,
-      square_footage: job.square_footage,
+      sqft: job.sqft,
       hours: job.hours,
       cleaner_omw_at: job.cleaner_omw_at,
       cleaner_arrived_at: job.cleaner_arrived_at,

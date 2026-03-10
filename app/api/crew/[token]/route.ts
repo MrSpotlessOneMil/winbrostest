@@ -50,7 +50,7 @@ export async function GET(
       id, status, created_at,
       jobs!inner(
         id, date, scheduled_at, address, service_type, status, notes,
-        bedrooms, bathrooms, square_footage, hours, price,
+        bedrooms, bathrooms, sqft, hours, price,
         cleaner_omw_at, cleaner_arrived_at, payment_method,
         customer_id, phone_number,
         customers(first_name, last_name, address)

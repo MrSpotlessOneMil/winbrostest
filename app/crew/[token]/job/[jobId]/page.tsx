@@ -31,7 +31,7 @@ interface JobDetail {
   notes: string | null
   bedrooms: number | null
   bathrooms: number | null
-  square_footage: number | null
+  sqft: number | null
   hours: number | null
   cleaner_omw_at: string | null
   cleaner_arrived_at: string | null
@@ -355,11 +355,11 @@ export default function JobDetailPage() {
             </div>
           )}
 
-          {(job.bedrooms || job.bathrooms || job.square_footage) && (
+          {(job.bedrooms || job.bathrooms || job.sqft) && (
             <div className="flex gap-4 text-sm text-slate-500 pt-1 border-t border-slate-100">
               {job.bedrooms && <span>{job.bedrooms} bed</span>}
               {job.bathrooms && <span>{job.bathrooms} bath</span>}
-              {job.square_footage && <span>{job.square_footage} sqft</span>}
+              {job.sqft && <span>{job.sqft} sqft</span>}
               {job.hours && <span>{job.hours}h</span>}
             </div>
           )}
