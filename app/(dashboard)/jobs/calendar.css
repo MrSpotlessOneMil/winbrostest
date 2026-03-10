@@ -147,14 +147,24 @@
   border-color: rgba(63, 63, 70, 0.3);
 }
 
+/* Limit month-view day cells to ~4 events, scroll for more */
 .fc .fc-daygrid-day-frame {
   min-height: 0;
-  max-height: 140px;
+  max-height: 95px;
   overflow-y: auto;
 }
 
 .fc .fc-daygrid-day-events {
   min-height: 0 !important;
+}
+
+.fc .fc-daygrid-body tr {
+  max-height: 95px;
+}
+
+.fc .fc-daygrid-body td {
+  max-height: 95px;
+  overflow: hidden;
 }
 
 .fc .fc-day-other .fc-daygrid-day-number {
