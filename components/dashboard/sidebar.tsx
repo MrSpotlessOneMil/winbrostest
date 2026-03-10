@@ -19,7 +19,6 @@ import {
   Loader2,
   Target,
   Lightbulb,
-  FileText,
   Settings,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
@@ -30,7 +29,6 @@ const navigation = [
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
-  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false },
   { name: "Retargeting", href: "/campaigns", icon: Target, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },

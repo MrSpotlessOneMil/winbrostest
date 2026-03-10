@@ -7,7 +7,7 @@ import { CallBubble } from "@/components/call-bubble"
 import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, Repeat, Pause, Play, SkipForward, XCircle, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 
 // Normalize phone to 10 digits for comparison
@@ -44,7 +44,7 @@ function formatThreadTimestamp(timestamp: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
-type TabType = "messages" | "jobs" | "invoices" | "recurring"
+type TabType = "messages" | "jobs" | "invoices"
 
 interface Customer {
   id: number
@@ -150,196 +150,6 @@ interface TimelineItem {
   data: Message | Call
 }
 
-function RecurringTab({ jobs, customer }: { jobs: Job[]; customer: Customer }) {
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [localJobs, setLocalJobs] = useState(jobs)
-
-  useEffect(() => { setLocalJobs(jobs) }, [jobs])
-
-  const parentJobs = localJobs.filter(
-    (j) => j.frequency && j.frequency !== "one-time" && !j.parent_job_id
-  )
-
-  const getNextDate = (parentId: number) => {
-    const today = new Date().toISOString().split("T")[0]
-    const children = localJobs
-      .filter((j) => j.parent_job_id === parentId && j.date && j.date >= today && j.status !== "cancelled")
-      .sort((a, b) => (a.date || "").localeCompare(b.date || ""))
-    return children[0]?.date || null
-  }
-
-  const handleAction = async (action: string, parentJobId: number, extra?: Record<string, string>) => {
-    setActionLoading(`${action}-${parentJobId}`)
-    try {
-      const res = await fetch("/api/actions/recurring", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, parent_job_id: parentJobId, ...extra }),
-      })
-      const json = await res.json()
-      if (!json.success) {
-        alert(json.error || `Failed to ${action}`)
-        return
-      }
-      // Optimistic updates
-      if (action === "pause") {
-        setLocalJobs((prev) =>
-          prev.map((j) => (j.id === parentJobId ? { ...j, paused_at: new Date().toISOString() } : j))
-        )
-      } else if (action === "resume") {
-        setLocalJobs((prev) =>
-          prev.map((j) => (j.id === parentJobId ? { ...j, paused_at: null } : j))
-        )
-      } else if (action === "cancel") {
-        setLocalJobs((prev) =>
-          prev.map((j) =>
-            j.id === parentJobId
-              ? { ...j, status: "cancelled", frequency: "one-time" }
-              : j.parent_job_id === parentJobId ? { ...j, status: "cancelled" } : j
-          )
-        )
-      } else if (action === "skip-next") {
-        if (json.skipped_job_id) {
-          setLocalJobs((prev) =>
-            prev.map((j) => (j.id === json.skipped_job_id ? { ...j, status: "cancelled" } : j))
-          )
-        }
-      } else if (action === "change-frequency" && extra?.frequency) {
-        setLocalJobs((prev) =>
-          prev.map((j) =>
-            j.id === parentJobId || j.parent_job_id === parentJobId
-              ? { ...j, frequency: extra.frequency }
-              : j
-          )
-        )
-      }
-    } catch {
-      alert(`Failed to ${action}`)
-    } finally {
-      setActionLoading(null)
-    }
-  }
-
-  if (parentJobs.length === 0) {
-    return (
-      <div className="space-y-3">
-        <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
-          No recurring series
-        </div>
-        {customer.preferred_frequency && (
-          <div className="px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10 text-xs text-purple-300">
-            Detected preference: <strong>{customer.preferred_frequency}</strong>
-            {customer.preferred_day && <> on <strong>{customer.preferred_day}</strong></>}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-      {customer.preferred_frequency && (
-        <div className="px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10 text-xs text-purple-300">
-          Detected preference: <strong>{customer.preferred_frequency}</strong>
-          {customer.preferred_day && <> on <strong>{customer.preferred_day}</strong></>}
-        </div>
-      )}
-      {parentJobs.map((job) => {
-        const nextDate = getNextDate(job.id)
-        const isPaused = !!job.paused_at
-        const childCount = localJobs.filter((j) => j.parent_job_id === job.id && j.status !== "cancelled").length
-
-        return (
-          <div key={job.id} className="border border-zinc-800 rounded-lg p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Repeat className="w-3.5 h-3.5 text-purple-400" />
-                  <span className="text-sm font-medium text-zinc-200">
-                    {job.service_type || "Cleaning"}
-                  </span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-purple-400/10 text-purple-400 font-medium">
-                    {(job.frequency || "").replace("-", "-")}
-                  </span>
-                  {isPaused && (
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400 font-medium">
-                      Paused
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-zinc-500 mt-1">
-                  ${job.price || 0}/visit · {childCount} upcoming
-                  {nextDate && (
-                    <> · Next: {new Date(nextDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="flex flex-wrap gap-2">
-              {/* Change frequency */}
-              <select
-                className="text-xs px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-zinc-300 focus:outline-none focus:border-purple-500"
-                value={job.frequency || ""}
-                onChange={(e) => handleAction("change-frequency", job.id, { frequency: e.target.value })}
-                disabled={!!actionLoading}
-              >
-                <option value="weekly">Weekly</option>
-                <option value="bi-weekly">Bi-weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-
-              <button
-                onClick={() => handleAction("skip-next", job.id)}
-                disabled={!!actionLoading}
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100 transition-colors disabled:opacity-50"
-                title="Skip next instance"
-              >
-                <SkipForward className="w-3 h-3" />
-                Skip next
-              </button>
-
-              {isPaused ? (
-                <button
-                  onClick={() => handleAction("resume", job.id)}
-                  disabled={!!actionLoading}
-                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Play className="w-3 h-3" />
-                  Resume
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleAction("pause", job.id)}
-                  disabled={!!actionLoading}
-                  className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
-                >
-                  <Pause className="w-3 h-3" />
-                  Pause
-                </button>
-              )}
-
-              <button
-                onClick={() => {
-                  if (confirm("Cancel this entire recurring series? All future instances will be cancelled.")) {
-                    handleAction("cancel", job.id)
-                  }
-                }}
-                disabled={!!actionLoading}
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50"
-              >
-                <XCircle className="w-3 h-3" />
-                Cancel series
-              </button>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 export default function CustomersPage() {
   const { user } = useAuth()
   const urlParams = useSearchParams()
@@ -355,7 +165,7 @@ export default function CustomersPage() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
-      if (saved === "messages" || saved === "jobs" || saved === "invoices" || saved === "recurring") return saved
+      if (saved === "messages" || saved === "jobs" || saved === "invoices") return saved
     }
     return "messages"
   })
@@ -1253,7 +1063,6 @@ export default function CustomersPage() {
             getCustomerCalls(selectedCustomer.phone_number).length,
         },
         { id: "jobs", label: "Jobs", count: getCustomerJobs(selectedCustomer.phone_number).length },
-        { id: "recurring", label: "Recurring", count: getCustomerJobs(selectedCustomer.phone_number).filter(j => j.frequency && j.frequency !== "one-time" && !j.parent_job_id).length },
       ]
     : []
 
@@ -2068,13 +1877,6 @@ export default function CustomersPage() {
                       </div>
                     )}
 
-                    {/* Recurring Series */}
-                    {activeTab === "recurring" && (
-                      <RecurringTab
-                        jobs={getCustomerJobs(selectedCustomer.phone_number)}
-                        customer={selectedCustomer}
-                      />
-                    )}
                   </div>
                 </div>
               </>
