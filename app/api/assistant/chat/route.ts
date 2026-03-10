@@ -6,6 +6,8 @@ import Anthropic from "@anthropic-ai/sdk"
 import { getTenantById, tenantHasIntegration, getTenantServiceDescription, tenantUsesFeature, type Tenant } from "@/lib/tenant"
 import { hasAssistantMemory, buildMemoryContext, saveConversation, extractAndStoreFacts, recordToolUsage } from "@/lib/assistant-memory"
 
+export const maxDuration = 300
+
 // =====================================================================
 // TOOL DEFINITIONS
 // =====================================================================
@@ -2451,6 +2453,13 @@ You have two modes of operation:
 
 When confirming, briefly state what you're about to do and why, then ask "Should I go ahead?"
 
+## BULK OPERATIONS
+When asked to add, create, or process multiple items at once (customers, leads, jobs):
+- **Batch aggressively** — call as many tools as possible in a single response. You can make 10+ tool calls at once. For example, if asked to add 30 customers, call create_customer 10+ times in one response, not one at a time.
+- Minimize intermediate chatter — focus on completing all items first, then give ONE comprehensive summary at the end.
+- After finishing, provide a numbered summary table showing everything you created with key details (name, phone, status).
+- If the user says **"continue"**, check your previous message for any remaining items and continue processing them.
+
 Keep responses focused, actionable, and formatted with markdown for readability.`
 }
 
@@ -2508,7 +2517,7 @@ export async function POST(request: NextRequest) {
     let currentMessages = anthropicMessages
     let finalText = ""
     let iterations = 0
-    const MAX_ITERATIONS = 8
+    const MAX_ITERATIONS = 20
     const toolsUsed: Record<string, number> = {}
     const collectedUrls: string[] = [] // Track URLs from tool results across all iterations
 
@@ -2517,55 +2526,97 @@ export async function POST(request: NextRequest) {
 
       const response = await anthropic.messages.create({
         model: "claude-opus-4-6",
-        max_tokens: 2048,
+        max_tokens: 4096,
         system: systemPrompt,
         tools: tools,
         messages: currentMessages,
       })
 
-      let hasToolUse = false
-      const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
-
+      // Collect text from this iteration
+      let iterationText = ""
       for (const block of response.content) {
         if (block.type === "text") {
-          finalText += block.text
-        } else if (block.type === "tool_use") {
-          hasToolUse = true
-          toolsUsed[block.name] = (toolsUsed[block.name] || 0) + 1
-          const toolResult = await executeTool(block.name, block.input as Record<string, any>, user.id, tenant)
-
-          // Extract URLs from tool results so Claude can't truncate them
-          const urlRegex = /https?:\/\/[^\s"'<>]+/g
-          const foundUrls = toolResult.match(urlRegex) || []
-          for (const url of foundUrls) {
-            if (url.length > 60) collectedUrls.push(url)
-          }
-
-          // Replace long URLs with placeholder so Claude doesn't rewrite/truncate them
-          let sanitizedResult = toolResult
-          for (const url of foundUrls) {
-            if (url.length > 60) {
-              sanitizedResult = sanitizedResult.replace(url, '[link generated — will be attached]')
-            }
-          }
-
-          toolResultBlocks.push({
-            type: "tool_result",
-            tool_use_id: block.id,
-            content: sanitizedResult,
-          })
+          iterationText += block.text
         }
       }
 
-      if (!hasToolUse) break
+      // Collect tool_use blocks
+      const toolUseBlocks = response.content.filter(
+        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+      )
 
-      // One assistant message with all tool_use blocks, then one user message with all tool_results
+      // No tools used — this is the final response
+      if (toolUseBlocks.length === 0) {
+        finalText = iterationText
+        break
+      }
+
+      // Track tool usage
+      for (const block of toolUseBlocks) {
+        toolsUsed[block.name] = (toolsUsed[block.name] || 0) + 1
+      }
+
+      // Execute all tools in parallel for performance (bulk operations go from sequential to concurrent)
+      const toolResults = await Promise.all(
+        toolUseBlocks.map(async (block) => {
+          const result = await executeTool(block.name, block.input as Record<string, any>, user.id, tenant)
+          return { block, result }
+        })
+      )
+
+      // Process results: extract URLs and build result blocks
+      const toolResultBlocks: Anthropic.ToolResultBlockParam[] = []
+      for (const { block, result } of toolResults) {
+        const urlRegex = /https?:\/\/[^\s"'<>]+/g
+        const foundUrls = result.match(urlRegex) || []
+        for (const url of foundUrls) {
+          if (url.length > 60) collectedUrls.push(url)
+        }
+
+        let sanitizedResult = result
+        for (const url of foundUrls) {
+          if (url.length > 60) {
+            sanitizedResult = sanitizedResult.replace(url, '[link generated — will be attached]')
+          }
+        }
+
+        toolResultBlocks.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: sanitizedResult,
+        })
+      }
+
+      // Append to conversation for next iteration
       currentMessages = [
         ...currentMessages,
         { role: "assistant" as const, content: response.content },
         { role: "user" as const, content: toolResultBlocks },
       ]
-      finalText = "" // Reset — we want the final text response after tool use
+    }
+
+    // If we hit MAX_ITERATIONS with no final text, generate a progress summary
+    if (!finalText && iterations >= MAX_ITERATIONS) {
+      try {
+        // Use a fast model to summarize what was completed from the full tool context
+        const summaryResponse = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2048,
+          system: `You are summarizing work done by a previous AI assistant. Review the conversation (which includes tool calls and results) and provide:
+1. A numbered list of everything that was successfully completed (be specific: include names, phone numbers, statuses)
+2. A list of any remaining items from the original request that were NOT completed yet
+3. End with: Say **"continue"** and I'll finish the rest!
+Format with markdown. Be concise but thorough.`,
+          messages: currentMessages,
+        })
+        for (const block of summaryResponse.content) {
+          if (block.type === "text") finalText += block.text
+        }
+      } catch (summaryErr) {
+        console.error("[Assistant] Summary generation failed:", summaryErr)
+        const totalOps = Object.values(toolsUsed).reduce((a, b) => a + b, 0)
+        finalText = `I completed ${totalOps} operations but ran out of processing steps before I could finish everything. Say **"continue"** and I'll finish the rest!`
+      }
     }
 
     // Append collected URLs that Claude never saw (prevents truncation)

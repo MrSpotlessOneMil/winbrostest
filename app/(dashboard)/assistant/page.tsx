@@ -396,8 +396,9 @@ export default function AssistantPage() {
 
       const data = await res.json()
 
-      if (data.success && data.message) {
-        const withReply = [...newMessages, { role: "assistant" as const, content: data.message, timestamp: new Date().toISOString() }]
+      if (data.success) {
+        const replyContent = data.message || "I processed your request but didn't generate a text response. Try saying **continue**."
+        const withReply = [...newMessages, { role: "assistant" as const, content: replyContent, timestamp: new Date().toISOString() }]
         setMessages(withReply)
         persistMessages(withReply)
       } else {
