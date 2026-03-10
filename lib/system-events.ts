@@ -125,6 +125,9 @@ export type SystemEventType =
   | 'MEMBERSHIP_COMPLETED'
   | 'MEMBERSHIP_RENEWAL_CONFIRMED'
   | 'MEMBERSHIP_RENEWAL_DECLINED'
+  // Quote Events
+  | 'QUOTE_DEPOSIT_PAID'
+  | 'QUOTE_CARD_ON_FILE'
 
 export interface SystemEventInput {
   tenant_id?: string

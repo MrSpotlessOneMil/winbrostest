@@ -36,7 +36,7 @@ interface TierPrice { price: number; breakdown: { service: string; price: number
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; early_cancel_repay: number | null; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -91,17 +91,22 @@ export default function QuotePage() {
         if (!res.ok) throw new Error(json.error || "Quote not found")
         setData(json)
 
-        const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
-        const middleIndex = Math.min(1, tierKeys.length - 1)
-        const defaultTier = tierKeys[middleIndex] || tierKeys[0]
-        setSelectedTierKey(defaultTier)
+        // Custom-priced quote (salesman-set price): use 'custom' tier, skip tier selection
+        if (json.custom_base_price != null) {
+          setSelectedTierKey('custom')
+        } else {
+          const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
+          const middleIndex = Math.min(1, tierKeys.length - 1)
+          const defaultTier = tierKeys[middleIndex] || tierKeys[0]
+          setSelectedTierKey(defaultTier)
 
-        // Pre-select included addons for default tier
-        const defaultTierDef = (json.tiers as QuoteTier[]).find((t) => t.key === defaultTier)
-        if (defaultTierDef) {
-          const inc: Record<string, boolean> = {}
-          defaultTierDef.included.forEach((k) => { inc[k] = true })
-          setSelectedAddons(inc)
+          // Pre-select included addons for default tier
+          const defaultTierDef = (json.tiers as QuoteTier[]).find((t) => t.key === defaultTier)
+          if (defaultTierDef) {
+            const inc: Record<string, boolean> = {}
+            defaultTierDef.included.forEach((k) => { inc[k] = true })
+            setSelectedAddons(inc)
+          }
         }
 
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
@@ -144,6 +149,8 @@ export default function QuotePage() {
   const serviceAgreement = data?.serviceAgreement ?? null
   const tenant = data?.tenant ?? null
   const serviceType = data?.serviceType ?? "house_cleaning"
+  const customBasePrice = data?.custom_base_price ?? null
+  const isCustomPriced = customBasePrice != null
   const businessName = tenant?.name || "Our Team"
 
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
@@ -173,13 +180,17 @@ export default function QuotePage() {
     [selectedTierPrice, addonQuantities, tierPrices]
   )
 
-  const subtotal = selectedTierPrice
-    ? selectedTierPrice.price + addons.reduce((sum, addon) => {
-        if (!selectedAddons[addon.key]) return sum
-        if (isAddonIncluded(addon.key)) return sum
-        return sum + getAddonPrice(addon)
-      }, 0)
-    : 0
+  const addonTotal = addons.reduce((sum, addon) => {
+    if (!selectedAddons[addon.key]) return sum
+    if (isAddonIncluded(addon.key)) return sum
+    return sum + getAddonPrice(addon)
+  }, 0)
+
+  const subtotal = isCustomPriced
+    ? customBasePrice + addonTotal
+    : selectedTierPrice
+      ? selectedTierPrice.price + addonTotal
+      : 0
 
   const selectedPlan = servicePlans.find((p) => p.slug === selectedMembership) ?? null
   const membershipDiscount = selectedPlan ? Number(selectedPlan.discount_per_visit) || 0 : 0
@@ -349,7 +360,22 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Tier Selection ──────────────────────────────────── */}
+        {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
+        {isCustomPriced ? (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
+            <p className="text-slate-400 text-sm mb-3">Prepared by our team after your on-site estimate.</p>
+            <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-slate-800 font-bold text-lg">Base Service</h3>
+                  <p className="text-slate-500 text-sm mt-1">Custom-quoted price</p>
+                </div>
+                <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Choose Your Package</h2>
           <p className="text-slate-400 text-sm mb-5">Select the service level that fits your needs.</p>
@@ -423,6 +449,7 @@ export default function QuotePage() {
             })}
           </div>
         </div>
+        )}
 
         {/* ── Add-ons ─────────────────────────────────────────── */}
         {addons.length > 0 && (
@@ -645,12 +672,17 @@ export default function QuotePage() {
             <h3 className="font-bold text-slate-800">Price Summary</h3>
           </div>
           <div className="p-5 space-y-2.5">
-            {selectedTier && selectedTierPrice && (
+            {isCustomPriced ? (
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Base Service</span>
+                <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+              </div>
+            ) : selectedTier && selectedTierPrice ? (
               <div className="flex justify-between text-sm">
                 <span className="text-slate-600">{selectedTier.name}</span>
                 <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
               </div>
-            )}
+            ) : null}
 
             {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
@@ -695,7 +727,9 @@ export default function QuotePage() {
                 <span className="text-slate-800 font-bold text-3xl">{fmt(total)}</span>
               </div>
               <p className="text-slate-400 text-xs mt-2">
-                Your card will be saved on file. You&apos;ll only be charged after your service is complete.
+                {selectedPlan
+                  ? `Charged after each visit · Every ${selectedPlan.interval_months} month${selectedPlan.interval_months !== 1 ? 's' : ''} · ${selectedPlan.visits_per_year} visit${selectedPlan.visits_per_year !== 1 ? 's' : ''}/year`
+                  : "Your card will be saved on file. Charged after service is complete."}
               </p>
             </div>
           </div>

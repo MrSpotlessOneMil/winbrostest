@@ -89,6 +89,7 @@ export default function QuotesPage() {
     square_footage: "",
     property_type: "",
     notes: "",
+    custom_base_price: "",
   })
 
   async function fetchQuotes() {
@@ -164,6 +165,7 @@ export default function QuotesPage() {
           square_footage: form.square_footage ? parseInt(form.square_footage, 10) : undefined,
           property_type: form.property_type || undefined,
           notes: form.notes.trim() || undefined,
+          custom_base_price: form.custom_base_price ? parseFloat(form.custom_base_price) : undefined,
         }),
       })
       if (!res.ok) {
@@ -185,6 +187,7 @@ export default function QuotesPage() {
         square_footage: "",
         property_type: "",
         notes: "",
+        custom_base_price: "",
       })
       fetchQuotes()
     } catch (err: unknown) {
@@ -206,6 +209,7 @@ export default function QuotesPage() {
       square_footage: "",
       property_type: "",
       notes: "",
+      custom_base_price: "",
     })
   }
 
@@ -410,6 +414,23 @@ export default function QuotesPage() {
                       <option value="two_story">Two Story</option>
                       <option value="larger_two_story">Larger Two Story</option>
                     </select>
+                  </div>
+                  <div>
+                    <Label htmlFor="custom_base_price">Custom Price (optional)</Label>
+                    <Input
+                      id="custom_base_price"
+                      type="number"
+                      placeholder="e.g. 350"
+                      min="0"
+                      step="0.01"
+                      value={form.custom_base_price}
+                      onChange={(e) =>
+                        setForm({ ...form, custom_base_price: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Set a salesman-quoted price. Customer sees this instead of tier selection.
+                    </p>
                   </div>
                 </div>
                 <div>

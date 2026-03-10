@@ -111,6 +111,7 @@ export async function GET(
     serviceType: pricing.serviceType,
     servicePlans: servicePlans || [],
     serviceAgreement,
+    custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
     tenant: {
       name: tenant.business_name || tenant.name,
       slug: tenant.slug,
@@ -149,9 +150,8 @@ export async function PATCH(
     service_agreement_accepted,
   } = body
 
-  if (!selected_tier) {
-    return NextResponse.json({ error: "selected_tier is required" }, { status: 400 })
-  }
+  // selected_tier is required unless quote has custom_base_price (salesman-quoted)
+  // We'll validate after fetching the quote
 
   if (selected_addons && !Array.isArray(selected_addons)) {
     return NextResponse.json({ error: "selected_addons must be an array" }, { status: 400 })
@@ -207,6 +207,14 @@ export async function PATCH(
     return NextResponse.json({ error: "Payment not configured for this business" }, { status: 400 })
   }
 
+  // Custom-priced quotes (salesman-quoted) use 'custom' tier
+  const hasCustomPrice = quote.custom_base_price != null
+  const effectiveTier = hasCustomPrice ? 'custom' : selected_tier
+
+  if (!effectiveTier) {
+    return NextResponse.json({ error: "selected_tier is required" }, { status: 400 })
+  }
+
   // Normalize addons — support both {key, quantity} objects and plain strings
   const rawAddons = (selected_addons || []) as unknown[]
   const normalizedAddons: { key: string; quantity: number }[] = rawAddons
@@ -220,20 +228,40 @@ export async function PATCH(
     )
 
   // Compute price server-side (never trust client-side price)
-  const addonKeys: string[] = normalizedAddons.map(a => a.key)
   const quoteServiceCategory = quote.service_category || 'standard'
-  const { subtotal } = await computeQuoteTotal(
-    tenant.id,
-    tenant.slug,
-    selected_tier as string,
-    addonKeys,
-    {
+  let subtotal: number
+
+  if (hasCustomPrice) {
+    // Custom-priced quote: base price is salesman's price, add-ons are additive
+    const customBase = Number(quote.custom_base_price) || 0
+    const addonKeys: string[] = normalizedAddons.map(a => a.key)
+    const pricing = await getQuotePricing(tenant.id, tenant.slug, {
       squareFootage: quote.square_footage,
       bedrooms: quote.bedrooms,
       bathrooms: quote.bathrooms,
-    },
-    quoteServiceCategory
-  )
+    }, quoteServiceCategory)
+    const addonTotal = addonKeys.reduce((sum, key) => {
+      const addon = pricing.addons.find(a => a.key === key)
+      if (!addon) return sum
+      return sum + addon.price
+    }, 0)
+    subtotal = customBase + addonTotal
+  } else {
+    const addonKeys: string[] = normalizedAddons.map(a => a.key)
+    const computed = await computeQuoteTotal(
+      tenant.id,
+      tenant.slug,
+      selected_tier as string,
+      addonKeys,
+      {
+        squareFootage: quote.square_footage,
+        bedrooms: quote.bedrooms,
+        bathrooms: quote.bathrooms,
+      },
+      quoteServiceCategory
+    )
+    subtotal = computed.subtotal
+  }
 
   // Look up membership plan if selected
   let plan: { id: string; slug: string; discount_per_visit: number; interval_months: number; visits_per_year: number; free_addons: string[] | null } | null = null
@@ -258,24 +286,24 @@ export async function PATCH(
 
   const total = Math.max(subtotal - (Number(quote.discount) || 0) - membershipDiscount, 0)
 
-  // Calculate deposit: 50% + 3% processing fee
-  const wc = tenant.workflow_config as Record<string, unknown> || {}
-  const depositPct = Number(wc.deposit_percentage || 50) / 100
-  const depositAmount = Math.round(total * depositPct * 1.03 * 100) // cents
-
-  // Determine service name for Stripe line item
-  const pricing = await getQuotePricing(tenant.id, tenant.slug, {
-    squareFootage: quote.square_footage,
-    bedrooms: quote.bedrooms,
-    bathrooms: quote.bathrooms,
-  }, quoteServiceCategory)
-  const tierDef = pricing.tiers.find(t => t.key === selected_tier)
-  const serviceName = tierDef?.name || (selected_tier as string)
+  // Determine service name
+  let serviceName: string
+  if (hasCustomPrice) {
+    serviceName = 'Custom Quote'
+  } else {
+    const pricingForName = await getQuotePricing(tenant.id, tenant.slug, {
+      squareFootage: quote.square_footage,
+      bedrooms: quote.bedrooms,
+      bathrooms: quote.bathrooms,
+    }, quoteServiceCategory)
+    const tierDef = pricingForName.tiers.find(t => t.key === selected_tier)
+    serviceName = tierDef?.name || (selected_tier as string)
+  }
   const businessName = tenant.business_name || tenant.name
 
   // Update quote with selection (but keep status pending until payment)
   const updatePayload: Record<string, unknown> = {
-    selected_tier,
+    selected_tier: effectiveTier,
     selected_addons: normalizedAddons,
     subtotal,
     total,
@@ -294,14 +322,14 @@ export async function PATCH(
     .update(updatePayload)
     .eq("id", quote.id)
 
-  // Create Stripe Checkout session for deposit
+  // Create Stripe Checkout session in setup mode (card on file, no charge)
   try {
     const stripe = getStripeClientForTenant(tenant.stripe_secret_key)
     const domain = await getTenantRedirectDomain(tenant.id)
     const quoteSuccessUrl = `${domain}/quote/${token}/success`
 
     // If customer has an email, find or create Stripe customer
-    const email = customer_email || quote.customer_email
+    const email = (customer_email || quote.customer_email) as string | undefined
     let stripeCustomerId: string | undefined
     if (email) {
       try {
@@ -315,31 +343,24 @@ export async function PATCH(
       }
     }
 
+    const sessionMetadata = {
+      quote_id: quote.id,
+      quote_token: token,
+      purpose: 'quote_card_on_file',
+      selected_tier: (effectiveTier as string) || '',
+      phone_number: quote.customer_phone || '',
+      tenant_id: tenant.id,
+      membership_plan: plan?.slug || '',
+    }
+
     const sessionParams: Record<string, unknown> = {
-      mode: 'payment',
-      line_items: [
-        {
-          price_data: {
-            currency: 'usd',
-            product_data: {
-              name: `${serviceName} — Deposit`,
-              description: `${Math.round(depositPct * 100)}% deposit for ${serviceName.toLowerCase()} service from ${businessName}. Includes 3% processing fee.`,
-            },
-            unit_amount: depositAmount,
-          },
-          quantity: 1,
-        },
-      ],
+      mode: 'setup',
+      payment_method_types: ['card'],
       success_url: quoteSuccessUrl,
       cancel_url: `${domain}/quote/${token}`,
-      metadata: {
-        quote_id: quote.id,
-        quote_token: token,
-        payment_type: 'QUOTE_DEPOSIT',
-        selected_tier,
-        phone_number: quote.customer_phone || '',
-        tenant_id: tenant.id,
-        membership_plan: plan?.slug || '',
+      metadata: sessionMetadata,
+      setup_intent_data: {
+        metadata: sessionMetadata,
       },
     }
 
@@ -356,14 +377,12 @@ export async function PATCH(
       .from("quotes")
       .update({
         stripe_checkout_session_id: session.id,
-        deposit_amount: depositAmount / 100,
       })
       .eq("id", quote.id)
 
     return NextResponse.json({
       success: true,
       checkout_url: session.url,
-      deposit_amount: depositAmount / 100,
       total,
     })
   } catch (err) {

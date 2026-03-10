@@ -81,6 +81,8 @@ type AddonOption = {
   minutes: number
 }
 
+type AssignmentMode = "auto_broadcast" | "unassigned" | "specific"
+
 type CreateForm = {
   customer_phone: string
   customer_name: string
@@ -97,6 +99,7 @@ type CreateForm = {
   sqft: string
   frequency: string
   cleaner_id: string
+  assignment_mode: AssignmentMode
   is_quote: boolean
   selected_addons: string[]
 }
@@ -340,6 +343,7 @@ export default function JobsPage() {
     sqft: "",
     frequency: "one-time",
     cleaner_id: "",
+    assignment_mode: "auto_broadcast" as AssignmentMode,
     is_quote: false,
     selected_addons: [],
   })
@@ -595,6 +599,7 @@ export default function JobsPage() {
       sqft: "",
       frequency: "one-time",
       cleaner_id: "",
+      assignment_mode: "auto_broadcast",
       is_quote: false,
       selected_addons: [],
     })
@@ -1054,7 +1059,8 @@ export default function JobsPage() {
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
-          cleaner_id: createForm.cleaner_id || undefined,
+          cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
+          assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
@@ -1196,6 +1202,7 @@ export default function JobsPage() {
             sqft: "",
             frequency: "one-time",
             cleaner_id: "",
+            assignment_mode: "auto_broadcast",
             is_quote: false,
             selected_addons: [],
           })
@@ -2043,17 +2050,28 @@ export default function JobsPage() {
                 </div>
               )}
               <div>
-                <label className="cal-form-label">Assign Cleaner</label>
+                <label className="cal-form-label">Assignment</label>
                 <select
                   className="cal-form-control"
-                  value={createForm.cleaner_id}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, cleaner_id: e.target.value }))
-                  }
+                  value={createForm.assignment_mode === "specific" ? `cleaner:${createForm.cleaner_id}` : createForm.assignment_mode}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === "auto_broadcast") {
+                      setCreateForm((prev) => ({ ...prev, assignment_mode: "auto_broadcast", cleaner_id: "" }))
+                    } else if (val === "unassigned") {
+                      setCreateForm((prev) => ({ ...prev, assignment_mode: "unassigned", cleaner_id: "" }))
+                    } else if (val.startsWith("cleaner:")) {
+                      setCreateForm((prev) => ({ ...prev, assignment_mode: "specific", cleaner_id: val.replace("cleaner:", "") }))
+                    }
+                  }}
                 >
-                  <option value="">— Auto-broadcast —</option>
+                  <option value="auto_broadcast">Auto Broadcast</option>
+                  <option value="unassigned">Unassigned</option>
+                  {cleanersList.length > 0 && (
+                    <option disabled style={{ fontWeight: 600, color: "#71717a" }}>── Assign to ──</option>
+                  )}
                   {cleanersList.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.id} value={`cleaner:${c.id}`}>{c.name}</option>
                   ))}
                 </select>
               </div>

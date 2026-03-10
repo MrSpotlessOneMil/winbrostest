@@ -528,7 +528,10 @@ export async function POST(request: NextRequest) {
     })
 
     // Handle cleaner assignment at creation time
-    if (body.cleaner_id) {
+    // assignment_mode: "auto_broadcast" (default) | "specific" | "unassigned"
+    const assignmentMode = body.assignment_mode || (body.cleaner_id ? 'specific' : 'auto_broadcast')
+
+    if (assignmentMode === 'specific' && body.cleaner_id) {
       // Manual assignment — create confirmed assignment + notify
       const svc = getSupabaseServiceClient()
       await svc.from("cleaner_assignments").insert({
@@ -603,12 +606,13 @@ export async function POST(request: NextRequest) {
           })
         }
       }
-    } else if (tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
-      // No cleaner picked — auto-broadcast to available cleaners
+    } else if (assignmentMode === 'auto_broadcast' && tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+      // Auto-broadcast to available cleaners
       triggerCleanerAssignment(String(row.id)).catch((err) =>
         console.error("[Jobs POST] Auto-broadcast failed:", err)
       )
     }
+    // assignmentMode === 'unassigned' → do nothing, job sits unassigned until manually picked
 
     // Generate recurring instances if frequency is not one-time
     const freq = body.frequency || "one-time"

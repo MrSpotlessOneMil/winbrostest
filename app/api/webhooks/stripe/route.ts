@@ -122,7 +122,11 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session) 
 
   // Handle card-on-file setup sessions (mode: 'setup' or purpose: 'card_on_file')
   if (session.mode === 'setup' || metadata.purpose === 'card_on_file') {
-    await handleCardOnFileSaved(session)
+    if (metadata.purpose === 'quote_card_on_file') {
+      await handleQuoteCardOnFile(session)
+    } else {
+      await handleCardOnFileSaved(session)
+    }
     return
   }
 
@@ -357,7 +361,241 @@ async function handleDepositPayment(
  * Handle QUOTE_DEPOSIT payment — customer approved a quote and paid the deposit.
  * Creates a job, marks quote approved, creates membership if applicable, sends SMS.
  */
+/**
+ * Handle quote card-on-file setup completion (checkout.session.completed with mode: 'setup', purpose: 'quote_card_on_file')
+ * - Saves card on customer (stripe_customer_id + card_on_file_at)
+ * - Sets default payment method on Stripe customer for future chargeCardOnFile() calls
+ * - Marks quote approved
+ * - Creates job with payment_status: 'pending'
+ * - Creates membership if plan was selected
+ * - Sends confirmation SMS
+ * - Triggers cleaner assignment
+ */
+async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
+  const metadata = session.metadata || {}
+  const { quote_id, quote_token, selected_tier, phone_number, tenant_id, membership_plan } = metadata
+
+  if (!quote_id) {
+    console.error('[Stripe Webhook] quote_card_on_file missing quote_id')
+    return
+  }
+
+  console.log(`[Stripe Webhook] Quote card-on-file saved — quote_id: ${quote_id}, tier: ${selected_tier}`)
+
+  const serviceClient = getSupabaseServiceClient()
+
+  // Fetch the quote
+  const { data: quote } = await serviceClient
+    .from('quotes')
+    .select('*')
+    .eq('id', quote_id)
+    .single()
+
+  if (!quote) {
+    console.error(`[Stripe Webhook] Quote not found: ${quote_id}`)
+    return
+  }
+
+  // Guard: only process pending quotes
+  if (quote.status !== 'pending') {
+    console.log(`[Stripe Webhook] Quote ${quote_id} already ${quote.status}, skipping`)
+    return
+  }
+
+  // Mark quote as approved atomically
+  const { error: approveError } = await serviceClient
+    .from('quotes')
+    .update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+    })
+    .eq('id', quote_id)
+    .in('status', ['pending'])
+
+  if (approveError) {
+    console.error(`[Stripe Webhook] Failed to approve quote ${quote_id}:`, approveError.message)
+  }
+
+  // Resolve tenant
+  let tenant: Tenant | null = null
+  if (tenant_id) {
+    tenant = await getTenantById(tenant_id)
+  }
+
+  // Save card on customer: set card_on_file_at + stripe_customer_id + default payment method
+  const stripeCustomerId = typeof session.customer === 'string'
+    ? session.customer
+    : (session.customer as any)?.id || null
+
+  if (stripeCustomerId && tenant?.stripe_secret_key) {
+    try {
+      const stripe = (await import('@/lib/stripe-client')).getStripeClientForTenant(tenant.stripe_secret_key)
+
+      // Retrieve the setup intent to get the payment method
+      const setupIntentId = typeof session.setup_intent === 'string'
+        ? session.setup_intent
+        : (session.setup_intent as any)?.id
+      if (setupIntentId) {
+        const setupIntent = await stripe.setupIntents.retrieve(setupIntentId)
+        const paymentMethodId = typeof setupIntent.payment_method === 'string'
+          ? setupIntent.payment_method
+          : (setupIntent.payment_method as any)?.id
+
+        if (paymentMethodId) {
+          // Set as default payment method on Stripe customer (critical for future chargeCardOnFile)
+          await stripe.customers.update(stripeCustomerId, {
+            invoice_settings: { default_payment_method: paymentMethodId },
+          })
+          console.log(`[Stripe Webhook] Set default payment method ${paymentMethodId} on Stripe customer ${stripeCustomerId}`)
+        }
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to set default payment method:', err)
+    }
+  }
+
+  // Update customer record with card-on-file info
+  const customerPhone = quote.customer_phone || phone_number
+  if (customerPhone) {
+    const { data: customer } = await serviceClient
+      .from('customers')
+      .select('id')
+      .eq('phone_number', customerPhone)
+      .eq('tenant_id', quote.tenant_id)
+      .maybeSingle()
+
+    if (customer?.id) {
+      await serviceClient.from('customers').update({
+        card_on_file_at: new Date().toISOString(),
+        stripe_customer_id: stripeCustomerId,
+      }).eq('id', customer.id)
+      console.log(`[Stripe Webhook] Marked customer ${customer.id} as card-on-file`)
+    }
+  }
+
+  // Determine service name from tier
+  const tierNames: Record<string, string> = {
+    good: 'Exterior Clean',
+    better: 'Complete Clean',
+    best: 'Full Detail',
+    standard: 'Standard Clean',
+    deep: 'Deep Clean',
+    extra_deep: 'Extra Deep Clean',
+    move: 'Move-In/Move-Out Clean',
+    custom: 'Custom Quote',
+  }
+  const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
+
+  // Create job from the approved quote
+  const jobInsert: Record<string, unknown> = {
+    tenant_id: quote.tenant_id,
+    customer_id: quote.customer_id || null,
+    phone_number: customerPhone || null,
+    address: quote.customer_address || null,
+    service_type: serviceName,
+    price: Number(quote.total) || 0,
+    status: 'pending',
+    booked: true,
+    paid: false,
+    payment_status: 'pending',
+    confirmed_at: new Date().toISOString(),
+    stripe_checkout_session_id: session.id,
+    notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved — card on file — ${serviceName} package`,
+    quote_id: quote.id,
+  }
+
+  const { data: newJob, error: jobError } = await serviceClient
+    .from('jobs')
+    .insert(jobInsert)
+    .select('id')
+    .single()
+
+  if (jobError) {
+    console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
+  }
+
+  // Create membership if plan was selected
+  let membershipId: string | null = null
+  if (membership_plan && quote.customer_id) {
+    try {
+      const { data: plan } = await serviceClient
+        .from('service_plans')
+        .select('id, interval_months')
+        .eq('slug', membership_plan)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('active', true)
+        .single()
+
+      if (plan) {
+        const nextVisit = new Date()
+        nextVisit.setMonth(nextVisit.getMonth() + plan.interval_months)
+
+        const { data: membership } = await serviceClient.from('customer_memberships').insert({
+          tenant_id: quote.tenant_id,
+          customer_id: quote.customer_id,
+          plan_id: plan.id,
+          status: 'active',
+          started_at: new Date().toISOString(),
+          next_visit_at: nextVisit.toISOString(),
+          visits_completed: 0,
+          credits: 0,
+        }).select('id').single()
+
+        membershipId = membership?.id || null
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Membership creation error:', err)
+    }
+  }
+
+  // Link membership to job if both exist
+  if (membershipId && newJob?.id) {
+    await serviceClient.from('jobs').update({ membership_id: membershipId }).eq('id', newJob.id)
+  }
+
+  // Send confirmation SMS (no deposit mention)
+  const smsPhone = customerPhone
+  if (smsPhone && tenant) {
+    try {
+      const customerName = quote.customer_name?.split(' ')[0] || 'there'
+      const businessName = tenant.business_name || tenant.name
+      const message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is confirmed. We'll be in touch to schedule your service. Thank you!`
+      await sendSMS(tenant, smsPhone, message)
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to send quote confirmation SMS:', err)
+    }
+  }
+
+  // Log system event
+  await logSystemEvent({
+    tenant_id: quote.tenant_id,
+    source: 'stripe',
+    event_type: 'QUOTE_CARD_ON_FILE',
+    message: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved — card on file — ${serviceName}`,
+    phone_number: smsPhone || undefined,
+    job_id: newJob?.id ? String(newJob.id) : undefined,
+    metadata: {
+      quote_id,
+      selected_tier,
+      total: quote.total,
+      membership_plan: membership_plan || null,
+      membership_id: membershipId,
+      stripe_session_id: session.id,
+    },
+  })
+
+  // Trigger cleaner assignment if job was created
+  if (newJob?.id) {
+    try {
+      await triggerCleanerAssignment(String(newJob.id))
+    } catch (err) {
+      console.error('[Stripe Webhook] Cleaner assignment from quote failed:', err)
+    }
+  }
+}
+
 async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
+  console.warn('[LEGACY] handleQuoteDepositPayment — processing in-flight deposit session. New quotes use setup mode (card-on-file).')
   const metadata = session.metadata || {}
   const { quote_id, quote_token, selected_tier, phone_number, tenant_id, membership_plan } = metadata
 
@@ -1233,6 +1471,12 @@ async function handleSetupIntentSucceeded(setupIntent: Stripe.SetupIntent) {
   const { job_id, phone_number, purpose } = metadata
 
   console.log(`[Stripe Webhook] Setup intent succeeded - job_id: ${job_id}, phone: ${maskPhone(phone_number)}, purpose: ${purpose}`)
+
+  // Quote card-on-file is fully handled by handleQuoteCardOnFile via checkout.session.completed
+  if (purpose === 'quote_card_on_file') {
+    console.log('[Stripe Webhook] Skipping setup_intent.succeeded for quote_card_on_file — handled by checkout.session.completed')
+    return
+  }
 
   // Persist card-on-file: extract Stripe customer ID and update local customer
   const stripeCustomerId = typeof setupIntent.customer === 'string'

@@ -43,7 +43,13 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const body = await request.json()
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
   const {
     customer_id,
     customer_name,
@@ -56,6 +62,8 @@ export async function POST(request: NextRequest) {
     property_type,
     service_category,
     notes,
+    custom_base_price,
+    send_sms,
   } = body
 
   if (!customer_name) {
@@ -79,7 +87,13 @@ export async function POST(request: NextRequest) {
 
   // Validate service_category if provided
   const validCategories = ['standard', 'move_in_out']
-  const category = service_category && validCategories.includes(service_category) ? service_category : 'standard'
+  const category = service_category && validCategories.includes(service_category as string) ? service_category as string : 'standard'
+
+  // Validate custom_base_price if provided
+  const parsedCustomPrice = custom_base_price != null ? Number(custom_base_price) : null
+  if (parsedCustomPrice != null && (isNaN(parsedCustomPrice) || parsedCustomPrice <= 0)) {
+    return NextResponse.json({ error: "custom_base_price must be a positive number" }, { status: 400 })
+  }
 
   const { data: quote, error } = await supabase
     .from("quotes")
@@ -96,6 +110,7 @@ export async function POST(request: NextRequest) {
       property_type: property_type || null,
       service_category: category,
       notes: notes || null,
+      custom_base_price: parsedCustomPrice,
     })
     .select()
     .single()
@@ -103,6 +118,25 @@ export async function POST(request: NextRequest) {
   if (error || !quote) {
     console.error("[quotes/POST] Insert failed:", error)
     return NextResponse.json({ error: "Failed to create quote" }, { status: 500 })
+  }
+
+  // Send SMS with quote link if requested and phone number available
+  if (send_sms && quote.customer_phone) {
+    try {
+      const { getTenantById } = await import("@/lib/tenant")
+      const { sendSMS } = await import("@/lib/openphone")
+      const fullTenant = await getTenantById(tenant.id)
+      if (fullTenant) {
+        const customerFirst = (customer_name as string)?.split(' ')[0] || 'there'
+        const businessName = fullTenant.business_name || fullTenant.name
+        const domain = fullTenant.website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app'
+        const quoteLink = `${domain}/quote/${quote.token}`
+        const message = `Hey ${customerFirst}! Here's your custom quote from ${businessName}. You can review the details, add extras, and confirm right here: ${quoteLink}`
+        await sendSMS(fullTenant, quote.customer_phone, message)
+      }
+    } catch (err) {
+      console.error("[quotes/POST] Failed to send quote SMS:", err)
+    }
   }
 
   return NextResponse.json({
