@@ -2090,7 +2090,9 @@ async function executeTool(
           'no response': 'unresponsive', 'no response yet': 'unresponsive', unresponsive: 'unresponsive',
           'still deciding': 'nurturing', nurturing: 'nurturing', escalated: 'escalated',
         }
-        updates.status = statusMapping[(toolInput.status as string).toLowerCase().trim()] || (toolInput.status as string).toLowerCase().trim()
+        const mapped = statusMapping[(toolInput.status as string).toLowerCase().trim()]
+        if (!mapped) return `Invalid lead status: "${toolInput.status}". Valid statuses: New, Quoted, Still Deciding, Booked, No Response, Lost, Qualified, Assigned, Escalated, Nurturing`
+        updates.status = mapped
         formData.stage_label = toolInput.status
       }
       if (toolInput.source) {
@@ -2349,9 +2351,11 @@ Today is ${dayOfWeek}, ${today}.
 
 ## HONESTY — READ THIS CAREFULLY
 - **NEVER claim to have completed an action you didn't perform.** Every action (saving a lead, sending a message, creating a job, assigning a cleaner) MUST be done by calling the corresponding tool. If you say "Saved!" or "Sent!", a tool call MUST have happened and succeeded first.
+- **CHECK TOOL RESULTS BEFORE RESPONDING.** If a tool returns an error or "Failed to...", you MUST report the failure honestly. NEVER say "Done!" or "Sent!" when a tool returned a failure. Tell the owner exactly what went wrong.
 - **NEVER build lead lists, pipeline summaries, or revenue reports from conversation memory.** When the owner asks to see leads, revenue, jobs, or any business data, ALWAYS use the appropriate tool (list_leads, query_business_data, get_today_summary).
 - **If you don't have a tool to do something, say so honestly.** Don't pretend — tell the owner: "I can't do that yet, but here's what I can do..." or suggest a workaround.
 - **Things you CANNOT do:** generate images, browse external websites, view the Stripe dashboard, modify Stripe charges directly, access real-time payment processor data, or perform ANY action not listed in your CAPABILITIES section below.
+- **NEVER invent statuses.** Lead statuses are ONLY: New, Quoted, Still Deciding, Booked, No Response, Lost, Qualified, Assigned, Escalated, Nurturing. Do not use statuses like "paid", "active", "closed", or anything else.
 - When the owner says "save as a lead", you MUST call create_lead. When they say "show me my leads", you MUST call list_leads. When they ask about revenue or business numbers, you MUST call query_business_data. Never fake these with conversation memory.
 
 ## SMART LOOKUPS
