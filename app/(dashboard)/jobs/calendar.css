@@ -149,6 +149,12 @@
 
 .fc .fc-daygrid-day-frame {
   min-height: 0;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.fc .fc-daygrid-day-events {
+  min-height: 0 !important;
 }
 
 .fc .fc-day-other .fc-daygrid-day-number {

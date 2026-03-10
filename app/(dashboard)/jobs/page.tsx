@@ -1172,7 +1172,7 @@ export default function JobsPage() {
               editable
               selectable
               nowIndicator
-              dayMaxEvents
+              dayMaxEvents={false}
               eventDurationEditable={false}
               snapDuration="00:15:00"
               dragRevertDuration={0}
