@@ -393,6 +393,121 @@ export async function POST(request: NextRequest) {
   }
 
   // ============================================
+  // STOP / START — TCPA opt-out compliance
+  // ============================================
+  const trimmedLower = (extracted.content || "").trim().toLowerCase()
+  const stopKeywords = ['stop', 'unsubscribe', 'opt out', 'optout', 'cancel texts', 'quit']
+  const isStopRequest = stopKeywords.includes(trimmedLower)
+  const isStartRequest = trimmedLower === 'start'
+
+  if (isStopRequest && tenant && customer) {
+    // Send confirmation FIRST (before opt-out, so it goes through)
+    await sendSMS(tenant, phone, "You've been unsubscribed from automated messages. Reply START to re-subscribe anytime.")
+
+    // Set opt-out flag
+    await client
+      .from("customers")
+      .update({ sms_opt_out: true, sms_opt_out_at: new Date().toISOString() })
+      .eq("id", customer.id)
+
+    // Cancel ALL pending automated tasks for this customer
+    // Lead follow-ups (via phone → lead lookup)
+    const { data: customerLeads } = await client
+      .from("leads")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant.id)
+      .in("status", ["new", "contacted", "qualified"])
+
+    const leadCancelPatterns = (customerLeads || []).map((l: { id: string }) => `lead-${l.id}-%`)
+
+    const allCancelPatterns = [
+      ...leadCancelPatterns,
+      `retarget-${customer.id}-%`,
+      `mid-convo-nudge-${customer.id}`,
+      `post-job-satisfaction-${customer.id}-%`,
+      `post-job-review-${customer.id}-%`,
+      `post-job-recurring-${customer.id}-%`,
+    ]
+
+    for (const pattern of allCancelPatterns) {
+      await client
+        .from("scheduled_tasks")
+        .update({ status: "cancelled" })
+        .like("task_key", pattern)
+        .eq("status", "pending")
+        .eq("tenant_id", tenant.id)
+    }
+
+    // Also cancel quote nudges (task_key contains customerId in payload, use broader query)
+    const { data: pendingQuoteTasks } = await client
+      .from("scheduled_tasks")
+      .select("id, payload")
+      .like("task_key", "quote-%-urgent")
+      .eq("status", "pending")
+      .eq("tenant_id", tenant.id)
+
+    const quoteTaskIds = (pendingQuoteTasks || [])
+      .filter((t: { payload: any }) => t.payload?.customerId === customer.id)
+      .map((t: { id: string }) => t.id)
+
+    if (quoteTaskIds.length > 0) {
+      await client
+        .from("scheduled_tasks")
+        .update({ status: "cancelled" })
+        .in("id", quoteTaskIds)
+    }
+
+    console.log(`[OpenPhone] STOP: Customer ${customer.id} opted out, cancelled tasks for ${leadCancelPatterns.length} leads + retarget/nudge/post-job/quote patterns`)
+
+    // Store inbound message
+    await client.from("messages").insert({
+      tenant_id: tenant.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, opt_out: true },
+    })
+
+    return NextResponse.json({ success: true, action: "opt_out", customerId: customer.id })
+  }
+
+  if (isStartRequest && tenant && customer) {
+    // Re-subscribe
+    await client
+      .from("customers")
+      .update({ sms_opt_out: false, sms_opt_out_at: null })
+      .eq("id", customer.id)
+
+    await sendSMS(tenant, phone, "You've been re-subscribed to messages. We're glad to have you back!")
+
+    console.log(`[OpenPhone] START: Customer ${customer.id} re-subscribed`)
+
+    // Store inbound message
+    await client.from("messages").insert({
+      tenant_id: tenant.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: extracted.content,
+      direction: "inbound",
+      message_type: "sms",
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      metadata: { ...payload, opt_in: true },
+    })
+
+    return NextResponse.json({ success: true, action: "opt_in", customerId: customer.id })
+  }
+
+  // ============================================
   // LIFECYCLE REPLY HANDLERS
   // Intercept inbound SMS for post-job satisfaction & recurring replies.
   // Also cancel any pending mid-convo nudge (customer replied).
@@ -1978,61 +2093,18 @@ export async function POST(request: NextRequest) {
       .update(statusUpdate)
       .eq("id", existingLead.id)
 
-    // Cancel pending CALL follow-up tasks (customer is engaged via SMS — don't call them).
-    // Reschedule pending TEXT follow-up tasks 30 min forward (continues SMS conversation).
+    // Cancel ALL pending lead follow-up tasks — customer is engaged, AI takes over
     try {
-      const RESCHEDULE_DELAY_MS = 30 * 60 * 1000
-      const now = Date.now()
-
-      const { data: pendingTasks } = await client
+      const { error: cancelErr, count: cancelCount } = await client
         .from("scheduled_tasks")
-        .select("id, scheduled_for, task_key, payload")
+        .update({ status: "cancelled" })
+        .like("task_key", `lead-${existingLead.id}-%`)
         .eq("status", "pending")
-        .eq("task_type", "lead_followup")
-        .eq("tenant_id", tenant?.id)
-        .order("scheduled_for", { ascending: true })
 
-      const leadTasks = (pendingTasks || []).filter(
-        (t: { id: string; scheduled_for: string; task_key: string; payload: any }) => t.task_key.startsWith(`lead-${existingLead.id}-`)
-      )
-
-      // Separate call vs text tasks
-      const callTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
-        const action = t.payload?.action
-        return action === 'call' || action === 'double_call' || t.task_key.includes('double-call')
-      })
-      const textTasks = leadTasks.filter((t: { payload: any; task_key: string }) => {
-        const action = t.payload?.action
-        return action === 'text' && !t.task_key.includes('double-call')
-      })
-
-      // Cancel call tasks — customer is already texting, no need to call
-      if (callTasks.length > 0) {
-        for (const task of callTasks) {
-          await client
-            .from("scheduled_tasks")
-            .update({ status: "cancelled" })
-            .eq("id", task.id)
-        }
-        console.log(`[OpenPhone] Cancelled ${callTasks.length} call follow-up tasks for lead ${existingLead.id} (customer responded via SMS)`)
-      }
-
-      // Reschedule text tasks 30 min forward
-      if (textTasks.length > 0) {
-        const firstMs = new Date(textTasks[0].scheduled_for).getTime()
-        const shift = Math.max(0, now + RESCHEDULE_DELAY_MS - firstMs)
-        for (const task of textTasks) {
-          const newTime = new Date(new Date(task.scheduled_for).getTime() + shift)
-          await client
-            .from("scheduled_tasks")
-            .update({ scheduled_for: newTime.toISOString() })
-            .eq("id", task.id)
-        }
-        console.log(`[OpenPhone] Rescheduled ${textTasks.length} text follow-up tasks 30 min forward for lead ${existingLead.id}`)
-      }
-
-      if (leadTasks.length === 0) {
-        console.log(`[OpenPhone] Follow-up sequence complete for lead ${existingLead.id}, no tasks to reschedule`)
+      if (cancelErr) {
+        console.error(`[OpenPhone] Error cancelling lead follow-up tasks:`, cancelErr)
+      } else {
+        console.log(`[OpenPhone] Cancelled ${cancelCount ?? 0} pending follow-up tasks for lead ${existingLead.id} (customer responded)`)
       }
     } catch (rescheduleErr) {
       console.error("[OpenPhone] Error managing follow-up tasks:", rescheduleErr)

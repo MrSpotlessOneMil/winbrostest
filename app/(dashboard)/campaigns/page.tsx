@@ -32,8 +32,19 @@ import {
   Zap,
   Eye,
   MessageSquare,
+  Upload,
+  ArrowRight,
+  AlertTriangle,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface SeasonalCampaign {
   id: string
@@ -80,6 +91,7 @@ interface PipelineCustomer {
   retargeting_step: number | null
   retargeting_stopped_reason: string | null
   retargeting_enrolled_at: string | null
+  sms_opt_out?: boolean
   created_at: string
 }
 
@@ -158,7 +170,7 @@ const PIPELINE_STAGES = [
   { key: "quoted_not_booked", label: "Quoted, Not Booked", description: "Got a quote, didn't pay", icon: FileQuestion, color: "text-orange-400", bg: "bg-orange-500/10", border: "border-orange-500/20", sequence: "quoted_not_booked" as const },
   { key: "one_time", label: "One-Time", description: "Booked once, hasn't returned", icon: UserCheck, color: "text-yellow-400", bg: "bg-yellow-500/10", border: "border-yellow-500/20", sequence: "one_time" as const },
   { key: "lapsed", label: "Lapsed", description: "Was active, gone 60+ days", icon: TimerOff, color: "text-purple-400", bg: "bg-purple-500/10", border: "border-purple-500/20", sequence: "lapsed" as const },
-  { key: "new_lead", label: "New Leads", description: "Just arrived, not yet contacted", icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", sequence: "new_lead" as const },
+  { key: "new_lead", label: "New Leads", description: "Completed follow-up, no response", icon: Zap, color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", sequence: "new_lead" as const },
   { key: "repeat", label: "Repeat", description: "Multiple bookings — loyal", icon: Repeat, color: "text-green-400", bg: "bg-green-500/10", border: "border-green-500/20", sequence: "repeat" as const },
   { key: "active", label: "Active", description: "Has upcoming jobs", icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", sequence: "active" as const },
   { key: "lost", label: "Lost", description: "Said no / bad experience", icon: Ban, color: "text-zinc-500", bg: "bg-zinc-500/10", border: "border-zinc-500/20", sequence: "lost" as const },
@@ -187,6 +199,24 @@ export default function CampaignsPage() {
   const [abResults, setAbResults] = useState<Record<string, Record<string, { enrolled: number; replied: number; converted: number }>>>({})
   const [abLoading, setAbLoading] = useState(false)
   const [abExpanded, setAbExpanded] = useState(false)
+
+  // Lead journey state
+  const [journey, setJourney] = useState<{
+    followup: { total: number; by_stage: Record<number, number>; converted: number; lost: number; responded: number }
+    retargeting: { in_sequence: number; completed: number; converted: number }
+    opted_out: number
+  } | null>(null)
+  const [journeyLoading, setJourneyLoading] = useState(false)
+
+  // CSV Import state
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [csvRows, setCsvRows] = useState<Record<string, string>[]>([])
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([])
+  const [csvMapping, setCsvMapping] = useState<{ first_name: string; last_name: string; phone: string; email: string; address: string; stage: string }>({ first_name: "", last_name: "", phone: "", email: "", address: "", stage: "" })
+  const [csvDefaultStage, setCsvDefaultStage] = useState("unresponsive")
+  const [csvAutoEnroll, setCsvAutoEnroll] = useState(true)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ imported: number; enrolled: number; skipped: number; errors?: string[] } | null>(null)
 
   // Modal state
   const [showModal, setShowModal] = useState(false)
@@ -324,7 +354,108 @@ export default function CampaignsPage() {
     finally { setAbLoading(false) }
   }
 
-  useEffect(() => { fetchSettings(); fetchPipeline(); fetchAbResults() }, [])
+  async function fetchJourney() {
+    setJourneyLoading(true)
+    try {
+      const res = await fetch("/api/actions/lead-journey", { cache: "no-store" })
+      const json = await res.json()
+      if (json.success) setJourney(json)
+    } catch { /* ignore */ }
+    finally { setJourneyLoading(false) }
+  }
+
+  function handleCsvFile(file: File) {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      if (!text) return
+      const lines = text.split(/\r?\n/).filter(l => l.trim())
+      if (lines.length < 2) return
+
+      const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/['"]/g, ""))
+      setCsvHeaders(headers)
+
+      const rows: Record<string, string>[] = []
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(",").map(v => v.trim().replace(/^["']|["']$/g, ""))
+        const row: Record<string, string> = {}
+        headers.forEach((h, idx) => { row[h] = values[idx] || "" })
+        rows.push(row)
+      }
+      setCsvRows(rows)
+
+      // Auto-detect column mapping
+      const mapping = { first_name: "", last_name: "", phone: "", email: "", address: "", stage: "" }
+      for (const h of headers) {
+        if (/^(first.?name|fname)$/i.test(h)) mapping.first_name = h
+        else if (/^(last.?name|lname)$/i.test(h)) mapping.last_name = h
+        else if (/^(name|full.?name|customer)$/i.test(h) && !mapping.first_name) mapping.first_name = h
+        else if (/^(phone|phone.?number|mobile|cell|tel)$/i.test(h)) mapping.phone = h
+        else if (/^(email|e.?mail)$/i.test(h)) mapping.email = h
+        else if (/^(address|street|location)$/i.test(h)) mapping.address = h
+        else if (/^(stage|status|lifecycle|type)$/i.test(h)) mapping.stage = h
+      }
+      setCsvMapping(mapping)
+    }
+    reader.readAsText(file)
+  }
+
+  async function doImport() {
+    if (csvRows.length === 0) return
+    setImporting(true)
+    setImportResult(null)
+
+    const customers = csvRows.map(row => {
+      const firstName = csvMapping.first_name ? row[csvMapping.first_name] || "" : ""
+      const lastName = csvMapping.last_name ? row[csvMapping.last_name] || "" : ""
+
+      // If mapped to a single "name" field, split on first space
+      let fn = firstName
+      let ln = lastName
+      if (firstName && !csvMapping.last_name && firstName.includes(" ")) {
+        const parts = firstName.split(" ")
+        fn = parts[0]
+        ln = parts.slice(1).join(" ")
+      }
+
+      const stageRaw = csvMapping.stage ? row[csvMapping.stage] || "" : ""
+      const validStages = ["unresponsive", "quoted_not_booked", "one_time", "lapsed"]
+      const stage = validStages.includes(stageRaw.toLowerCase().replace(/ /g, "_"))
+        ? stageRaw.toLowerCase().replace(/ /g, "_")
+        : csvDefaultStage
+
+      return {
+        first_name: fn || "Unknown",
+        last_name: ln || undefined,
+        phone: csvMapping.phone ? row[csvMapping.phone] || "" : "",
+        email: csvMapping.email ? row[csvMapping.email] || "" : undefined,
+        address: csvMapping.address ? row[csvMapping.address] || "" : undefined,
+        stage,
+      }
+    }).filter(c => c.phone) // Skip rows without phone
+
+    try {
+      const res = await fetch("/api/actions/import-customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customers, auto_enroll: csvAutoEnroll }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setImportResult(json)
+        // Refresh pipeline data
+        await fetchPipeline()
+      } else {
+        setImportResult({ imported: 0, enrolled: 0, skipped: customers.length, errors: [json.error || "Import failed"] })
+      }
+    } catch {
+      setImportResult({ imported: 0, enrolled: 0, skipped: customers.length, errors: ["Network error"] })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  useEffect(() => { fetchSettings(); fetchPipeline(); fetchAbResults(); fetchJourney() }, [])
 
   async function updateSettings(updates: Partial<CampaignSettings>) {
     setSaving(true)
@@ -434,15 +565,101 @@ export default function CampaignsPage() {
           </h1>
           <p className="text-sm text-muted-foreground">Manage automated re-engagement sequences</p>
         </div>
-        <Button variant="ghost" size="icon" onClick={fetchSettings} disabled={loading}>
-          <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => { setShowImportModal(true); setCsvRows([]); setCsvHeaders([]); setImportResult(null) }}>
+            <Upload className="h-4 w-4 mr-1.5" />
+            Import CSV
+          </Button>
+          <Button variant="ghost" size="icon" onClick={fetchSettings} disabled={loading}>
+            <RefreshCcw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {error && (
         <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">
           {error}
         </div>
+      )}
+
+      {/* Lead Journey Visualization */}
+      {journey && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <ArrowRight className="h-5 w-5" />
+                  Lead Follow-Up Journey
+                </CardTitle>
+                <CardDescription>6-stage SMS follow-up pipeline: see where leads drop off and convert</CardDescription>
+              </div>
+              <Button variant="ghost" size="icon" onClick={fetchJourney} disabled={journeyLoading}>
+                <RefreshCcw className={`h-4 w-4 ${journeyLoading ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto pb-2">
+              <div className="flex items-center gap-1 min-w-[700px]">
+                {[
+                  { label: "Lead In", stage: 0, timing: "Instant" },
+                  { label: "Stage 1", stage: 1, timing: "Instant" },
+                  { label: "Stage 2", stage: 2, timing: "15 min" },
+                  { label: "Stage 3", stage: 3, timing: "Day 1" },
+                  { label: "Stage 4", stage: 4, timing: "Day 3" },
+                  { label: "Stage 5", stage: 5, timing: "Day 7" },
+                  { label: "Stage 6", stage: 6, timing: "Day 14" },
+                ].map((s, idx) => {
+                  const count = journey.followup.by_stage[s.stage] || 0
+                  const prevCount = idx > 0 ? (journey.followup.by_stage[(idx - 1)] || 0) : 0
+                  const retention = idx > 0 && prevCount > 0 ? Math.round((count / prevCount) * 100) : null
+                  // Gradient from blue-500 to blue-700
+                  const opacity = Math.max(0.3, 1 - idx * 0.1)
+
+                  return (
+                    <div key={s.stage} className="flex items-center gap-1">
+                      <div
+                        className="flex flex-col items-center justify-center px-3 py-2 rounded-lg border border-blue-500/30 min-w-[75px] text-center"
+                        style={{ backgroundColor: `rgba(59, 130, 246, ${opacity * 0.15})` }}
+                      >
+                        <span className="text-[10px] text-blue-400 font-medium">{s.timing}</span>
+                        <span className="text-lg font-bold text-foreground">{count}</span>
+                        {retention !== null && (
+                          <span className="text-[10px] text-muted-foreground">{retention}%</span>
+                        )}
+                      </div>
+                      {idx < 6 && <ArrowRight className="h-3 w-3 text-zinc-600 shrink-0" />}
+                    </div>
+                  )
+                })}
+                <ArrowRight className="h-3 w-3 text-zinc-600 shrink-0" />
+                {/* Retargeting node */}
+                <div className="flex flex-col items-center justify-center px-3 py-2 rounded-lg border border-purple-500/30 bg-purple-500/10 min-w-[75px] text-center">
+                  <span className="text-[10px] text-purple-400 font-medium">Retarget</span>
+                  <span className="text-lg font-bold text-foreground">{journey.retargeting.in_sequence}</span>
+                  <span className="text-[10px] text-muted-foreground">active</span>
+                </div>
+                <ArrowRight className="h-3 w-3 text-zinc-600 shrink-0" />
+                {/* Outcomes node */}
+                <div className="flex flex-col items-center justify-center px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-800/50 min-w-[85px] text-center">
+                  <span className="text-[10px] text-zinc-400 font-medium">Outcomes</span>
+                  <div className="flex flex-col gap-0.5 mt-0.5">
+                    <span className="text-xs"><span className="text-green-400 font-bold">{journey.followup.converted}</span> <span className="text-[10px] text-muted-foreground">booked</span></span>
+                    <span className="text-xs"><span className="text-blue-400 font-bold">{journey.followup.responded}</span> <span className="text-[10px] text-muted-foreground">replied</span></span>
+                    <span className="text-xs"><span className="text-zinc-500 font-bold">{journey.followup.lost}</span> <span className="text-[10px] text-muted-foreground">lost</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {journey.opted_out > 0 && (
+              <div className="mt-3 flex items-center gap-2 text-xs text-amber-400">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {journey.opted_out} customer{journey.opted_out !== 1 ? "s" : ""} opted out of SMS
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Customer Pipeline */}
@@ -529,7 +746,7 @@ export default function CampaignsPage() {
                         <div className="border border-zinc-800 rounded-lg overflow-hidden">
                           {/* Select all header */}
                           {stage.sequence && (() => {
-                            const eligibleCustomers = stageCustomers.filter(c => !c.retargeting_sequence && c.phone_number)
+                            const eligibleCustomers = stageCustomers.filter(c => !c.retargeting_sequence && c.phone_number && !c.sms_opt_out)
                             return eligibleCustomers.length > 0 ? (
                               <div className="flex items-center gap-3 px-3 py-2 bg-zinc-900/50 border-b border-zinc-800">
                                 <Checkbox
@@ -554,7 +771,7 @@ export default function CampaignsPage() {
                           })()}
                           <div className="divide-y divide-zinc-800/50">
                             {stageCustomers.map((c) => {
-                              const isEligible = !c.retargeting_sequence && !!c.phone_number
+                              const isEligible = !c.retargeting_sequence && !!c.phone_number && !c.sms_opt_out
                               const isSelected = selectedCustomerIds.has(c.id)
                               return (
                                 <div
@@ -610,6 +827,8 @@ export default function CampaignsPage() {
                                             <Ban className="h-3 w-3" />
                                           </button>
                                         </>
+                                      ) : c.sms_opt_out ? (
+                                        <Badge className="text-[10px] bg-red-500/20 text-red-400 border-red-500/30">Opted Out</Badge>
                                       ) : !c.phone_number ? (
                                         <span className="text-muted-foreground text-[10px]">No phone</span>
                                       ) : (
@@ -975,6 +1194,156 @@ export default function CampaignsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* CSV Import Modal */}
+      <Dialog open={showImportModal} onOpenChange={setShowImportModal}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Import Customers
+            </DialogTitle>
+            <DialogDescription>
+              Upload a CSV file to bulk-add customers and auto-start retargeting sequences.
+            </DialogDescription>
+          </DialogHeader>
+
+          {importResult ? (
+            <div className="space-y-3">
+              <div className="p-4 rounded-lg border border-green-500/30 bg-green-500/10 text-sm space-y-1">
+                <p className="text-green-400 font-medium">Import complete</p>
+                <p className="text-green-400">{importResult.imported} imported, {importResult.enrolled} enrolled in retargeting, {importResult.skipped} skipped</p>
+              </div>
+              {importResult.errors && importResult.errors.length > 0 && (
+                <div className="p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-400 max-h-32 overflow-y-auto space-y-0.5">
+                  {importResult.errors.map((err, i) => <p key={i}>{err}</p>)}
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShowImportModal(false); setCsvRows([]); setImportResult(null) }}>Done</Button>
+              </DialogFooter>
+            </div>
+          ) : csvRows.length === 0 ? (
+            <div className="space-y-4">
+              <div className="border-2 border-dashed border-zinc-700 rounded-lg p-8 text-center">
+                <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground mb-3">Drop a CSV file or click to browse</p>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  id="csv-upload"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleCsvFile(file)
+                    e.target.value = ""
+                  }}
+                />
+                <Button variant="outline" size="sm" onClick={() => document.getElementById("csv-upload")?.click()}>
+                  Choose File
+                </Button>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="font-medium">Expected format:</p>
+                <code className="block bg-zinc-900 rounded px-2 py-1">name,phone,email,stage</code>
+                <code className="block bg-zinc-900 rounded px-2 py-1">John Smith,555-123-4567,john@email.com,quoted_not_booked</code>
+                <p>Stages: unresponsive, quoted_not_booked, one_time, lapsed</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Preview */}
+              <div>
+                <p className="text-sm font-medium mb-2">{csvRows.length} rows detected</p>
+                <div className="border border-zinc-800 rounded-lg overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-zinc-900/50 border-b border-zinc-800">
+                        {csvHeaders.slice(0, 6).map(h => (
+                          <th key={h} className="px-2 py-1.5 text-left text-muted-foreground font-medium">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800/50">
+                      {csvRows.slice(0, 5).map((row, i) => (
+                        <tr key={i}>
+                          {csvHeaders.slice(0, 6).map(h => (
+                            <td key={h} className="px-2 py-1.5 truncate max-w-[120px]">{row[h] || "—"}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {csvRows.length > 5 && (
+                    <p className="text-[10px] text-muted-foreground px-2 py-1 bg-zinc-900/30">...and {csvRows.length - 5} more rows</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Column mapping */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Column Mapping</p>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {(["first_name", "last_name", "phone", "email", "address", "stage"] as const).map(field => (
+                    <div key={field} className="flex items-center gap-2">
+                      <Label className="text-xs w-20 shrink-0 capitalize">{field.replace("_", " ")}</Label>
+                      <select
+                        value={csvMapping[field]}
+                        onChange={(e) => setCsvMapping({ ...csvMapping, [field]: e.target.value })}
+                        className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                        aria-label={`Map ${field} column`}
+                      >
+                        <option value="">— skip —</option>
+                        {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Default stage + auto-enroll */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs w-28 shrink-0">Default stage</Label>
+                  <select
+                    value={csvDefaultStage}
+                    onChange={(e) => setCsvDefaultStage(e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-background px-2 py-1 text-xs"
+                    aria-label="Default lifecycle stage"
+                  >
+                    <option value="unresponsive">Unresponsive</option>
+                    <option value="quoted_not_booked">Quoted, Not Booked</option>
+                    <option value="one_time">One-Time</option>
+                    <option value="lapsed">Lapsed</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="auto-enroll"
+                    checked={csvAutoEnroll}
+                    onCheckedChange={(checked) => setCsvAutoEnroll(checked === true)}
+                  />
+                  <Label htmlFor="auto-enroll" className="text-xs">Auto-start retargeting sequences</Label>
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" size="sm" onClick={() => { setCsvRows([]); setCsvHeaders([]) }}>
+                  Back
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={importing || !csvMapping.phone}
+                  onClick={doImport}
+                >
+                  {importing ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Upload className="h-3 w-3 mr-1.5" />}
+                  Import {csvRows.length} Customer{csvRows.length !== 1 ? "s" : ""}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Campaign Modal */}
       {showModal && (

@@ -62,6 +62,28 @@ export async function sendSMS(
     return { success: false, error: `Invalid phone number: ${to}` }
   }
 
+  // ── SMS Opt-Out Check ──
+  // Block automated SMS to customers who texted STOP. Safe for cleaners (cleaners table, not customers).
+  try {
+    const optOutClient = getSupabaseServiceClient()
+    const { data: optedOut } = await optOutClient
+      .from('customers')
+      .select('id')
+      .eq('phone_number', toE164Format)
+      .eq('tenant_id', tenant.id)
+      .eq('sms_opt_out', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (optedOut) {
+      console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} opted out`)
+      return { success: false, error: 'Customer opted out of SMS' }
+    }
+  } catch (optOutErr) {
+    // Don't block SMS if opt-out check fails — log and continue
+    console.error(`[${tenant.slug}] SMS opt-out check failed:`, optOutErr)
+  }
+
   // ── Per-recipient SMS throttle ──
   // Max 20 outbound messages per recipient per 24 hours
   // Max 1 message with same content per recipient per 30 minutes (dedup)

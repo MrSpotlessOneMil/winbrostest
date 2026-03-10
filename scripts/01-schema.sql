@@ -104,9 +104,9 @@ CREATE TABLE tenants (
     "use_wave": false,
 
     "lead_followup_enabled": true,
-    "lead_followup_stages": 5,
+    "lead_followup_stages": 6,
     "skip_calls_for_sms_leads": true,
-    "followup_delays_minutes": [0, 10, 15, 20, 30],
+    "followup_delays_minutes": [0, 15, 1440, 4320, 10080, 20160],
 
     "post_cleaning_followup_enabled": true,
     "post_cleaning_delay_hours": 2,

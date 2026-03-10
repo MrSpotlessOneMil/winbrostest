@@ -270,40 +270,34 @@ export async function failTask(taskId: string, error: string): Promise<void> {
 
 /**
  * Schedule lead follow-up sequence
- * Stages: 1 (immediate text), 2 (10min call), 3 (15min double call), 4 (20min text), 5 (30min call)
+ * 6 SMS-only touches over 14 days:
+ * 1 (instant), 2 (15min), 3 (day 1), 4 (day 3), 5 (day 7), 6 (day 14)
  */
 export async function scheduleLeadFollowUp(
   tenantId: string,
   leadId: string,
   leadPhone: string,
   leadName: string,
-  delays: number[] = [0, 10, 15, 20, 30] // Default delays in minutes
+  delays: number[] = [0, 15, 1440, 4320, 10080, 20160] // Default delays in minutes
 ): Promise<{ success: boolean; taskIds: string[] }> {
   const taskIds: string[] = []
   const now = new Date()
 
-  const stages = [
-    { stage: 1, action: 'text' },
-    { stage: 2, action: 'call' },
-    { stage: 3, action: 'double_call' },
-    { stage: 4, action: 'text' },
-    { stage: 5, action: 'call' },
-  ]
-
-  for (let i = 0; i < stages.length && i < delays.length; i++) {
+  for (let i = 0; i < delays.length; i++) {
+    const stage = i + 1
     const scheduledFor = new Date(now.getTime() + delays[i] * 60 * 1000)
 
     const result = await scheduleTask({
       tenantId,
       taskType: 'lead_followup',
-      taskKey: `lead-${leadId}-stage-${stages[i].stage}`,
+      taskKey: `lead-${leadId}-stage-${stage}`,
       scheduledFor,
       payload: {
         leadId,
         leadPhone,
         leadName,
-        stage: stages[i].stage,
-        action: stages[i].action,
+        stage,
+        action: 'text',
       },
     })
 

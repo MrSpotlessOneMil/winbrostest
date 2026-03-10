@@ -4,7 +4,7 @@
  * Pricing tiers for window cleaning, pressure washing, and gutter cleaning.
  * Window cleaning uses square-footage-based tiers.
  * Pressure washing uses flat-rate per-surface pricing (multiple surfaces can be summed).
- * Gutter cleaning uses property-type-based tiers.
+ * Gutter cleaning is a flat $250 rate (matches HCP).
  */
 
 type WindowTier = {
@@ -155,13 +155,7 @@ const FLAT_SERVICES: FlatService[] = [
   { name: "Gutter and Soffit Washing", keywords: ["soffit", "gutter wash"], price: 200 },
 ]
 
-// Gutter cleaning prices by property type (matches SMS prompt pricing)
-const GUTTER_TIERS: Record<string, { price: number; label: string }> = {
-  single_story:     { price: 200, label: 'Single-story gutter cleaning' },
-  two_story:        { price: 250, label: 'Standard two-story gutter cleaning' },
-  larger_two_story: { price: 325, label: 'Larger two-story gutter cleaning' },
-}
-
+// Flat gutter cleaning price (matches HCP)
 const DEFAULT_GUTTER_PRICE = 250
 
 // Map from structured surface identifiers to FLAT_SERVICES keywords
@@ -240,16 +234,14 @@ export function lookupPressureWashingPrice(
 }
 
 /**
- * Look up gutter cleaning price by property type.
+ * Look up gutter cleaning price (flat $250, matches HCP).
  */
 export function lookupGutterPrice(
-  propertyType?: string | null
+  _propertyType?: string | null
 ): PriceLookupResult {
-  const tier = propertyType ? GUTTER_TIERS[propertyType] : null
-
   return {
-    price: tier?.price ?? DEFAULT_GUTTER_PRICE,
-    serviceName: tier?.label ?? 'Gutter cleaning',
+    price: DEFAULT_GUTTER_PRICE,
+    serviceName: 'Gutter cleaning',
   }
 }
 

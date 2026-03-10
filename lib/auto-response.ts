@@ -260,10 +260,10 @@ export async function generateAutoResponse(
   knownCustomerInfo?: KnownCustomerInfo,
   options?: AutoResponseOptions
 ): Promise<AutoResponseResult> {
-  // Don't respond to obvious opt-outs
+  // Don't respond to obvious opt-outs (exact match to avoid "don't stop calling me" false positives)
   const lowerMessage = incomingMessage.toLowerCase().trim()
-  const optOutKeywords = ['stop', 'unsubscribe', 'remove', 'opt out', 'optout', 'cancel', 'quit']
-  if (optOutKeywords.some(kw => lowerMessage.includes(kw))) {
+  const optOutExact = ['stop', 'unsubscribe', 'opt out', 'optout', 'cancel texts', 'quit']
+  if (optOutExact.includes(lowerMessage)) {
     return {
       response: '',
       shouldSend: false,

@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
   const { data: customers, error } = await supabase
     .from("customers")
-    .select("id, first_name, last_name, phone_number, email, lifecycle_stage, retargeting_sequence, retargeting_step, retargeting_enrolled_at, retargeting_completed_at, retargeting_stopped_reason, created_at, updated_at")
+    .select("id, first_name, last_name, phone_number, email, lifecycle_stage, retargeting_sequence, retargeting_step, retargeting_enrolled_at, retargeting_completed_at, retargeting_stopped_reason, sms_opt_out, created_at, updated_at")
     .eq("tenant_id", tenant.id)
     .eq("lifecycle_stage", stage)
     .order("updated_at", { ascending: false })

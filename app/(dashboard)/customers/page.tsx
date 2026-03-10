@@ -61,6 +61,7 @@ interface Customer {
   preferred_day?: string | null
   recurring_notes?: string | null
   lifecycle_stage?: string | null
+  sms_opt_out?: boolean
   created_at: string
   updated_at: string
 }
@@ -1723,6 +1724,13 @@ export default function CustomersPage() {
                       >
                         {deletingCustomer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
+
+                      {/* SMS Opt-Out Badge */}
+                      {selectedCustomer.sms_opt_out && (
+                        <span className="px-2 py-0.5 text-xs font-medium rounded bg-red-500/20 text-red-400">
+                          SMS Opted Out
+                        </span>
+                      )}
 
                       {/* Per-Customer Auto-Response Toggle */}
                       <div className="flex items-center gap-2">
