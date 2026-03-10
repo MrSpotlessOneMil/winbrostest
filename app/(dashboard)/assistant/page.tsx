@@ -2,7 +2,18 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { ConversationSidebar, type Conversation } from "@/components/assistant/conversation-sidebar"
-import { Send, Loader2, Sparkles, Copy, Check } from "lucide-react"
+import { Send, Loader2, Sparkles, Copy } from "lucide-react"
+
+function AnimatedCheck({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <polyline
+        points="20 6 9 17 4 12"
+        style={{ strokeDasharray: 28, strokeDashoffset: 0, animation: "checkDraw 0.35s ease-out forwards" }}
+      />
+    </svg>
+  )
+}
 
 interface Message {
   role: "user" | "assistant"
@@ -64,7 +75,7 @@ function CopyButton({ text, className = "" }: { text: string; className?: string
       } ${className}`}
       title={copied ? "Copied!" : "Copy"}
     >
-      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+      {copied ? <AnimatedCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
     </button>
   )
 }
@@ -533,14 +544,12 @@ export default function AssistantPage() {
                 onClick={handleCopyChat}
                 className={`sticky top-4 z-10 ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium backdrop-blur-sm transition-all duration-200 ${
                   copiedChat
-                    ? "scale-105 bg-green-500/20 text-green-400 border border-green-500/30"
+                    ? "bg-green-500/20 text-green-400 border border-green-500/30"
                     : "bg-zinc-800/70 text-zinc-500 border border-zinc-700/40 hover:text-zinc-200 hover:bg-zinc-700/80 active:scale-95"
                 }`}
                 title="Copy last 100 messages"
               >
-                <span className={`inline-flex transition-transform duration-300 ${copiedChat ? "animate-[checkPop_0.3s_ease-out]" : ""}`}>
-                  {copiedChat ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                </span>
+                {copiedChat ? <AnimatedCheck className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 {copiedChat ? "Copied!" : "Copy Chat"}
               </button>
             )}
@@ -590,7 +599,7 @@ export default function AssistantPage() {
                       title={copiedIdx === i ? "Copied!" : "Copy message"}
                     >
                       {copiedIdx === i ? (
-                        <Check className="w-3.5 h-3.5 animate-[checkPop_0.3s_ease-out]" />
+                        <AnimatedCheck className="w-3.5 h-3.5" />
                       ) : (
                         <Copy className="w-3.5 h-3.5" />
                       )}
