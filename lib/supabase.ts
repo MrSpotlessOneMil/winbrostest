@@ -3,9 +3,14 @@ import { SignJWT } from 'jose'
 import { toE164 } from './phone-utils'
 import { getClientConfig } from './client-config'
 import { syncHubSpotContact, syncHubSpotDeal } from './hubspot'
-// IMPORTANT: Explicit path to avoid Next resolving `telegram.tsx`.
-// @ts-ignore - explicit extension needed to avoid Next.js resolving to wrong file
-import { notifyJobDetailsChange, type JobChange } from './telegram'
+import { notifyJobDetailsChange } from './cleaner-sms'
+import { getTenantById } from './tenant'
+
+type JobChange = {
+  field: 'address' | 'bedrooms' | 'bathrooms' | 'square_footage' | 'date' | 'scheduled_at' | 'notes'
+  oldValue: string | number | null
+  newValue: string | number | null
+}
 import { logSystemEvent } from './system-events'
 
 type HubSpotSyncOptions = {
@@ -386,14 +391,25 @@ export async function upsertCustomerWithNotifications(
   }
 
   const cleaner = await getCleanerById(assignment.cleaner_id)
-  if (!cleaner?.telegram_id) {
-    // Cleaner doesn't have Telegram configured
+  if (!cleaner?.phone) {
+    // Cleaner doesn't have phone configured
     return updatedCustomer
   }
 
   // 8. Notify cleaner of changes
   try {
-    await notifyJobDetailsChange(cleaner, activeJob, changes)
+    const jobTenantId = (activeJob as any).tenant_id
+    const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
+    if (!tenant) {
+      console.warn('upsertCustomerWithNotifications: No tenant found for job, skipping cleaner notification')
+      return updatedCustomer
+    }
+
+    await notifyJobDetailsChange(tenant, cleaner, activeJob, changes.map(c => ({
+      field: String(c.field),
+      oldValue: String(c.oldValue ?? ''),
+      newValue: String(c.newValue ?? ''),
+    })))
 
     // 9. Log the event
     await logSystemEvent({
@@ -744,7 +760,7 @@ export async function updateJob(
  * 1. Fetches the old job state
  * 2. Calls updateJob to perform the update
  * 3. Detects which important fields changed
- * 4. Notifies the assigned cleaner via Telegram if changes were made
+ * 4. Notifies the assigned cleaner via SMS if changes were made
  */
 export async function updateJobWithNotifications(
   jobId: string,
@@ -799,14 +815,25 @@ export async function updateJobWithNotifications(
   }
 
   const cleaner = await getCleanerById(assignment.cleaner_id)
-  if (!cleaner?.telegram_id) {
-    // Cleaner doesn't have Telegram configured
+  if (!cleaner?.phone) {
+    // Cleaner doesn't have phone configured
     return updatedJob
   }
 
   // 6. Notify cleaner of changes
   try {
-    await notifyJobDetailsChange(cleaner, updatedJob, changes)
+    const jobTenantId = (updatedJob as any).tenant_id
+    const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
+    if (!tenant) {
+      console.warn('updateJobWithNotifications: No tenant found for job, skipping cleaner notification')
+      return updatedJob
+    }
+
+    await notifyJobDetailsChange(tenant, cleaner, updatedJob, changes.map(c => ({
+      field: String(c.field),
+      oldValue: String(c.oldValue ?? ''),
+      newValue: String(c.newValue ?? ''),
+    })))
 
     // 7. Log the event
     await logSystemEvent({

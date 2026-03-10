@@ -25,7 +25,7 @@ import {
   getCleaners,
 } from '@/lib/supabase'
 import type { Job } from '@/lib/supabase'
-import { sendUrgentFollowUp, notifyCleanerAssignment } from '@/lib/telegram'
+import { sendUrgentFollowUp, notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
@@ -200,7 +200,7 @@ async function executeCheckTimeouts(request: NextRequest) {
           const pendingList = pendingCleanerNames.length > 0 ? pendingCleanerNames.join(', ') : 'none'
 
           const alertMessage = [
-            `UNCLAIMED JOB: After ${MAX_FOLLOWUP_ATTEMPTS} follow-up attempts, no employee has responded on Telegram.`,
+            `UNCLAIMED JOB: After ${MAX_FOLLOWUP_ATTEMPTS} follow-up attempts, no employee has responded.`,
             `Customer: ${customerName} | ${job.phone_number || 'no phone'}`,
             `Service: ${job.service_type || 'Cleaning'} | ${dateStr} at ${job.scheduled_at || 'TBD'}`,
             `Address: ${job.address || 'not available'}`,
@@ -239,8 +239,9 @@ async function executeCheckTimeouts(request: NextRequest) {
       let jobUrgentsSent = 0
       for (const pending of allPending || []) {
         const cleaner = await getCleanerById(pending.cleaner_id)
-        if (cleaner?.telegram_id) {
-          const result = await sendUrgentFollowUp(cleaner, job)
+        if (cleaner?.phone) {
+          const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+          const result = jobTenant ? await sendUrgentFollowUp(jobTenant, cleaner, job) : { success: false, error: 'No tenant' }
           if (result.success) {
             urgentsSent++
             jobUrgentsSent++
@@ -561,7 +562,7 @@ async function rebroadcastJobToCleaners(
   // Filter cleaners to only those belonging to the same tenant as the job
   const eligibleCleaners = allCleaners.filter(
     (cleaner) =>
-      cleaner.telegram_id &&
+      cleaner.phone &&
       cleaner.id &&
       (!excludeCleanerId || String(cleaner.id) !== String(excludeCleanerId)) &&
       (!job.tenant_id || cleaner.tenant_id === job.tenant_id)
@@ -572,6 +573,11 @@ async function rebroadcastJobToCleaners(
 
   const existingAssignments = await getCleanerAssignmentsForJob(jobId)
   const customer = await getCustomerByPhone(job.phone_number)
+  const broadcastTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+  if (!broadcastTenant) {
+    console.error(`[check-timeouts] No tenant for job ${jobId} — cannot broadcast`)
+    return
+  }
   let sentCount = 0
   const failedNotifications: Array<{ cleanerId: string; error: string }> = []
 
@@ -585,7 +591,7 @@ async function rebroadcastJobToCleaners(
         // Re-offer to previously declined cleaners only on cancellation re-broadcasts
         if (reason === 'cancelled') {
           await updateCleanerAssignment(existing.id!, 'pending')
-          const result = await notifyCleanerAssignment(cleaner, job, customer || undefined, existing.id)
+          const result = await notifyCleanerAssignment(broadcastTenant, cleaner, job, customer || undefined, existing.id)
           if (result.success) {
             sentCount += 1
           } else {
@@ -597,7 +603,7 @@ async function rebroadcastJobToCleaners(
       }
 
       await updateCleanerAssignment(existing.id!, 'pending')
-      const result = await notifyCleanerAssignment(cleaner, job, customer || undefined, existing.id)
+      const result = await notifyCleanerAssignment(broadcastTenant, cleaner, job, customer || undefined, existing.id)
       if (result.success) {
         sentCount += 1
       } else {
@@ -614,7 +620,7 @@ async function rebroadcastJobToCleaners(
       continue
     }
 
-    const result = await notifyCleanerAssignment(cleaner, job, customer || undefined, assignment.id)
+    const result = await notifyCleanerAssignment(broadcastTenant, cleaner, job, customer || undefined, assignment.id)
     if (result.success) {
       sentCount += 1
     } else {

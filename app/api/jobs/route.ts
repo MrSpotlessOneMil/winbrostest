@@ -6,7 +6,6 @@ import { getTenantById, tenantUsesFeature } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
-import { sendTelegramMessage } from "@/lib/telegram"
 import { cleanerAssigned } from "@/lib/sms-templates"
 import { triggerCleanerAssignment } from "@/lib/cleaner-assignment"
 
@@ -202,13 +201,13 @@ export async function PATCH(request: NextRequest) {
             const svc = getSupabaseServiceClient()
             const { data: cleaner } = await svc
               .from("cleaners")
-              .select("id, name, telegram_id")
+              .select("id, name, phone")
               .eq("id", Number(cleaner_id))
               .single()
 
             if (cleaner) {
-              // Telegram info message to cleaner (no accept/decline — owner made the decision)
-              if (cleaner.telegram_id) {
+              // SMS info message to cleaner (no accept/decline — owner made the decision)
+              if (cleaner.phone) {
                 const jobDate = date || oldJob?.date || "TBD"
                 const jobTime = scheduled_at || oldJob?.scheduled_at || ""
                 const jobAddress = body.address || oldJob?.address || "TBD"
@@ -221,9 +220,9 @@ export async function PATCH(request: NextRequest) {
                   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
                   timeDisplay = ` at ${h12}:${m} ${ampm}`
                 }
-                const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
-                sendTelegramMessage(assignTenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
-                  console.error("[Jobs PATCH] Failed to send Telegram to cleaner:", err)
+                const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
+                sendSMS(assignTenant as any, cleaner.phone, smsMsg).catch((err) =>
+                  console.error("[Jobs PATCH] Failed to send SMS to cleaner:", err)
                 )
               }
 
@@ -543,15 +542,15 @@ export async function POST(request: NextRequest) {
         responded_at: new Date().toISOString(),
       })
 
-      // Notify cleaner via Telegram + customer SMS (fire-and-forget)
+      // Notify cleaner via SMS + customer SMS (fire-and-forget)
       const { data: cleaner } = await svc
         .from("cleaners")
-        .select("id, name, telegram_id")
+        .select("id, name, phone")
         .eq("id", Number(body.cleaner_id))
         .single()
 
       if (cleaner) {
-        if (cleaner.telegram_id) {
+        if (cleaner.phone) {
           const jobAddress = body.address || "TBD"
           const jobDate = scheduledDate || "TBD"
           const jobTime = scheduledAt || ""
@@ -564,9 +563,9 @@ export async function POST(request: NextRequest) {
             const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
             timeDisplay = ` at ${h12}:${m} ${ampm}`
           }
-          const telegramMsg = `📋 You've been assigned a new job!\n\n📍 ${jobAddress}\n📅 ${jobDate}${timeDisplay}\n\nCheck your schedule for details.`
-          sendTelegramMessage(tenant as any, String(cleaner.telegram_id), telegramMsg).catch((err) =>
-            console.error("[Jobs POST] Failed to send Telegram to cleaner:", err)
+          const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
+          sendSMS(tenant as any, cleaner.phone, smsMsg).catch((err) =>
+            console.error("[Jobs POST] Failed to send SMS to cleaner:", err)
           )
         }
 

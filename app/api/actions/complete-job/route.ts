@@ -24,7 +24,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
-import { sendTelegramMessage } from '@/lib/telegram'
+import { notifyOwnerSMS } from '@/lib/cleaner-sms'
 import { triggerSatisfactionCheck } from '@/lib/lifecycle-engine'
 import { tenantUsesFeature } from '@/lib/tenant'
 
@@ -156,17 +156,16 @@ async function handleMembershipLifecycle(
         console.error(`[complete-job] Renewal SMS error:`, err)
       }
 
-      // Notify tenant via Telegram
-      if (tenant.owner_telegram_chat_id) {
+      // Notify tenant owner via SMS
+      if (tenant.owner_phone) {
         try {
           const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
-          await sendTelegramMessage(
+          await notifyOwnerSMS(
             tenant,
-            tenant.owner_telegram_chat_id,
-            `🔄 <b>Membership Renewal Pending</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nVisits completed: ${newVisitsCompleted}/${visitsPerYear}\n\nRenewal SMS sent — waiting for customer reply.`,
+            `Membership Renewal Pending - Customer: ${customerName}, Plan: ${plan.name}, Visits completed: ${newVisitsCompleted}/${visitsPerYear}. Renewal SMS sent - waiting for customer reply.`,
           )
         } catch (err) {
-          console.error(`[complete-job] Telegram notification error:`, err)
+          console.error(`[complete-job] Owner SMS notification error:`, err)
         }
       }
     }
@@ -193,13 +192,12 @@ async function handleMembershipLifecycle(
       metadata: { membership_id: membershipId, plan_slug: plan.slug },
     })
 
-    if (tenant?.owner_telegram_chat_id) {
+    if (tenant?.owner_phone) {
       const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
       try {
-        await sendTelegramMessage(
+        await notifyOwnerSMS(
           tenant,
-          tenant.owner_telegram_chat_id,
-          `✅ <b>Membership Renewed</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nVisits reset to 0/${visitsPerYear}`,
+          `Membership Renewed - Customer: ${customerName}, Plan: ${plan.name}, Visits reset to 0/${visitsPerYear}`,
         )
       } catch {}
     }
@@ -217,13 +215,12 @@ async function handleMembershipLifecycle(
       metadata: { membership_id: membershipId, plan_slug: plan.slug, renewal_choice: membership.renewal_choice },
     })
 
-    if (tenant?.owner_telegram_chat_id) {
+    if (tenant?.owner_phone) {
       const customerName = await getCustomerName(supabase, membership.customer_id, membership.tenant_id)
       try {
-        await sendTelegramMessage(
+        await notifyOwnerSMS(
           tenant,
-          tenant.owner_telegram_chat_id,
-          `📋 <b>Membership Completed</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nReason: ${completionReason}\n\nAll ${visitsPerYear} visits used.`,
+          `Membership Completed - Customer: ${customerName}, Plan: ${plan.name}, Reason: ${completionReason}. All ${visitsPerYear} visits used.`,
         )
       } catch {}
     }

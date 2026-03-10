@@ -3,7 +3,7 @@
  *
  * After route optimization, this module:
  * 1. Persists team assignments to the database
- * 2. Sends optimized routes to team leads via Telegram
+ * 2. Sends optimized routes to team leads via SMS
  * 3. Sends ETA arrival windows to customers via SMS
  *
  * WinBros-specific: assignments are created as 'confirmed' directly
@@ -11,7 +11,6 @@
  */
 
 import { getSupabaseServiceClient } from './supabase'
-import { sendTelegramMessage } from './telegram'
 import { sendSMS } from './openphone'
 import { syncNewJobToHCP } from './hcp-job-sync'
 import type { Tenant } from './tenant'
@@ -156,17 +155,17 @@ export async function dispatchRoutes(
       }
     }
 
-    // 3. Send route to team lead via Telegram
-    if (sendTelegram && route.leadTelegramId) {
+    // 3. Send route to team lead via SMS
+    if (sendTelegram && route.leadId) {
       if (dryRun) {
-        console.log(`[Dispatch:DRY] Would send Telegram route to team "${route.teamName}" (${route.leadTelegramId})`)
+        console.log(`[Dispatch:DRY] Would send SMS route to team "${route.teamName}" (lead ${route.leadId})`)
         telegramsSent++
       } else {
         const result = await sendRouteToTeamLead(tenant, route)
         if (result.success) {
           telegramsSent++
         } else {
-          errors.push(`Telegram failed for team "${route.teamName}": ${result.error}`)
+          errors.push(`SMS failed for team "${route.teamName}": ${result.error}`)
         }
       }
     }
@@ -212,18 +211,26 @@ export async function dispatchRoutes(
   return result
 }
 
-// ── Telegram Route Message ─────────────────────────────────────
+// ── Team Lead Route Message (SMS) ──────────────────────────────
 
 /**
- * Send the optimized route to a team lead via Telegram.
+ * Send the optimized route to a team lead via SMS.
  * Informational only — no accept/decline buttons.
  */
 async function sendRouteToTeamLead(
   tenant: Tenant,
   route: OptimizedRoute
 ): Promise<{ success: boolean; error?: string }> {
-  if (!route.leadTelegramId) {
-    return { success: false, error: 'Team lead has no Telegram ID' }
+  // Look up team lead phone from cleaners table
+  const client = getSupabaseServiceClient()
+  const { data: lead } = await client
+    .from('cleaners')
+    .select('phone')
+    .eq('id', route.leadId)
+    .maybeSingle()
+
+  if (!lead?.phone) {
+    return { success: false, error: 'Team lead has no phone number' }
   }
 
   const stopLines = route.stops.map((stop, idx) => {
@@ -233,24 +240,22 @@ async function sendRouteToTeamLead(
       : `${stop.jobDurationMinutes}min`
     const service = stop.serviceType ? ` | ${humanize(stop.serviceType)}` : ''
 
-    return `<b>${stop.order}. ${stop.estimatedArrival}</b> - ${escapeHtml(stop.address)}
-   ${stop.customerName || 'Customer'} | ~${duration}${service}
-   Drive: ${stop.driveTimeMinutes} min from ${driveFrom}`
+    return `${stop.order}. ${stop.estimatedArrival} - ${stop.address}\n   ${stop.customerName || 'Customer'} | ~${duration}${service}\n   Drive: ${stop.driveTimeMinutes} min from ${driveFrom}`
   }).join('\n\n')
 
-  const message = `<b>Good morning, ${escapeHtml(route.teamName)}!</b>
+  const message = `Good morning, ${route.teamName}!
 
-Here's your optimized route for today (${route.stops.length} job${route.stops.length > 1 ? 's' : ''}):
+Your route today (${route.stops.length} job${route.stops.length > 1 ? 's' : ''}):
 
 ${stopLines}
 
-<b>Total drive time:</b> ${route.totalDriveTimeMinutes} min
-<b>Estimated finish:</b> ${route.lastCompletionTime}
-${route.totalRevenueEstimate > 0 ? `<b>Revenue target:</b> $${route.totalRevenueEstimate.toLocaleString()}` : ''}
+Total drive time: ${route.totalDriveTimeMinutes} min
+Estimated finish: ${route.lastCompletionTime}
+${route.totalRevenueEstimate > 0 ? `Revenue target: $${route.totalRevenueEstimate.toLocaleString()}` : ''}
 
 Have a great day!`.trim()
 
-  const result = await sendTelegramMessage(tenant, route.leadTelegramId, message, 'HTML')
+  const result = await sendSMS(tenant, lead.phone, message)
   return { success: result.success, error: result.error }
 }
 
@@ -354,9 +359,3 @@ function humanize(value: string): string {
   return value.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}

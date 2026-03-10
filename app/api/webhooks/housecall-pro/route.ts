@@ -338,11 +338,11 @@ export async function POST(request: NextRequest) {
             try {
               const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
               const { dispatchRoutes } = await import("@/lib/dispatch")
-              const { sendTelegramMessage } = await import("@/lib/telegram")
+              const { sendSMS } = await import("@/lib/openphone")
 
               console.log(`[OSIRIS] HCP Webhook: Triggering technician route optimization for job ${newHcpJob.id} on ${scheduledDate}`)
 
-              const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
+              const { optimization, assignedTeamId, assignedLeadId } =
                 await optimizeRoutesIncremental(Number(newHcpJob.id), scheduledDate, tenant.id, 'technician')
 
               if (assignedTeamId) {
@@ -351,19 +351,18 @@ export async function POST(request: NextRequest) {
                   sendSmsToCustomers: false,
                 })
 
-                // Send immediate notification to assigned technician (address withheld until 5pm route)
-                if (assignedLeadTelegramId) {
-                  const customerName = [firstName, lastName].filter(Boolean).join(' ') || 'Customer'
-                  const techMsg = [
-                    `<b>New Job Assigned - WinBros</b>`,
-                    ``,
-                    `Date: ${scheduledDate}${scheduledTime ? ` at ${scheduledTime}` : ''}`,
-                    `Service: ${lineItemName || 'Window Cleaning'}`,
-                    ``,
-                    `You'll receive your full route with addresses at 5 PM tonight.`,
-                  ].join('\n')
-                  await sendTelegramMessage(tenant, assignedLeadTelegramId, techMsg, 'HTML')
-                  console.log(`[OSIRIS] HCP Webhook: Telegram sent to technician (team ${assignedTeamId}) for job ${newHcpJob.id}`)
+                // Send immediate SMS notification to assigned technician
+                if (assignedLeadId) {
+                  const { data: techLead } = await client
+                    .from('cleaners')
+                    .select('phone, name')
+                    .eq('id', assignedLeadId)
+                    .maybeSingle()
+                  if (techLead?.phone) {
+                    const techMsg = `New Job Assigned - WinBros\n\nDate: ${scheduledDate}${scheduledTime ? ` at ${scheduledTime}` : ''}\nService: ${lineItemName || 'Window Cleaning'}\n\nYou'll receive your full route with addresses at 5 PM tonight.`
+                    await sendSMS(tenant, techLead.phone, techMsg)
+                    console.log(`[OSIRIS] HCP Webhook: SMS sent to technician (team ${assignedTeamId}) for job ${newHcpJob.id}`)
+                  }
                 }
               } else {
                 console.warn(`[OSIRIS] HCP Webhook: No technician team available for job ${newHcpJob.id} on ${scheduledDate}`)
@@ -621,7 +620,7 @@ export async function POST(request: NextRequest) {
                     break
                   }
 
-                  const { sendTelegramMessage } = await import("@/lib/telegram")
+                  const { sendSMS: sendHcpSMS } = await import("@/lib/openphone")
                   const { alertOwner } = await import("@/lib/owner-alert")
 
                   // Create a new cleaning job from the estimate data
@@ -645,28 +644,27 @@ export async function POST(request: NextRequest) {
                   if (cleaningJob) {
                     console.log(`[OSIRIS] HCP payment: Created cleaning job ${cleaningJob.id} from estimate ${localJob.id}`)
 
-                    // Notify team lead via Telegram
-                    if (localJob.team_id) {
+                    // Notify team lead via SMS
+                    if (localJob.team_id && tenant) {
                       const { data: teamLead } = await client
                         .from("team_members")
-                        .select("cleaner_id, cleaners ( id, name, telegram_id )")
+                        .select("cleaner_id, cleaners ( id, name, phone )")
                         .eq("team_id", localJob.team_id)
                         .eq("role", "lead")
                         .eq("is_active", true)
                         .limit(1)
                         .maybeSingle()
 
-                      const leadTelegramId = (teamLead?.cleaners as any)?.telegram_id
+                      const leadPhone = (teamLead?.cleaners as any)?.phone
                       const leadName = (teamLead?.cleaners as any)?.name || 'Team Lead'
-                      if (leadTelegramId && tenant) {
+                      if (leadPhone) {
                         const customerName = localJob.phone_number || 'Customer'
-                        await sendTelegramMessage(
+                        await sendHcpSMS(
                           tenant,
-                          leadTelegramId,
-                          `💰 Payment received for ${customerName} at ${localJob.address || 'TBD'}!\n\nCleaning job #${cleaningJob.id} created — ready to schedule.`,
-                          'HTML'
+                          leadPhone,
+                          `Payment received for ${customerName} at ${localJob.address || 'TBD'}!\n\nCleaning job #${cleaningJob.id} created - ready to schedule.`
                         )
-                        console.log(`[OSIRIS] HCP payment: Notified team lead ${leadName} (${leadTelegramId})`)
+                        console.log(`[OSIRIS] HCP payment: Notified team lead ${leadName} via SMS`)
                       }
                     }
 

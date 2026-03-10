@@ -28,7 +28,8 @@ interface SendSMSResponse {
 export async function sendSMS(
   tenant: Tenant,
   to: string,
-  message: string
+  message: string,
+  options?: { skipThrottle?: boolean }
 ): Promise<SendSMSResponse> {
 
   if (!tenant) {
@@ -61,10 +62,11 @@ export async function sendSMS(
     return { success: false, error: `Invalid phone number: ${to}` }
   }
 
-  // ── Per-customer SMS throttle ──
-  // Max 20 outbound messages per customer per 24 hours
-  // Max 1 message with same content per customer per 30 minutes (dedup)
-  try {
+  // ── Per-recipient SMS throttle ──
+  // Max 20 outbound messages per recipient per 24 hours
+  // Max 1 message with same content per recipient per 30 minutes (dedup)
+  // Skipped for cleaner phones (high-volume operational SMS)
+  if (!options?.skipThrottle) try {
     const throttleClient = getSupabaseServiceClient()
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()

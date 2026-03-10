@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js"
 import { requireAuth, getAuthTenant, AuthUser } from "@/lib/auth"
 import { updateJob as updateHCPJob } from "@/integrations/housecall-pro/hcp-client"
 import { sendSMS } from "@/lib/openphone"
-import { notifyScheduleChange } from "@/lib/telegram"
+import { notifyScheduleChange } from "@/lib/cleaner-sms"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -170,35 +170,35 @@ async function rescheduleJob(
     }
   }
 
-  // 4. Notify assigned cleaners via Telegram
+  // 4. Notify assigned cleaners via SMS
   if (job.team_id) {
     try {
       const { data: cleaner } = await client
         .from("cleaners")
-        .select("id, name, telegram_id, phone")
+        .select("id, name, phone")
         .eq("id", job.team_id)
         .single()
 
-      if (cleaner?.telegram_id) {
+      if (cleaner?.phone) {
         const oldDateFormatted = new Date(affectedDate + "T12:00:00").toLocaleDateString("en-US", {
           weekday: "long",
           month: "long",
           day: "numeric",
         })
-        const telegramResult = await notifyScheduleChange(
+        const smsResult = await notifyScheduleChange(
           tenant,
-          { telegram_id: cleaner.telegram_id, name: cleaner.name, phone: cleaner.phone },
+          { name: cleaner.name, phone: cleaner.phone },
           { id: job.id, date: targetDate, scheduled_at: job.scheduled_time, address: job.address },
           oldDateFormatted,
           job.scheduled_time || "09:00"
         )
-        if (telegramResult.success) {
+        if (smsResult.success) {
           notifications++
-          console.log(`[Rain Day] Telegram notification sent to cleaner ${cleaner.name}`)
+          console.log(`[Rain Day] SMS notification sent to cleaner ${cleaner.name}`)
         }
       }
-    } catch (telegramErr) {
-      console.error(`[Rain Day] Failed to notify cleaner ${job.team_id}:`, telegramErr)
+    } catch (smsErr) {
+      console.error(`[Rain Day] Failed to notify cleaner ${job.team_id}:`, smsErr)
     }
   }
 

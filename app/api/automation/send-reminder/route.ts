@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { getDefaultTenant } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
-import { sendJobReminder } from "@/lib/telegram"
+import { sendJobReminder } from "@/lib/cleaner-sms"
 
 interface ReminderPayload {
   type: "day_before" | "one_hour_before" | "job_start"
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
             customers (id, first_name, last_name, phone_number),
             cleaner_assignments (
               id, status,
-              cleaners (id, name, telegram_id, phone)
+              cleaners (id, name, phone)
             )
           `)
           .eq("id", job_id)
@@ -155,8 +155,8 @@ export async function POST(request: NextRequest) {
         const cleanersData = confirmedAssignment?.cleaners
         const cleaner = Array.isArray(cleanersData) ? cleanersData[0] : cleanersData
 
-        if (!cleaner?.telegram_id) {
-          console.log(`[Reminder] No cleaner with Telegram ID for job ${job_id}`)
+        if (!cleaner?.phone) {
+          console.log(`[Reminder] No cleaner with phone number for job ${job_id}`)
           return NextResponse.json({
             success: true,
             message: "No cleaner to notify",
@@ -164,13 +164,13 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Send Telegram reminder to cleaner
+        // Send SMS reminder to cleaner
         const customer = Array.isArray(job.customers) ? job.customers[0] : job.customers
         const reminderType = type === "one_hour_before" ? "one_hour_before" : "job_start"
 
         const result = await sendJobReminder(
           tenant,
-          { telegram_id: cleaner.telegram_id, name: cleaner.name, phone: cleaner.phone },
+          { name: cleaner.name, phone: cleaner.phone },
           {
             id: job.id,
             date: job.date,

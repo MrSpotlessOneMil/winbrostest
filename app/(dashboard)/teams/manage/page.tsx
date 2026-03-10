@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Users, ArrowLeft, Plus, Trash2, Pencil, Star, MessageCircle } from "lucide-react"
+import { Users, ArrowLeft, Plus, Trash2, Pencil, Star } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,7 +45,6 @@ export default function ManageTeamsPage() {
   const [newCleanerName, setNewCleanerName] = useState("")
   const [newCleanerPhone, setNewCleanerPhone] = useState("")
   const [newCleanerEmail, setNewCleanerEmail] = useState("")
-  const [newCleanerTelegramId, setNewCleanerTelegramId] = useState("")
   const [newCleanerIsTeamLead, setNewCleanerIsTeamLead] = useState(false)
   const [newCleanerEmployeeType, setNewCleanerEmployeeType] = useState<'technician' | 'salesman'>('technician')
   const [editingCleaner, setEditingCleaner] = useState<Cleaner | null>(null)
@@ -166,14 +165,12 @@ export default function ManageTeamsPage() {
         name,
         phone: newCleanerPhone.trim() || null,
         email: newCleanerEmail.trim() || null,
-        telegram_id: newCleanerTelegramId.trim() || null,
         is_team_lead: newCleanerIsTeamLead,
         employee_type: newCleanerEmployeeType
       })
       setNewCleanerName("")
       setNewCleanerPhone("")
       setNewCleanerEmail("")
-      setNewCleanerTelegramId("")
       setNewCleanerIsTeamLead(false)
       setNewCleanerEmployeeType('technician')
       await load()
@@ -191,7 +188,6 @@ export default function ManageTeamsPage() {
         name: editingCleaner.name,
         phone: editingCleaner.phone || null,
         email: editingCleaner.email || null,
-        telegram_id: editingCleaner.telegram_id || null,
         is_team_lead: editingCleaner.is_team_lead,
         employee_type: editingCleaner.employee_type || 'technician'
       })
@@ -273,7 +269,6 @@ export default function ManageTeamsPage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <Input value={newCleanerEmail} onChange={(e) => setNewCleanerEmail(e.target.value)} placeholder="Email" />
-              <Input value={newCleanerTelegramId} onChange={(e) => setNewCleanerTelegramId(e.target.value)} placeholder="Telegram Chat ID" />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -337,7 +332,6 @@ export default function ManageTeamsPage() {
                   </div>
                   <div className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                     <span>{c.phone || "No phone"}</span>
-                    {c.telegram_id && <span title="Telegram connected"><MessageCircle className="h-3 w-3 text-blue-500" /></span>}
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
@@ -395,8 +389,7 @@ export default function ManageTeamsPage() {
                       </div>
                       <div className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                         <span>{c.phone || "No phone"}</span>
-                        {c.telegram_id && <span title="Telegram connected"><MessageCircle className="h-3 w-3 text-blue-500" /></span>}
-                      </div>
+                          </div>
                     </div>
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
@@ -417,7 +410,7 @@ export default function ManageTeamsPage() {
 
       <div className="text-xs text-muted-foreground">
         Storage model: teams in <code>teams</code>, users in <code>cleaners</code>, membership in <code>team_members</code> (we flip{" "}
-        <code>is_active</code> when moving). <Star className="inline h-3 w-3 text-yellow-500" /> = Team Lead, <MessageCircle className="inline h-3 w-3 text-blue-500" /> = Telegram connected.
+        <code>is_active</code> when moving). <Star className="inline h-3 w-3 text-yellow-500" /> = Team Lead.
       </div>
 
       {/* Delete Confirmation Dialog */}
@@ -473,14 +466,6 @@ export default function ManageTeamsPage() {
                   value={editingCleaner.email || ""}
                   onChange={(e) => setEditingCleaner({ ...editingCleaner, email: e.target.value })}
                   placeholder="Email"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-muted-foreground">Telegram Chat ID (get via /myid command)</label>
-                <Input
-                  value={editingCleaner.telegram_id || ""}
-                  onChange={(e) => setEditingCleaner({ ...editingCleaner, telegram_id: e.target.value })}
-                  placeholder="Telegram Chat ID"
                 />
               </div>
               <div className="flex items-center gap-4">

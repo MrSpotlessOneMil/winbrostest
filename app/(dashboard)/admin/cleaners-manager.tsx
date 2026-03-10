@@ -14,8 +14,9 @@ interface Cleaner {
   name: string
   phone: string | null
   email: string | null
-  telegram_id: string | null
-  telegram_username: string | null
+  telegram_id: string | null  // deprecated
+  telegram_username: string | null  // deprecated
+  portal_token: string | null
   is_team_lead: boolean
   home_address: string | null
   max_jobs_per_day: number
@@ -42,7 +43,7 @@ export function CleanersManager({ tenantId }: Props) {
 
   // New cleaner form
   const [form, setForm] = useState({
-    name: "", phone: "", email: "", telegram_id: "", telegram_username: "",
+    name: "", phone: "", email: "",
     home_address: "", max_jobs_per_day: DEFAULT_MAX_JOBS, is_team_lead: false,
   })
 
@@ -76,7 +77,7 @@ export function CleanersManager({ tenantId }: Props) {
   }, [fetchCleaners])
 
   function resetForm() {
-    setForm({ name: "", phone: "", email: "", telegram_id: "", telegram_username: "", home_address: "", max_jobs_per_day: DEFAULT_MAX_JOBS, is_team_lead: false })
+    setForm({ name: "", phone: "", email: "", home_address: "", max_jobs_per_day: DEFAULT_MAX_JOBS, is_team_lead: false })
     setEditingId(null)
     setShowAdd(false)
   }
@@ -96,8 +97,6 @@ export function CleanersManager({ tenantId }: Props) {
         name: form.name.trim(),
         phone: form.phone.trim() || null,
         email: form.email.trim() || null,
-        telegram_id: form.telegram_id.trim() || null,
-        telegram_username: form.telegram_username.trim() || null,
         home_address: form.home_address.trim() || null,
         max_jobs_per_day: parsedMax,
         is_team_lead: form.is_team_lead,
@@ -126,8 +125,6 @@ export function CleanersManager({ tenantId }: Props) {
       name: c.name,
       phone: c.phone || "",
       email: c.email || "",
-      telegram_id: c.telegram_id || "",
-      telegram_username: c.telegram_username || "",
       home_address: c.home_address || "",
       max_jobs_per_day: String(c.max_jobs_per_day),
       is_team_lead: c.is_team_lead,
@@ -208,14 +205,6 @@ export function CleanersManager({ tenantId }: Props) {
               <Input className="h-8 text-sm" type="email" placeholder="cleaner@email.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
             </div>
             <div>
-              <Label className="text-xs">Telegram Chat ID</Label>
-              <Input className="h-8 text-sm" placeholder="e.g. 123456789" value={form.telegram_id} onChange={e => setForm({ ...form, telegram_id: e.target.value })} />
-            </div>
-            <div>
-              <Label className="text-xs">Telegram Username</Label>
-              <Input className="h-8 text-sm" placeholder="@username" value={form.telegram_username} onChange={e => setForm({ ...form, telegram_username: e.target.value })} />
-            </div>
-            <div>
               <Label className="text-xs">Home Address</Label>
               <Input className="h-8 text-sm" placeholder="For route optimization" value={form.home_address} onChange={e => setForm({ ...form, home_address: e.target.value })} />
             </div>
@@ -256,8 +245,8 @@ export function CleanersManager({ tenantId }: Props) {
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   {c.phone && <span>{c.phone}</span>}
-                  {c.telegram_id && <span>TG: {c.telegram_id}</span>}
-                  {!c.telegram_id && <span className="text-orange-500">No Telegram ID</span>}
+                  {!c.phone && <span className="text-orange-500">No phone number</span>}
+                  {(c as any).portal_token && <span className="text-blue-400 cursor-pointer" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/crew/${(c as any).portal_token}`)} title="Click to copy portal link">Portal link</span>}
                 </div>
               </div>
               <div className="flex items-center gap-1 shrink-0">

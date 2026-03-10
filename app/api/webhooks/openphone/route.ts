@@ -329,13 +329,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, stored: true, filtered: "blocklisted" })
   }
 
-  // Check 3: Cleaner phone
+  // Check 3: Cleaner phone — route to cleaner SMS handler
   const { data: tenantCleaners } = await client
     .from("cleaners")
-    .select("id, phone")
+    .select("id, phone, name, portal_token")
     .eq("tenant_id", tenant?.id)
     .eq("active", true)
-  if ((tenantCleaners || []).some((c: any) => c.phone && normalizePhone(c.phone) === senderDigits)) {
+  const matchedCleaner = (tenantCleaners || []).find((c: any) => c.phone && normalizePhone(c.phone) === senderDigits)
+  if (matchedCleaner) {
+    // Store the inbound message
     await client.from("messages").insert({
       tenant_id: tenant?.id,
       phone_number: phone,
@@ -346,10 +348,31 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: "openphone",
-      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone" },
+      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone", cleaner_id: matchedCleaner.id },
     })
-    console.log(`[OpenPhone] Sender ${phone} is a cleaner for '${tenant?.slug}' — message stored, auto-response skipped`)
-    return NextResponse.json({ success: true, stored: true, filtered: "cleaner_phone" })
+
+    // Parse cleaner intent from message
+    const { parseCleanerSMS, processCleanerStatusUpdate, processCleanerAssignmentReply } = await import("@/lib/cleaner-sms")
+    const intent = parseCleanerSMS(extracted.content || "")
+
+    if (intent && tenant) {
+      if (intent === "omw" || intent === "here" || intent === "done") {
+        const result = await processCleanerStatusUpdate(tenant, matchedCleaner.id, intent)
+        console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} status update: ${intent} — ${result.success ? "ok" : result.error}`)
+      } else if (intent === "accept" || intent === "decline") {
+        const result = await processCleanerAssignmentReply(tenant, matchedCleaner.id, intent === "accept")
+        console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} assignment reply: ${intent} — ${result.success ? "ok" : result.error}`)
+      }
+    } else {
+      console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} sent unrecognized message — stored, forwarding to owner`)
+      // Forward unrecognized cleaner messages to owner
+      if (tenant?.owner_phone) {
+        const { sendSMS: sendOwnerSMS } = await import("@/lib/openphone")
+        await sendOwnerSMS(tenant, tenant.owner_phone, `Message from cleaner ${matchedCleaner.name}: ${(extracted.content || "").slice(0, 200)}`)
+      }
+    }
+
+    return NextResponse.json({ success: true, stored: true, filtered: "cleaner_phone", intent })
   }
 
   // Upsert customer by phone_number (composite unique: tenant_id, phone_number)
@@ -477,19 +500,18 @@ export async function POST(request: NextRequest) {
           await cancelTask(`post-job-review-${recentJob.id}`)
           await cancelPendingTasks(tenant.id, `post-job-recurring-${recentJob.id}`)
 
-          // Notify owner via Telegram
+          // Notify owner via SMS
           try {
-            if ((tenant as any).owner_telegram_chat_id) {
-              const { sendTelegramMessage } = await import("@/lib/telegram")
+            if (tenant.owner_phone) {
               const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
-              await sendTelegramMessage(
+              await sendSMS(
                 tenant,
-                (tenant as any).owner_telegram_chat_id,
-                `⚠️ <b>Negative Post-Job Feedback</b>\n\nCustomer: ${customerName}\nPhone: ${phone}\nJob #${recentJob.id}\n\nFeedback: "${inboundContent.slice(0, 200)}"\n\nPlease follow up personally.`,
+                tenant.owner_phone,
+                `Negative Post-Job Feedback\n\nCustomer: ${customerName}\nPhone: ${phone}\nJob #${recentJob.id}\n\nFeedback: "${inboundContent.slice(0, 200)}"\n\nPlease follow up personally.`,
               )
             }
-          } catch (tgErr) {
-            console.error("[OpenPhone] Failed to send Telegram alert for negative feedback:", tgErr)
+          } catch (smsErr) {
+            console.error("[OpenPhone] Failed to send owner alert for negative feedback:", smsErr)
           }
 
           await recordMessageSent(tenant.id, customer.id, phone, "post_job_satisfaction_negative", "post_job")
@@ -588,19 +610,18 @@ export async function POST(request: NextRequest) {
 
         await recordMessageSent(tenant.id, customer.id, phone, "recurring_accepted", "post_job")
 
-        // Notify owner
+        // Notify owner via SMS
         try {
-          if ((tenant as any).owner_telegram_chat_id) {
-            const { sendTelegramMessage } = await import("@/lib/telegram")
+          if (tenant.owner_phone) {
             const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
-            await sendTelegramMessage(
+            await sendSMS(
               tenant,
-              (tenant as any).owner_telegram_chat_id,
-              `🔁 <b>Recurring Service Accepted</b>\n\nCustomer: ${customerName}\nPhone: ${phone}\n\nPlease set up their recurring schedule.`,
+              tenant.owner_phone,
+              `Recurring Service Accepted\n\nCustomer: ${customerName}\nPhone: ${phone}\n\nPlease set up their recurring schedule.`,
             )
           }
-        } catch (tgErr) {
-          console.error("[OpenPhone] Failed to send Telegram alert for recurring acceptance:", tgErr)
+        } catch (smsErr) {
+          console.error("[OpenPhone] Failed to send owner alert for recurring acceptance:", smsErr)
         }
 
         // Store inbound and return
@@ -772,15 +793,13 @@ export async function POST(request: NextRequest) {
               : `Got it. Your ${plan.name} membership with ${businessName} will end after your final visit. Thank you for being a member!`
             await sendSMS(tenant, phone, confirmMsg)
 
-            // Notify tenant via Telegram
-            if ((tenant as any).owner_telegram_chat_id) {
-              const { sendTelegramMessage } = await import("@/lib/telegram")
+            // Notify tenant owner via SMS
+            if (tenant.owner_phone) {
               const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || phone
-              const emoji = isRenew ? '✅' : '❌'
-              await sendTelegramMessage(
+              await sendSMS(
                 tenant,
-                (tenant as any).owner_telegram_chat_id,
-                `${emoji} <b>Membership ${isRenew ? 'Renewal Confirmed' : 'Cancellation'}</b>\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nChoice: ${choice.toUpperCase()}`,
+                tenant.owner_phone,
+                `Membership ${isRenew ? 'Renewal Confirmed' : 'Cancellation'}\n\nCustomer: ${customerName}\nPlan: ${plan.name}\nChoice: ${choice.toUpperCase()}`,
               )
             }
 
@@ -1136,9 +1155,7 @@ export async function POST(request: NextRequest) {
           if (job.date) {
             const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
             const { dispatchRoutes } = await import("@/lib/dispatch")
-            const { sendTelegramMessage } = await import("@/lib/telegram")
-
-            const { optimization, assignedTeamId, assignedLeadTelegramId } =
+            const { optimization, assignedTeamId, assignedLeadId } =
               await optimizeRoutesIncremental(Number(jobId), job.date, tenant.id, 'salesman')
 
             if (assignedTeamId) {
@@ -1148,19 +1165,19 @@ export async function POST(request: NextRequest) {
                 sendOwnerSummary: false,
               })
 
-              if (assignedLeadTelegramId) {
-                const salesmanMsg = [
-                  `<b>New Estimate Assigned - ${tenant.name || 'WinBros'}</b>`,
-                  ``,
-                  `Customer: ${customerName}`,
-                  `Service: ${job.service_type || 'Window Cleaning'}`,
-                  `Address: ${jobAddress}`,
-                  `Date: ${jobDate} at ${jobTime}`,
-                  ``,
-                  `Please visit the customer to provide an on-site quote.`,
-                ].join('\n')
-                await sendTelegramMessage(tenant, assignedLeadTelegramId, salesmanMsg, 'HTML')
-                console.log(`[OpenPhone] Telegram sent to salesman for estimate job ${jobId}`)
+              // Notify assigned salesman via SMS
+              if (assignedLeadId) {
+                const { data: salesman } = await client
+                  .from('cleaners')
+                  .select('phone, name, portal_token')
+                  .eq('id', assignedLeadId)
+                  .maybeSingle()
+                if (salesman?.phone) {
+                  const custName = customer?.first_name || 'Customer'
+                  const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\n\nPlease visit the customer to provide an on-site quote.`
+                  await sendSMS(tenant, salesman.phone, salesmanMsg)
+                  console.log(`[OpenPhone] SMS sent to salesman for estimate job ${jobId}`)
+                }
               }
             } else {
               console.warn(`[OpenPhone] No salesman available for estimate job ${jobId} on ${job.date}`)
@@ -2541,9 +2558,7 @@ export async function POST(request: NextRequest) {
                 if (tenant && jobDate) {
                   const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
                   const { dispatchRoutes } = await import("@/lib/dispatch")
-                  const { sendTelegramMessage } = await import("@/lib/telegram")
-
-                  const { optimization, assignedTeamId, assignedLeadId, assignedLeadTelegramId } =
+                  const { optimization, assignedTeamId, assignedLeadId } =
                     await optimizeRoutesIncremental(Number(newJob.id), jobDate, tenant.id, 'salesman')
 
                   if (assignedTeamId) {
@@ -2553,21 +2568,19 @@ export async function POST(request: NextRequest) {
                       sendOwnerSummary: false,
                     })
 
-                    // Send immediate Telegram to assigned salesman WITH address (salesmen need it for the visit)
-                    if (assignedLeadTelegramId) {
-                      const timeStr = bookingData.preferredTime || 'Time TBD'
-                      const salesmanMsg = [
-                        `<b>New Estimate Assigned - WinBros</b>`,
-                        ``,
-                        `Customer: ${customerName}`,
-                        `Service: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}`,
-                        `Address: ${jobAddress}`,
-                        `Date: ${estimateDate} at ${timeStr}`,
-                        ``,
-                        `Please visit the customer to provide an on-site quote.`,
-                      ].join('\n')
-                      await sendTelegramMessage(tenant, assignedLeadTelegramId, salesmanMsg, 'HTML')
-                      console.log(`[OpenPhone] Telegram sent to salesman (team ${assignedTeamId}) for estimate job ${newJob.id}`)
+                    // Send immediate SMS to assigned salesman WITH address
+                    if (assignedLeadId) {
+                      const { data: salesman } = await client
+                        .from('cleaners')
+                        .select('phone, name')
+                        .eq('id', assignedLeadId)
+                        .maybeSingle()
+                      if (salesman?.phone) {
+                        const timeStr = bookingData.preferredTime || 'Time TBD'
+                        const salesmanMsg = `New Estimate Assigned - WinBros\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}\n\nPlease visit the customer to provide an on-site quote.`
+                        await sendSMS(tenant, salesman.phone, salesmanMsg)
+                        console.log(`[OpenPhone] SMS sent to salesman (team ${assignedTeamId}) for estimate job ${newJob.id}`)
+                      }
                     }
                   } else {
                     console.warn(`[OpenPhone] No salesman team available for estimate job ${newJob.id} on ${jobDate}`)

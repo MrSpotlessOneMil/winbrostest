@@ -212,8 +212,6 @@ export default function AdminPage() {
     openphone_api_key: "",
     openphone_phone_id: "",
     openphone_phone_number: "",
-    telegram_bot_token: "",
-    owner_telegram_chat_id: "",
     stripe_secret_key: "",
     stripe_publishable_key: "",
     vapi_api_key: "",
@@ -240,7 +238,7 @@ export default function AdminPage() {
   const [wizardRegisterResults, setWizardRegisterResults] = useState<Record<string, { success: boolean; message: string; secret?: string }>>({})
   const [vapiCloning, setVapiCloning] = useState(false)
   const [vapiCloneResult, setVapiCloneResult] = useState<{ inbound?: string; outbound?: string } | null>(null)
-  const [wizardCleaners, setWizardCleaners] = useState<Array<{ name: string; phone: string; telegram_id: string }>>([{ name: "", phone: "", telegram_id: "" }])
+  const [wizardCleaners, setWizardCleaners] = useState<Array<{ name: string; phone: string }>>([{ name: "", phone: "" }])
   const [wizardCleanersSaving, setWizardCleanersSaving] = useState(false)
   const [wizardCleanerError, setWizardCleanerError] = useState<string | null>(null)
   const [createdTenantId, setCreatedTenantId] = useState<string | null>(null)
@@ -404,7 +402,6 @@ export default function AdminPage() {
       timezone: "America/Chicago", sdr_persona: "Mary",
       owner_phone: "", owner_email: "", google_review_link: "",
       openphone_api_key: "", openphone_phone_id: "", openphone_phone_number: "",
-      telegram_bot_token: "", owner_telegram_chat_id: "",
       stripe_secret_key: "", stripe_publishable_key: "",
       vapi_api_key: "", vapi_assistant_id: "", vapi_outbound_assistant_id: "", vapi_phone_id: "",
       housecall_pro_api_key: "", housecall_pro_company_id: "",
@@ -422,7 +419,7 @@ export default function AdminPage() {
     setCustomServices([])
     setWizardRegistering(null)
     setWizardRegisterResults({})
-    setWizardCleaners([{ name: "", phone: "", telegram_id: "" }])
+    setWizardCleaners([{ name: "", phone: "" }])
     setWizardCleanersSaving(false)
     setWizardCleanerError(null)
     setCreatedTenantId(null)
@@ -432,8 +429,6 @@ export default function AdminPage() {
     const tests: Array<{ service: string; credentials: Record<string, string> }> = []
     if (onboardForm.openphone_api_key && onboardForm.openphone_phone_id)
       tests.push({ service: "openphone", credentials: { openphone_api_key: onboardForm.openphone_api_key, openphone_phone_id: onboardForm.openphone_phone_id } })
-    if (onboardForm.telegram_bot_token)
-      tests.push({ service: "telegram", credentials: { telegram_bot_token: onboardForm.telegram_bot_token } })
     if (onboardForm.stripe_secret_key)
       tests.push({ service: "stripe", credentials: { stripe_secret_key: onboardForm.stripe_secret_key } })
     if (onboardForm.vapi_api_key)
@@ -687,8 +682,6 @@ export default function AdminPage() {
       { label: "HousecallPro Webhook Secret", value: currentTenant.housecall_pro_webhook_secret },
       { label: "GHL Location ID", value: currentTenant.ghl_location_id },
       { label: "GHL Webhook Secret", value: currentTenant.ghl_webhook_secret },
-      { label: "Telegram Bot Token", value: currentTenant.telegram_bot_token },
-      { label: "Telegram Owner Chat ID", value: currentTenant.owner_telegram_chat_id },
       { label: "Wave API Token", value: currentTenant.wave_api_token },
       { label: "Wave Business ID", value: currentTenant.wave_business_id },
       { label: "Wave Income Account ID", value: currentTenant.wave_income_account_id },
@@ -966,11 +959,6 @@ export default function AdminPage() {
         enabled: !!(config.use_vapi_inbound || config.use_vapi_outbound),
       },
       {
-        label: "Telegram",
-        complete: !!(tenant.telegram_bot_token && tenant.owner_telegram_chat_id),
-        enabled: true,
-      },
-      {
         label: "HousecallPro",
         complete: !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id),
         enabled: !!config.use_housecall_pro,
@@ -984,11 +972,6 @@ export default function AdminPage() {
         label: "Wave",
         complete: !!(tenant.wave_api_token && tenant.wave_business_id),
         enabled: !!config.use_wave,
-      },
-      {
-        label: "Telegram Webhook",
-        complete: !!tenant.telegram_webhook_registered_at,
-        enabled: !!tenant.telegram_bot_token,
       },
       {
         label: "Stripe Webhook",
@@ -1043,7 +1026,6 @@ export default function AdminPage() {
         case "openphone": return !!(tenant.openphone_api_key && tenant.openphone_phone_id)
         case "stripe": return !!tenant.stripe_secret_key
         case "vapi": return !!(tenant.vapi_api_key && tenant.vapi_assistant_id)
-        case "telegram": return !!tenant.telegram_bot_token
         case "housecall_pro": return !!(tenant.housecall_pro_api_key && tenant.housecall_pro_company_id)
         case "ghl": return !!tenant.ghl_location_id
         case "wave": return !!(tenant.wave_api_token && tenant.wave_business_id)
@@ -1115,7 +1097,7 @@ export default function AdminPage() {
     }
     setTestingAll(true)
     const config = currentTenantRef.workflow_config
-    const services: string[] = ["openphone", "telegram"]
+    const services: string[] = ["openphone"]
     if (config.use_stripe) services.push("stripe")
     if (config.use_vapi_inbound || config.use_vapi_outbound) services.push("vapi")
 
@@ -1129,7 +1111,6 @@ export default function AdminPage() {
     if (!currentTenantRef) return
     setRegisteringAll(true)
     const services: string[] = []
-    if (currentTenantRef.telegram_bot_token) services.push("telegram")
     if (currentTenantRef.workflow_config.use_stripe && currentTenantRef.stripe_secret_key) services.push("stripe")
     if (currentTenantRef.openphone_api_key) services.push("openphone")
     if (currentTenantRef.vapi_api_key && currentTenantRef.vapi_assistant_id) services.push("vapi")
@@ -1487,7 +1468,7 @@ export default function AdminPage() {
                           {getFlowType(currentTenant.workflow_config) === "winbros" ? (
                             <>HousecallPro enabled, route optimization on, cleaners auto-assigned to calendar</>
                           ) : getFlowType(currentTenant.workflow_config) === "spotless" ? (
-                            <>Leads from phone/SMS, cleaners accept or decline jobs in Telegram</>
+                            <>Leads from phone/SMS, cleaners accept or decline jobs via SMS + Portal</>
                           ) : (
                             <>Custom configuration - toggle individual settings in the Booking Flow tab</>
                           )}
@@ -1685,7 +1666,7 @@ export default function AdminPage() {
                         <div className="flex items-center justify-between">
                           <div>
                             <Label className="text-sm text-muted-foreground">Cleaner dispatch</Label>
-                            <p className="text-xs text-muted-foreground/60">Notify cleaner via Telegram after booking</p>
+                            <p className="text-xs text-muted-foreground/60">Notify cleaner via SMS after booking</p>
                           </div>
                           <Switch
                             checked={currentTenant.workflow_config.use_cleaner_dispatch !== false}
@@ -2417,88 +2398,6 @@ export default function AdminPage() {
                     </div>
                     )}
 
-                    {/* Telegram */}
-                    <div className="p-4 rounded-lg border border-border space-y-4">
-                      <div className="font-medium flex items-center gap-2">
-                        <MessageSquare className="h-4 w-4" />
-                        Telegram
-                        {(() => {
-                          const status = getIntegrationStatus("telegram", currentTenant)
-                          if (status === "connected") return <Badge className="bg-green-500/10 text-green-600 border-green-500/30 text-xs"><CheckCircle2 className="h-3 w-3 mr-1" />Connected</Badge>
-                          if (status === "untested") return <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30 text-xs"><AlertTriangle className="h-3 w-3 mr-1" />Untested</Badge>
-                          return <Badge className="bg-red-500/10 text-red-600 border-red-500/30 text-xs"><X className="h-3 w-3 mr-1" />Not configured</Badge>
-                        })()}
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label className="text-sm">Bot Token</Label>
-                          <div className="flex gap-2">
-                            <Input
-                              type={revealedFields.has("telegram_bot_token") ? "text" : "password"}
-                              value={getFieldValue(currentTenant, "telegram_bot_token")}
-                              onChange={(e) => setFieldValue("telegram_bot_token", e.target.value)}
-                              placeholder={currentTenant.telegram_bot_token ? maskKey(currentTenant.telegram_bot_token) : "Enter bot token"}
-                            />
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => toggleReveal("telegram_bot_token")}
-                            >
-                              {revealedFields.has("telegram_bot_token") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label className="text-sm">Owner Chat ID</Label>
-                          <Input
-                            value={getFieldValue(currentTenant, "owner_telegram_chat_id")}
-                            onChange={(e) => setFieldValue("owner_telegram_chat_id", e.target.value)}
-                            placeholder="Enter Chat ID"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
-                        <Button variant="outline" size="sm" onClick={() => testConnection("telegram")} disabled={testingService === "telegram" || !currentTenant.telegram_bot_token}>
-                          {testingService === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
-                          Test Connection
-                        </Button>
-                        {testResults["telegram"] && (
-                          <span className="inline-flex cursor-pointer" title={testResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["telegram"].message)}>
-                            {testResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
-                        <Button variant="outline" size="sm" onClick={() => confirmWebhookRegistration("Telegram", () => registerWebhook("telegram"))} disabled={registeringWebhook === "telegram" || !currentTenant.telegram_bot_token}>
-                          {registeringWebhook === "telegram" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5 mr-1.5" />}
-                          Register Webhook
-                        </Button>
-                        {webhookResults["telegram"] && (
-                          <span className="inline-flex cursor-pointer" title={webhookResults["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookResults["telegram"].message)}>
-                            {webhookResults["telegram"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
-                        {!webhookResults["telegram"] && currentTenant.telegram_webhook_error && (
-                          <span className="inline-flex cursor-pointer" title={`Failed: ${currentTenant.telegram_webhook_error} (${new Date(currentTenant.telegram_webhook_error_at!).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Failed: ${currentTenant.telegram_webhook_error}`)}>
-                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                          </span>
-                        )}
-                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && currentTenant.telegram_webhook_registered_at && (
-                          <span className="inline-flex cursor-pointer" title={`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook registered ${new Date(currentTenant.telegram_webhook_registered_at).toLocaleDateString()}`)}>
-                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                          </span>
-                        )}
-                        {!webhookResults["telegram"] && !currentTenant.telegram_webhook_error && !currentTenant.telegram_webhook_registered_at && currentTenant.telegram_bot_token && (
-                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
-                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                          </span>
-                        )}
-                        {webhookVerification["telegram"] && (
-                          <span className="inline-flex cursor-pointer" title={webhookVerification["telegram"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["telegram"].message)}>
-                            {webhookVerification["telegram"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
                     {/* Wave - hidden if disabled */}
                     {currentTenant.workflow_config.use_wave && (
                     <div className="p-4 rounded-lg border border-border space-y-4">
@@ -2645,11 +2544,6 @@ export default function AdminPage() {
                               ok: !!(currentTenant.stripe_secret_key && currentTenant.stripe_webhook_secret),
                             },
                             {
-                              label: "Telegram",
-                              description: "Bot token, owner chat ID",
-                              ok: !!(currentTenant.telegram_bot_token && currentTenant.owner_telegram_chat_id),
-                            },
-                            {
                               label: "Gmail (Email Bot)",
                               description: "Gmail address, app password",
                               ok: !!(currentTenant.gmail_user && currentTenant.gmail_app_password),
@@ -2712,7 +2606,6 @@ export default function AdminPage() {
                           { label: "VAPI", service: "vapi", hint: "VAPI → Assistant → Server URL" },
                           { label: "OpenPhone", service: "openphone", hint: "OpenPhone → Settings → Webhooks" },
                           { label: "Stripe", service: "stripe", hint: "Stripe → Developers → Webhooks" },
-                          { label: "Telegram", service: "telegram", hint: "Set via bot API setWebhook" },
                         ].map(({ label, service, hint }) => (
                           <div key={service} className="space-y-1">
                             <div className="flex items-center justify-between">
@@ -3381,45 +3274,6 @@ export default function AdminPage() {
                     </div>
                   </div>
 
-                  {/* Telegram */}
-                  <div className="border border-zinc-600 rounded-lg p-2">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <Label className="font-semibold text-sm">Telegram</Label>
-                      <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline">BotFather</a>
-                      <div className="flex-1" />
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
-                        disabled={!onboardForm.telegram_bot_token || !!wizardTesting}
-                        onClick={() => testConnectionDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token })}
-                      >
-                        {wizardTesting === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                      </Button>
-                      {wizardTestResults.telegram && (
-                        <span className="inline-flex cursor-pointer" title={wizardTestResults.telegram.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.telegram.message)}>
-                          {wizardTestResults.telegram.success
-                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                        </span>
-                      )}
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
-                        disabled={!onboardForm.telegram_bot_token || !onboardForm.slug || !!wizardRegistering}
-                        onClick={() => registerWebhookDirect("telegram", { telegram_bot_token: onboardForm.telegram_bot_token, slug: onboardForm.slug })}
-                      >
-                        {wizardRegistering === "telegram" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Register"}
-                      </Button>
-                      {wizardRegisterResults.telegram && (
-                        <span className="inline-flex cursor-pointer" title={(wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message) + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardRegisterResults.telegram.success ? "Webhook registered" : wizardRegisterResults.telegram.message)}>
-                          {wizardRegisterResults.telegram.success
-                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <Input className="h-8 text-sm" placeholder="Bot Token" value={onboardForm.telegram_bot_token} onChange={(e) => setOnboardForm({ ...onboardForm, telegram_bot_token: e.target.value })} />
-                      <Input className="h-8 text-sm" placeholder="Owner Chat ID" value={onboardForm.owner_telegram_chat_id} onChange={(e) => setOnboardForm({ ...onboardForm, owner_telegram_chat_id: e.target.value })} />
-                    </div>
-                  </div>
-
                   {/* Stripe */}
                   <div className="border border-zinc-600 rounded-lg p-2">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -3686,7 +3540,7 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2 pt-3">
                     <Button variant="outline" onClick={() => setOnboardStep(0)}>Back</Button>
                     <Button variant="outline" size="sm"
-                      disabled={!!wizardTesting || (!onboardForm.openphone_api_key && !onboardForm.telegram_bot_token && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && !onboardForm.wave_api_token)}
+                      disabled={!!wizardTesting || (!onboardForm.openphone_api_key && !onboardForm.stripe_secret_key && !onboardForm.vapi_api_key && !onboardForm.wave_api_token)}
                       onClick={testAllConnectionsDirect}
                     >
                       {wizardTesting === "all" ? <><Loader2 className="h-3 w-3 animate-spin mr-1" /> Testing...</> : "Test All"}
@@ -3702,7 +3556,6 @@ export default function AdminPage() {
                 // Compute untested credentials
                 const untestedServices: string[] = []
                 if (onboardForm.openphone_api_key && !wizardTestResults.openphone) untestedServices.push("OpenPhone")
-                if (onboardForm.telegram_bot_token && !wizardTestResults.telegram) untestedServices.push("Telegram")
                 if (onboardForm.stripe_secret_key && !wizardTestResults.stripe) untestedServices.push("Stripe")
                 if (onboardForm.vapi_api_key && !wizardTestResults["vapi-key-only"]) untestedServices.push("VAPI")
                 if (onboardForm.wave_api_token && !wizardTestResults.wave) untestedServices.push("Wave")
@@ -3743,7 +3596,6 @@ export default function AdminPage() {
                     {(() => {
                       const configuredServices = [
                         { name: "OpenPhone", configured: !!onboardForm.openphone_api_key, testKey: "openphone", registerKey: "openphone", needsManual: false },
-                        { name: "Telegram", configured: !!onboardForm.telegram_bot_token, testKey: "telegram", registerKey: "telegram", needsManual: false },
                         { name: "Stripe", configured: !!onboardForm.stripe_secret_key, testKey: "stripe", registerKey: "stripe", needsManual: false },
                         { name: "VAPI", configured: !!onboardForm.vapi_api_key, testKey: "vapi-key-only", registerKey: null, needsManual: false },
                         { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
@@ -3904,7 +3756,7 @@ export default function AdminPage() {
                             <span className="text-orange-500 mt-0.5">&#9634;</span>
                             <div>
                               <p className="font-medium">Add Cleaners</p>
-                              <p className="text-muted-foreground">Add at least one cleaner with Telegram chat ID for dispatch to work</p>
+                              <p className="text-muted-foreground">Add at least one cleaner with phone number for dispatch to work</p>
                             </div>
                           </div>
                           {!onboardForm.google_review_link && (
@@ -3976,7 +3828,7 @@ export default function AdminPage() {
                           />
                         </div>
                         <div className="space-y-1">
-                          {idx === 0 && <Label className="text-xs">Phone</Label>}
+                          {idx === 0 && <Label className="text-xs">Phone *</Label>}
                           <Input
                             placeholder="+1234567890"
                             value={cleaner.phone}
@@ -3988,16 +3840,10 @@ export default function AdminPage() {
                           />
                         </div>
                         <div className="space-y-1">
-                          {idx === 0 && <Label className="text-xs">Telegram Chat ID</Label>}
-                          <Input
-                            placeholder="e.g. 8521488394"
-                            value={cleaner.telegram_id}
-                            onChange={(e) => {
-                              const updated = [...wizardCleaners]
-                              updated[idx] = { ...updated[idx], telegram_id: e.target.value }
-                              setWizardCleaners(updated)
-                            }}
-                          />
+                          {idx === 0 && <Label className="text-xs">Portal Link</Label>}
+                          <div className="h-9 flex items-center text-xs text-muted-foreground italic">
+                            Auto-generated on save
+                          </div>
                         </div>
                         {wizardCleaners.length > 1 && (
                           <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => {
@@ -4012,13 +3858,13 @@ export default function AdminPage() {
                   </div>
 
                   {wizardCleaners.length < 5 && (
-                    <Button variant="outline" size="sm" onClick={() => setWizardCleaners([...wizardCleaners, { name: "", phone: "", telegram_id: "" }])}>
+                    <Button variant="outline" size="sm" onClick={() => setWizardCleaners([...wizardCleaners, { name: "", phone: "" }])}>
                       + Add another
                     </Button>
                   )}
 
                   <p className="text-xs text-muted-foreground">
-                    Telegram Chat ID requires the cleaner to message your bot first. You can add this later.
+                    Phone number is required for SMS notifications.
                   </p>
 
                   {wizardCleanerError && (
@@ -4053,7 +3899,6 @@ export default function AdminPage() {
                             tenant_id: createdTenantId,
                             name: c.name.trim(),
                             phone: c.phone.trim() || null,
-                            telegram_id: c.telegram_id.trim() || null,
                           }),
                         })
                         if (!res.ok) {

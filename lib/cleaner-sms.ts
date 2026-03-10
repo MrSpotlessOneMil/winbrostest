@@ -1,0 +1,602 @@
+/**
+ * Cleaner SMS Notifications
+ *
+ * Replaces lib/telegram.ts — all cleaner communications go via SMS (OpenPhone)
+ * and include portal links for job management.
+ *
+ * Portal URL pattern: /crew/{portal_token}/job/{jobId}
+ */
+
+import type { Tenant } from './tenant'
+import { sendSMS } from './openphone'
+import { getSupabaseServiceClient } from './supabase'
+
+// ── Types (matching telegram.ts interfaces for drop-in replacement) ──
+
+export interface CleanerInfo {
+  id?: string | number
+  telegram_id?: string | null  // kept for backwards compat during transition
+  name: string
+  phone?: string | null
+  portal_token?: string | null
+}
+
+export interface JobInfo {
+  id?: string | number
+  date?: string | null
+  scheduled_at?: string | null
+  address?: string | null
+  service_type?: string | null
+  notes?: string | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  square_footage?: number | null
+  hours?: number | null
+  price?: number | string | null
+  phone_number?: string | null
+}
+
+export interface CustomerInfo {
+  first_name?: string | null
+  last_name?: string | null
+  address?: string | null
+  bedrooms?: number | null
+  bathrooms?: number | null
+  square_footage?: number | null
+  phone_number?: string | null
+}
+
+interface SendResult {
+  success: boolean
+  messageId?: string
+  error?: string
+}
+
+// ── Helpers ──
+
+function getBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : 'https://spotless-scrubbers-api.vercel.app'
+}
+
+function portalUrl(portalToken: string): string {
+  return `${getBaseUrl()}/crew/${portalToken}`
+}
+
+function jobUrl(portalToken: string, jobId: string | number): string {
+  return `${getBaseUrl()}/crew/${portalToken}/job/${jobId}`
+}
+
+function formatDate(dateStr?: string | null): string {
+  if (!dateStr) return 'TBD'
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+function formatTime(timeStr?: string | null): string {
+  if (!timeStr) return 'TBD'
+  try {
+    const [h, m] = timeStr.split(':').map(Number)
+    const ampm = h >= 12 ? 'PM' : 'AM'
+    const hour12 = h % 12 || 12
+    return `${hour12}:${m.toString().padStart(2, '0')} ${ampm}`
+  } catch {
+    return timeStr
+  }
+}
+
+function humanize(value: string): string {
+  return value.replace(/_/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+// ── Notification Functions ──
+
+/**
+ * Notify cleaner of a new job assignment.
+ * Creates a pending_sms_assignments row for YES/NO reply handling.
+ */
+export async function notifyCleanerAssignment(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo,
+  customer?: CustomerInfo | null,
+  assignmentId?: string
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const time = formatTime(job.scheduled_at)
+  const address = job.address || customer?.address || 'See details'
+  const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = `\nDetails: ${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `New job: ${date} ${time} at ${address}. ${service}.${link}\nReply YES to accept or NO to decline.`
+
+  const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+
+  // Create pending SMS assignment for reply tracking
+  if (result.success && assignmentId && cleaner.id) {
+    try {
+      const client = getSupabaseServiceClient()
+
+      // Expire any existing active assignments for this cleaner
+      await client
+        .from('pending_sms_assignments')
+        .update({ status: 'expired' })
+        .eq('cleaner_id', cleaner.id)
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'active')
+
+      await client.from('pending_sms_assignments').insert({
+        tenant_id: tenant.id,
+        cleaner_id: typeof cleaner.id === 'string' ? parseInt(cleaner.id) : cleaner.id,
+        assignment_id: assignmentId,
+        job_id: typeof job.id === 'string' ? parseInt(job.id as string) : job.id,
+      })
+    } catch (err) {
+      console.error('[cleaner-sms] Failed to create pending SMS assignment:', err)
+    }
+  }
+
+  return result
+}
+
+/**
+ * Notify cleaner they've been confirmed for a job.
+ */
+export async function notifyCleanerAwarded(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo,
+  customer?: CustomerInfo | null
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const time = formatTime(job.scheduled_at)
+  const address = job.address || customer?.address || 'See details'
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = ` Job details: ${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `You're confirmed for ${date} ${time} at ${address}!${link}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Notify cleaner they were not selected for a job.
+ */
+export async function notifyCleanerNotSelected(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const message = `The ${date} job has been assigned to another cleaner. Thanks for your availability!`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Send urgent follow-up for unresponsive cleaners.
+ */
+export async function sendUrgentFollowUp(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const message = `We still need your response for the ${date} job. Reply YES or NO.`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Send daily schedule summary to a cleaner with portal link.
+ */
+export async function sendDailySchedule(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  jobs: Array<JobInfo & { customer?: CustomerInfo | null }>
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  if (jobs.length === 0) {
+    return { success: true } // Don't text about empty days
+  }
+
+  let link = ''
+  if (cleaner.portal_token) {
+    link = ` View schedule: ${portalUrl(cleaner.portal_token)}`
+  }
+
+  const message = `Good morning ${cleaner.name}! You have ${jobs.length} job${jobs.length > 1 ? 's' : ''} today.${link}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Send job reminder (1 hour before or at job start).
+ */
+export async function sendJobReminder(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo,
+  customer?: CustomerInfo | null,
+  reminderType: 'one_hour_before' | 'job_start' = 'job_start'
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const address = job.address || 'Address TBD'
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = ` Details: ${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = reminderType === 'one_hour_before'
+    ? `Reminder: Job in 1 hour at ${address}.${link}`
+    : `Job starting now at ${address}.${link}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Notify cleaner of a job cancellation.
+ */
+export async function notifyJobCancellation(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const address = job.address || 'the scheduled address'
+  const message = `Job on ${date} at ${address} has been cancelled.`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Notify cleaner of a schedule change.
+ */
+export async function notifyScheduleChange(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo,
+  oldDate?: string,
+  oldTime?: string
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const newDate = formatDate(job.date)
+  const newTime = formatTime(job.scheduled_at)
+  const message = `Schedule change: Your job has been moved to ${newDate} ${newTime}. Please update your calendar.`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Notify cleaner of job details change (address, time, notes, etc.).
+ */
+export async function notifyJobDetailsChange(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  job: JobInfo,
+  changes: { field: string; oldValue: string | number | null; newValue: string | number | null }[]
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const date = formatDate(job.date)
+  const changeList = changes.map(c => `${c.field}: ${c.newValue}`).join(', ')
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = ` Details: ${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `Update for your ${date} job: ${changeList}.${link}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
+/**
+ * Send SMS to tenant owner.
+ */
+export async function notifyOwnerSMS(
+  tenant: Tenant,
+  message: string
+): Promise<SendResult> {
+  if (!tenant.owner_phone) {
+    return { success: false, error: 'No owner phone configured' }
+  }
+  return await sendSMS(tenant, tenant.owner_phone, message)
+}
+
+/**
+ * Send a message from a cleaner to a customer via the business phone number.
+ * Stores in messages table with cleaner_id metadata for portal display.
+ */
+export async function sendCleanerPortalMessage(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  customerPhone: string,
+  content: string,
+  jobId: string | number,
+  customerId?: string | number
+): Promise<SendResult> {
+  const result = await sendSMS(tenant, customerPhone, content)
+
+  if (result.success) {
+    try {
+      const client = getSupabaseServiceClient()
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        customer_id: customerId || null,
+        phone_number: customerPhone,
+        role: 'assistant',
+        content,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: false,
+        timestamp: new Date().toISOString(),
+        source: 'cleaner_portal',
+        metadata: {
+          cleaner_id: cleaner.id,
+          cleaner_name: cleaner.name,
+          job_id: jobId,
+          source: 'cleaner_portal',
+        },
+      })
+    } catch (err) {
+      console.error('[cleaner-sms] Failed to store portal message:', err)
+    }
+  }
+
+  return result
+}
+
+// ── Customer Status Notifications ──
+
+/**
+ * Notify customer when cleaner updates their status (OMW/HERE/DONE).
+ */
+export async function notifyCustomerStatus(
+  tenant: Tenant,
+  customerPhone: string,
+  customerName: string | null,
+  status: 'omw' | 'arrived' | 'done'
+): Promise<SendResult> {
+  const name = customerName || 'there'
+
+  const messages: Record<string, string> = {
+    omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
+    arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
+    done: `Your cleaning is all done! We hope you love it. We'll follow up shortly.`,
+  }
+
+  return await sendSMS(tenant, customerPhone, messages[status])
+}
+
+// ── SMS Inbound Handlers ──
+
+/** Regex patterns for cleaner SMS commands */
+export const CLEANER_SMS_PATTERNS = {
+  omw: /^(omw|on my way|otw|heading over|leaving now)\b/i,
+  here: /^(here|arrived|i'?m here|at the house)\b/i,
+  done: /^(done|finished|complete|all done)\b/i,
+  accept: /^(yes|yeah|yep|yup|y|sure|accept|ok|okay|1)\b/i,
+  decline: /^(no|nah|n|decline|pass|can'?t|2)\b/i,
+}
+
+/**
+ * Parse a cleaner's inbound SMS to determine intent.
+ */
+export function parseCleanerSMS(content: string): 'omw' | 'here' | 'done' | 'accept' | 'decline' | null {
+  const trimmed = content.trim()
+  for (const [key, pattern] of Object.entries(CLEANER_SMS_PATTERNS)) {
+    if (pattern.test(trimmed)) {
+      return key as 'omw' | 'here' | 'done' | 'accept' | 'decline'
+    }
+  }
+  return null
+}
+
+/**
+ * Process a cleaner's status update (OMW/HERE/DONE).
+ * Updates job timestamps, notifies customer, triggers post-job flow on DONE.
+ */
+export async function processCleanerStatusUpdate(
+  tenant: Tenant,
+  cleanerId: number | string,
+  status: 'omw' | 'here' | 'done'
+): Promise<{ success: boolean; error?: string; jobId?: number }> {
+  const client = getSupabaseServiceClient()
+
+  // Find the cleaner's active job (confirmed assignment, job in_progress or scheduled)
+  const { data: activeAssignment } = await client
+    .from('cleaner_assignments')
+    .select('job_id, jobs!inner(id, status, customer_id, phone_number, date, customers(first_name, phone_number))')
+    .eq('cleaner_id', cleanerId)
+    .eq('tenant_id', tenant.id)
+    .in('status', ['confirmed', 'accepted'])
+    .in('jobs.status', ['scheduled', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!activeAssignment) {
+    return { success: false, error: 'No active job found' }
+  }
+
+  const job = (activeAssignment as any).jobs
+  const customer = job?.customers
+  const jobId = job?.id
+
+  // Update job status/timestamps
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (status === 'omw') {
+    updates.cleaner_omw_at = new Date().toISOString()
+    if (job.status === 'scheduled') updates.status = 'in_progress'
+  } else if (status === 'here') {
+    updates.cleaner_arrived_at = new Date().toISOString()
+    if (job.status === 'scheduled') updates.status = 'in_progress'
+  } else if (status === 'done') {
+    updates.status = 'completed'
+    updates.completed_at = new Date().toISOString()
+  }
+
+  await client.from('jobs').update(updates).eq('id', jobId)
+
+  // Notify customer
+  const customerPhone = customer?.phone_number || job?.phone_number
+  if (customerPhone) {
+    const statusMap = { omw: 'omw', here: 'arrived', done: 'done' } as const
+    await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[status])
+  }
+
+  return { success: true, jobId }
+}
+
+/**
+ * Process a cleaner's accept/decline of a pending assignment via SMS.
+ */
+export async function processCleanerAssignmentReply(
+  tenant: Tenant,
+  cleanerId: number | string,
+  accepted: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const client = getSupabaseServiceClient()
+
+  // Find active pending SMS assignment for this cleaner
+  const { data: pending } = await client
+    .from('pending_sms_assignments')
+    .select('id, assignment_id, job_id')
+    .eq('cleaner_id', cleanerId)
+    .eq('tenant_id', tenant.id)
+    .eq('status', 'active')
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!pending) {
+    return { success: false, error: 'No pending assignment found' }
+  }
+
+  // Mark the pending assignment as resolved
+  await client
+    .from('pending_sms_assignments')
+    .update({ status: 'resolved' })
+    .eq('id', pending.id)
+
+  if (accepted) {
+    // Accept: update cleaner_assignment status
+    await client
+      .from('cleaner_assignments')
+      .update({ status: 'accepted', responded_at: new Date().toISOString() })
+      .eq('id', pending.assignment_id)
+      .eq('status', 'pending')
+
+    // Update job status
+    await client
+      .from('jobs')
+      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+      .eq('id', pending.job_id)
+      .in('status', ['pending', 'new'])
+
+    // Get cleaner info for confirmation
+    const { data: cleaner } = await client
+      .from('cleaners')
+      .select('name, phone, portal_token')
+      .eq('id', cleanerId)
+      .maybeSingle()
+
+    const { data: job } = await client
+      .from('jobs')
+      .select('*')
+      .eq('id', pending.job_id)
+      .maybeSingle()
+
+    if (cleaner && job) {
+      await notifyCleanerAwarded(tenant, cleaner, job)
+    }
+
+    // Cancel other pending assignments for this job (broadcast mode)
+    const { data: otherAssignments } = await client
+      .from('cleaner_assignments')
+      .select('id, cleaner_id')
+      .eq('job_id', pending.job_id)
+      .eq('status', 'pending')
+      .neq('id', pending.assignment_id)
+
+    if (otherAssignments) {
+      for (const other of otherAssignments) {
+        await client
+          .from('cleaner_assignments')
+          .update({ status: 'cancelled' })
+          .eq('id', other.id)
+
+        // Expire their pending SMS assignments too
+        await client
+          .from('pending_sms_assignments')
+          .update({ status: 'expired' })
+          .eq('assignment_id', other.id)
+          .eq('status', 'active')
+
+        // Notify them
+        const { data: otherCleaner } = await client
+          .from('cleaners')
+          .select('name, phone')
+          .eq('id', other.cleaner_id)
+          .maybeSingle()
+
+        if (otherCleaner && job) {
+          await notifyCleanerNotSelected(tenant, otherCleaner, job)
+        }
+      }
+    }
+  } else {
+    // Decline: update assignment status
+    await client
+      .from('cleaner_assignments')
+      .update({ status: 'declined', responded_at: new Date().toISOString() })
+      .eq('id', pending.assignment_id)
+      .eq('status', 'pending')
+
+    // Cascade to next cleaner
+    try {
+      const { triggerCleanerAssignment } = await import('./cleaner-assignment')
+      await triggerCleanerAssignment(String(pending.job_id))
+    } catch (err) {
+      console.error('[cleaner-sms] Failed to cascade assignment:', err)
+    }
+  }
+
+  return { success: true }
+}

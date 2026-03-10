@@ -7,7 +7,6 @@ import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
 import { getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
-import { sendTelegramMessage } from '@/lib/telegram'
 import { maskPhone } from '@/lib/phone-utils'
 import { distributeTip } from '@/lib/tips'
 import { geocodeAddress } from '@/lib/google-maps'
@@ -1291,7 +1290,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
             console.log(`[Stripe Webhook] Route dispatch: ${dispatchResult.jobsUpdated} jobs updated, ${dispatchResult.assignmentsCreated} assignments`)
 
-            // Send immediate Telegram to assigned cleaner — WITHOUT address
+            // Send immediate SMS to assigned cleaner — WITHOUT address
             const businessName = tenant.business_name_short || tenant.name
             const dateStr = job.date
               ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
@@ -1318,22 +1317,24 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
             const serviceStr = (job.service_type || 'Window Cleaning').replace(/\b\w/g, c => c.toUpperCase())
 
-            if (assignedLeadTelegramId) {
-              // Notification WITHOUT address — address comes in the full schedule at 5pm CT
-              const notifMsg = [
-                `<b>New Job Assigned - ${businessName}</b>`,
-                ``,
-                `Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}`,
-                `Service: ${serviceStr}`,
-                ``,
-                `You'll receive your full route with addresses at 5 PM tonight.`,
-              ].join('\n')
+            if (assignedLeadId) {
+              // Look up cleaner phone for SMS notification
+              const { data: assignedLead } = await client
+                .from('cleaners')
+                .select('phone')
+                .eq('id', assignedLeadId)
+                .single()
 
-              try {
-                await sendTelegramMessage(tenant, assignedLeadTelegramId, notifMsg, 'HTML')
-                console.log(`[Stripe Webhook] Cleaner notification (no address) sent for job ${actualJobId}`)
-              } catch (err) {
-                console.error(`[Stripe Webhook] Failed to send cleaner notification:`, err)
+              if (assignedLead?.phone) {
+                // Notification WITHOUT address — address comes in the full schedule at 5pm CT
+                const notifMsg = `New Job Assigned - ${businessName}. Date: ${dateStr}${timeStr ? ` at ${timeStr}` : ''}. Service: ${serviceStr}. You'll receive your full route with addresses at 5 PM tonight.`
+
+                try {
+                  await sendSMS(tenant, assignedLead.phone, notifMsg)
+                  console.log(`[Stripe Webhook] Cleaner SMS notification (no address) sent for job ${actualJobId}`)
+                } catch (err) {
+                  console.error(`[Stripe Webhook] Failed to send cleaner notification:`, err)
+                }
               }
             }
           } else {

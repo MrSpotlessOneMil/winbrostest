@@ -16,9 +16,7 @@ import {
   CleanerAssignment,
   Job,
 } from './supabase'
-// IMPORTANT: Explicit path to avoid Next resolving `telegram.tsx`.
-// @ts-ignore - import needed to resolve correct file
-import { notifyCleanerAssignment } from './telegram'
+import { notifyCleanerAssignment } from './cleaner-sms'
 import { logSystemEvent } from './system-events'
 import { getTenantById, getDefaultTenant, tenantUsesFeature } from './tenant'
 
@@ -308,7 +306,7 @@ export async function assignNextAvailableCleaner(
 
 /**
  * Trigger cleaner assignment for a job
- * Creates assignment and sends Telegram notification to the cleaner
+ * Creates assignment and sends SMS notification to the cleaner
  *
  * @param jobId Job ID to trigger assignment for
  * @returns Result with success status and optional error message
@@ -376,7 +374,7 @@ export async function triggerCleanerAssignment(
     if (!assignResult.success) {
       if (assignResult.exhausted) {
         await logSystemEvent({
-          source: 'telegram',
+          source: 'openphone',
           event_type: 'OWNER_ACTION_REQUIRED',
           message: `No more available cleaners for job ${jobId}`,
           job_id: jobId,
@@ -407,8 +405,8 @@ export async function triggerCleanerAssignment(
       ? await getCustomerByPhone(job.phone_number)
       : null
 
-    // Send Telegram notification to the cleaner
-    if (cleaner.telegram_id && tenant) {
+    // Send notification to the cleaner
+    if (cleaner.phone && tenant) {
       const notifyResult = await notifyCleanerAssignment(
         tenant,
         cleaner,
@@ -428,12 +426,12 @@ export async function triggerCleanerAssignment(
       }
     } else {
       console.warn(
-        `[cleaner-assignment] Cleaner ${cleaner.name} has no Telegram ID configured`
+        `[cleaner-assignment] Cleaner ${cleaner.name} has no phone number configured`
       )
     }
 
     await logSystemEvent({
-      source: 'telegram',
+      source: 'openphone',
       event_type: 'CLEANER_BROADCAST',
       message: `Assigned cleaner ${cleaner.name} to job ${jobId}`,
       job_id: jobId,
@@ -444,7 +442,7 @@ export async function triggerCleanerAssignment(
         assignment_id: assignment.id,
         job_date: job.date,
         job_time: job.scheduled_at,
-        notification_sent: !!cleaner.telegram_id,
+        notification_sent: !!cleaner.phone,
         mode: 'routing',
       },
     })
@@ -479,7 +477,7 @@ async function triggerBroadcastAssignment(
 
   if (availableCleaners.length === 0) {
     await logSystemEvent({
-      source: 'telegram',
+      source: 'openphone',
       event_type: 'OWNER_ACTION_REQUIRED',
       message: `No available cleaners for job ${jobId} (broadcast)`,
       job_id: jobId,
@@ -487,14 +485,13 @@ async function triggerBroadcastAssignment(
       metadata: { job_date: job.date, job_time: job.scheduled_at, reason: 'no_cleaners_available', mode: 'broadcast' },
     })
 
-    // Alert owner
-    if (tenant.owner_telegram_chat_id) {
-      const { sendTelegramMessage } = await import('./telegram')
-      await sendTelegramMessage(
+    // Alert owner via SMS
+    if (tenant.owner_phone) {
+      const { sendSMS } = await import('./openphone')
+      await sendSMS(
         tenant,
-        tenant.owner_telegram_chat_id,
-        `<b>No Cleaners Available</b>\n\nJob #${jobId} on ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nNo cleaners are available for this date. Manual assignment required.`,
-        'HTML'
+        tenant.owner_phone,
+        `No Cleaners Available\n\nJob #${jobId} on ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nNo cleaners are available for this date. Manual assignment required.`
       )
     }
 
@@ -514,7 +511,7 @@ async function triggerBroadcastAssignment(
       continue
     }
 
-    if (cleaner.telegram_id) {
+    if (cleaner.phone) {
       const notifyResult = await notifyCleanerAssignment(
         tenant,
         cleaner,
@@ -533,7 +530,7 @@ async function triggerBroadcastAssignment(
   }
 
   await logSystemEvent({
-    source: 'telegram',
+    source: 'openphone',
     event_type: 'CLEANER_BROADCAST',
     message: `Broadcast job ${jobId} to ${availableCleaners.length} cleaners (${notifiedCount} notified)`,
     job_id: jobId,

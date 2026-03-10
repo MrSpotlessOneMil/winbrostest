@@ -14,7 +14,7 @@ import {
   createCleanerAssignment,
   updateJob,
 } from '@/lib/supabase'
-import { notifyCleanerAssignment } from '@/lib/telegram'
+import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
@@ -100,8 +100,9 @@ export async function POST(request: NextRequest) {
       // Store cleaner name in a field if you have one, or in notes
     })
 
-    // Notify cleaner via Telegram
+    // Notify cleaner via SMS
     const notifyResult = await notifyCleanerAssignment(
+      tenant,
       selectedCleaner,
       job,
       customer || undefined
@@ -114,7 +115,7 @@ export async function POST(request: NextRequest) {
         id: selectedCleaner.id,
         name: selectedCleaner.name,
       },
-      telegramNotified: notifyResult.success,
+      notified: notifyResult.success,
     })
   } catch (error) {
     console.error('Assign cleaner error:', error)

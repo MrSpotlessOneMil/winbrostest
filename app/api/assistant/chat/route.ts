@@ -1471,19 +1471,19 @@ async function executeTool(
 
       const results: string[] = [`Assigned **${cleaner.name}** to job #${jobId}`]
 
-      // Notify cleaner via Telegram
-      if (notifyCleaner && cleaner.telegram_id && tenant) {
-        const { notifyCleanerAssignment } = await import("@/lib/telegram")
+      // Notify cleaner via SMS
+      if (notifyCleaner && cleaner.phone && tenant) {
+        const { notifyCleanerAssignment } = await import("@/lib/cleaner-sms")
         const customer: any = job.phone_number
           ? await findCustomerByPhone(client, job.phone_number, tenantId, "first_name, last_name, address")
           : null
         await notifyCleanerAssignment(tenant, cleaner, job, customer, assignment.id?.toString())
-        results.push("Cleaner notified via Telegram")
-      } else if (notifyCleaner && !cleaner.telegram_id) {
-        results.push("Cleaner does NOT have Telegram set up — no notification sent")
+        results.push("Cleaner notified via SMS")
+      } else if (notifyCleaner && !cleaner.phone) {
+        results.push("Cleaner does NOT have a phone number — no notification sent")
       }
 
-      // Customer SMS is sent automatically when the cleaner accepts via Telegram
+      // Customer SMS is sent automatically when the cleaner accepts
       results.push("Customer will be notified via SMS once the cleaner accepts")
 
       return results.join("\n")
@@ -1653,12 +1653,12 @@ async function executeTool(
       if ((toolInput.date || toolInput.time) && oldJob.assigned_cleaner_id && tenant) {
         const { data: cleaner } = await client
           .from("cleaners")
-          .select("name, telegram_id")
+          .select("name, phone")
           .eq("id", oldJob.assigned_cleaner_id)
           .single()
 
-        if (cleaner?.telegram_id) {
-          const { notifyScheduleChange } = await import("@/lib/telegram")
+        if (cleaner?.phone) {
+          const { notifyScheduleChange } = await import("@/lib/cleaner-sms")
           await notifyScheduleChange(
             tenant,
             cleaner as any,
@@ -1666,7 +1666,7 @@ async function executeTool(
             oldJob.date || "",
             oldJob.scheduled_at || ""
           )
-          results.push(`- ${cleaner.name} notified of schedule change via Telegram`)
+          results.push(`- ${cleaner.name} notified of schedule change via SMS`)
         }
       }
 

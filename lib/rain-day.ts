@@ -4,7 +4,7 @@
  * Provides:
  * 1. Automated rain day detection (check tomorrow's forecast)
  * 2. Bulk rescheduling (push all jobs +1 day or auto-spread)
- * 3. Customer SMS + cleaner Telegram notifications
+ * 3. Customer SMS + cleaner SMS notifications
  *
  * Extracted from app/api/rain-day/route.ts for reuse by the
  * daily cron and the manual dashboard trigger.
@@ -12,7 +12,7 @@
 
 import { getSupabaseServiceClient } from './supabase'
 import { sendSMS } from './openphone'
-import { notifyScheduleChange } from './telegram'
+import { notifyScheduleChange } from './cleaner-sms'
 import { checkRainDay as checkRainDayWeather, formatWeatherBriefing } from './weather'
 import type { DailyForecast } from './weather'
 import type { Tenant } from './tenant'
@@ -51,6 +51,7 @@ interface AffectedJob {
   cleanerId?: number
   cleanerName?: string
   cleanerTelegramId?: string
+  cleanerPhone?: string
 }
 
 // ── Auto Rain Day Detection ────────────────────────────────────
@@ -289,19 +290,19 @@ async function rescheduleJob(
       }
     }
 
-    // 3. Notify cleaner via Telegram
-    if (job.cleanerTelegramId) {
+    // 3. Notify cleaner via SMS
+    if (job.cleanerPhone) {
       try {
         const result = await notifyScheduleChange(
           tenant,
-          { telegram_id: job.cleanerTelegramId, name: job.cleanerName || 'Cleaner', phone: null },
+          { name: job.cleanerName || 'Cleaner', phone: job.cleanerPhone },
           { id: job.id, date: targetDate, scheduled_at: job.scheduledTime, address: job.address },
           formatDateHuman(affectedDate),
           job.scheduledTime || '09:00'
         )
         if (result.success) notifications++
       } catch (err) {
-        console.error(`[RainDay] Telegram failed for cleaner:`, err)
+        console.error(`[RainDay] SMS failed for cleaner:`, err)
       }
     }
 
@@ -349,6 +350,7 @@ export async function getAffectedJobs(date: string, tenantId: string): Promise<A
       cleanerId: cleaner?.id ?? undefined,
       cleanerName: cleaner?.name ?? undefined,
       cleanerTelegramId: cleaner?.telegram_id ?? undefined,
+      cleanerPhone: cleaner?.phone ?? undefined,
     }
   })
 }

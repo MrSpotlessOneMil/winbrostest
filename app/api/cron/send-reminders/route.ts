@@ -7,7 +7,7 @@ import {
   hasReminderBeenSent,
   markReminderSent,
 } from '@/lib/supabase'
-import { sendDailySchedule, sendJobReminder, sendTelegramMessage } from '@/lib/telegram'
+import { sendDailySchedule, sendJobReminder } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, getTenantById } from '@/lib/tenant'
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
       const cleaners = await getCleaners(undefined, t.id)
 
       for (const cleaner of cleaners) {
-        if (!cleaner.id || !cleaner.telegram_id) continue
+        if (!cleaner.id || !cleaner.phone) continue
         // Only team leads get the full day's route schedule
         if (!cleaner.is_team_lead) continue
 
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
 
         if (alreadySent) continue
 
-        // Send daily schedule (with tenant for correct Telegram bot)
+        // Send daily schedule SMS
         const jobs = jobsData.map(jd => ({
           ...jd.job,
           customer: jd.customer,
@@ -142,7 +142,9 @@ export async function GET(request: NextRequest) {
 
         if (alreadySent) continue
 
-        const result = await sendJobReminder(cleaner, job, customer, 'one_hour_before')
+        const reminderTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+        if (!reminderTenant) continue
+        const result = await sendJobReminder(reminderTenant, cleaner, job, customer, 'one_hour_before')
 
         if (result.success) {
           oneHourSent += 1
@@ -192,7 +194,9 @@ export async function GET(request: NextRequest) {
 
         if (alreadySent) continue
 
-        const result = await sendJobReminder(cleaner, job, customer, 'job_start')
+        const startTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+        if (!startTenant) continue
+        const result = await sendJobReminder(startTenant, cleaner, job, customer, 'job_start')
 
         if (result.success) {
           startTimeSent += 1
@@ -256,7 +260,7 @@ export async function GET(request: NextRequest) {
       const tenantCleaners = await getCleaners(undefined, t.id)
 
       for (const cleaner of tenantCleaners) {
-        if (!cleaner.id || !cleaner.telegram_id) continue
+        if (!cleaner.id || !cleaner.phone) continue
 
         const jobsData = await getCleanerJobsForDate(cleaner.id, tomorrowLocal)
         if (jobsData.length === 0) continue
@@ -279,16 +283,8 @@ export async function GET(request: NextRequest) {
           const customerName = customer
             ? [customer.first_name, customer.last_name].filter(Boolean).join(' ')
             : 'Customer'
-          const eveningMsg = [
-            `<b>Heads up: Job tomorrow</b>`,
-            ``,
-            `${dateStr} at ${timeStr}`,
-            `${address}`,
-            `${customerName}`,
-            ``,
-            `Get ready for tomorrow!`,
-          ].join('\n')
-          const result = await sendTelegramMessage(t, cleaner.telegram_id, eveningMsg, 'HTML')
+          const eveningMsg = `Heads up: Job tomorrow ${dateStr} at ${timeStr}. ${address}. ${customerName}. Get ready for tomorrow!`
+          const result = await sendSMS(t, cleaner.phone, eveningMsg)
           if (result.success) {
             eveningBeforeSent += 1
             await markReminderSent(String(assignment.id), 'evening_before', tomorrowLocal, job.scheduled_at || undefined)
@@ -341,7 +337,7 @@ export async function GET(request: NextRequest) {
       const tenantCleaners = await getCleaners(undefined, t.id)
 
       for (const cleaner of tenantCleaners) {
-        if (!cleaner.id || !cleaner.telegram_id) continue
+        if (!cleaner.id || !cleaner.phone) continue
 
         const jobsData = await getCleanerJobsForDate(cleaner.id, todayLocal)
         if (jobsData.length === 0) continue

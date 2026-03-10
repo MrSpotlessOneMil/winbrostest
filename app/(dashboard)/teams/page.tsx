@@ -35,7 +35,6 @@ import {
   Pencil,
   Trash2,
   MessageSquare,
-  MessageCircle,
   Send,
   Wrench,
   Briefcase,
@@ -99,7 +98,7 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editingMember, setEditingMember] = useState<{
-    id: string; name: string; phone: string; email: string; telegram_id: string; is_team_lead: boolean; employee_type: EmployeeType
+    id: string; name: string; phone: string; email: string; is_team_lead: boolean; employee_type: EmployeeType
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -112,7 +111,7 @@ export default function TeamsPage() {
   })
 
   // Chat panel state — persist selected member across reloads
-  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string; telegram_id?: string } | null>(() => {
+  const [chatMember, setChatMember] = useState<{ id: string; name: string; phone: string } | null>(() => {
     if (typeof window === "undefined") return null
     try {
       const saved = localStorage.getItem("teams-chat-member")
@@ -269,7 +268,7 @@ export default function TeamsPage() {
 
   // Fetch messages when chatMember changes
   useEffect(() => {
-    if (!chatMember?.phone && !chatMember?.telegram_id) {
+    if (!chatMember?.phone) {
       setChatMessages([])
       return
     }
@@ -279,7 +278,6 @@ export default function TeamsPage() {
       try {
         const params = new URLSearchParams()
         if (chatMember!.phone) params.set('phone', chatMember!.phone)
-        if (chatMember!.telegram_id) params.set('telegram_id', chatMember!.telegram_id)
         params.set('limit', '200')
         const res = await fetch(`/api/teams/messages?${params.toString()}`)
         const json = await res.json()
@@ -292,7 +290,7 @@ export default function TeamsPage() {
     }
     fetchMessages()
     return () => { cancelled = true }
-  }, [chatMember?.phone, chatMember?.telegram_id])
+  }, [chatMember?.phone])
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -314,7 +312,6 @@ export default function TeamsPage() {
           name: editingMember.name,
           phone: editingMember.phone,
           email: editingMember.email,
-          telegram_id: editingMember.telegram_id,
           is_team_lead: editingMember.is_team_lead,
           employee_type: editingMember.employee_type,
         }),
@@ -351,15 +348,15 @@ export default function TeamsPage() {
     }
   }
 
-  async function handleSendTelegram() {
-    if (!chatMember?.telegram_id || !sendText.trim() || sending) return
+  async function handleSendSMS() {
+    if (!chatMember?.phone || !sendText.trim() || sending) return
     const messageText = sendText.trim()
     setSending(true)
     try {
-      const res = await fetch("/api/teams/send-telegram", {
+      const res = await fetch("/api/teams/send-sms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ telegram_id: chatMember.telegram_id, message: messageText, phone: chatMember.phone }),
+        body: JSON.stringify({ phone: chatMember.phone, message: messageText }),
       })
       const json = await res.json()
       if (json.success) {
@@ -650,7 +647,7 @@ export default function TeamsPage() {
                               : "hover:bg-muted/50",
                             draggingMemberId === m.id && "opacity-40"
                           )}
-                          onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
+                          onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone })}
                         >
                           <div
                             className="flex items-center gap-2 min-w-0 flex-1"
@@ -668,9 +665,6 @@ export default function TeamsPage() {
                             <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">
                               {m.role === "lead" ? "lead" : "tech"}
                             </Badge>
-                            {m.telegram_id && (
-                              <MessageCircle className="h-3 w-3 text-muted-foreground shrink-0" />
-                            )}
                             {!m.is_active && (
                               <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">off</Badge>
                             )}
@@ -687,7 +681,6 @@ export default function TeamsPage() {
                                   name: m.name,
                                   phone: m.phone,
                                   email: "",
-                                  telegram_id: m.telegram_id || "",
                                   is_team_lead: m.role === "lead",
                                   employee_type: m.employee_type || "technician",
                                 })
@@ -758,7 +751,7 @@ export default function TeamsPage() {
                             : "hover:bg-muted/50",
                           draggingMemberId === m.id && "opacity-40"
                         )}
-                        onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone, telegram_id: m.telegram_id })}
+                        onClick={() => setChatMember({ id: m.id, name: m.name, phone: m.phone })}
                       >
                         <div
                           className="flex items-center gap-2 min-w-0 flex-1"
@@ -773,9 +766,6 @@ export default function TeamsPage() {
                           )}>
                             {m.name}
                           </span>
-                          {m.telegram_id && (
-                            <MessageCircle className="h-3 w-3 text-muted-foreground shrink-0" />
-                          )}
                         </div>
                         <div className="flex items-center gap-0.5 ml-2 shrink-0">
                           <Button
@@ -789,7 +779,6 @@ export default function TeamsPage() {
                                 name: m.name,
                                 phone: m.phone,
                                 email: "",
-                                telegram_id: m.telegram_id || "",
                                 is_team_lead: m.role === "lead",
                                 employee_type: m.employee_type || "technician",
                               })
@@ -875,30 +864,30 @@ export default function TeamsPage() {
             ))}
           </div>
 
-          {/* Telegram Send Bar */}
+          {/* SMS Send Bar */}
           {chatMember && (
             <div className="p-3 border-t">
-              {chatMember.telegram_id ? (
+              {chatMember.phone ? (
                 <div className="flex gap-2">
                   <Input
                     value={sendText}
                     onChange={(e) => setSendText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendTelegram() } }}
-                    placeholder="Send Telegram message..."
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendSMS() } }}
+                    placeholder="Send SMS..."
                     className="flex-1 text-sm"
                     disabled={sending}
                   />
                   <Button
                     size="icon"
                     className="shrink-0 h-9 w-9"
-                    onClick={handleSendTelegram}
+                    onClick={handleSendSMS}
                     disabled={!sendText.trim() || sending}
                   >
                     <Send className="h-4 w-4" />
                   </Button>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground text-center">No Telegram ID configured for this member</p>
+                <p className="text-xs text-muted-foreground text-center">No phone number configured for this member</p>
               )}
             </div>
           )}
@@ -933,15 +922,6 @@ export default function TeamsPage() {
                 <Input
                   value={editingMember.email}
                   onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Telegram Chat ID</label>
-                <Input
-                  value={editingMember.telegram_id}
-                  onChange={(e) => setEditingMember({ ...editingMember, telegram_id: e.target.value })}
-                  placeholder="e.g. 123456789"
-                  className="font-mono"
                 />
               </div>
               <div className="flex items-center gap-2">

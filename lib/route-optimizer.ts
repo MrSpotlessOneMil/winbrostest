@@ -378,8 +378,8 @@ export async function loadTeamsWithLocations(tenantId: string, employeeType?: 't
       continue
     }
 
-    if (!lead.telegram_id) {
-      skippedWarnings.push(`Team "${team.name}" lead "${lead.name}" has no Telegram ID — route will be optimized but team lead won't receive Telegram notification`)
+    if (!lead.phone) {
+      skippedWarnings.push(`Team "${team.name}" lead "${lead.name}" has no phone number — route will be optimized but team lead won't receive SMS notification`)
     }
 
     teams.push({
