@@ -337,40 +337,53 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
     }
   }
 
-  // Register a single webhook for all events (OpenPhone API: POST /v1/webhooks)
-  const allEvents = ["message.received", "message.delivered", "call.completed", "call.ringing"]
+  // OpenPhone (now Quo) requires resource-specific webhook endpoints:
+  //   POST /v1/webhooks/messages — for message events
+  //   POST /v1/webhooks/calls    — for call events
+  // Cannot mix event types in a single registration.
+  const webhookConfigs = [
+    { resource: 'messages', events: ['message.received', 'message.delivered'] },
+    { resource: 'calls', events: ['call.completed', 'call.ringing'] },
+  ]
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10_000)
-  const res = await fetch("https://api.openphone.com/v1/webhooks", {
-    method: "POST",
-    headers: {
-      Authorization: key,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      url: webhookUrl,
-      events: allEvents,
-    }),
-    signal: controller.signal,
-  })
-  clearTimeout(timeout)
+  let capturedSecret: string | undefined
 
-  if (!res.ok) {
-    const errText = await res.text()
-    throw new Error(`OpenPhone webhook registration failed (${res.status}): ${errText}`)
+  for (const config of webhookConfigs) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    const res = await fetch(`https://api.openphone.com/v1/webhooks/${config.resource}`, {
+      method: "POST",
+      headers: {
+        Authorization: key,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        url: webhookUrl,
+        events: config.events,
+        resourceIds: ["*"],
+      }),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (!res.ok) {
+      const errText = await res.text()
+      throw new Error(`OpenPhone ${config.resource} webhook registration failed (${res.status}): ${errText}`)
+    }
+
+    // Capture webhook signing key from the first successful registration
+    if (!capturedSecret) {
+      try {
+        const body = await res.json()
+        capturedSecret = body.data?.key || body.key || body.webhookSecret || body.secret
+      } catch {
+        // Non-fatal — try to get it from the next registration
+      }
+    }
   }
 
-  // Capture webhook signing key — OpenPhone returns { data: { key: "..." } }
-  let capturedSecret: string | undefined
-  try {
-    const body = await res.json()
-    capturedSecret = body.data?.key || body.key || body.webhookSecret || body.secret
-    if (!capturedSecret) {
-      console.warn(`[OpenPhone] No signing key found in webhook response. Signature validation will fail.`)
-    }
-  } catch {
-    console.warn(`[OpenPhone] Could not parse webhook response as JSON — signing key not captured.`)
+  if (!capturedSecret) {
+    console.warn(`[OpenPhone] No signing key found in webhook responses. Signature validation may fail.`)
   }
 
   // Post-registration verification: confirm webhooks appear in active list
@@ -395,7 +408,7 @@ export async function registerOpenPhoneWebhook(key: string, webhookUrl: string):
 
   return {
     ok: true,
-    message: `OpenPhone webhooks registered: ${webhookUrl}`,
+    message: `OpenPhone webhooks registered (messages + calls): ${webhookUrl}`,
     secret: capturedSecret,
   }
 }
