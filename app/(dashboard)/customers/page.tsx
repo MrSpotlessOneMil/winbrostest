@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
-import { LeadFlowProgress } from "@/components/lead-flow-progress"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban } from "lucide-react"
@@ -1344,7 +1343,7 @@ export default function CustomersPage() {
           </div>
 
           {/* Customer Detail - Scrollable content area */}
-          <div className={`flex-1 flex flex-col gap-4 min-h-0 overflow-y-auto ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
+          <div className={`flex-1 flex flex-col gap-2 min-h-0 ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
             {selectedCustomer ? (
               <>
                 {/* Mobile back button */}
@@ -1355,15 +1354,6 @@ export default function CustomersPage() {
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                   Back to customers
                 </button>
-
-                {/* Lead Flow Progress */}
-                <LeadFlowProgress
-                  lead={getCustomerLead(selectedCustomer.phone_number)}
-                  customerName={getCustomerName(selectedCustomer)}
-                  scheduledTasks={scheduledTasks}
-                  followupPaused={isFollowupPaused(getCustomerLead(selectedCustomer.phone_number))}
-                  onMoveToStage={handleMoveToStage}
-                />
 
                 {/* Customer Info + Tabs */}
                 <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col flex-1 min-h-0">
