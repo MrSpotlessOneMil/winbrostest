@@ -8,6 +8,7 @@ import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { tenantUsesFeature, getAllActiveTenants } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
+import { triggerSatisfactionCheck } from "@/lib/lifecycle-engine"
 import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
 
 /**
@@ -479,6 +480,27 @@ export async function POST(request: NextRequest) {
                 phone_number: localJob.phone_number || phone,
                 metadata: { hcp_job_id: hcpJobId },
               })
+
+              // Immediate satisfaction check
+              if (tenantUsesFeature(tenant, 'post_cleaning_followup_enabled')) {
+                const custPhone = localJob.phone_number || phone
+                if (custPhone) {
+                  const { data: cust } = await client
+                    .from("customers")
+                    .select("id, first_name")
+                    .eq("phone_number", custPhone)
+                    .eq("tenant_id", tenant.id)
+                    .maybeSingle()
+
+                  triggerSatisfactionCheck({
+                    tenant,
+                    jobId: String(localJob.id),
+                    customerId: cust?.id ? Number(cust.id) : null,
+                    customerPhone: custPhone,
+                    customerName: cust?.first_name || 'there',
+                  }).catch(err => console.error(`[HCP] Satisfaction check error for job ${localJob.id}:`, err))
+                }
+              }
             } else if (!localJob) {
               console.log(`[OSIRIS] HCP job.completed: No local job found for HCP job ${hcpJobId}`)
             }

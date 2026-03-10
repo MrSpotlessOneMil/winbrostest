@@ -15,6 +15,7 @@ import { cleanerAssigned, noCleanersAvailable } from "@/lib/sms-templates"
 import { logSystemEvent } from "@/lib/system-events"
 import { geocodeAddress } from "@/lib/google-maps"
 import { executeCompleteJob } from "@/app/api/actions/complete-job/route"
+import { triggerSatisfactionCheck } from "@/lib/lifecycle-engine"
 import { distributeTip } from "@/lib/tips"
 import { recordReviewReceived } from "@/lib/crew-performance"
 import Anthropic from "@anthropic-ai/sdk"
@@ -825,9 +826,24 @@ export async function POST(
       // Execute complete job → sends final payment link + marks completed
       const completeResult = await executeCompleteJob(String(numericJobId))
 
+      // executeCompleteJob triggers satisfaction check internally.
+      // If it fails (e.g. missing email), still mark job done + trigger satisfaction as fallback.
+      let satisfactionSent = completeResult.success
       if (!completeResult.success) {
-        // Even if final payment fails, still mark the job done
         await updateJob(String(numericJobId), { status: "completed" } as Record<string, unknown>)
+
+        // Fallback satisfaction check since executeCompleteJob didn't reach it
+        if (job.phone_number && tenantUsesFeature(tenant, 'post_cleaning_followup_enabled')) {
+          const reviewCustomer = await getCustomerByPhone(job.phone_number)
+          const result = await triggerSatisfactionCheck({
+            tenant,
+            jobId: String(numericJobId),
+            customerId: reviewCustomer?.id ? Number(reviewCustomer.id) : null,
+            customerPhone: job.phone_number,
+            customerName: reviewCustomer?.first_name || 'there',
+          })
+          satisfactionSent = result.sent
+        }
       }
 
       // Sync lead status to "completed" so dashboard pipeline updates
@@ -836,41 +852,6 @@ export async function POST(
         .from("leads")
         .update({ status: "completed" })
         .eq("converted_to_job_id", numericJobId)
-
-      // Send review request SMS immediately (don't wait for 2h cron)
-      let reviewSent = false
-      if (job.phone_number && tenantUsesFeature(tenant, 'use_review_request')) {
-        const reviewCustomer = await getCustomerByPhone(job.phone_number)
-        const customerName = reviewCustomer?.first_name || 'there'
-        const reviewLink = tenant.google_review_link || 'https://g.page/review'
-        const appDomain = (tenant.website_url || '').replace(/\/+$/, '')
-        const tipLink = `${appDomain}/tip/${numericJobId}`
-        const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-
-        const { postJobFollowup } = await import('@/lib/sms-templates')
-        const reviewMsg = postJobFollowup(customerName, cleaner.name, reviewLink, tipLink, recurringDiscount)
-        const reviewResult = await sendSMS(tenant, job.phone_number, reviewMsg)
-        reviewSent = reviewResult.success
-
-        if (!reviewSent) {
-          console.error(`[Telegram/${tenant.slug}] Review SMS failed for job ${numericJobId}:`, JSON.stringify(reviewResult))
-        }
-
-        if (reviewSent) {
-          // Mark followup_sent_at so the 2h cron doesn't double-send
-          await updateJob(String(numericJobId), { followup_sent_at: new Date().toISOString() } as Record<string, unknown>)
-
-          await logSystemEvent({
-            source: 'telegram',
-            event_type: 'POST_JOB_FOLLOWUP_SENT',
-            message: `Immediate post-job follow-up sent for job ${numericJobId} (cleaner marked done)`,
-            tenant_id: tenant.id,
-            job_id: String(numericJobId),
-            phone_number: job.phone_number,
-            metadata: { triggered_by: 'telegram_done_command', cleaner_name: cleaner.name },
-          })
-        }
-      }
 
       await sendMsg(chatId, `<b>Job #${jobId} complete!</b>\n\nGreat work, ${cleaner.name}! Thanks for getting it done.`, tenant)
 
@@ -886,7 +867,7 @@ export async function POST(
           telegram_user_id: telegramUserId,
           assignment_id: assignment.id,
           final_payment_sent: !!completeResult.paymentUrl,
-          review_sent: reviewSent,
+          satisfaction_sent: satisfactionSent,
           completed_via: "telegram_done_command",
         },
       })

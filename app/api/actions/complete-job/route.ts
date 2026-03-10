@@ -25,6 +25,8 @@ import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-
 import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { sendTelegramMessage } from '@/lib/telegram'
+import { triggerSatisfactionCheck } from '@/lib/lifecycle-engine'
+import { tenantUsesFeature } from '@/lib/tenant'
 
 /** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
 function addMonths(date: Date, months: number): Date {
@@ -356,6 +358,17 @@ export async function executeCompleteJob(jobId: string): Promise<{
       await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
     }
 
+    // Immediate satisfaction check
+    if (tenant && tenantUsesFeature(tenant, 'post_cleaning_followup_enabled')) {
+      triggerSatisfactionCheck({
+        tenant,
+        jobId,
+        customerId: job.customer_id ? Number(job.customer_id) : null,
+        customerPhone: customer.phone_number,
+        customerName: customer.first_name || 'there',
+      }).catch(err => console.error(`[complete-job] Satisfaction check error for job ${jobId}:`, err))
+    }
+
     return {
       success: true,
       message: 'Job completed - was fully prepaid',
@@ -438,6 +451,17 @@ export async function executeCompleteJob(jobId: string): Promise<{
       // Membership lifecycle
       if (job.membership_id) {
         await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
+      }
+
+      // Immediate satisfaction check
+      if (tenantUsesFeature(tenant, 'post_cleaning_followup_enabled')) {
+        triggerSatisfactionCheck({
+          tenant,
+          jobId,
+          customerId: job.customer_id ? Number(job.customer_id) : null,
+          customerPhone: customer.phone_number,
+          customerName: customer.first_name || 'there',
+        }).catch(err => console.error(`[complete-job] Satisfaction check error for job ${jobId}:`, err))
       }
 
       return {
@@ -581,6 +605,17 @@ export async function executeCompleteJob(jobId: string): Promise<{
   // Membership lifecycle
   if (job.membership_id) {
     await handleMembershipLifecycle(jobId, job.membership_id, tenant, job.phone_number)
+  }
+
+  // Immediate satisfaction check
+  if (tenant && tenantUsesFeature(tenant, 'post_cleaning_followup_enabled')) {
+    triggerSatisfactionCheck({
+      tenant,
+      jobId,
+      customerId: job.customer_id ? Number(job.customer_id) : null,
+      customerPhone: customer.phone_number,
+      customerName: customer.first_name || 'there',
+    }).catch(err => console.error(`[complete-job] Satisfaction check error for job ${jobId}:`, err))
   }
 
   return {

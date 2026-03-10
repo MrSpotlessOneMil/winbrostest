@@ -17,6 +17,8 @@ import { dispatchRoutes } from '@/lib/dispatch'
 import { syncNewJobToHCP } from '@/lib/hcp-job-sync'
 import { buildWinBrosJobNotes } from '@/lib/winbros-sms-prompt'
 import { paymentFailed as paymentFailedTemplate } from '@/lib/sms-templates'
+import { cancelTask } from '@/lib/scheduler'
+import { cancelPendingTasks } from '@/lib/lifecycle-engine'
 
 /**
  * Process a pre-validated Stripe event. Exported so tenant-specific routes
@@ -583,6 +585,17 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       stripe_session_id: session.id,
     },
   })
+
+  // Cancel quote follow-up tasks (customer accepted the quote)
+  try {
+    await cancelTask(`quote-${quote_id}-urgent`)
+    if (quote.customer_id) {
+      await cancelPendingTasks(quote.tenant_id, `retarget-${quote.customer_id}-quoted_not_booked-`)
+    }
+    console.log(`[Stripe Webhook] Cancelled quote follow-up tasks for quote ${quote_id}`)
+  } catch (err) {
+    console.error('[Stripe Webhook] Failed to cancel quote follow-up tasks:', err)
+  }
 
   // Trigger cleaner assignment if job was created
   if (newJob?.id) {

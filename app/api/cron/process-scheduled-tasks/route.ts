@@ -28,6 +28,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { createDepositPaymentLink, calculateJobEstimate } from '@/lib/stripe-client'
 import { parseFormData } from '@/lib/utils'
+import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 
 // Verify cron authorization
 function verifyCronAuth(request: NextRequest): boolean {
@@ -165,6 +166,22 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
     case 'retargeting':
       await processRetargeting(payload, tenant, tenant_id || null)
+      break
+
+    case 'post_job_review':
+      await processPostJobReview(payload, tenant)
+      break
+
+    case 'post_job_recurring_push':
+      await processPostJobRecurringPush(payload, tenant)
+      break
+
+    case 'quote_followup_urgent':
+      await processQuoteFollowupUrgent(payload, tenant)
+      break
+
+    case 'mid_convo_nudge':
+      await processMidConvoNudge(payload, tenant)
       break
 
     default:
@@ -793,6 +810,228 @@ async function processRetargeting(
     console.log(`[retargeting] Sent step ${step}/${steps?.length} to customer ${customerId}`)
   } else {
     console.error(`[retargeting] SMS failed for customer ${customerId}: ${result.error}`)
+  }
+}
+
+/**
+ * Post-job review (24hr timeout fallback)
+ * If customer never replied to satisfaction check, send review link only (no tip).
+ */
+async function processPostJobReview(
+  payload: Record<string, unknown>,
+  tenant: any
+): Promise<void> {
+  const { jobId, customerId, customerPhone, customerName, isTimeout } = payload as {
+    jobId: number
+    customerId: number
+    customerPhone: string
+    customerName: string
+    isTimeout?: boolean
+  }
+
+  if (!tenant || !customerPhone) return
+
+  const client = getSupabaseServiceClient()
+
+  // Check if customer already replied (stage moved past satisfaction_sent)
+  if (customerId) {
+    const { data: customer } = await client
+      .from('customers')
+      .select('post_job_stage')
+      .eq('id', customerId)
+      .single()
+
+    if (customer?.post_job_stage && customer.post_job_stage !== 'satisfaction_sent') {
+      console.log(`[post-job-review] Customer ${customerId} already replied (stage: ${customer.post_job_stage}), skipping timeout`)
+      return
+    }
+  }
+
+  // Check cooldown
+  if (customerId) {
+    const canSend = await canSendToCustomer(customerId, 'post_job', 4, tenant?.id)
+    if (!canSend) return
+  }
+
+  const reviewLink = tenant.google_review_link || 'https://g.page/review'
+  const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+  const message = `Hi ${customerName}! Thanks for choosing us. A quick review really helps our small business grow: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+
+  const result = await sendSMS(tenant, customerPhone, message)
+
+  if (result.success) {
+    await client.from('jobs').update({
+      review_sent_at: new Date().toISOString(),
+      recurring_offered_at: new Date().toISOString(),
+    }).eq('id', jobId)
+
+    if (customerId) {
+      await client.from('customers').update({
+        post_job_stage: 'recurring_offered',
+        post_job_stage_updated_at: new Date().toISOString(),
+      }).eq('id', customerId)
+
+      await recordMessageSent(tenant.id, customerId, customerPhone, 'post_job_review', 'post_job')
+    }
+
+    console.log(`[post-job-review] Review + recurring offer sent for job ${jobId} (timeout: ${isTimeout})`)
+  }
+}
+
+/**
+ * Recurring service push — sent 24hr after review link
+ */
+async function processPostJobRecurringPush(
+  payload: Record<string, unknown>,
+  tenant: any
+): Promise<void> {
+  const { jobId, customerId, customerPhone, customerName } = payload as {
+    jobId: number
+    customerId: number
+    customerPhone: string
+    customerName: string
+  }
+
+  if (!tenant || !customerPhone) return
+
+  // Check cooldown
+  if (customerId) {
+    const canSend = await canSendToCustomer(customerId, 'post_job', 12, tenant?.id)
+    if (!canSend) return
+  }
+
+  const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+  const message = `Hi ${customerName}! A lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to worry about scheduling. Would that be something you'd be interested in?`
+
+  const result = await sendSMS(tenant, customerPhone, message)
+
+  if (result.success) {
+    const client = getSupabaseServiceClient()
+    await client.from('jobs').update({ recurring_offered_at: new Date().toISOString() }).eq('id', jobId)
+
+    if (customerId) {
+      await client.from('customers').update({
+        post_job_stage: 'recurring_offered',
+        post_job_stage_updated_at: new Date().toISOString(),
+      }).eq('id', customerId)
+
+      await recordMessageSent(tenant.id, customerId, customerPhone, 'recurring_push', 'post_job')
+    }
+
+    console.log(`[post-job-recurring] Recurring push sent for job ${jobId}`)
+  }
+}
+
+/**
+ * Urgent quote follow-up — sent 7 minutes after quote
+ */
+async function processQuoteFollowupUrgent(
+  payload: Record<string, unknown>,
+  tenant: any
+): Promise<void> {
+  const { quoteId, customerId, customerPhone, customerName } = payload as {
+    quoteId: number
+    customerId: number
+    customerPhone: string
+    customerName: string
+  }
+
+  if (!tenant || !customerPhone) return
+
+  const client = getSupabaseServiceClient()
+
+  // Check if quote already accepted
+  const { data: quote } = await client
+    .from('quotes')
+    .select('status')
+    .eq('id', quoteId)
+    .single()
+
+  if (quote?.status === 'approved') {
+    console.log(`[quote-followup] Quote ${quoteId} already approved, skipping urgent nudge`)
+    return
+  }
+
+  // Check cooldown
+  if (customerId) {
+    const canSend = await canSendToCustomer(customerId, 'quote_followup', 1, tenant?.id)
+    if (!canSend) return
+  }
+
+  const message = `Hey ${customerName || 'there'}! Did you get a chance to look at your quote? We only have a few spots left this week — let me know if you have any questions!`
+
+  const result = await sendSMS(tenant, customerPhone, message)
+
+  if (result.success && customerId) {
+    await recordMessageSent(tenant.id, customerId, customerPhone, 'quote_followup_urgent', 'quote_followup')
+    console.log(`[quote-followup] Urgent nudge sent for quote ${quoteId}`)
+  }
+}
+
+/**
+ * Mid-conversation nudge — sent 5 min after system replied and customer went silent
+ */
+async function processMidConvoNudge(
+  payload: Record<string, unknown>,
+  tenant: any
+): Promise<void> {
+  const { customerId, customerPhone } = payload as {
+    customerId: number
+    customerPhone: string
+  }
+
+  if (!tenant || !customerPhone) return
+
+  const client = getSupabaseServiceClient()
+
+  // Re-check: customer may have replied since scheduling
+  const { data: customer } = await client
+    .from('customers')
+    .select('awaiting_reply_since')
+    .eq('id', customerId)
+    .single()
+
+  if (!customer?.awaiting_reply_since) {
+    console.log(`[mid-convo-nudge] Customer ${customerId} already replied, skipping nudge`)
+    return
+  }
+
+  // Check cooldown (1hr between nudges)
+  const canSend = await canSendToCustomer(customerId, 'conversation', 1, tenant?.id)
+  if (!canSend) {
+    // Clear flag to prevent infinite loop if cooldown blocks us
+    await client.from('customers').update({ awaiting_reply_since: null }).eq('id', customerId)
+    return
+  }
+
+  const message = `Still here if you have any questions!`
+
+  const result = await sendSMS(tenant, customerPhone, message)
+
+  // Always clear awaiting_reply_since to prevent infinite nudge loop
+  await client
+    .from('customers')
+    .update({ awaiting_reply_since: null })
+    .eq('id', customerId)
+
+  if (result.success) {
+    await recordMessageSent(tenant.id, customerId, customerPhone, 'mid_convo_nudge', 'conversation')
+
+    // Save message to DB for dashboard
+    await client.from('messages').insert({
+      tenant_id: tenant.id,
+      customer_id: customerId,
+      phone_number: customerPhone,
+      role: 'assistant',
+      content: message,
+      direction: 'outbound',
+      message_type: 'sms',
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: 'mid_convo_nudge',
+    })
+
+    console.log(`[mid-convo-nudge] Nudge sent to customer ${customerId}`)
   }
 }
 

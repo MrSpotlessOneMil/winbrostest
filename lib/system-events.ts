@@ -128,6 +128,10 @@ export type SystemEventType =
   // Quote Events
   | 'QUOTE_DEPOSIT_PAID'
   | 'QUOTE_CARD_ON_FILE'
+  // Lifecycle Automation
+  | 'POST_JOB_SATISFACTION_SENT'
+  | 'POST_JOB_SATISFACTION_POSITIVE'
+  | 'POST_JOB_SATISFACTION_NEGATIVE'
 
 export interface SystemEventInput {
   tenant_id?: string

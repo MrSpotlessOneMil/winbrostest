@@ -60,7 +60,7 @@ export function postCleaningReview(name: string, reviewLink: string): string {
  * Post-cleaning recurring offer
  */
 export function postCleaningRecurring(name: string, discount: string): string {
-  return `${name}, want to keep your home sparkling? Book recurring cleanings and get ${discount} off each visit! Reply RECURRING for details.`
+  return `Hey ${name}! A lot of our customers love setting up recurring cleanings — you get ${discount} off each visit and never have to think about scheduling. Would that be something you'd be interested in?`
 }
 
 /**

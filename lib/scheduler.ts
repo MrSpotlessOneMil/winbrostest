@@ -23,6 +23,12 @@ export type TaskType =
   | 'post_cleaning_followup'
   | 'sms_retry'
   | 'retargeting'
+  | 'post_job_satisfaction'
+  | 'post_job_review'
+  | 'post_job_recurring_push'
+  | 'quote_followup_urgent'
+  | 'mid_convo_nudge'
+  | 'monthly_reengagement'
 
 export interface ScheduledTask {
   id: string

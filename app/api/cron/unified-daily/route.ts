@@ -6,7 +6,7 @@ import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
  * into a single execution (Vercel Hobby plan limitation)
  *
  * This endpoint calls:
- * - monthly-followup: Re-engagement for past customers
+ * - lifecycle-reengagement: Unified re-engagement for past customers (replaces monthly-followup)
  * - logistics/rain-day: Check tomorrow's weather for rain day (WinBros)
  * - crew-briefing: Morning briefing to team leads
  *
@@ -47,11 +47,11 @@ export async function GET(request: NextRequest) {
     const domain = process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
     const cronSecret = process.env.CRON_SECRET || ''
 
-    // 1. Execute monthly followup
+    // 1. Execute lifecycle reengagement (replaces monthly-followup)
     try {
-      console.log('[unified-daily] Executing monthly-followup...')
-      const monthlyResponse = await fetchWithTimeout(`${domain}/api/cron/monthly-followup`, {
-        method: 'POST',
+      console.log('[unified-daily] Executing lifecycle-reengagement...')
+      const monthlyResponse = await fetchWithTimeout(`${domain}/api/cron/lifecycle-reengagement`, {
+        method: 'GET',
         headers: {
           Authorization: `Bearer ${cronSecret}`,
         },
@@ -59,14 +59,14 @@ export async function GET(request: NextRequest) {
 
       if (monthlyResponse.ok) {
         results.monthly_followup.success = true
-        console.log('[unified-daily] monthly-followup completed successfully')
+        console.log('[unified-daily] lifecycle-reengagement completed successfully')
       } else {
         results.monthly_followup.error = `Status ${monthlyResponse.status}`
-        console.error('[unified-daily] monthly-followup failed:', monthlyResponse.status)
+        console.error('[unified-daily] lifecycle-reengagement failed:', monthlyResponse.status)
       }
     } catch (error) {
       results.monthly_followup.error = String(error)
-      console.error('[unified-daily] monthly-followup error:', error)
+      console.error('[unified-daily] lifecycle-reengagement error:', error)
     }
 
     // 2. Check tomorrow's weather for rain day

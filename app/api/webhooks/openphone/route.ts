@@ -5,11 +5,12 @@ import { getSupabaseClient } from "@/lib/supabase"
 import { analyzeBookingIntent, isObviouslyNotBooking } from "@/lib/ai-intent"
 import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from "@/lib/auto-response"
 import { createLeadInHCP } from "@/lib/housecall-pro-api"
-import { scheduleLeadFollowUp, scheduleTask } from "@/lib/scheduler"
+import { scheduleLeadFollowUp, scheduleTask, cancelTask, scheduleRetargetingSequence } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnabled, tenantUsesFeature } from "@/lib/tenant"
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
+import { analyzeSimpleSentiment, recordMessageSent, cancelPendingTasks } from "@/lib/lifecycle-engine"
 
 /** Format raw ISO dates/timestamps to human-readable for SMS and LLM context */
 function formatDateHuman(raw: string, tz = 'America/Chicago'): string {
@@ -320,6 +321,257 @@ export async function POST(request: NextRequest) {
       .eq("id", customer.id)
       .is("retargeting_replied_at", null)
     console.log(`[OpenPhone] Marked retargeting reply for customer ${customer.id}`)
+  }
+
+  // ============================================
+  // LIFECYCLE REPLY HANDLERS
+  // Intercept inbound SMS for post-job satisfaction & recurring replies.
+  // Also cancel any pending mid-convo nudge (customer replied).
+  // ============================================
+  if (tenant && customer) {
+    // Cancel any pending mid-convo nudge
+    if (customer.awaiting_reply_since) {
+      await client
+        .from("customers")
+        .update({ awaiting_reply_since: null })
+        .eq("id", customer.id)
+      await cancelPendingTasks(tenant.id, `mid-convo-nudge-${customer.id}`)
+    }
+
+    const inboundContent = extracted.content || ""
+
+    // POST-JOB SATISFACTION REPLY
+    if (customer.post_job_stage === "satisfaction_sent") {
+      const sentiment = analyzeSimpleSentiment(inboundContent)
+      console.log(`[OpenPhone] Post-job satisfaction reply from customer ${customer.id}: sentiment=${sentiment}`)
+
+      // Find the most recent completed job for this customer
+      const { data: recentJob } = await client
+        .from("jobs")
+        .select("id, satisfaction_sent_at")
+        .eq("customer_id", customer.id)
+        .eq("tenant_id", tenant.id)
+        .eq("status", "completed")
+        .not("satisfaction_sent_at", "is", null)
+        .order("satisfaction_sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (recentJob) {
+        if (sentiment === "positive") {
+          // Immediately send review link + recurring offer (no tip — strike while iron is hot)
+          const reviewLink = tenant.google_review_link || "https://g.page/review"
+
+          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review — it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+          await sendSMS(tenant, phone, replyMsg)
+
+          // Save outbound message
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: replyMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "post_job_satisfaction_positive",
+          })
+
+          await client.from("customers").update({
+            post_job_stage: "recurring_offered",
+            post_job_stage_updated_at: new Date().toISOString(),
+          }).eq("id", customer.id)
+
+          await client.from("jobs").update({
+            satisfaction_response: "positive",
+            review_sent_at: new Date().toISOString(),
+            recurring_offered_at: new Date().toISOString(),
+          }).eq("id", recentJob.id)
+
+          // Cancel 24hr timeout (no need for delayed recurring — already offered)
+          await cancelTask(`post-job-review-${recentJob.id}`)
+
+          await recordMessageSent(tenant.id, customer.id, phone, "post_job_satisfaction_positive", "post_job")
+
+        } else if (sentiment === "negative") {
+          // Apology — NO review link
+          const apologyMsg = `We're really sorry to hear that. We want to make it right — someone from our team will reach out to you personally. Thank you for letting us know.`
+          await sendSMS(tenant, phone, apologyMsg)
+
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: apologyMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "post_job_satisfaction_negative",
+          })
+
+          await client.from("customers").update({
+            post_job_stage: "negative_reply",
+            post_job_stage_updated_at: new Date().toISOString(),
+          }).eq("id", customer.id)
+
+          await client.from("jobs").update({
+            satisfaction_response: "negative",
+          }).eq("id", recentJob.id)
+
+          // Cancel all post-job tasks
+          await cancelTask(`post-job-review-${recentJob.id}`)
+          await cancelPendingTasks(tenant.id, `post-job-recurring-${recentJob.id}`)
+
+          // Notify owner via Telegram
+          try {
+            if ((tenant as any).owner_telegram_chat_id) {
+              const { sendTelegramMessage } = await import("@/lib/telegram")
+              const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
+              await sendTelegramMessage(
+                tenant,
+                (tenant as any).owner_telegram_chat_id,
+                `⚠️ <b>Negative Post-Job Feedback</b>\n\nCustomer: ${customerName}\nPhone: ${phone}\nJob #${recentJob.id}\n\nFeedback: "${inboundContent.slice(0, 200)}"\n\nPlease follow up personally.`,
+              )
+            }
+          } catch (tgErr) {
+            console.error("[OpenPhone] Failed to send Telegram alert for negative feedback:", tgErr)
+          }
+
+          await recordMessageSent(tenant.id, customer.id, phone, "post_job_satisfaction_negative", "post_job")
+
+        } else {
+          // Neutral — don't intercept, let normal flow handle it
+          // The 24hr timeout will send the review link
+        }
+
+        // For positive/negative, store the inbound message and return early
+        if (sentiment !== "neutral") {
+          // Store inbound message (it hasn't been stored yet at this point)
+          const opMessageId = payload?.data?.object?.id || payload?.data?.id || payload?.id || null
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "client",
+            content: extracted.content,
+            direction: extracted.direction || "inbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "openphone",
+            metadata: { ...payload, openphone_message_id: opMessageId },
+          })
+
+          await logSystemEvent({
+            tenant_id: tenant.id,
+            source: "openphone",
+            event_type: sentiment === "positive" ? "POST_JOB_SATISFACTION_POSITIVE" : "POST_JOB_SATISFACTION_NEGATIVE",
+            message: `Customer ${customer.id} replied ${sentiment} to satisfaction check`,
+            phone_number: phone,
+            metadata: { job_id: recentJob.id, sentiment, reply: inboundContent.slice(0, 200) },
+          })
+
+          return NextResponse.json({ success: true, action: `satisfaction_reply_${sentiment}` })
+        }
+      }
+    }
+
+    // POST-JOB RECURRING REPLY — detect clear acceptance or decline.
+    // Unclear/conversational replies fall through to the AI so it can sell naturally.
+    if (customer.post_job_stage === "recurring_offered") {
+      const acceptPattern = /\b(yes|yeah|yep|yup|sure|absolutely|definitely|let'?s do it|sign me up|i'?m interested|i'?d love|sounds good|sounds great|count me in|for sure|please|down|i'?m down)\b/i
+      const declinePattern = /\b(no|nah|not right now|not interested|maybe later|pass|i'?m good|no thanks|no thank you)\b/i
+      const isAccept = acceptPattern.test(inboundContent)
+      const isDecline = declinePattern.test(inboundContent)
+
+      if (isDecline) {
+        // Don't intercept — let it fall through to AI which can handle gracefully
+        // Just update stage so we stop intercepting future messages
+        await client.from("customers").update({
+          post_job_stage: "recurring_declined",
+          post_job_stage_updated_at: new Date().toISOString(),
+        }).eq("id", customer.id)
+        // Fall through to normal AI flow
+      } else if (isAccept) {
+        const confirmMsg = `Awesome! We'll get you set up with recurring cleanings. Someone from our team will reach out shortly with scheduling options. Thank you!`
+        await sendSMS(tenant, phone, confirmMsg)
+
+        await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "assistant",
+          content: confirmMsg,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "recurring_accepted",
+        })
+
+        await client.from("customers").update({
+          post_job_stage: "recurring_accepted",
+          post_job_stage_updated_at: new Date().toISOString(),
+        }).eq("id", customer.id)
+
+        // Find the job and mark recurring response
+        const { data: jobForRecurring } = await client
+          .from("jobs")
+          .select("id")
+          .eq("customer_id", customer.id)
+          .eq("tenant_id", tenant.id)
+          .eq("status", "completed")
+          .not("recurring_offered_at", "is", null)
+          .order("recurring_offered_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (jobForRecurring) {
+          await client.from("jobs").update({ recurring_response: "accepted" }).eq("id", jobForRecurring.id)
+        }
+
+        await recordMessageSent(tenant.id, customer.id, phone, "recurring_accepted", "post_job")
+
+        // Notify owner
+        try {
+          if ((tenant as any).owner_telegram_chat_id) {
+            const { sendTelegramMessage } = await import("@/lib/telegram")
+            const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || phone
+            await sendTelegramMessage(
+              tenant,
+              (tenant as any).owner_telegram_chat_id,
+              `🔁 <b>Recurring Service Accepted</b>\n\nCustomer: ${customerName}\nPhone: ${phone}\n\nPlease set up their recurring schedule.`,
+            )
+          }
+        } catch (tgErr) {
+          console.error("[OpenPhone] Failed to send Telegram alert for recurring acceptance:", tgErr)
+        }
+
+        // Store inbound and return
+        const opMessageId = payload?.data?.object?.id || payload?.data?.id || payload?.id || null
+        await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "client",
+          content: extracted.content,
+          direction: extracted.direction || "inbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "openphone",
+          metadata: { ...payload, openphone_message_id: opMessageId },
+        })
+
+        return NextResponse.json({ success: true, action: "recurring_accepted" })
+      }
+      // If not an accept, fall through to normal processing
+    }
   }
 
   // Per-customer auto-response kill switch
@@ -1425,6 +1677,16 @@ export async function POST(request: NextRequest) {
                 reason: "post_booking_assigned",
               },
             })
+
+            // Schedule mid-convo nudge (5 min)
+            await client.from("customers").update({ awaiting_reply_since: new Date().toISOString() }).eq("id", customer.id)
+            await scheduleTask({
+              tenantId: tenant.id,
+              taskType: "mid_convo_nudge",
+              taskKey: `mid-convo-nudge-${customer.id}`,
+              scheduledFor: new Date(Date.now() + 5 * 60 * 1000),
+              payload: { customerId: customer.id, customerPhone: phone, tenantId: tenant.id },
+            })
           }
         }
       }
@@ -2181,6 +2443,39 @@ export async function POST(request: NextRequest) {
                 // NOTE: Cleaner assignment is NOT triggered here — it happens AFTER the customer
                 // pays the deposit via the quote page (Stripe Checkout → stripe webhook).
 
+                // ── QUOTE FOLLOW-UP WIRING ──
+                // 1. Schedule 7-minute urgency nudge
+                await scheduleTask({
+                  tenantId: tenant.id,
+                  taskType: "quote_followup_urgent",
+                  taskKey: `quote-${newQuote.id}-urgent`,
+                  scheduledFor: new Date(Date.now() + 7 * 60 * 1000),
+                  payload: {
+                    quoteId: newQuote.id,
+                    customerId: customer.id,
+                    customerPhone: phone,
+                    customerName: customerFirstName || "there",
+                    tenantId: tenant.id,
+                  },
+                })
+
+                // 2. Enroll in quoted_not_booked retargeting sequence
+                await scheduleRetargetingSequence(
+                  tenant.id,
+                  customer.id,
+                  phone,
+                  customerFirstName || customer.first_name || "there",
+                  "quoted_not_booked",
+                )
+
+                // 3. Mark quote as enrolled in follow-up
+                await client
+                  .from("quotes")
+                  .update({ followup_enrolled_at: new Date().toISOString() })
+                  .eq("id", newQuote.id)
+
+                console.log(`[OpenPhone] Quote follow-up wired: 7min nudge + retargeting for quote ${newQuote.id}`)
+
                 await logSystemEvent({
                   tenant_id: tenant.id,
                   source: "openphone",
@@ -2383,6 +2678,18 @@ export async function POST(request: NextRequest) {
               message_id: sendResult.messageId,
             },
           })
+
+          // Schedule mid-convo nudge (5 min) — customer may go silent
+          if (tenant && customer) {
+            await client.from("customers").update({ awaiting_reply_since: new Date().toISOString() }).eq("id", customer.id)
+            await scheduleTask({
+              tenantId: tenant.id,
+              taskType: "mid_convo_nudge",
+              taskKey: `mid-convo-nudge-${customer.id}`,
+              scheduledFor: new Date(Date.now() + 5 * 60 * 1000),
+              payload: { customerId: customer.id, customerPhone: phone, tenantId: tenant.id },
+            })
+          }
 
           // Handle escalation — notify the owner if the AI flagged this customer
           if (autoResponse.escalation?.shouldEscalate && tenant?.owner_phone) {
