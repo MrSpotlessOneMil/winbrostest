@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
         }
 
         const businessName = tenant.business_name_short || tenant.name || 'us'
-        const message = `Hi ${customerName}! How was your ${businessName} cleaning today? We'd love to hear your feedback — just reply and let us know!`
+        const message = `Hey ${customerName}! How was your cleaning today?`
 
         const smsResult = await sendSMS(tenant, phone, message)
 
