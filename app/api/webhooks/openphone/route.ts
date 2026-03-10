@@ -548,7 +548,8 @@ export async function POST(request: NextRequest) {
         }).eq("id", customer.id)
         // Fall through to normal AI flow
       } else if (isAccept) {
-        const confirmMsg = `Awesome! We'll get you set up with recurring cleanings. Someone from our team will reach out shortly with scheduling options. Thank you!`
+        const customerFirstName = customer.first_name || 'there'
+        const confirmMsg = `That's great ${customerFirstName}! When would you like your next cleaning?`
         await sendSMS(tenant, phone, confirmMsg)
 
         await client.from("messages").insert({
