@@ -275,7 +275,7 @@ export default function QuotePage() {
   // ── Main page ────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-white pb-36 sm:pb-8">
+    <div className="min-h-screen bg-white pb-36 sm:pb-8 text-slate-800" style={{ colorScheme: 'light' }}>
       {/* Clean gradient top bar */}
       <div className="h-1.5 bg-gradient-to-r from-sky-400 via-blue-500 to-indigo-500" />
 
