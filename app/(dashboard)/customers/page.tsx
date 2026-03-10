@@ -1829,8 +1829,15 @@ export default function CustomersPage() {
                             {getCustomerJobs(selectedCustomer.phone_number).map((job) => (
                               <div key={job.id} className="flex items-center justify-between py-3">
                                 <div>
-                                  <div className="text-sm font-medium text-zinc-200">
+                                  <div className="flex items-center gap-2 text-sm font-medium text-zinc-200">
                                     {job.service_type || "Cleaning"}
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                      job.frequency && job.frequency !== "one-time"
+                                        ? "bg-purple-400/10 text-purple-400"
+                                        : "bg-zinc-700/50 text-zinc-400"
+                                    }`}>
+                                      {job.frequency && job.frequency !== "one-time" ? "Recurring" : "One-time"}
+                                    </span>
                                   </div>
                                   <div className="text-xs text-zinc-500">
                                     {job.date
