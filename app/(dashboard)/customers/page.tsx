@@ -419,6 +419,20 @@ export default function CustomersPage() {
     )[0]
   }
 
+  // Get badge config for a lead's current stage
+  const getLeadBadge = (lead: Lead | null): { label: string; className: string } => {
+    if (!lead) return { label: "Customer", className: "bg-zinc-700/50 text-zinc-300" }
+    if (lead.status === "lost") return { label: "Inactive", className: "bg-red-500/20 text-red-400" }
+    if (lead.status === "completed" || lead.status === "fulfilled") return { label: "Completed", className: "bg-zinc-600/30 text-zinc-300" }
+    if (lead.status === "assigned" || lead.status === "scheduled") return { label: "Assigned", className: "bg-emerald-500/20 text-emerald-400" }
+    if (lead.status === "booked" || lead.status === "paid") return { label: "Paid", className: "bg-green-500/20 text-green-400" }
+    if (lead.status === "quoted" || lead.stripe_payment_link) return { label: "Quoted", className: "bg-cyan-500/20 text-cyan-400" }
+    if (lead.status === "responded" || lead.status === "engaged") return { label: "Engaged", className: "bg-purple-500/20 text-purple-400" }
+    const stage = lead.followup_stage || 0
+    if (stage <= 1) return { label: "New", className: "bg-blue-500/20 text-blue-400" }
+    return { label: "Following Up", className: "bg-amber-500/20 text-amber-400" }
+  }
+
   // Handle move to stage (drag & drop) - executes the action
   const handleMoveToStage = async (targetStage: number) => {
     if (!selectedCustomer) return
@@ -1364,9 +1378,19 @@ export default function CustomersPage() {
                         {getCustomerName(selectedCustomer).charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1">
-                        <h2 className="text-base font-semibold text-zinc-100">
-                          {getCustomerName(selectedCustomer)}
-                        </h2>
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-base font-semibold text-zinc-100">
+                            {getCustomerName(selectedCustomer)}
+                          </h2>
+                          {(() => {
+                            const badge = getLeadBadge(getCustomerLead(selectedCustomer.phone_number))
+                            return (
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${badge.className}`}>
+                                {badge.label}
+                              </span>
+                            )
+                          })()}
+                        </div>
                         <p className="text-xs text-zinc-500">
                           {formatPhone(selectedCustomer.phone_number)}
                         </p>
