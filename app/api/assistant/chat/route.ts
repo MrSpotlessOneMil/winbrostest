@@ -1966,6 +1966,314 @@ async function executeTool(
     }
   }
 
+  // ----- CREATE LEAD -----
+  if (toolName === "create_lead") {
+    try {
+      if (!tenantId) return "Cannot create lead: your account isn't linked to a business yet."
+
+      const phone = toolInput.phone_number as string
+      const e164 = toE164(phone)
+      if (!e164) return `Invalid phone number: ${phone}`
+
+      // Map user-friendly source to DB enum
+      const sourceMapping: Record<string, string> = {
+        facebook: 'meta', instagram: 'meta', meta: 'meta',
+        google: 'website', thumbtack: 'website', yelp: 'website', website: 'website',
+        phone: 'phone', 'inbound call': 'phone', call: 'phone', vapi: 'vapi',
+        sms: 'sms', text: 'sms',
+        housecall_pro: 'housecall_pro', hcp: 'housecall_pro',
+        ghl: 'ghl', gohighlevel: 'ghl',
+        manual: 'manual', referral: 'manual', realtor: 'manual', other: 'manual',
+      }
+      const rawSource = (toolInput.source as string || 'manual').toLowerCase().trim()
+      const dbSource = sourceMapping[rawSource] || 'manual'
+
+      // Map user-friendly status to DB enum
+      const statusMapping: Record<string, string> = {
+        new: 'new', 'new lead': 'new',
+        contacted: 'contacted', quoted: 'contacted',
+        qualified: 'qualified',
+        booked: 'booked',
+        assigned: 'assigned',
+        lost: 'lost',
+        'no response': 'unresponsive', 'no response yet': 'unresponsive', unresponsive: 'unresponsive',
+        'still deciding': 'nurturing', nurturing: 'nurturing',
+        escalated: 'escalated',
+      }
+      const rawStatus = (toolInput.status as string || 'new').toLowerCase().trim()
+      const dbStatus = statusMapping[rawStatus] || 'new'
+
+      // Build form_data JSONB with all the rich details
+      const formData: Record<string, any> = {
+        created_by: 'assistant',
+        source_label: toolInput.source || rawSource,
+        stage_label: toolInput.status || rawStatus,
+      }
+      if (toolInput.service_interest) formData.service_type = toolInput.service_interest
+      if (toolInput.quote_details) formData.quote_details = toolInput.quote_details
+      if (toolInput.property_details) formData.property_details = toolInput.property_details
+      if (toolInput.notes) formData.notes = toolInput.notes
+
+      // Also ensure customer record exists
+      const { upsertCustomer } = await import("@/lib/supabase")
+      const customerData: Record<string, any> = { tenant_id: tenantId }
+      if (toolInput.first_name) customerData.first_name = toolInput.first_name
+      if (toolInput.last_name) customerData.last_name = toolInput.last_name
+      if (toolInput.email) customerData.email = toolInput.email
+      const customer = await upsertCustomer(phone, customerData)
+
+      const { data: lead, error } = await client
+        .from("leads")
+        .insert({
+          tenant_id: tenantId,
+          phone_number: e164,
+          customer_id: customer?.id || null,
+          first_name: toolInput.first_name || null,
+          last_name: toolInput.last_name || null,
+          email: toolInput.email || null,
+          source: dbSource,
+          status: dbStatus,
+          form_data: formData,
+        })
+        .select("id, phone_number, first_name, last_name, source, status")
+        .single()
+
+      if (error) return `Failed to create lead: ${error.message}`
+
+      const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown"
+      return `Lead created!\n- ID: ${lead.id}\n- Name: ${name}\n- Phone: ${lead.phone_number}\n- Source: ${toolInput.source || rawSource}\n- Status: ${toolInput.status || rawStatus}\n- Service: ${toolInput.service_interest || "Not specified"}\n- Quote: ${toolInput.quote_details || "Not specified"}\n- Property: ${toolInput.property_details || "Not specified"}`
+    } catch (err: any) {
+      return `Error creating lead: ${err.message}`
+    }
+  }
+
+  // ----- UPDATE LEAD -----
+  if (toolName === "update_lead") {
+    try {
+      if (!tenantId) return "Cannot update lead: your account isn't linked to a business yet."
+
+      let lead: any = null
+      if (toolInput.lead_id) {
+        const { data } = await client.from("leads").select("*").eq("id", toolInput.lead_id).eq("tenant_id", tenantId).single()
+        lead = data
+      } else if (toolInput.phone_number) {
+        const phone = toolInput.phone_number as string
+        const e164 = toE164(phone)
+        const digits = phone.replace(/\D/g, "")
+        const last10 = digits.slice(-10)
+        let query = client.from("leads").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1)
+        if (e164) query = query.eq("phone_number", e164)
+        else if (last10.length === 10) query = query.like("phone_number", `%${last10}`)
+        const { data } = await query
+        lead = data?.[0]
+      }
+
+      if (!lead) return "Lead not found. Check the phone number or lead ID."
+
+      const updates: Record<string, any> = { updated_at: new Date().toISOString() }
+      const formData = { ...(lead.form_data || {}) }
+
+      if (toolInput.status) {
+        const statusMapping: Record<string, string> = {
+          new: 'new', 'new lead': 'new', contacted: 'contacted', quoted: 'contacted',
+          qualified: 'qualified', booked: 'booked', assigned: 'assigned', lost: 'lost',
+          'no response': 'unresponsive', 'no response yet': 'unresponsive', unresponsive: 'unresponsive',
+          'still deciding': 'nurturing', nurturing: 'nurturing', escalated: 'escalated',
+        }
+        updates.status = statusMapping[(toolInput.status as string).toLowerCase().trim()] || (toolInput.status as string).toLowerCase().trim()
+        formData.stage_label = toolInput.status
+      }
+      if (toolInput.source) {
+        const sourceMapping: Record<string, string> = {
+          facebook: 'meta', instagram: 'meta', meta: 'meta',
+          google: 'website', thumbtack: 'website', yelp: 'website', website: 'website',
+          phone: 'phone', 'inbound call': 'phone', call: 'phone', vapi: 'vapi',
+          sms: 'sms', text: 'sms', manual: 'manual', referral: 'manual', realtor: 'manual',
+        }
+        updates.source = sourceMapping[(toolInput.source as string).toLowerCase().trim()] || 'manual'
+        formData.source_label = toolInput.source
+      }
+      if (toolInput.service_interest) formData.service_type = toolInput.service_interest
+      if (toolInput.quote_details) formData.quote_details = toolInput.quote_details
+      if (toolInput.property_details) formData.property_details = toolInput.property_details
+      if (toolInput.notes) formData.notes = toolInput.notes
+      if (toolInput.email) updates.email = toolInput.email
+      updates.form_data = formData
+
+      const { error } = await client.from("leads").update(updates).eq("id", lead.id).eq("tenant_id", tenantId)
+      if (error) return `Failed to update lead: ${error.message}`
+
+      const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.phone_number
+      return `Lead updated for ${name}!`
+    } catch (err: any) {
+      return `Error updating lead: ${err.message}`
+    }
+  }
+
+  // ----- LIST LEADS -----
+  if (toolName === "list_leads") {
+    try {
+      if (!tenantId) return "Cannot list leads: your account isn't linked to a business yet."
+
+      let query = client
+        .from("leads")
+        .select("id, phone_number, first_name, last_name, email, source, status, form_data, created_at, updated_at, converted_to_job_id")
+        .eq("tenant_id", tenantId)
+        .order("created_at", { ascending: false })
+
+      if (toolInput.status) {
+        const statusMapping: Record<string, string> = {
+          new: 'new', 'new lead': 'new', contacted: 'contacted', quoted: 'contacted',
+          qualified: 'qualified', booked: 'booked', assigned: 'assigned', lost: 'lost',
+          'no response': 'unresponsive', 'no response yet': 'unresponsive', unresponsive: 'unresponsive',
+          'still deciding': 'nurturing', nurturing: 'nurturing', escalated: 'escalated',
+        }
+        const rawStatus = (toolInput.status as string).toLowerCase().trim()
+        query = query.eq("status", statusMapping[rawStatus] || rawStatus)
+      }
+      if (toolInput.source) {
+        const sourceMapping: Record<string, string> = {
+          facebook: 'meta', instagram: 'meta', meta: 'meta',
+          google: 'website', thumbtack: 'website', yelp: 'website', website: 'website',
+          phone: 'phone', 'inbound call': 'phone', call: 'phone',
+          manual: 'manual', referral: 'manual', realtor: 'manual',
+        }
+        const rawSource = (toolInput.source as string).toLowerCase().trim()
+        query = query.eq("source", sourceMapping[rawSource] || rawSource)
+      }
+
+      const limit = Math.min((toolInput.limit as number) || 50, 100)
+      query = query.limit(limit)
+
+      const { data: leads, error } = await query
+      if (error) return `Failed to list leads: ${error.message}`
+      if (!leads || leads.length === 0) return "No leads found matching your criteria."
+
+      return JSON.stringify({
+        count: leads.length,
+        leads: leads.map((l: any) => ({
+          id: l.id,
+          name: [l.first_name, l.last_name].filter(Boolean).join(" ") || "Unknown",
+          phone: l.phone_number,
+          email: l.email || null,
+          source: l.form_data?.source_label || l.source,
+          status: l.form_data?.stage_label || l.status,
+          service_interest: l.form_data?.service_type || l.form_data?.booking_data?.service_type || null,
+          quote_details: l.form_data?.quote_details || null,
+          property_details: l.form_data?.property_details || null,
+          notes: l.form_data?.notes || null,
+          converted_to_job: l.converted_to_job_id || null,
+          created_at: l.created_at,
+        })),
+      })
+    } catch (err: any) {
+      return `Error listing leads: ${err.message}`
+    }
+  }
+
+  // ----- UNASSIGN CLEANER -----
+  if (toolName === "unassign_cleaner") {
+    try {
+      if (!tenantId) return "Cannot unassign cleaner: your account isn't linked to a business yet."
+
+      const jobId = toolInput.job_id as number
+      const cleanerId = toolInput.cleaner_id as number | undefined
+
+      // Fetch job
+      const { data: job } = await client
+        .from("jobs")
+        .select("id, assigned_cleaner_id")
+        .eq("id", jobId)
+        .eq("tenant_id", tenantId)
+        .single()
+      if (!job) return `Job #${jobId} not found.`
+
+      // Cancel matching assignments
+      let assignQuery = client
+        .from("cleaner_assignments")
+        .update({ status: "cancelled" })
+        .eq("job_id", jobId)
+        .in("status", ["pending", "confirmed"])
+      if (cleanerId) assignQuery = assignQuery.eq("cleaner_id", cleanerId)
+
+      const { data: cancelled, error: assignErr } = await assignQuery.select("id, cleaner_id")
+      if (assignErr) return `Failed to cancel assignments: ${assignErr.message}`
+
+      // Clear job's assigned_cleaner_id
+      if (!cleanerId || job.assigned_cleaner_id === cleanerId) {
+        await client
+          .from("jobs")
+          .update({ assigned_cleaner_id: null, updated_at: new Date().toISOString() })
+          .eq("id", jobId)
+      }
+
+      const count = cancelled?.length || 0
+      if (count === 0) return `No active assignments found for job #${jobId}${cleanerId ? ` with cleaner #${cleanerId}` : ""}.`
+
+      // Get cleaner names for response
+      const cleanerIds = cancelled!.map((a: any) => a.cleaner_id)
+      const { data: cleanerRecords } = await client
+        .from("cleaners")
+        .select("id, name")
+        .in("id", cleanerIds)
+      const names = cleanerRecords?.map((c: any) => c.name).join(", ") || "Unknown"
+
+      return `Unassigned ${count} cleaner(s) from job #${jobId}: ${names}. Job is now unassigned.`
+    } catch (err: any) {
+      return `Error unassigning cleaner: ${err.message}`
+    }
+  }
+
+  // ----- QUERY BUSINESS DATA -----
+  if (toolName === "query_business_data") {
+    try {
+      if (!tenantId) return "Cannot query data: your account isn't linked to a business yet."
+
+      const allowedTables = ['jobs', 'leads', 'customers', 'cleaner_assignments', 'cleaners', 'messages']
+      const table = toolInput.table as string
+      if (!allowedTables.includes(table)) return `Invalid table "${table}". Allowed: ${allowedTables.join(', ')}`
+
+      let query = client.from(table).select(toolInput.select || '*')
+      query = query.eq('tenant_id', tenantId)
+
+      // Apply filters
+      for (const filter of (toolInput.filters as any[] || [])) {
+        const { column, operator, value } = filter
+        switch (operator) {
+          case 'eq': query = query.eq(column, value); break
+          case 'neq': query = query.neq(column, value); break
+          case 'gt': query = query.gt(column, value); break
+          case 'gte': query = query.gte(column, value); break
+          case 'lt': query = query.lt(column, value); break
+          case 'lte': query = query.lte(column, value); break
+          case 'like': query = query.like(column, value); break
+          case 'ilike': query = query.ilike(column, value); break
+          case 'in': query = query.in(column, JSON.parse(value)); break
+          case 'is': query = query.is(column, value === 'null' ? null : value); break
+          case 'not': query = query.not(column, 'eq', value); break
+        }
+      }
+
+      // Apply ordering
+      if (toolInput.order_by) {
+        const desc = (toolInput.order_by as string).startsWith('-')
+        const col = desc ? (toolInput.order_by as string).slice(1) : toolInput.order_by as string
+        query = query.order(col, { ascending: !desc })
+      }
+
+      const limit = Math.min((toolInput.limit as number) || 50, 200)
+      query = query.limit(limit)
+
+      const { data, error } = await query
+      if (error) return `Query error: ${error.message}`
+      if (!data || data.length === 0) return `No results found in ${table} matching your filters.`
+
+      return JSON.stringify({ table, count: data.length, rows: data })
+    } catch (err: any) {
+      return `Error querying data: ${err.message}`
+    }
+  }
+
   return `Unknown tool: ${toolName}`
 }
 
