@@ -4,7 +4,7 @@ import React from 'react'
 
 export default function CubeLoader() {
   return (
-    <div className='flex flex-col items-center justify-center gap-12 p-12 min-h-[400px] bg-slate-950/0 perspective-container'>
+    <div className='flex flex-col items-center justify-center gap-12 p-12 flex-1 min-h-[400px] h-full bg-slate-950/0 perspective-container'>
 
       {/* 3D Scene Wrapper */}
       <div className='relative w-24 h-24 flex items-center justify-center preserve-3d'>
