@@ -284,6 +284,10 @@ export async function POST(request: NextRequest) {
     console.log(`[OpenPhone] SMS auto-response disabled for tenant '${tenant?.slug}' - storing message but not responding`)
   }
 
+  // Extract OpenPhone message ID early for dedup across all insert paths
+  const opMessageId: string | undefined =
+    payload?.data?.object?.id || payload?.data?.id || payload?.id || undefined
+
   // ============================================
   // INTERNAL NUMBER FILTER
   // Block auto-responses to owner, cleaners, and blocklisted numbers.
@@ -311,7 +315,8 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: "openphone",
-      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "owner_phone" },
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "owner_phone" },
     })
     console.log(`[OpenPhone] Sender ${phone} is owner of '${tenant?.slug}' — message stored, auto-response skipped`)
     return NextResponse.json({ success: true, stored: true, filtered: "owner_phone" })
@@ -330,7 +335,8 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: "openphone",
-      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "blocklisted" },
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "blocklisted" },
     })
     console.log(`[OpenPhone] Sender ${phone} is blocklisted for '${tenant?.slug}' — message stored, auto-response skipped`)
     return NextResponse.json({ success: true, stored: true, filtered: "blocklisted" })
@@ -355,7 +361,8 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: "openphone",
-      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "cleaner_phone", cleaner_id: matchedCleaner.id },
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "cleaner_phone", cleaner_id: matchedCleaner.id },
     })
 
     // Parse cleaner intent — only YES/NO for assignment replies
@@ -787,14 +794,11 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: "openphone",
-      metadata: { ...payload, openphone_message_id: payload?.data?.object?.id || payload?.data?.id || payload?.id || null, filtered: "customer_paused" },
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "customer_paused" },
     })
     return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
   }
-
-  // Extract OpenPhone message ID for dedup (v3: data.object.id, v2: data.id, fallback: root id)
-  const opMessageId: string | undefined =
-    payload?.data?.object?.id || payload?.data?.id || payload?.id || undefined
 
   // Dedup: prefer message ID match, fall back to content match with extended window
   const dedupCutoff = new Date(Date.now() - 60_000).toISOString()

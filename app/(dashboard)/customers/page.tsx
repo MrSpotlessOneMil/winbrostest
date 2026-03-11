@@ -1255,10 +1255,10 @@ export default function CustomersPage() {
       const lastReadTs = readTimestamps[customer.id]
       const unreadCount = lastReadTs
         ? customerMessages.filter(
-            (m) => m.direction === "incoming" && m.timestamp > lastReadTs
+            (m) => m.direction === "inbound" && m.timestamp > lastReadTs
           ).length
-        : customerMessages.filter((m) => m.direction === "incoming").length > 0
-          ? customerMessages.filter((m) => m.direction === "incoming").length
+        : customerMessages.filter((m) => m.direction === "inbound").length > 0
+          ? customerMessages.filter((m) => m.direction === "inbound").length
           : 0
       return { customer, lastMessage, previewMessage, unreadCount }
     })
@@ -1455,7 +1455,7 @@ export default function CustomersPage() {
                                 {previewMessage
                                   ? (() => {
                                       const content = previewMessage.content || ""
-                                      const prefix = previewMessage.direction === "outgoing" ? "You: " : ""
+                                      const prefix = previewMessage.direction === "outbound" ? "You: " : ""
                                       const lq = searchQuery.trim().toLowerCase()
                                       if (!lq || !content.toLowerCase().includes(lq)) {
                                         return `${prefix}${content}`
