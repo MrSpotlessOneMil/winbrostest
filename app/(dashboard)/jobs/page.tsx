@@ -288,7 +288,12 @@ function resolveStart(job: CalendarJob) {
 function resolveEnd(job: CalendarJob) {
   const start = resolveStart(job)
   const hours = job.hours ? Number(job.hours) : 2
-  return new Date(start.getTime() + hours * 60 * 60 * 1000)
+  const end = new Date(start.getTime() + hours * 60 * 60 * 1000)
+  // Cap end to same day so FullCalendar renders as dot event, not multi-day block
+  if (end.getDate() !== start.getDate() || end.getMonth() !== start.getMonth()) {
+    return new Date(start.getFullYear(), start.getMonth(), start.getDate(), 23, 59, 59)
+  }
+  return end
 }
 
 function formatRange(start: Date | null, end: Date | null) {
