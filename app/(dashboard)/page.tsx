@@ -13,7 +13,7 @@ import { TopPerformer } from "@/components/dashboard/top-performer"
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 stagger-1">
         <div className="min-w-0">

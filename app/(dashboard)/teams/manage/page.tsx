@@ -218,7 +218,7 @@ export default function ManageTeamsPage() {
   const unassigned = cleanersByTeam.get("unassigned") || []
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">

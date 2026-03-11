@@ -532,7 +532,7 @@ export default function AssistantPage() {
   }
 
   return (
-    <div className="relative flex flex-col flex-1 min-h-0 -m-3 md:-m-4 overflow-hidden bg-card">
+    <div className="relative flex flex-col flex-1 min-h-0 -m-3 md:-m-4 overflow-hidden bg-card animate-fade-in">
       {/* Chat with sidebar */}
       <div className="relative flex flex-1 min-h-0">
         {/* Conversation sidebar */}

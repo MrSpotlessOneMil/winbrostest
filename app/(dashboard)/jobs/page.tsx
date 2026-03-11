@@ -464,14 +464,17 @@ export default function JobsPage() {
                 const mems = mRes.data || []
                 setCustomerMemberships(mems)
                 // Auto-select if there's exactly one active membership
+                // and user hasn't already manually picked one
                 if (mems.length === 1) {
                   const mem = mems[0]
                   setCreateForm((prev) => {
+                    // Guard: don't overwrite if user already selected a membership
+                    if (prev.membership_id) return prev
                     const updated = { ...prev, membership_id: mem.id }
                     // Auto-apply membership discount to price
-                    const currentPrice = Number(prev.price) || 0
-                    if (mem.service_plans?.discount_per_visit && currentPrice > 0) {
-                      updated.price = String(Math.max(0, currentPrice - mem.service_plans.discount_per_visit))
+                    const currentBase = basePrice || Number(prev.price) || 0
+                    if (mem.service_plans?.discount_per_visit && currentBase > 0) {
+                      updated.price = String(Math.max(0, currentBase - mem.service_plans.discount_per_visit))
                     }
                     return updated
                   })
@@ -1131,7 +1134,7 @@ export default function JobsPage() {
 
   return (
     <>
-      <div className="calendar-shell">
+      <div className="calendar-shell animate-fade-in">
         <div className="mb-6" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>

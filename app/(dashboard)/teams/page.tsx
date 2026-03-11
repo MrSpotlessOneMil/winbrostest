@@ -392,7 +392,7 @@ export default function TeamsPage() {
   )
 
   return (
-    <div className="flex flex-col h-full gap-4 overflow-hidden">
+    <div className="flex flex-col h-full gap-4 overflow-hidden animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div>

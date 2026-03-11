@@ -112,7 +112,7 @@ export default function RainDayPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div>
         <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
