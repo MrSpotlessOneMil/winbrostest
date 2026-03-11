@@ -171,6 +171,10 @@
 .fc .fc-daygrid-day-frame {
   min-height: 0 !important;
   max-height: 95px;
+  overflow-y: hidden;
+}
+
+.fc .fc-daygrid-day-frame:hover {
   overflow-y: auto;
 }
 

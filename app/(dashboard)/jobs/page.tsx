@@ -1147,23 +1147,21 @@ export default function JobsPage() {
           </button>
         </div>
 
-        {cleanerColorMap.size >= 2 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem" }}>
-            {[...cleanerColorMap.entries()].map(([name, color]) => (
-              <div key={name} style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-                <span style={{
-                  width: 12,
-                  height: 12,
-                  borderRadius: 3,
-                  backgroundColor: color,
-                  display: "inline-block",
-                  flexShrink: 0,
-                }} />
-                <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: "1.25rem" }}>
+          {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
+            <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+              <span style={{
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                backgroundColor: color,
+                display: "inline-block",
+                flexShrink: 0,
+              }} />
+              <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
+            </div>
+          ))}
+        </div>
 
         <div className="calendar-card">
           <div id="calendar">
