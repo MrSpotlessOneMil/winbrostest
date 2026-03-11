@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Loader2, Save, Plus, Trash2, X } from "lucide-react"
-import { CubeLoader } from "@/components/ui/cube-loader"
+import CubeLoader from "@/components/ui/cube-loader"
 
 // ── Types ────────────────────────────────────────────────────────────
 

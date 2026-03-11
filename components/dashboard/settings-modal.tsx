@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { ArrowLeft, Loader2, Clock, Save } from "lucide-react"
-import { CubeLoader } from "@/components/ui/cube-loader"
+import CubeLoader from "@/components/ui/cube-loader"
 import { ServiceEditor } from "./service-editor"
 
 interface SettingsData {
