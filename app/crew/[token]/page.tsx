@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Briefcase,
   History,
+  PlusCircle,
 } from "lucide-react"
 
 interface JobCard {
@@ -31,7 +32,7 @@ interface JobCard {
 }
 
 interface PortalData {
-  cleaner: { id: number; name: string; phone: string; availability: any }
+  cleaner: { id: number; name: string; phone: string; availability: any; employee_type?: string }
   tenant: { name: string; slug: string }
   todaysJobs: JobCard[]
   upcomingJobs: JobCard[]
@@ -125,6 +126,23 @@ export default function CrewPortalPage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4 space-y-6">
+        {/* New Quote CTA — salesmen only */}
+        {cleaner.employee_type === "salesman" && (
+          <button
+            onClick={() => router.push(`/crew/${token}/new-quote`)}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl p-4 flex items-center gap-3 shadow-md hover:shadow-lg active:scale-[0.98] transition-all"
+          >
+            <div className="size-11 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+              <PlusCircle className="size-6" />
+            </div>
+            <div className="text-left">
+              <h3 className="font-bold text-base">New Quote</h3>
+              <p className="text-blue-200 text-xs">Create a quote for a new customer</p>
+            </div>
+            <ChevronRight className="size-5 ml-auto text-blue-200" />
+          </button>
+        )}
+
         {/* Pending assignments (needs response) */}
         {pendingJobs.length > 0 && (
           <Section

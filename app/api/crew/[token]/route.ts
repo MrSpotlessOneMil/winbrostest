@@ -136,6 +136,7 @@ export async function GET(
       name: cleaner.name,
       phone: cleaner.phone,
       availability: cleaner.availability,
+      employee_type: (cleaner as any).employee_type || 'technician',
     },
     tenant: {
       name: tenant.business_name_short || tenant.business_name || tenant.name,
