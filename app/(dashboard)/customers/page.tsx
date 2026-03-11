@@ -271,8 +271,9 @@ export default function CustomersPage() {
   const fetchCustomers = async (search?: string) => {
     try {
       const url = search ? `/api/customers?search=${encodeURIComponent(search)}` : "/api/customers"
-      const res = await fetch(url)
+      const res = await fetch(url, { cache: "no-store" })
       const json = await res.json()
+      console.log(`[customers] fetch: success=${json.success} customers=${json.data?.customers?.length ?? 0} messages=${json.data?.messages?.length ?? 0}`, json.error || '')
       if (json.success) {
         setCustomers(json.data.customers)
         setMessages(json.data.messages)
@@ -494,7 +495,7 @@ export default function CustomersPage() {
       try {
         const currentSearch = searchQueryRef.current
         const url = currentSearch ? `/api/customers?search=${encodeURIComponent(currentSearch)}` : "/api/customers"
-        const res = await fetch(url)
+        const res = await fetch(url, { cache: "no-store" })
         const json = await res.json()
         if (json.success) {
           // Check if there are new messages to trigger scroll

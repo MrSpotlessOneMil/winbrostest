@@ -484,7 +484,7 @@ export async function GET(request: NextRequest) {
 
   console.log(`[customers API] tenant=${tenant?.slug || 'admin'} customers=${sortedCustomers.length} messages=${(messages || []).length}`)
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     success: true,
     data: {
       customers: sortedCustomers,
@@ -496,4 +496,6 @@ export async function GET(request: NextRequest) {
       cleanerPhones,
     },
   })
+  response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate')
+  return response
 }

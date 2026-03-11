@@ -221,6 +221,8 @@ export async function validateOpenPhoneWebhook(
   if (globalSecret) secretsToTry.push(globalSecret)
 
   // 2. Per-tenant secrets from DB (each tenant has their own OpenPhone account)
+  // NOTE: Do NOT filter by active — inactive tenants must still receive webhooks
+  // so their messages are stored and visible on the dashboard.
   try {
     const { getSupabaseServiceClient } = await import('./supabase')
     const client = getSupabaseServiceClient()
@@ -228,7 +230,6 @@ export async function validateOpenPhoneWebhook(
       .from('tenants')
       .select('openphone_webhook_secret')
       .not('openphone_webhook_secret', 'is', null)
-      .eq('active', true)
     if (tenants) {
       for (const t of tenants) {
         if (t.openphone_webhook_secret && !secretsToTry.includes(t.openphone_webhook_secret)) {

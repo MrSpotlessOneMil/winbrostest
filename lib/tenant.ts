@@ -282,10 +282,10 @@ export async function getTenantByPhoneNumber(phoneNumber: string): Promise<Tenan
   const last10 = digitsOnly.slice(-10)
 
   // Try to find by exact match first, then by partial match
+  // NOTE: Do NOT filter by active — inactive tenants must still receive webhooks
   const { data, error } = await client
     .from("tenants")
     .select("*")
-    .eq("active", true)
 
   if (error || !data) {
     console.error("[Tenant] Error fetching tenants by phone:", error)
@@ -312,11 +312,11 @@ export async function getTenantByPhoneNumber(phoneNumber: string): Promise<Tenan
 export async function getTenantByOpenPhoneId(phoneId: string): Promise<Tenant | null> {
   const client = getAdminClient()
 
+  // NOTE: Do NOT filter by active — inactive tenants must still receive webhooks
   const { data, error } = await client
     .from("tenants")
     .select("*")
     .eq("openphone_phone_id", phoneId)
-    .eq("active", true)
     .maybeSingle()
 
   if (error || !data) {

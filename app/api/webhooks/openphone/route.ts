@@ -82,6 +82,9 @@ function formatDateHuman(raw: string, tz = 'America/Chicago'): string {
 }
 
 export async function POST(request: NextRequest) {
+  // Top-level log: every webhook request, before any validation
+  console.log(`[OpenPhone] Webhook received at ${new Date().toISOString()}`)
+
   const signature =
     request.headers.get("openphone-signature") ||
     request.headers.get("x-openphone-signature") ||
@@ -106,6 +109,7 @@ export async function POST(request: NextRequest) {
   // Pass null for tenant - uses global webhook secret from env
   const ok = await validateOpenPhoneWebhook(null, rawBody, signature, timestamp)
   if (!ok) {
+    console.error(`[OpenPhone] Webhook signature validation FAILED — rejecting request. sig=${signature?.slice(0, 20)}...`)
     return NextResponse.json({ success: false, error: "Invalid OpenPhone signature" }, { status: 401 })
   }
 
@@ -118,8 +122,11 @@ export async function POST(request: NextRequest) {
 
   const extracted = extractMessageFromOpenPhonePayload(payload)
   if (!extracted) {
+    console.warn(`[OpenPhone] Could not extract message from payload. Keys: ${Object.keys(payload).join(',')}`)
     return NextResponse.json({ success: true, ignored: true, reason: "could not extract message" })
   }
+
+  console.log(`[OpenPhone] Extracted: from=${extracted.from} to=${extracted.to} dir=${extracted.direction} event=${extracted.eventType}`)
 
   // Determine direction from extracted data OR from webhook event type
   // OpenPhone event types: "message.received" (inbound), "message.sent" (outbound)
