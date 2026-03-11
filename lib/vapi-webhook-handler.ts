@@ -425,14 +425,14 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   })
 
               // Look up price from pricebook (WinBros window/pressure/gutter)
-              const priceResult = lookupPrice({
+              const priceResult = await lookupPrice({
                 serviceType: bookingInfo.serviceType || serviceType,
                 squareFootage: bookingInfo.squareFootage || null,
                 notes: jobNotes || null,
                 scope: bookingInfo.scope || null,
                 pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
                 propertyType: bookingInfo.propertyType || null,
-              })
+              }, tenant.id)
               let jobPrice = priceResult?.price || null
               if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
 
@@ -638,14 +638,14 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 })
 
             // Look up price from pricebook (WinBros window/pressure/gutter)
-            const existingPriceResult = lookupPrice({
+            const existingPriceResult = await lookupPrice({
               serviceType: bookingInfo.serviceType || serviceType,
               squareFootage: bookingInfo.squareFootage || null,
               notes: existingLeadNotes || null,
               scope: bookingInfo.scope || null,
               pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
               propertyType: bookingInfo.propertyType || null,
-            })
+            }, tenant.id)
             let existingJobPrice = existingPriceResult?.price || null
 
             // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)

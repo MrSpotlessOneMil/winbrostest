@@ -280,18 +280,18 @@ export async function getQuotePricing(
   serviceCategory: 'standard' | 'move_in_out' = 'standard'
 ): Promise<QuotePricingResult> {
   if (isWindowCleaningTenant(tenantSlug)) {
-    return getWindowCleaningPricing(params.squareFootage)
+    return getWindowCleaningPricing(params.squareFootage, tenantId)
   }
   return getHouseCleaningPricing(tenantId, params, serviceCategory)
 }
 
 // ── Window Cleaning (WinBros) ────────────────────────────────────────
 
-function getWindowCleaningPricing(squareFootage?: number | null): QuotePricingResult {
+async function getWindowCleaningPricing(squareFootage?: number | null, tenantId?: string): Promise<QuotePricingResult> {
   const tierPrices: Record<string, TierPriceResult> = {
-    good: computeTierPrice('good', squareFootage),
-    better: computeTierPrice('better', squareFootage),
-    best: computeTierPrice('best', squareFootage),
+    good: await computeTierPrice('good', squareFootage, tenantId),
+    better: await computeTierPrice('better', squareFootage, tenantId),
+    best: await computeTierPrice('best', squareFootage, tenantId),
   }
 
   return {

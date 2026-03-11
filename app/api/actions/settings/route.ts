@@ -11,11 +11,16 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 
 // route-check:no-vercel-cron
 
-const ALLOWED_FIELDS = [
+const ALLOWED_NUMERIC_FIELDS = [
   "business_hours_start",
   "business_hours_end",
   "salesman_buffer_minutes",
   "technician_buffer_minutes",
+] as const
+
+const ALLOWED_JSON_FIELDS = [
+  "window_tiers",
+  "flat_services",
 ] as const
 
 export async function GET(request: NextRequest) {
@@ -35,6 +40,8 @@ export async function GET(request: NextRequest) {
     },
     service_description: authTenant.service_description || null,
     tenant_name: authTenant.name,
+    window_tiers: wc.window_tiers ?? null,
+    flat_services: wc.flat_services ?? null,
   })
 }
 
@@ -45,9 +52,9 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
 
-  // Validate: only accept known fields with numeric values
-  const updates: Record<string, number> = {}
-  for (const field of ALLOWED_FIELDS) {
+  // Validate: accept known numeric fields and JSON fields
+  const updates: Record<string, unknown> = {}
+  for (const field of ALLOWED_NUMERIC_FIELDS) {
     if (field in body) {
       const val = Number(body[field])
       if (!Number.isFinite(val) || val < 0) {
@@ -57,6 +64,12 @@ export async function POST(request: NextRequest) {
         )
       }
       updates[field] = val
+    }
+  }
+
+  for (const field of ALLOWED_JSON_FIELDS) {
+    if (field in body) {
+      updates[field] = body[field]
     }
   }
 

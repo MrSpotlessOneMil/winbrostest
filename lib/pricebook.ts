@@ -5,9 +5,13 @@
  * Window cleaning uses square-footage-based tiers.
  * Pressure washing uses flat-rate per-surface pricing (multiple surfaces can be summed).
  * Gutter cleaning is a flat $250 rate (matches HCP).
+ *
+ * Supports DB-backed pricing when tenantId is provided, with hardcoded fallback.
  */
 
-type WindowTier = {
+import { getSupabaseClient } from './supabase'
+
+export type WindowTier = {
   maxSqft: number
   label: string
   exterior: number
@@ -15,14 +19,14 @@ type WindowTier = {
   trackDetailing: number
 }
 
-type FlatService = {
+export type FlatService = {
   name: string
   keywords: string[]
   price: number
 }
 
-// Window cleaning tiers ordered by sqft range
-const WINDOW_TIERS: WindowTier[] = [
+// Window cleaning tiers ordered by sqft range (hardcoded defaults)
+export const WINDOW_TIERS: WindowTier[] = [
   { maxSqft: 2499, label: "Up to 20 Panes", exterior: 275, interior: 80, trackDetailing: 50 },
   { maxSqft: 3499, label: "Up to 40 Panes", exterior: 295, interior: 160, trackDetailing: 100 },
   { maxSqft: 4999, label: "Up to 60 Panes", exterior: 345, interior: 240, trackDetailing: 150 },
@@ -104,13 +108,15 @@ export const QUOTE_ADDONS: QuoteAddon[] = [
 
 /**
  * Compute price for a specific tier given property square footage.
+ * When tenantId is provided, loads tiers from DB; otherwise uses hardcoded defaults.
  */
-export function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: number | null): {
+export async function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: number | null, tenantId?: string): Promise<{
   price: number
   breakdown: { service: string; price: number }[]
   tier: string
-} {
-  const windowTier = getWindowTier(sqft)
+}> {
+  const tiers = tenantId ? await getWindowTiersFromDB(tenantId) : WINDOW_TIERS
+  const windowTier = getWindowTier(sqft, tiers)
   const quoteTier = QUOTE_TIERS.find(t => t.key === tierKey)!
   const breakdown: { service: string; price: number }[] = []
   let price = 0
@@ -141,8 +147,8 @@ export function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: num
   return { price, breakdown, tier: windowTier.label }
 }
 
-// Flat-rate services matched by keywords (pressure washing surfaces)
-const FLAT_SERVICES: FlatService[] = [
+// Flat-rate services matched by keywords (pressure washing surfaces, hardcoded defaults)
+export const FLAT_SERVICES: FlatService[] = [
   { name: "House Washing", keywords: ["house wash", "house_wash", "siding", "soft wash"], price: 300 },
   { name: "Driveway Cleaning", keywords: ["driveway"], price: 250 },
   { name: "Patio Cleaning", keywords: ["patio"], price: 150 },
@@ -195,13 +201,63 @@ const SURFACE_KEYWORD_MAP: Record<string, string> = {
   stone: 'stone',
 }
 
-function getWindowTier(sqft?: number | null): WindowTier {
-  if (!sqft || sqft <= 0) return DEFAULT_WINDOW_TIER
-  for (const tier of WINDOW_TIERS) {
+/**
+ * Load window tiers from tenant workflow_config. Falls back to hardcoded WINDOW_TIERS.
+ */
+export async function getWindowTiersFromDB(tenantId: string): Promise<WindowTier[]> {
+  try {
+    const client = getSupabaseClient()
+    const { data, error } = await client
+      .from('tenants')
+      .select('workflow_config')
+      .eq('id', tenantId)
+      .single()
+
+    if (error || !data) return WINDOW_TIERS
+
+    const wc = (data.workflow_config || {}) as Record<string, unknown>
+    const stored = wc.window_tiers as WindowTier[] | undefined
+    if (!stored || !Array.isArray(stored) || stored.length === 0) return WINDOW_TIERS
+
+    return stored
+  } catch {
+    return WINDOW_TIERS
+  }
+}
+
+/**
+ * Load flat services from tenant workflow_config. Falls back to hardcoded FLAT_SERVICES.
+ */
+export async function getFlatServicesFromDB(tenantId: string): Promise<FlatService[]> {
+  try {
+    const client = getSupabaseClient()
+    const { data, error } = await client
+      .from('tenants')
+      .select('workflow_config')
+      .eq('id', tenantId)
+      .single()
+
+    if (error || !data) return FLAT_SERVICES
+
+    const wc = (data.workflow_config || {}) as Record<string, unknown>
+    const stored = wc.flat_services as FlatService[] | undefined
+    if (!stored || !Array.isArray(stored) || stored.length === 0) return FLAT_SERVICES
+
+    return stored
+  } catch {
+    return FLAT_SERVICES
+  }
+}
+
+function getWindowTier(sqft?: number | null, tiers?: WindowTier[]): WindowTier {
+  const tierList = tiers || WINDOW_TIERS
+  const defaultTier = tierList[0] || DEFAULT_WINDOW_TIER
+  if (!sqft || sqft <= 0) return defaultTier
+  for (const tier of tierList) {
     if (sqft <= tier.maxSqft) return tier
   }
   // Above largest tier — use the largest
-  return WINDOW_TIERS[WINDOW_TIERS.length - 1]
+  return tierList[tierList.length - 1]
 }
 
 function normalizeText(text: string): string {
@@ -231,9 +287,11 @@ export interface PriceLookupResult {
  * Returns null if no valid surfaces are found.
  */
 export function lookupPressureWashingPrice(
-  surfaces: string[]
+  surfaces: string[],
+  flatServices?: FlatService[]
 ): PriceLookupResult | null {
   if (!surfaces || surfaces.length === 0) return null
+  const services = flatServices || FLAT_SERVICES
 
   let totalPrice = 0
   const serviceNames: string[] = []
@@ -242,7 +300,7 @@ export function lookupPressureWashingPrice(
     const keyword = SURFACE_KEYWORD_MAP[surface]
     if (!keyword) continue
 
-    const svc = FLAT_SERVICES.find(s => s.keywords.includes(keyword))
+    const svc = services.find(s => s.keywords.includes(keyword))
     if (svc) {
       totalPrice += svc.price
       serviceNames.push(svc.name)
@@ -271,17 +329,22 @@ export function lookupGutterPrice(
 
 /**
  * Look up the price for a WinBros service.
+ * When tenantId is provided, loads pricing from DB; otherwise uses hardcoded defaults.
  * Returns null if the service cannot be determined.
  */
-export function lookupPrice(input: PriceLookupInput): PriceLookupResult | null {
+export async function lookupPrice(input: PriceLookupInput, tenantId?: string): Promise<PriceLookupResult | null> {
   const serviceRaw = normalizeText(input.serviceType || "")
   const notesRaw = normalizeText(input.notes || "")
   const combined = `${serviceRaw} ${notesRaw}`
 
+  // Load DB-backed data when tenantId is available
+  const windowTiers = tenantId ? await getWindowTiersFromDB(tenantId) : WINDOW_TIERS
+  const flatServices = tenantId ? await getFlatServicesFromDB(tenantId) : FLAT_SERVICES
+
   // Route to multi-surface lookup for pressure washing
   if (serviceRaw.includes('pressure') || serviceRaw.includes('power wash')) {
     if (input.pressureWashingSurfaces && input.pressureWashingSurfaces.length > 0) {
-      return lookupPressureWashingPrice(input.pressureWashingSurfaces)
+      return lookupPressureWashingPrice(input.pressureWashingSurfaces, flatServices)
     }
     // Fall through to keyword match if no structured surfaces provided
   }
@@ -292,7 +355,7 @@ export function lookupPrice(input: PriceLookupInput): PriceLookupResult | null {
   }
 
   // Check flat-rate services (keyword match for legacy/unstructured lookups)
-  for (const svc of FLAT_SERVICES) {
+  for (const svc of flatServices) {
     for (const kw of svc.keywords) {
       if (combined.includes(kw)) {
         return { price: svc.price, serviceName: svc.name }
@@ -309,7 +372,7 @@ export function lookupPrice(input: PriceLookupInput): PriceLookupResult | null {
     combined.includes("cleaning") // Generic "cleaning" at WinBros = windows
 
   if (isWindow) {
-    const tier = getWindowTier(input.squareFootage)
+    const tier = getWindowTier(input.squareFootage, windowTiers)
 
     // Use explicit scope if provided, otherwise sniff from notes (less reliable)
     const scopeNorm = normalizeText(input.scope || "")

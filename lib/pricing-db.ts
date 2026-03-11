@@ -43,10 +43,7 @@ export type PricingAddon = {
  * Get pricing tiers for a tenant from the database
  * Falls back to static JSON if no tenant-specific pricing exists
  */
-export async function getPricingTiers(tenantId?: string): Promise<{
-  standard: PricingRow[]
-  deep: PricingRow[]
-}> {
+export async function getPricingTiers(tenantId?: string): Promise<Record<string, PricingRow[]>> {
   try {
     const client = getSupabaseClient()
 
@@ -59,7 +56,7 @@ export async function getPricingTiers(tenantId?: string): Promise<{
 
     if (!tId) {
       console.log('[pricing-db] No tenant ID, using fallback pricing')
-      return pricingDataFallback as { standard: PricingRow[]; deep: PricingRow[] }
+      return pricingDataFallback as unknown as Record<string, PricingRow[]>
     }
 
     // Fetch pricing tiers from database
@@ -73,22 +70,26 @@ export async function getPricingTiers(tenantId?: string): Promise<{
 
     if (error) {
       console.error('[pricing-db] Error fetching pricing tiers:', error)
-      return pricingDataFallback as { standard: PricingRow[]; deep: PricingRow[] }
+      return pricingDataFallback as unknown as Record<string, PricingRow[]>
     }
 
     if (!data || data.length === 0) {
       console.log('[pricing-db] No pricing data for tenant, using fallback')
-      return pricingDataFallback as { standard: PricingRow[]; deep: PricingRow[] }
+      return pricingDataFallback as unknown as Record<string, PricingRow[]>
     }
 
-    // Split into standard and deep
-    const standard = data.filter((row) => row.service_type === 'standard')
-    const deep = data.filter((row) => row.service_type === 'deep')
+    // Group by service_type dynamically
+    const grouped: Record<string, PricingRow[]> = {}
+    for (const row of data) {
+      const key = row.service_type
+      if (!grouped[key]) grouped[key] = []
+      grouped[key].push(row)
+    }
 
-    return { standard, deep }
+    return grouped
   } catch (error) {
     console.error('[pricing-db] Error:', error)
-    return pricingDataFallback as { standard: PricingRow[]; deep: PricingRow[] }
+    return pricingDataFallback as unknown as Record<string, PricingRow[]>
   }
 }
 

@@ -107,19 +107,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Update tiers if provided
-    if (tiers) {
-      // Flatten tiers object to array
+    if (tiers && typeof tiers === 'object') {
+      // Flatten tiers object to array — supports any service type dynamically
       const allTiers: PricingRow[] = []
 
-      if (tiers.standard && Array.isArray(tiers.standard)) {
-        for (const row of tiers.standard) {
-          allTiers.push({ ...row, service_type: 'standard' })
-        }
-      }
-
-      if (tiers.deep && Array.isArray(tiers.deep)) {
-        for (const row of tiers.deep) {
-          allTiers.push({ ...row, service_type: 'deep' })
+      for (const [serviceType, rows] of Object.entries(tiers)) {
+        if (Array.isArray(rows)) {
+          for (const row of rows as PricingRow[]) {
+            allTiers.push({ ...row, service_type: serviceType })
+          }
         }
       }
 

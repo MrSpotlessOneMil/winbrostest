@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { ArrowLeft, Loader2, Clock, Save } from "lucide-react"
+import { ServiceEditor } from "./service-editor"
 
 interface SettingsData {
   business_hours_start: number
@@ -112,6 +113,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             Back
           </button>
           <div className="h-4 w-px bg-zinc-800" />
+          <h1 className="text-sm font-semibold text-zinc-100">Settings</h1>
+          <div className="h-4 w-px bg-zinc-800" />
           <div className="flex items-center gap-1 bg-zinc-800/60 rounded-lg p-0.5">
             <button
               onClick={() => setActiveTab("general")}
@@ -145,9 +148,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           {activeTab === "service-editor" ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-sm text-zinc-500">Service Editor coming soon</p>
-            </div>
+            <ServiceEditor />
           ) : (
           <div className="max-w-2xl mx-auto px-4 md:px-8 py-8">
             {loading ? (
