@@ -559,7 +559,35 @@ export default function TeamsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingMember({
+                            id: c.id, name: c.name, phone: c.phone, email: "",
+                            is_team_lead: c.role === "lead",
+                            employee_type: c.employee_type || "technician",
+                          })
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteTarget({ id: c.id, name: c.name })
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                     <Switch
                       checked={c.is_active}
                       onCheckedChange={(checked) => {
@@ -568,34 +596,6 @@ export default function TeamsPage() {
                       onClick={(e) => e.stopPropagation()}
                       aria-label={`Toggle ${c.name} active`}
                     />
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditingMember({
-                          id: c.id, name: c.name, phone: c.phone, email: "",
-                          is_team_lead: c.role === "lead",
-                          employee_type: c.employee_type || "technician",
-                        })
-                      }}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-destructive hover:text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteTarget({ id: c.id, name: c.name })
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                    </div>
                   </div>
                 </div>
               )
