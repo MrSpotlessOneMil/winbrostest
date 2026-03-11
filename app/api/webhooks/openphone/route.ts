@@ -396,6 +396,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
+  // ============================================
+  // EARLY DEDUP — Reject duplicate webhook calls before any side effects
+  // (task cancellation, lifecycle handlers, AI response).
+  // The later dedup at message-insert time catches concurrent races via unique index.
+  // ============================================
+  if (opMessageId) {
+    const { data: alreadyProcessed } = await client
+      .from("messages")
+      .select("id")
+      .eq("tenant_id", tenant?.id)
+      .eq("external_message_id", opMessageId)
+      .maybeSingle()
+    if (alreadyProcessed) {
+      console.log(`[OpenPhone] Early dedup: message ${opMessageId} already processed for tenant ${tenant?.slug}`)
+      return NextResponse.json({ success: true, deduplicated: true })
+    }
+  }
+
   // Track retargeting reply: if customer has active sequence and hasn't replied yet, mark first reply
   const isRetargetingReply = !!(customer?.retargeting_sequence && !customer?.retargeting_stopped_reason)
   if (customer?.retargeting_sequence && !customer?.retargeting_completed_at && !customer?.retargeting_replied_at) {
