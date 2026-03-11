@@ -404,10 +404,18 @@ export async function POST(request: NextRequest) {
     // Send confirmation FIRST (before opt-out, so it goes through)
     await sendSMS(tenant, phone, "You've been unsubscribed from automated messages. Reply START to re-subscribe anytime.")
 
-    // Set opt-out flag
+    // Set opt-out flag + clear retargeting state
     await client
       .from("customers")
-      .update({ sms_opt_out: true, sms_opt_out_at: new Date().toISOString() })
+      .update({
+        sms_opt_out: true,
+        sms_opt_out_at: new Date().toISOString(),
+        retargeting_sequence: null,
+        retargeting_step: null,
+        retargeting_enrolled_at: null,
+        retargeting_completed_at: new Date().toISOString(),
+        retargeting_stopped_reason: 'opted_out',
+      })
       .eq("id", customer.id)
 
     // Cancel ALL pending automated tasks for this customer

@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
       const { data: candidates, error: queryError } = await client
         .from('customers')
         .select(`
-          id, first_name, phone_number, post_job_stage,
+          id, first_name, phone_number, post_job_stage, sms_opt_out,
           jobs!inner(id, completed_at, status)
         `)
         .eq('tenant_id', tenant.id)
@@ -78,6 +78,8 @@ export async function GET(request: NextRequest) {
       }> = []
 
       for (const cust of candidates) {
+        if ((cust as any).sms_opt_out) continue
+
         const jobs = cust.jobs as Array<{ id: number; completed_at: string | null; status: string }>
         if (!jobs || jobs.length === 0) continue
 

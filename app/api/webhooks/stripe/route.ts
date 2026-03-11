@@ -615,11 +615,16 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     },
   })
 
-  // Cancel quote follow-up tasks (customer accepted the quote)
+  // Cancel quote follow-up tasks + ALL retargeting sequences (customer converted)
   try {
     await cancelTask(`quote-${quote_id}-urgent`)
     if (quote.customer_id) {
-      await cancelPendingTasks(quote.tenant_id, `retarget-${quote.customer_id}-quoted_not_booked-`)
+      await cancelPendingTasks(quote.tenant_id, `retarget-${quote.customer_id}-`)
+      // Clear retargeting state so they're not re-enrolled
+      await serviceClient.from('customers').update({
+        retargeting_completed_at: new Date().toISOString(),
+        retargeting_stopped_reason: 'converted',
+      }).eq('id', quote.customer_id)
     }
     console.log(`[Stripe Webhook] Cancelled quote follow-up tasks for quote ${quote_id}`)
   } catch (err) {

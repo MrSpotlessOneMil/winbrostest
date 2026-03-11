@@ -9,10 +9,11 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getTenantById } from '@/lib/tenant'
+import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
 import { getQuotePricing, isWindowCleaningTenant } from '@/lib/quote-pricing'
 import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence } from '@/lib/scheduler'
+import { cancelPendingTasks } from '@/lib/lifecycle-engine'
 import { toE164 } from '@/lib/phone-utils'
 
 type RouteParams = { params: Promise<{ token: string }> }
@@ -355,18 +356,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .eq('tenant_id', tenant.id)
       .is('lifecycle_stage_override', null)
 
-    // Schedule retargeting sequence
-    try {
-      await scheduleRetargetingSequence(
-        tenant.id,
-        customerId,
-        phone,
-        customerName,
-        'quoted_not_booked',
-      )
-      console.log(`[new-quote] Enrolled customer ${customerId} in quoted_not_booked retargeting`)
-    } catch (err) {
-      console.error(`[new-quote] Failed to enroll retargeting:`, err)
+    // Schedule retargeting sequence (cancel any active sequence first)
+    if (tenantUsesFeature(tenant, 'monthly_followup_enabled')) {
+      try {
+        await cancelPendingTasks(tenant.id, `retarget-${customerId}-`)
+        await scheduleRetargetingSequence(
+          tenant.id,
+          customerId,
+          phone,
+          customerName,
+          'quoted_not_booked',
+        )
+        console.log(`[new-quote] Enrolled customer ${customerId} in quoted_not_booked retargeting`)
+      } catch (err) {
+        console.error(`[new-quote] Failed to enroll retargeting:`, err)
+      }
     }
 
     return NextResponse.json({

@@ -567,7 +567,7 @@ async function processRetargeting(
   // Auto-stop check: if customer has booked a job since enrollment, stop the sequence
   const { data: customer } = await supabase
     .from('customers')
-    .select('retargeting_enrolled_at')
+    .select('retargeting_enrolled_at, sms_opt_out')
     .eq('id', customerId)
     .single()
 
@@ -600,6 +600,17 @@ async function processRetargeting(
 
       return
     }
+  }
+
+  // Recheck opt-out before sending (customer may have opted out since task was scheduled)
+  if (customer?.sms_opt_out) {
+    console.log(`[retargeting] Customer ${customerId} opted out — cancelling remaining sequence`)
+    await supabase
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .like('task_key', `retarget-${customerId}-${sequence}-%`)
+      .eq('status', 'pending')
+    return
   }
 
   // Build message from template (A/B variant)
