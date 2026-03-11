@@ -113,9 +113,19 @@ type CustomerMembership = {
   visits_completed: number
   service_plans: {
     name: string
+    slug: string
     visits_per_year: number
     discount_per_visit: number
   }
+}
+
+type ServicePlan = {
+  id: string
+  name: string
+  slug: string
+  visits_per_year: number
+  interval_months: number
+  discount_per_visit: number
 }
 
 type RainDayPreview = {
@@ -360,6 +370,7 @@ export default function JobsPage() {
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
+  const [servicePlans, setServicePlans] = useState<ServicePlan[]>([])
   // Add charge state (card-on-file tenants)
   const [addChargeOpen, setAddChargeOpen] = useState(false)
   const [addChargeType, setAddChargeType] = useState("")
@@ -405,15 +416,16 @@ export default function JobsPage() {
     return () => { cancelled = true }
   }, [createForm.bedrooms, createForm.bathrooms, createForm.sqft, createForm.service_type])
 
-  // Recalculate price when add-ons change
+  // Recalculate price when add-ons or base price change
   useEffect(() => {
-    if (!isHouseCleaning || !basePrice) return
+    if (!basePrice && isHouseCleaning) return
+    if (!basePrice && !createForm.selected_addons.length) return
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = addonsList.find((a) => a.addon_key === key)
       return sum + (addon?.flat_price || 0)
     }, 0)
     setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
-  }, [createForm.selected_addons])
+  }, [createForm.selected_addons, basePrice])
 
   // Fetch add-ons when create modal or add-charge form opens
   useEffect(() => {
@@ -433,6 +445,17 @@ export default function JobsPage() {
       })
       .catch(() => {})
   }, [createOpen, addChargeOpen])
+
+  // Fetch service plans for membership dropdown (WinBros only)
+  useEffect(() => {
+    if (!createOpen || isHouseCleaning || servicePlans.length > 0) return
+    fetch("/api/service-plans")
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.plans) setServicePlans(res.plans)
+      })
+      .catch(() => {})
+  }, [createOpen])
 
   // Auto-populate from phone number (debounced)
   useEffect(() => {
@@ -476,7 +499,7 @@ export default function JobsPage() {
                   setCreateForm((prev) => {
                     // Guard: don't overwrite if user already selected a membership
                     if (prev.membership_id) return prev
-                    const updated = { ...prev, membership_id: mem.id }
+                    const updated = { ...prev, membership_id: `membership:${mem.id}` }
                     // Auto-apply membership discount to price
                     const currentBase = basePrice || Number(prev.price) || 0
                     if (mem.service_plans?.discount_per_visit && currentBase > 0) {
@@ -881,6 +904,14 @@ export default function JobsPage() {
         body.amount = parseFloat(addChargeAmount)
         body.description = addChargeDesc || "Custom charge"
         body.addon_type = addChargeDesc || "custom_charge"
+      } else {
+        // Send amount + description from local add-ons list as fallback
+        // (covers hard-coded WinBros add-ons not in the DB pricing_addons table)
+        const preset = addonsList.find((a) => a.addon_key === addChargeType)
+        if (preset?.flat_price) {
+          body.amount = preset.flat_price
+          body.description = preset.label
+        }
       }
       const res = await fetch("/api/actions/add-charge", {
         method: "POST",
@@ -1091,6 +1122,31 @@ export default function JobsPage() {
     setCreateError("")
 
     try {
+      // Resolve membership: existing membership ID or create new one from plan slug
+      let resolvedMembershipId: string | undefined
+      const memVal = createForm.membership_id
+      if (memVal.startsWith("membership:")) {
+        resolvedMembershipId = memVal.replace("membership:", "")
+      } else if (memVal.startsWith("plan:") && !lookedUpCustomerId) {
+        setCreateError("Customer must be found before creating a membership")
+        setCreateSaving(false)
+        return
+      } else if (memVal.startsWith("plan:")) {
+        const planSlug = memVal.replace("plan:", "")
+        const memRes = await fetch("/api/actions/memberships", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ customer_id: lookedUpCustomerId, plan_slug: planSlug }),
+        })
+        const memData = await memRes.json()
+        if (!memData.success) {
+          setCreateError(memData.error || "Failed to create membership")
+          setCreateSaving(false)
+          return
+        }
+        resolvedMembershipId = memData.membership?.id
+      }
+
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1109,7 +1165,7 @@ export default function JobsPage() {
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
-          membership_id: createForm.membership_id || undefined,
+          membership_id: resolvedMembershipId,
           cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
           assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
@@ -1594,7 +1650,7 @@ export default function JobsPage() {
                   </svg>
                 </button>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
-                  {isHouseCleaning && selectedEvent?.status !== "completed" && (
+                  {selectedEvent?.status !== "completed" && (
                     <button
                       className="cal-modal-btn"
                       onClick={() => setAddChargeOpen(true)}
@@ -2111,15 +2167,21 @@ export default function JobsPage() {
                     className="cal-form-control"
                     value={createForm.membership_id}
                     onChange={(e) => {
-                      const memId = e.target.value
-                      const mem = memId ? customerMemberships.find((m) => m.id === memId) : null
+                      const val = e.target.value
+                      let discount = 0
+                      if (val.startsWith("membership:")) {
+                        const mem = customerMemberships.find((m) => m.id === val.replace("membership:", ""))
+                        discount = mem?.service_plans?.discount_per_visit || 0
+                      } else if (val.startsWith("plan:")) {
+                        const plan = servicePlans.find((p) => p.slug === val.replace("plan:", ""))
+                        discount = plan?.discount_per_visit || 0
+                      }
                       setCreateForm((prev) => {
-                        const updated = { ...prev, membership_id: memId }
+                        const updated = { ...prev, membership_id: val }
                         const currentBase = basePrice || Number(prev.price) || 0
-                        if (mem?.service_plans?.discount_per_visit && currentBase > 0) {
-                          updated.price = String(Math.max(0, currentBase - mem.service_plans.discount_per_visit))
-                        } else if (!memId && currentBase > 0) {
-                          // Deselected membership — restore base price
+                        if (discount && currentBase > 0) {
+                          updated.price = String(Math.max(0, currentBase - discount))
+                        } else if (!val && currentBase > 0) {
                           updated.price = String(currentBase)
                         }
                         return updated
@@ -2127,12 +2189,23 @@ export default function JobsPage() {
                     }}
                   >
                     <option value="">No membership</option>
-                    {customerMemberships.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.service_plans.name} — {m.visits_completed}/{m.service_plans.visits_per_year} visits
-                        {m.service_plans.discount_per_visit ? ` (-$${m.service_plans.discount_per_visit})` : ""}
-                      </option>
-                    ))}
+                    {servicePlans.map((plan) => {
+                      const existing = customerMemberships.find((m) => m.service_plans?.slug === plan.slug)
+                      if (existing) {
+                        return (
+                          <option key={plan.slug} value={`membership:${existing.id}`}>
+                            ✓ {plan.name} — {existing.visits_completed}/{plan.visits_per_year} visits
+                            {plan.discount_per_visit ? ` (-$${plan.discount_per_visit})` : ""}
+                          </option>
+                        )
+                      }
+                      return (
+                        <option key={plan.slug} value={`plan:${plan.slug}`}>
+                          {plan.name}
+                          {plan.discount_per_visit ? ` (-$${plan.discount_per_visit}/visit)` : ""}
+                        </option>
+                      )
+                    })}
                   </select>
                 </div>
               )}
@@ -2276,6 +2349,17 @@ export default function JobsPage() {
                   onChange={(e) =>
                     setCreateForm((prev) => ({ ...prev, price: e.target.value }))
                   }
+                  onBlur={(e) => {
+                    if (!isHouseCleaning) {
+                      // Capture manually-entered price as base, subtract current add-on total
+                      const total = Number(e.target.value) || 0
+                      const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+                        const addon = addonsList.find((a) => a.addon_key === key)
+                        return sum + (addon?.flat_price || 0)
+                      }, 0)
+                      setBasePrice(Math.max(0, total - addonTotal))
+                    }
+                  }}
                 />
               </div>
               <button
