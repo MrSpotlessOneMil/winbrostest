@@ -461,8 +461,21 @@ export default function JobsPage() {
             fetch(`/api/actions/memberships?customer_id=${c.id}&status=active`)
               .then((r) => r.json())
               .then((mRes) => {
-                if (mRes.data) setCustomerMemberships(mRes.data)
-                else setCustomerMemberships([])
+                const mems = mRes.data || []
+                setCustomerMemberships(mems)
+                // Auto-select if there's exactly one active membership
+                if (mems.length === 1) {
+                  const mem = mems[0]
+                  setCreateForm((prev) => {
+                    const updated = { ...prev, membership_id: mem.id }
+                    // Auto-apply membership discount to price
+                    const currentPrice = Number(prev.price) || 0
+                    if (mem.service_plans?.discount_per_visit && currentPrice > 0) {
+                      updated.price = String(Math.max(0, currentPrice - mem.service_plans.discount_per_visit))
+                    }
+                    return updated
+                  })
+                }
               })
               .catch(() => setCustomerMemberships([]))
           }
