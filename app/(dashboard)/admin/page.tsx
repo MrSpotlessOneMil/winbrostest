@@ -302,7 +302,7 @@ export default function AdminPage() {
 
   // Connection test state
   const [testingService, setTestingService] = useState<string | null>(null)
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; webhookStatus?: "verified" | "warning" | "mismatch" | null }>>({})
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
 
   // Webhook registration state
   const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
@@ -1063,7 +1063,7 @@ export default function AdminPage() {
       const json = await res.json()
       setTestResults((prev) => ({
         ...prev,
-        [service]: { success: json.success, message: json.message || json.error || "Unknown", webhookStatus: json.webhookStatus || null },
+        [service]: { success: json.success, message: json.message || json.error || "Unknown" },
       }))
     } catch (err: any) {
       setTestResults((prev) => ({
@@ -1816,7 +1816,7 @@ export default function AdminPage() {
                         ) : (
                           <RefreshCcw className="h-4 w-4 mr-2" />
                         )}
-                        {testingAll ? "Testing..." : "Test All"}
+                        {testingAll ? "Testing..." : "Test Connections"}
                       </Button>
                       <Button
                         variant="outline"
@@ -1829,7 +1829,7 @@ export default function AdminPage() {
                         ) : (
                           <Settings2 className="h-4 w-4 mr-2" />
                         )}
-                        {registeringAll ? "Registering..." : "Register All Webhooks"}
+                        {registeringAll ? "Registering..." : "Register Webhooks"}
                       </Button>
                       <Button variant="outline" size="sm" onClick={verifyAllWebhooks} disabled={verifyingWebhooks}>
                         {verifyingWebhooks ? (
@@ -2147,27 +2147,11 @@ export default function AdminPage() {
                             <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
                           </span>
                         )}
-                        {testResults["vapi"]?.webhookStatus === "verified" ? (
-                          <span className="inline-flex cursor-pointer" title={"Webhook URL verified — server.url points to our endpoint\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL verified — server.url points to our endpoint")}>
-                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                          </span>
-                        ) : testResults["vapi"]?.webhookStatus === "warning" ? (
-                          <span className="inline-flex cursor-pointer" title={"No server URL on assistant — may use account-level fallback\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No server URL on assistant — may use account-level fallback")}>
+                        {!webhookResults["vapi"] && !currentTenant.vapi_webhook_error && !currentTenant.vapi_webhook_registered_at && currentTenant.vapi_api_key && currentTenant.vapi_assistant_id && (
+                          <span className="inline-flex cursor-pointer" title={"Webhook not registered\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook not registered")}>
                             <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
                           </span>
-                        ) : testResults["vapi"]?.webhookStatus === "mismatch" ? (
-                          <span className="inline-flex cursor-pointer" title={"Webhook URL mismatch — server.url points elsewhere. Click Register Webhook to fix.\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("Webhook URL mismatch — server.url points elsewhere")}>
-                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                          </span>
-                        ) : currentTenant.webhook_health?.vapi?.last_event_at ? (
-                          <span className="inline-flex cursor-pointer" title={`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})\n(Click to copy)`} onClick={() => navigator.clipboard.writeText(`Webhook active — last event: ${currentTenant.webhook_health.vapi.last_event_type} (${new Date(currentTenant.webhook_health.vapi.last_event_at).toLocaleDateString()})`)}>
-                            <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                          </span>
-                        ) : (currentTenant.vapi_api_key && currentTenant.vapi_assistant_id && !currentTenant.vapi_webhook_registered_at && !webhookVerification["vapi"]?.active) ? (
-                          <span className="inline-flex cursor-pointer" title={"No webhook activity — configure Server URL in VAPI dashboard\n(Click to copy)"} onClick={() => navigator.clipboard.writeText("No webhook activity — configure Server URL in VAPI dashboard")}>
-                            <X className="h-3.5 w-3.5 text-red-500 shrink-0" />
-                          </span>
-                        ) : null}
+                        )}
                         {webhookVerification["vapi"] && (
                           <span className="inline-flex cursor-pointer" title={webhookVerification["vapi"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(webhookVerification["vapi"].message)}>
                             {webhookVerification["vapi"].active ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}

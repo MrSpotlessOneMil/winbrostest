@@ -134,13 +134,10 @@ export async function testVapiKeyOnly(key: string): Promise<StepResult> {
 export async function testVapiConnection(
   key: string,
   assistantId: string,
-  opts?: { outboundAssistantId?: string; expectedWebhookUrl?: string },
+  opts?: { outboundAssistantId?: string },
 ): Promise<StepResult> {
   const assistantIds = [assistantId, ...(opts?.outboundAssistantId ? [opts.outboundAssistantId] : [])]
   const names: string[] = []
-  // "verified" = URL matches, "warning" = no server.url set, "mismatch" = points elsewhere
-  let webhookStatus: "verified" | "warning" | "mismatch" | null = null
-  const webhookDetails: string[] = []
 
   for (const aId of assistantIds) {
     const controller = new AbortController()
@@ -156,31 +153,10 @@ export async function testVapiConnection(
     }
     const data = await res.json()
     names.push(data.name || aId)
-
-    if (opts?.expectedWebhookUrl) {
-      const serverUrl = data.server?.url
-      if (serverUrl === opts.expectedWebhookUrl) {
-        if (!webhookStatus) webhookStatus = "verified"
-      } else if (!serverUrl) {
-        webhookDetails.push(`${data.name || aId}: no server URL set`)
-        if (webhookStatus !== "mismatch") webhookStatus = "warning"
-      } else {
-        webhookDetails.push(`${data.name || aId}: points to ${serverUrl}`)
-        webhookStatus = "mismatch"
-      }
-    }
   }
 
-  let message = `Connected. Assistant${names.length > 1 ? "s" : ""}: ${names.join(", ")}`
-  if (webhookStatus === "verified") {
-    message += " | Webhook: verified"
-  } else if (webhookStatus === "warning") {
-    message += ` | Webhook: not set (${webhookDetails.join("; ")}) — may use account-level fallback`
-  } else if (webhookStatus === "mismatch") {
-    message += ` | Webhook: mismatch (${webhookDetails.join("; ")})`
-  }
-
-  return { ok: true, message, data: { webhookStatus } }
+  const message = `Connected. Assistant${names.length > 1 ? "s" : ""}: ${names.join(", ")}`
+  return { ok: true, message }
 }
 
 export async function testTelegramConnection(token: string): Promise<StepResult> {

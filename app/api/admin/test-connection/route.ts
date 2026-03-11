@@ -8,7 +8,6 @@ import {
   testTelegramConnection,
   testWaveConnection,
   testGmailConnection,
-  getBaseUrl,
 } from "@/lib/admin-onboard"
 
 export async function POST(request: NextRequest) {
@@ -61,13 +60,10 @@ export async function POST(request: NextRequest) {
         if (!tenant.vapi_api_key || !tenant.vapi_assistant_id) {
           return NextResponse.json({ success: false, error: "VAPI API key or assistant ID not configured" }, { status: 400 })
         }
-        const baseUrl = getBaseUrl() || `https://${request.headers.get("host")}`
-        const expectedWebhookUrl = `${baseUrl}/api/webhooks/vapi/${tenant.slug}`
         const result = await testVapiConnection(tenant.vapi_api_key, tenant.vapi_assistant_id, {
           outboundAssistantId: tenant.vapi_outbound_assistant_id || undefined,
-          expectedWebhookUrl,
         })
-        return NextResponse.json({ success: result.ok, message: result.message, webhookStatus: result.data?.webhookStatus })
+        return NextResponse.json({ success: result.ok, message: result.message })
       }
 
       case "telegram": {
