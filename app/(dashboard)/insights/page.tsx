@@ -209,7 +209,7 @@ export default function InsightsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between stagger-1">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Lightbulb className="h-6 w-6 text-amber-400" />
@@ -223,7 +223,7 @@ export default function InsightsPage() {
       </div>
 
       {/* Key Metrics Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-2">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
@@ -279,7 +279,7 @@ export default function InsightsPage() {
       </div>
 
       {/* Retargeting Performance + Pipeline Health */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-3">
         {/* Retargeting Performance */}
         <Card>
           <CardHeader>
@@ -372,7 +372,7 @@ export default function InsightsPage() {
       </div>
 
       {/* Retargeting by Stage */}
-      <Card>
+      <Card className="stagger-4">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="h-5 w-5 text-blue-400" />
@@ -433,7 +433,7 @@ export default function InsightsPage() {
 
       {/* Smart Recommendations */}
       {recommendations.length > 0 && (
-        <Card>
+        <Card className="stagger-5">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Lightbulb className="h-5 w-5 text-amber-400" />
