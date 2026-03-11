@@ -700,6 +700,155 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
       required: ["table", "select"],
     },
   },
+  // ── NEW POWER TOOLS ─────────────────────────────────────────────
+  {
+    name: "update_job",
+    description:
+      "Update an existing job. Can reschedule (change date/time), change status (cancel, complete, mark in_progress), update price, address, notes, or any other field. Use lookup_customer first to get the job ID.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: { type: "number", description: "The job ID to update" },
+        date: { type: "string", description: "New date in YYYY-MM-DD format" },
+        time: { type: "string", description: "New time in HH:MM format (24-hour)" },
+        status: {
+          type: "string",
+          enum: ["scheduled", "in_progress", "completed", "cancelled", "pending"],
+          description: "New job status",
+        },
+        price: { type: "number", description: "New price in dollars" },
+        address: { type: "string", description: "New service address" },
+        notes: { type: "string", description: "Updated notes" },
+        service_type: { type: "string", description: "New service type" },
+        bedrooms: { type: "number", description: "Number of bedrooms" },
+        bathrooms: { type: "number", description: "Number of bathrooms" },
+      },
+      required: ["job_id"],
+    },
+  },
+  {
+    name: "update_customer",
+    description:
+      "Update a customer's information. Can change name, email, address, property details, or any field. Look up the customer first to get their current info.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Customer's phone number (to identify them)" },
+        first_name: { type: "string", description: "Updated first name" },
+        last_name: { type: "string", description: "Updated last name" },
+        email: { type: "string", description: "Updated email" },
+        address: { type: "string", description: "Updated address" },
+        bedrooms: { type: "number", description: "Number of bedrooms" },
+        bathrooms: { type: "number", description: "Number of bathrooms" },
+        sqft: { type: "number", description: "Square footage" },
+        notes: { type: "string", description: "Customer notes" },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "charge_card",
+    description:
+      "Charge a customer's saved card on file. Requires the customer to have previously saved a card via Stripe. Use lookup_customer to verify they have a card on file first.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Customer's phone number" },
+        amount: { type: "number", description: "Amount to charge in dollars (e.g. 250 for $250)" },
+        description: { type: "string", description: "What the charge is for (e.g. 'Deep cleaning service')" },
+        job_id: { type: "number", description: "Optional job ID to associate with payment" },
+      },
+      required: ["phone_number", "amount"],
+    },
+  },
+  {
+    name: "check_availability",
+    description:
+      "Check cleaner availability for a date or date range. Shows who is free, who is busy, and how many jobs each cleaner has. Useful before assigning a cleaner.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "Date to check in YYYY-MM-DD format" },
+        end_date: { type: "string", description: "Optional end date for range check (YYYY-MM-DD). If omitted, checks single date." },
+      },
+      required: ["date"],
+    },
+  },
+  {
+    name: "view_schedule",
+    description:
+      "View the job schedule/calendar for a date range. Shows all jobs with customer info, cleaner assignments, times, and statuses. Like looking at the dashboard calendar.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        start_date: { type: "string", description: "Start date in YYYY-MM-DD format" },
+        end_date: { type: "string", description: "End date in YYYY-MM-DD format (defaults to 7 days from start)" },
+        status: {
+          type: "string",
+          enum: ["all", "scheduled", "in_progress", "completed", "cancelled", "pending"],
+          description: "Filter by job status (default: all active jobs)",
+        },
+      },
+      required: ["start_date"],
+    },
+  },
+  {
+    name: "create_quote",
+    description:
+      "Create a formal quote for a customer with Good/Better/Best tier pricing. Generates a shareable quote link. The customer can review, pick a date, save their card, and book through the link.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Customer's phone number" },
+        selected_tier: {
+          type: "string",
+          description: "Pricing tier: 'good', 'better', or 'best'",
+        },
+        selected_addons: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of addon keys to include (e.g. ['inside_fridge', 'inside_oven'])",
+        },
+        custom_price: { type: "number", description: "Override price instead of using tier pricing (in dollars)" },
+        notes: { type: "string", description: "Notes for the customer" },
+        send_sms: { type: "boolean", description: "Whether to text the quote link to the customer (default: true)" },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "view_messages",
+    description:
+      "View recent SMS conversations with a customer. Shows both inbound and outbound messages. Useful for context before responding.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        phone_number: { type: "string", description: "Customer's phone number" },
+        limit: { type: "number", description: "Number of recent messages to show (default: 20)" },
+      },
+      required: ["phone_number"],
+    },
+  },
+  {
+    name: "setup_recurring",
+    description:
+      "Set up a recurring job schedule for a customer. Creates a parent recurring job that auto-generates future instances. Requires an existing job or customer phone.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        job_id: { type: "number", description: "Existing job ID to make recurring (copies all details)" },
+        phone_number: { type: "string", description: "Customer phone (alternative to job_id — creates new recurring job)" },
+        frequency: {
+          type: "string",
+          enum: ["weekly", "biweekly", "monthly", "every_6_weeks"],
+          description: "How often the job should recur",
+        },
+        start_date: { type: "string", description: "First occurrence date in YYYY-MM-DD format (uses job date if job_id provided)" },
+        preferred_day: { type: "string", description: "Preferred day of week (e.g. 'monday', 'friday')" },
+      },
+      required: ["frequency"],
+    },
+  },
 ]
 
   return TOOLS
@@ -2288,6 +2437,432 @@ async function executeTool(
     }
   }
 
+  // ── UPDATE JOB ────────────────────────────────────────────────────
+  if (toolName === "update_job") {
+    try {
+      const jobId = String(toolInput.job_id)
+      const { updateJob, getJobById } = await import("@/lib/supabase")
+
+      const existingJob = await getJobById(jobId)
+      if (!existingJob) return `No job found with ID ${jobId}.`
+      if (tenantId && existingJob.tenant_id !== tenantId) return `No job found with ID ${jobId}.`
+
+      const updates: Record<string, any> = {}
+      if (toolInput.date) updates.date = toolInput.date
+      if (toolInput.time) updates.scheduled_at = toolInput.time
+      if (toolInput.status) updates.status = toolInput.status
+      if (toolInput.price != null) updates.price = toolInput.price
+      if (toolInput.address) updates.address = toolInput.address
+      if (toolInput.notes) updates.notes = toolInput.notes
+      if (toolInput.service_type) updates.service_type = toolInput.service_type
+      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
+      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
+
+      // Handle completion side effects
+      if (toolInput.status === "completed" && !existingJob.completed_at) {
+        updates.completed_at = new Date().toISOString()
+      }
+      if (toolInput.status === "cancelled") {
+        updates.booked = false
+      }
+
+      if (Object.keys(updates).length === 0) return "No updates specified. What would you like to change?"
+
+      updates.updated_at = new Date().toISOString()
+      const updated = await updateJob(jobId, updates, {})
+      if (!updated) return "Failed to update job. Please check the job ID."
+
+      const changes = Object.entries(updates)
+        .filter(([k]) => k !== "updated_at")
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join("\n")
+
+      return `Job #${jobId} updated successfully!\n${changes}`
+    } catch (err: any) {
+      return `Error updating job: ${err.message}`
+    }
+  }
+
+  // ── UPDATE CUSTOMER ──────────────────────────────────────────────
+  if (toolName === "update_customer") {
+    try {
+      const customer: any = await findCustomerByPhone(client, toolInput.phone_number, tenantId)
+      if (!customer) return `No customer found with phone ${toolInput.phone_number}.`
+
+      const updates: Record<string, any> = {}
+      if (toolInput.first_name) updates.first_name = toolInput.first_name
+      if (toolInput.last_name) updates.last_name = toolInput.last_name
+      if (toolInput.email) updates.email = toolInput.email
+      if (toolInput.address) updates.address = toolInput.address
+      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
+      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
+      if (toolInput.sqft != null) updates.sqft = toolInput.sqft
+      if (toolInput.notes) updates.notes = toolInput.notes
+
+      if (Object.keys(updates).length === 0) return "No updates specified. What would you like to change?"
+
+      updates.updated_at = new Date().toISOString()
+      const { error } = await client.from("customers").update(updates).eq("id", customer.id)
+      if (error) return `Failed to update customer: ${error.message}`
+
+      const changes = Object.entries(updates)
+        .filter(([k]) => k !== "updated_at")
+        .map(([k, v]) => `- ${k}: ${v}`)
+        .join("\n")
+
+      return `Customer ${customer.first_name || ""} ${customer.last_name || ""} updated!\n${changes}`
+    } catch (err: any) {
+      return `Error updating customer: ${err.message}`
+    }
+  }
+
+  // ── CHARGE CARD ON FILE ──────────────────────────────────────────
+  if (toolName === "charge_card") {
+    try {
+      const customer: any = await findCustomerByPhone(client, toolInput.phone_number, tenantId)
+      if (!customer) return `No customer found with phone ${toolInput.phone_number}.`
+      if (!customer.stripe_customer_id) return `${customer.first_name || "This customer"} doesn't have a card on file. Generate a card-on-file link first using generate_stripe_link.`
+      if (!customer.card_on_file_at) return `${customer.first_name || "This customer"} hasn't saved a card yet. Send them a card-on-file link first.`
+
+      if (!tenant) return "Cannot charge — no tenant context."
+      const stripeKey = (tenant as any).stripe_secret_key
+      if (!stripeKey) return "Stripe is not configured for this business."
+
+      const amountCents = Math.round(toolInput.amount * 100)
+      const description = toolInput.description || "Service charge"
+
+      const { chargeCardOnFile } = await import("@/lib/stripe-client")
+      const metadata: Record<string, string> = {
+        tenant_id: tenantId || "",
+        customer_id: String(customer.id),
+        description,
+      }
+      if (toolInput.job_id) metadata.job_id = String(toolInput.job_id)
+
+      const result = await chargeCardOnFile(stripeKey, customer.stripe_customer_id, amountCents, metadata)
+      if (!result.success) return `Charge failed: ${result.error}`
+
+      // Mark job as paid if job_id provided
+      if (toolInput.job_id) {
+        await client.from("jobs").update({
+          paid: true,
+          payment_status: "paid",
+          stripe_payment_intent_id: result.paymentIntentId,
+          updated_at: new Date().toISOString(),
+        }).eq("id", toolInput.job_id)
+      }
+
+      return `Successfully charged $${toolInput.amount.toFixed(2)} to ${customer.first_name || "customer"}'s card on file!\n- Payment ID: ${result.paymentIntentId}\n- Description: ${description}${toolInput.job_id ? `\n- Job #${toolInput.job_id} marked as paid` : ""}`
+    } catch (err: any) {
+      return `Error charging card: ${err.message}`
+    }
+  }
+
+  // ── CHECK AVAILABILITY ───────────────────────────────────────────
+  if (toolName === "check_availability") {
+    try {
+      const startDate = toolInput.date
+      const endDate = toolInput.end_date || startDate
+
+      // Get all cleaners
+      const { getCleaners } = await import("@/lib/supabase")
+      const cleaners = await getCleaners(undefined, tenantId)
+      if (!cleaners || cleaners.length === 0) return "No cleaners found."
+
+      // Get all jobs in date range
+      let jobsQuery = client.from("jobs").select("id, date, scheduled_at, cleaner_id, service_type, status, hours, address")
+        .gte("date", startDate).lte("date", endDate)
+        .in("status", ["scheduled", "in_progress", "pending"])
+      if (tenantId) jobsQuery = jobsQuery.eq("tenant_id", tenantId)
+      const { data: jobs } = await jobsQuery
+
+      // Get assignments
+      const jobIds = (jobs || []).map(j => j.id)
+      let assignments: any[] = []
+      if (jobIds.length > 0) {
+        const { data: a } = await client.from("cleaner_assignments").select("cleaner_id, job_id, status")
+          .in("job_id", jobIds).in("status", ["accepted", "confirmed", "pending"])
+        assignments = a || []
+      }
+
+      // Build availability map
+      const result: any[] = []
+      for (const cleaner of cleaners) {
+        const cleanerJobs = (jobs || []).filter(j =>
+          j.cleaner_id === cleaner.id || assignments.some(a => a.cleaner_id === cleaner.id && a.job_id === j.id)
+        )
+        result.push({
+          id: cleaner.id,
+          name: cleaner.name,
+          phone: cleaner.phone,
+          jobCount: cleanerJobs.length,
+          jobs: cleanerJobs.map(j => ({
+            id: j.id,
+            date: j.date,
+            time: j.scheduled_at,
+            service: j.service_type,
+            address: j.address,
+            hours: j.hours,
+          })),
+          available: cleanerJobs.length === 0,
+        })
+      }
+
+      return JSON.stringify({
+        dateRange: startDate === endDate ? startDate : `${startDate} to ${endDate}`,
+        cleaners: result.sort((a, b) => a.jobCount - b.jobCount),
+        totalJobs: (jobs || []).length,
+      })
+    } catch (err: any) {
+      return `Error checking availability: ${err.message}`
+    }
+  }
+
+  // ── VIEW SCHEDULE ────────────────────────────────────────────────
+  if (toolName === "view_schedule") {
+    try {
+      const startDate = toolInput.start_date
+      const endDate = toolInput.end_date || new Date(new Date(startDate).getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+
+      let query = client.from("jobs").select(`
+        id, date, scheduled_at, status, service_type, job_type, price, hours, address, phone_number, notes, cleaner_id,
+        customers!inner(id, first_name, last_name, phone_number)
+      `).gte("date", startDate).lte("date", endDate)
+        .order("date", { ascending: true }).order("scheduled_at", { ascending: true })
+
+      if (tenantId) query = query.eq("tenant_id", tenantId)
+
+      const statusFilter = toolInput.status || "all"
+      if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter)
+      } else {
+        query = query.in("status", ["scheduled", "in_progress", "completed", "pending"])
+      }
+
+      const { data: jobs, error } = await query.limit(100)
+      if (error) return `Error loading schedule: ${error.message}`
+      if (!jobs || jobs.length === 0) return `No jobs found between ${startDate} and ${endDate}.`
+
+      // Get cleaner names
+      const cleanerIds = [...new Set((jobs as any[]).map(j => j.cleaner_id).filter(Boolean))]
+      let cleanerMap: Record<number, string> = {}
+      if (cleanerIds.length > 0) {
+        const { data: cleaners } = await client.from("cleaners").select("id, name").in("id", cleanerIds)
+        for (const c of cleaners || []) cleanerMap[c.id] = c.name
+      }
+
+      // Group by date
+      const byDate: Record<string, any[]> = {}
+      for (const job of jobs as any[]) {
+        const d = job.date
+        if (!byDate[d]) byDate[d] = []
+        const cust = job.customers
+        byDate[d].push({
+          id: job.id,
+          time: job.scheduled_at || "TBD",
+          status: job.status,
+          service: job.service_type,
+          customer: cust ? `${cust.first_name || ""} ${cust.last_name || ""}`.trim() : "Unknown",
+          phone: job.phone_number,
+          address: job.address,
+          price: job.price,
+          cleaner: job.cleaner_id ? (cleanerMap[job.cleaner_id] || `ID:${job.cleaner_id}`) : "Unassigned",
+          notes: job.notes,
+        })
+      }
+
+      return JSON.stringify({ dateRange: `${startDate} to ${endDate}`, totalJobs: jobs.length, schedule: byDate })
+    } catch (err: any) {
+      return `Error viewing schedule: ${err.message}`
+    }
+  }
+
+  // ── CREATE QUOTE ─────────────────────────────────────────────────
+  if (toolName === "create_quote") {
+    try {
+      const customer: any = await findCustomerByPhone(client, toolInput.phone_number, tenantId)
+      if (!customer) return `No customer found with phone ${toolInput.phone_number}. Create the customer first.`
+      if (!tenant) return "Cannot create quote — no tenant context."
+
+      const { getQuotePricing } = await import("@/lib/quote-pricing")
+      const pricing = await getQuotePricing(tenant.id, tenant.slug || "", {
+        squareFootage: customer.sqft || null,
+        bedrooms: customer.bedrooms || null,
+        bathrooms: customer.bathrooms || null,
+      }, "standard")
+
+      const selectedTier = toolInput.selected_tier || "better"
+      const selectedAddons = toolInput.selected_addons || []
+      const customPrice = toolInput.custom_price
+
+      // Calculate price
+      let total: number
+      if (customPrice != null && customPrice > 0) {
+        total = customPrice
+      } else if (pricing.tierPrices[selectedTier]) {
+        total = pricing.tierPrices[selectedTier].price
+        const tierDef = pricing.tiers.find((t: any) => t.key === selectedTier)
+        for (const key of selectedAddons) {
+          if (tierDef && tierDef.included.includes(key)) continue
+          const addon = pricing.addons.find((a: any) => a.key === key)
+          if (addon) total += addon.price
+        }
+      } else {
+        return `Invalid tier "${selectedTier}". Available: ${Object.keys(pricing.tierPrices).join(", ")}`
+      }
+
+      const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || "Customer"
+
+      const quoteInsert = {
+        tenant_id: tenant.id,
+        customer_id: customer.id,
+        customer_name: customerName,
+        customer_phone: customer.phone_number,
+        customer_email: customer.email,
+        customer_address: customer.address,
+        square_footage: customer.sqft,
+        service_category: "standard",
+        notes: toolInput.notes || null,
+        selected_tier: customPrice != null ? "custom" : selectedTier,
+        selected_addons: selectedAddons.map((k: string) => ({ key: k, quantity: 1 })),
+        custom_base_price: customPrice != null ? customPrice : null,
+        subtotal: total,
+        total,
+        status: "pending",
+        valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      }
+
+      const { data: quote, error: quoteError } = await client
+        .from("quotes").insert(quoteInsert).select("id, token").single()
+
+      if (quoteError || !quote) return `Failed to create quote: ${quoteError?.message}`
+
+      const domain = (tenant as any).website_url?.replace(/\/+$/, "") || process.env.NEXT_PUBLIC_SITE_URL || "https://spotless-scrubbers-api.vercel.app"
+      const quoteLink = `${domain}/quote/${quote.token}`
+
+      // Send SMS if requested (default: true)
+      if (toolInput.send_sms !== false) {
+        const { sendSMS } = await import("@/lib/openphone")
+        const businessName = tenant.business_name_short || tenant.name
+        const message = `Hey ${customer.first_name || "there"}! Here's your custom quote from ${businessName}. Review and book when you're ready: ${quoteLink}`
+        await sendSMS(tenant, customer.phone_number, message)
+      }
+
+      return `Quote created!\n- Quote ID: ${quote.id}\n- Tier: ${customPrice ? "Custom" : selectedTier}\n- Total: $${total.toFixed(2)}\n- Link: ${quoteLink}\n${toolInput.send_sms !== false ? "- SMS sent to customer" : "- SMS not sent (as requested)"}`
+    } catch (err: any) {
+      return `Error creating quote: ${err.message}`
+    }
+  }
+
+  // ── VIEW MESSAGES ────────────────────────────────────────────────
+  if (toolName === "view_messages") {
+    try {
+      const e164 = toE164(toolInput.phone_number)
+      const phone = e164 || toolInput.phone_number
+      const limit = Math.min(toolInput.limit || 20, 50)
+
+      let query = client.from("messages").select("id, direction, body, created_at, from_number, to_number")
+        .or(`from_number.eq.${phone},to_number.eq.${phone}`)
+        .order("created_at", { ascending: false }).limit(limit)
+
+      if (tenantId) query = query.eq("tenant_id", tenantId)
+      const { data: messages, error } = await query
+      if (error) return `Error loading messages: ${error.message}`
+      if (!messages || messages.length === 0) return `No messages found for ${toolInput.phone_number}.`
+
+      const formatted = messages.reverse().map((m: any) => ({
+        direction: m.direction === "inbound" ? "CUSTOMER" : "BUSINESS",
+        message: m.body,
+        time: new Date(m.created_at).toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+      }))
+
+      return JSON.stringify({ phone, messageCount: messages.length, conversation: formatted })
+    } catch (err: any) {
+      return `Error loading messages: ${err.message}`
+    }
+  }
+
+  // ── SETUP RECURRING ──────────────────────────────────────────────
+  if (toolName === "setup_recurring") {
+    try {
+      const frequency = toolInput.frequency
+      const { getJobById } = await import("@/lib/supabase")
+
+      let baseJob: any = null
+      let customerId: number | null = null
+      let phone: string | null = null
+
+      if (toolInput.job_id) {
+        baseJob = await getJobById(String(toolInput.job_id))
+        if (!baseJob) return `No job found with ID ${toolInput.job_id}.`
+        if (tenantId && baseJob.tenant_id !== tenantId) return `No job found with ID ${toolInput.job_id}.`
+        customerId = baseJob.customer_id
+        phone = baseJob.phone_number
+      } else if (toolInput.phone_number) {
+        const customer: any = await findCustomerByPhone(client, toolInput.phone_number, tenantId)
+        if (!customer) return `No customer found with phone ${toolInput.phone_number}.`
+        customerId = customer.id
+        phone = customer.phone_number
+
+        // Find their most recent job to use as template
+        let q = client.from("jobs").select("*").eq("customer_id", customer.id)
+          .order("created_at", { ascending: false }).limit(1)
+        if (tenantId) q = q.eq("tenant_id", tenantId)
+        const { data: recentJobs } = await q
+        if (recentJobs && recentJobs.length > 0) baseJob = recentJobs[0]
+      }
+
+      if (!baseJob && !phone) return "Need either a job_id or phone_number to set up recurring."
+
+      const startDate = toolInput.start_date || baseJob?.date || new Date().toISOString().split("T")[0]
+
+      // Create the recurring parent job
+      const recurringInsert: Record<string, any> = {
+        tenant_id: tenantId,
+        customer_id: customerId,
+        phone_number: phone,
+        address: baseJob?.address || null,
+        service_type: baseJob?.service_type || "Standard cleaning",
+        job_type: "cleaning",
+        status: "scheduled",
+        booked: true,
+        paid: false,
+        date: startDate,
+        scheduled_at: baseJob?.scheduled_at || null,
+        price: baseJob?.price || null,
+        hours: baseJob?.hours || null,
+        cleaners: baseJob?.cleaners || null,
+        bedrooms: baseJob?.bedrooms || null,
+        bathrooms: baseJob?.bathrooms || null,
+        frequency,
+        notes: `Recurring ${frequency}${baseJob?.notes ? ". " + baseJob.notes : ""}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+
+      const { data: recurringJob, error: recurError } = await client
+        .from("jobs").insert(recurringInsert).select("id").single()
+
+      if (recurError || !recurringJob) return `Failed to create recurring job: ${recurError?.message}`
+
+      // If we based it on an existing job, mark that job's parent
+      if (toolInput.job_id && baseJob) {
+        await client.from("jobs").update({ parent_job_id: recurringJob.id }).eq("id", baseJob.id)
+      }
+
+      const freqLabel: Record<string, string> = {
+        weekly: "every week",
+        biweekly: "every 2 weeks",
+        monthly: "every month",
+        every_6_weeks: "every 6 weeks",
+      }
+
+      return `Recurring schedule set up!\n- Recurring Job ID: ${recurringJob.id}\n- Frequency: ${freqLabel[frequency] || frequency}\n- Starting: ${startDate}\n- Service: ${recurringInsert.service_type}\n- Price: $${recurringInsert.price || "TBD"}\n${baseJob ? `- Based on Job #${baseJob.id}` : ""}`
+    } catch (err: any) {
+      return `Error setting up recurring: ${err.message}`
+    }
+  }
+
   return `Unknown tool: ${toolName}`
 }
 
@@ -2399,17 +2974,33 @@ Today is ${dayOfWeek}, ${today}.
 29. **List leads / pipeline** — Show all leads from the database, filterable by status or source
 30. **Unassign a cleaner** — Remove a cleaner assignment from a job (puts job back to unassigned)
 31. **Query business data** — Flexible database queries for revenue, profit, cleaner workload, job history, or any analytics question. Query jobs, leads, customers, assignments, cleaners, or messages with custom filters.
+32. **Charge card on file** — Charge a customer's saved card for any amount (auto-marks job as paid if job_id provided)
+33. **Check availability** — See which cleaners are free on a given date or date range. Shows job counts per cleaner.
+34. **View schedule** — See the full calendar for any date range with customer names, cleaner assignments, times, and statuses. Like looking at the dashboard calendar.
+35. **Create a quote** — Generate a formal Good/Better/Best quote with a shareable link. Customer can review, pick a date, save card, and book through the link. Optionally texts the link.
+36. **Setup recurring** — Convert a one-time job into a recurring schedule (weekly, biweekly, monthly, or every 6 weeks).
 
 ## BOOKING FLOW
 When the owner wants to book a job from a manual intake (e.g. "I just got a call from..."), follow this order:
 1. **Create or look up the customer** — get their phone, name, address, email
 ${bookingFlowStep2}
-3. **Send confirmation SMS** — text the customer their booking details
-4. **Assign a cleaner** — pick from the team, notifies them via Telegram
-5. **Send payment link** — generates Stripe link and texts it to the customer
-6. After the job: **Send review request** — texts the customer a review link
+3. **Check availability** — use check_availability to see who's free that day
+4. **Assign a cleaner** — pick from the team, notifies them via SMS
+5. **Send confirmation SMS** — text the customer their booking details
+6. **Send payment link** — generates Stripe link and texts it to the customer
+7. After the job: **Complete the job** — update_job with status "completed"
+8. After completion: **Charge card** — charge_card if they have a card on file
+9. After payment: **Send review request** — texts the customer a review link
+10. If they want recurring: **Setup recurring** — create the recurring schedule
 
 You don't have to do all steps at once — the owner can ask you to start at any step. If info is missing (e.g. no email for payment link), ask for it or use update_customer to add it.
+
+## QUOTING FLOW
+When the owner wants to send a formal quote:
+1. **Look up or create the customer**
+2. **Create a quote** — use create_quote with tier selection (good/better/best) or custom price
+3. The quote link is auto-texted to the customer — they can review, pick a date, save their card, and book through it
+4. The system automatically follows up if they don't book (retargeting pipeline)
 
 ## COMPOSING MESSAGES
 When drafting messages for the owner to copy and send, put the message inside a markdown code block (\`\`\`) so it's easy to copy. Keep SMS messages under 300 characters. Make them professional and on-brand for ${businessName}.
@@ -2436,12 +3027,15 @@ You have two modes of operation:
 - Looking up customers, leads, jobs, message history
 - Creating, updating, and listing leads in the pipeline
 - Querying business data for reports and analytics
+- Checking cleaner availability and viewing the schedule
 - Sending follow-up SMS to existing customers about their scheduled jobs
 - Sending payment links to customers who already have jobs booked
 - Sending review requests after completed jobs
 - Scheduling routine follow-ups and reminders
 - Composing and sending booking confirmation emails
 - Unassigning cleaners when the owner explicitly asks
+- Rescheduling or updating jobs when the owner explicitly asks
+- Creating quotes when the owner provides the details
 
 **Confirm first (ask the owner before executing):**
 - Sending SMS or email to someone with no prior contact history
