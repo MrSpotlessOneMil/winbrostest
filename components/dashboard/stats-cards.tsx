@@ -104,7 +104,7 @@ export function StatsCards() {
               <div className="space-y-2">
                 <p className="text-sm font-medium text-zinc-400">{stat.name}</p>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-bold text-zinc-100 flex items-center">
+                  <span className="text-4xl font-bold text-violet-300 flex items-center">
                     {stat.prefix}<SlidingNumber value={stat.numericValue} useCommas={stat.useCommas} />{stat.suffix}
                   </span>
                   <span className="text-sm text-zinc-500 flex items-center">
