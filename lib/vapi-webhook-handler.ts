@@ -473,6 +473,33 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
               if (jobErr) {
                 console.error(`${tag} Failed to create job:`, jobErr.message)
+
+                // Log the failure as a system event so it's visible in the dashboard
+                await logSystemEvent({
+                  source: "vapi",
+                  event_type: "JOB_CREATION_FAILED",
+                  message: `Failed to create job from booked VAPI call: ${fullName || phone} — ${jobErr.message}`,
+                  phone_number: phone,
+                  metadata: {
+                    lead_id: lead.id,
+                    error: jobErr.message,
+                    booking_info: bookingInfo,
+                  },
+                })
+
+                // Job creation failed — do NOT mark lead as booked or send confirmation.
+                // Fall back to follow-up sequence so the lead isn't lost.
+                try {
+                  await scheduleLeadFollowUp(
+                    tenant.id,
+                    String(lead.id),
+                    phone,
+                    fullName || "there"
+                  )
+                  console.log(`${tag} Job creation failed — scheduled follow-up for lead ${lead.id} instead`)
+                } catch (followupErr) {
+                  console.error(`${tag} Failed to schedule fallback follow-up:`, followupErr)
+                }
               } else if (job?.id) {
                 console.log(`${tag} Job created from booked call: ${job.id}`)
 
@@ -505,50 +532,50 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   },
                 })
 
+                // Only mark lead as booked and send confirmation if job was actually created
+                await client
+                  .from("leads")
+                  .update({
+                    status: "booked",
+                    converted_to_job_id: job.id,
+                  })
+                  .eq("id", lead.id)
+                console.log(`${tag} Lead ${lead.id} status set to "booked"`)
+
+                // Send booking confirmation text
+                const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
+                const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
+                  firstName || "there",
+                  serviceType,
+                  dateTimeStr,
+                  bookAddress || "your address",
+                  isWinBros
+                )
+
+                const smsResult = await sendSMS(tenant, phone, confirmationMsg)
+
+                if (smsResult.success) {
+                  console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
+                  await client.from("messages").insert({
+                    tenant_id: tenant.id,
+                    customer_id: customerId,
+                    phone_number: phone,
+                    role: "assistant",
+                    content: confirmationMsg,
+                    direction: "outbound",
+                    message_type: "sms",
+                    ai_generated: false,
+                    timestamp: nowIso,
+                    source: "vapi_booking_confirmation",
+                  })
+                } else {
+                  console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
+                }
+
+                // Deposit link is NOT sent here — customer must reply with email first.
+                // OpenPhone webhook handles: email received → deposit flow (invoice + Stripe link)
+                // Stripe webhook then triggers cleaner assignment after deposit payment.
               }
-
-              await client
-                .from("leads")
-                .update({
-                  status: "booked",
-                  converted_to_job_id: job?.id || null,
-                })
-                .eq("id", lead.id)
-              console.log(`${tag} Lead ${lead.id} status set to "booked"`)
-
-              // Send booking confirmation text
-              const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
-              const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-                firstName || "there",
-                serviceType,
-                dateTimeStr,
-                bookAddress || "your address",
-                isWinBros
-              )
-
-              const smsResult = await sendSMS(tenant, phone, confirmationMsg)
-
-              if (smsResult.success) {
-                console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
-                await client.from("messages").insert({
-                  tenant_id: tenant.id,
-                  customer_id: customerId,
-                  phone_number: phone,
-                  role: "assistant",
-                  content: confirmationMsg,
-                  direction: "outbound",
-                  message_type: "sms",
-                  ai_generated: false,
-                  timestamp: nowIso,
-                  source: "vapi_booking_confirmation",
-                })
-              } else {
-                console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
-              }
-
-              // Deposit link is NOT sent here — customer must reply with email first.
-              // OpenPhone webhook handles: email received → deposit flow (invoice + Stripe link)
-              // Stripe webhook then triggers cleaner assignment after deposit payment.
             }
           }
         } else {
@@ -658,6 +685,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
             if (jobErr) {
               console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
+
+              // Log failure as system event
+              await logSystemEvent({
+                source: "vapi",
+                event_type: "JOB_CREATION_FAILED",
+                message: `Failed to create job for existing lead ${existingLead.id}: ${fullName || phone} — ${jobErr.message}`,
+                phone_number: phone,
+                metadata: {
+                  lead_id: existingLead.id,
+                  error: jobErr.message,
+                  booking_info: bookingInfo,
+                },
+              })
+
+              // Don't mark lead as booked or cancel follow-ups — let the follow-up sequence continue
             } else if (job?.id) {
               console.log(`${tag} Job created for existing lead: ${job.id}`)
 
@@ -676,65 +718,65 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
 
-            }
+              // Only mark lead as booked if job was actually created
+              await client
+                .from("leads")
+                .update({
+                  status: "booked",
+                  converted_to_job_id: job.id,
+                  form_data: {
+                    ...bookingInfo,
+                    vapi_call_id: providerCallId,
+                    call_outcome: data.outcome,
+                    transcript_summary: data.transcript?.substring(0, 500),
+                  },
+                  last_contact_at: nowIso,
+                })
+                .eq("id", existingLead.id)
 
-            await client
-              .from("leads")
-              .update({
-                status: "booked",
-                converted_to_job_id: job?.id || null,
-                form_data: {
-                  ...bookingInfo,
-                  vapi_call_id: providerCallId,
-                  call_outcome: data.outcome,
-                  transcript_summary: data.transcript?.substring(0, 500),
-                },
-                last_contact_at: nowIso,
-              })
-              .eq("id", existingLead.id)
-
-            // Cancel any pending follow-up tasks for this lead
-            try {
-              const { cancelTask } = await import("@/lib/scheduler")
-              for (let s = 1; s <= 5; s++) {
-                await cancelTask(`lead-${existingLead.id}-stage-${s}`)
+              // Cancel any pending follow-up tasks for this lead
+              try {
+                const { cancelTask } = await import("@/lib/scheduler")
+                for (let s = 1; s <= 5; s++) {
+                  await cancelTask(`lead-${existingLead.id}-stage-${s}`)
+                }
+                console.log(`${tag} Cancelled pending follow-up tasks for lead ${existingLead.id}`)
+              } catch (cancelErr) {
+                console.error(`${tag} Error cancelling follow-up tasks:`, cancelErr)
               }
-              console.log(`${tag} Cancelled pending follow-up tasks for lead ${existingLead.id}`)
-            } catch (cancelErr) {
-              console.error(`${tag} Error cancelling follow-up tasks:`, cancelErr)
+
+              // Send booking confirmation text
+              const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
+              const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
+                firstName || "there",
+                serviceType,
+                dateTimeStr,
+                bookAddress || "your address",
+                isWinBrosExisting
+              )
+
+              const smsResult = await sendSMS(tenant, phone, confirmationMsg)
+
+              if (smsResult.success) {
+                console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
+                await client.from("messages").insert({
+                  tenant_id: tenant.id,
+                  customer_id: customerId,
+                  phone_number: phone,
+                  role: "assistant",
+                  content: confirmationMsg,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  timestamp: nowIso,
+                  source: "vapi_booking_confirmation",
+                })
+              } else {
+                console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
+              }
+
+              // Deposit link sent later: customer replies with email → OpenPhone handles deposit flow
             }
-
-            // Send booking confirmation text
-            const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
-            const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-              firstName || "there",
-              serviceType,
-              dateTimeStr,
-              bookAddress || "your address",
-              isWinBrosExisting
-            )
-
-            const smsResult = await sendSMS(tenant, phone, confirmationMsg)
-
-            if (smsResult.success) {
-              console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
-              await client.from("messages").insert({
-                tenant_id: tenant.id,
-                customer_id: customerId,
-                phone_number: phone,
-                role: "assistant",
-                content: confirmationMsg,
-                direction: "outbound",
-                message_type: "sms",
-                ai_generated: false,
-                timestamp: nowIso,
-                source: "vapi_booking_confirmation",
-              })
-            } else {
-              console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
-            }
-
-            // Deposit link sent later: customer replies with email → OpenPhone handles deposit flow
 
             await logSystemEvent({
               source: "vapi",
