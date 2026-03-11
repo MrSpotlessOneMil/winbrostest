@@ -34,6 +34,7 @@ type CalendarJob = {
   teams?: any
   frequency?: string
   parent_job_id?: number | null
+  membership_id?: string | null
 }
 
 type CalendarEventDetails = {
@@ -305,14 +306,7 @@ function toLocalInput(date: Date | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function eventClassForStatus(status?: string) {
-  const normalized = (status || "").toLowerCase().replace(/[_\s]/g, "-")
-  if (normalized === "completed") return "event-completed"
-  if (normalized === "cancelled") return "event-cancelled"
-  if (normalized === "confirmed") return "event-confirmed"
-  if (normalized === "in-progress") return "event-in-progress"
-  if (normalized === "rescheduled") return "event-rescheduled"
-  if (normalized === "quoted") return "event-quoted"
+function eventClassForStatus(_status?: string) {
   return "event-scheduled"
 }
 
@@ -577,7 +571,7 @@ export default function JobsPage() {
         title,
         start,
         end,
-        classNames: [className],
+        classNames: [className, ...(job.membership_id ? ['event-membership'] : [])],
         backgroundColor: cleanerColor,
         borderColor: cleanerColor,
         extendedProps: {

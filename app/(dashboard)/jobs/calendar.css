@@ -105,6 +105,10 @@
   background: rgba(139, 92, 246, 0.7);
 }
 
+.fc .event-membership {
+  border: 1.5px solid rgba(245, 158, 11, 0.6) !important;
+}
+
 .fc .event-confirmed {
   background: rgba(59, 130, 246, 0.7);
 }
