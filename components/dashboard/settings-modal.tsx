@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { ArrowLeft, Loader2, Clock, Save } from "lucide-react"
+import { CubeLoader } from "@/components/ui/cube-loader"
 import { ServiceEditor } from "./service-editor"
 
 interface SettingsData {
@@ -153,7 +154,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           <div className="max-w-2xl mx-auto px-4 md:px-8 py-8">
             {loading ? (
               <div className="flex items-center justify-center py-24">
-                <Loader2 className="w-6 h-6 text-zinc-500 animate-spin" />
+                <CubeLoader />
               </div>
             ) : !isWindowCleaning ? (
               <div className="py-24 text-center">

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { Loader2, Save, Plus, Trash2, X } from "lucide-react"
+import { CubeLoader } from "@/components/ui/cube-loader"
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -275,8 +276,8 @@ export function ServiceEditor() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 text-zinc-500 animate-spin" />
+      <div className="flex items-center justify-center h-full min-h-[300px]">
+        <CubeLoader />
       </div>
     )
   }
