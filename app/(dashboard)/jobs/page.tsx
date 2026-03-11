@@ -455,7 +455,7 @@ export default function JobsPage() {
         if (res.plans) setServicePlans(res.plans)
       })
       .catch(() => {})
-  }, [createOpen])
+  }, [createOpen, isHouseCleaning])
 
   // Auto-populate from phone number (debounced)
   useEffect(() => {
