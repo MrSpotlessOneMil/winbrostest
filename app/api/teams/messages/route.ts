@@ -14,12 +14,28 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url)
-  const phone = searchParams.get('phone')
+  let phone = searchParams.get('phone')
   const telegramId = searchParams.get('telegram_id')
+  const cleanerId = searchParams.get('cleaner_id')
   const limit = Math.min(Number(searchParams.get('limit') || '200'), 500)
 
+  // Resolve cleaner_id to phone number if provided
+  if (cleanerId && !phone) {
+    const lookupClient = tenant
+      ? await getTenantScopedClient(tenant.id)
+      : getSupabaseServiceClient()
+    const { data: cleaner } = await lookupClient
+      .from('cleaners')
+      .select('phone')
+      .eq('id', Number(cleanerId))
+      .maybeSingle()
+    if (cleaner?.phone) {
+      phone = cleaner.phone
+    }
+  }
+
   if (!phone && !telegramId) {
-    return NextResponse.json({ success: false, error: 'phone or telegram_id parameter is required' }, { status: 400 })
+    return NextResponse.json({ success: false, error: 'phone, telegram_id, or cleaner_id parameter is required' }, { status: 400 })
   }
 
   const normalized = phone ? toE164(phone) : null

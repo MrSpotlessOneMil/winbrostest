@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
 
   const params = request.nextUrl.searchParams
   const period = params.get("period") || "week"
+  const filterCleanerId = params.get("cleaner_id") ? Number(params.get("cleaner_id")) : null
 
   // Calculate date range
   const now = new Date()
@@ -182,8 +183,32 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Filter to single cleaner if requested
+    if (filterCleanerId) {
+      const filtered = result.filter((r) => r.cleaner_id === filterCleanerId)
+      // If cleaner not found in results, return empty with their info
+      if (filtered.length === 0) {
+        const cleaner = cleanerMap.get(filterCleanerId)
+        if (cleaner) {
+          filtered.push({
+            cleaner_id: filterCleanerId,
+            name: cleaner.name,
+            phone: cleaner.phone || "",
+            employee_type: cleaner.employee_type || "technician",
+            total: 0,
+            job_count: 0,
+            jobs: [],
+          })
+        }
+      }
+      result.length = 0
+      result.push(...filtered)
+    }
+
     const grandTotal = result.reduce((sum, r) => sum + r.total, 0)
-    const totalJobs = (jobs || []).filter((j) => (Number(j.price) || 0) > 0).length
+    const totalJobs = filterCleanerId
+      ? result.reduce((sum, r) => sum + r.job_count, 0)
+      : (jobs || []).filter((j) => (Number(j.price) || 0) > 0).length
 
     return NextResponse.json({
       success: true,
