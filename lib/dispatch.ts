@@ -227,6 +227,7 @@ async function sendRouteToTeamLead(
     .from('cleaners')
     .select('phone')
     .eq('id', route.leadId)
+    .eq('active', true)
     .maybeSingle()
 
   if (!lead?.phone) {

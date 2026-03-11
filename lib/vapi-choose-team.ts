@@ -991,6 +991,7 @@ async function fetchJobs(tenantId: string | null): Promise<JobBlock[]> {
   let cleanerQuery = client
     .from('cleaners')
     .select('id, name')
+    .eq('active', true)
     .is('deleted_at', null)
 
   if (tenantId) {

@@ -1043,6 +1043,7 @@ export async function getCleanerByTelegramId(telegramId: string): Promise<Cleane
     .from('cleaners')
     .select('*')
     .eq('telegram_id', telegramId)
+    .eq('active', true)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(1)

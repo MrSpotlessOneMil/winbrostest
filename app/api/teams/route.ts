@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
       .filter((tm: any) => Boolean(tm.is_active))
       .map((tm: any) => {
         const c = tm.cleaners
-        if (!c || !c.active) return null
+        if (!c) return null
         // Filter by employee_type if specified
         if (employeeTypeFilter && (c.employee_type || 'technician') !== employeeTypeFilter) return null
         // Skip if already assigned to another team (handles stale duplicate rows)
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
           role: tm.role === "lead" ? "lead" : (c.employee_type || "technician"),
           employee_type: c.employee_type || "technician",
           team_id: teamId,
-          is_active: true,
+          is_active: Boolean(c.active),
           last_location_lat: c.last_location_lat ?? null,
           last_location_lng: c.last_location_lng ?? null,
           last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
@@ -137,7 +137,6 @@ export async function GET(request: NextRequest) {
   let unassignedQuery = client
     .from("cleaners")
     .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
-    .eq("active", true)
     .is("deleted_at", null)
     .order("name")
   if (tenant) unassignedQuery = unassignedQuery.eq("tenant_id", tenant.id)

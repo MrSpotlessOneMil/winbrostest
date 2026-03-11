@@ -46,6 +46,7 @@ import {
 import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
 import { MessageBubble } from "@/components/message-bubble"
+import { Switch } from "@/components/ui/switch"
 import type { ApiResponse } from "@/lib/types"
 
 type EmployeeType = "technician" | "salesman"
@@ -422,6 +423,35 @@ export default function TeamsPage() {
     setActiveTab("overview")
   }
 
+  async function toggleCleanerActive(cleanerId: string, active: boolean) {
+    // Optimistic update
+    setCleaners((prev) =>
+      prev.map((c) => (c.id === cleanerId ? { ...c, is_active: active } : c))
+    )
+    if (selectedCleaner?.id === cleanerId) {
+      setSelectedCleaner((prev) => prev ? { ...prev, is_active: active } : prev)
+    }
+    try {
+      const res = await fetch("/api/manage-teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_active", cleaner_id: Number(cleanerId), active }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || json?.success === false) {
+        throw new Error(json?.error || "Toggle failed")
+      }
+    } catch {
+      // Revert on failure
+      setCleaners((prev) =>
+        prev.map((c) => (c.id === cleanerId ? { ...c, is_active: !active } : c))
+      )
+      if (selectedCleaner?.id === cleanerId) {
+        setSelectedCleaner((prev) => prev ? { ...prev, is_active: !active } : prev)
+      }
+    }
+  }
+
   const statusColors: Record<string, string> = {
     scheduled: "bg-blue-500/10 text-blue-400 border-blue-500/20",
     in_progress: "bg-amber-500/10 text-amber-400 border-amber-500/20",
@@ -507,7 +537,8 @@ export default function TeamsPage() {
                     "flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors cursor-pointer group",
                     isSelected
                       ? "bg-purple-500/10 border border-purple-500/30"
-                      : "hover:bg-muted/50 border border-transparent"
+                      : "hover:bg-muted/50 border border-transparent",
+                    !c.is_active && "opacity-50"
                   )}
                   onClick={() => selectCleaner(c)}
                 >
@@ -528,7 +559,16 @@ export default function TeamsPage() {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Switch
+                      checked={c.is_active}
+                      onCheckedChange={(checked) => {
+                        toggleCleanerActive(c.id, checked)
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Toggle ${c.name} active`}
+                    />
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -555,6 +595,7 @@ export default function TeamsPage() {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
+                    </div>
                   </div>
                 </div>
               )

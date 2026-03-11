@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Users, ArrowLeft, Plus, Trash2, Pencil, Star } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog"
 
 type Team = { id: number; name: string }
-type Cleaner = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; is_team_lead?: boolean; employee_type?: 'technician' | 'salesman'; team_id: number | null }
+type Cleaner = { id: number; name: string; phone?: string | null; email?: string | null; telegram_id?: string | null; is_team_lead?: boolean; employee_type?: 'technician' | 'salesman'; team_id: number | null; active?: boolean }
 
 async function api(action: string, payload: Record<string, unknown>) {
   const res = await fetch("/api/manage-teams", {
@@ -215,6 +216,22 @@ export default function ManageTeamsPage() {
     }
   }
 
+  async function toggleCleanerActive(cleanerId: number, active: boolean) {
+    // Optimistic update
+    setCleaners((prev) =>
+      prev.map((c) => (c.id === cleanerId ? { ...c, active } : c))
+    )
+    try {
+      await api("toggle_active", { cleaner_id: cleanerId, active })
+    } catch (err: any) {
+      // Revert on failure
+      setCleaners((prev) =>
+        prev.map((c) => (c.id === cleanerId ? { ...c, active: !active } : c))
+      )
+      setError(err?.message || "Toggle failed")
+    }
+  }
+
   const unassigned = cleanersByTeam.get("unassigned") || []
 
   return (
@@ -317,7 +334,7 @@ export default function ManageTeamsPage() {
             {unassigned.map((c) => (
               <div
                 key={c.id}
-                className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 ${draggingId === c.id ? "opacity-50" : ""}`}
+                className={`flex items-center justify-between rounded-md border border-border p-2 ${c.active === false ? "bg-muted/10 opacity-60" : "bg-muted/30"} ${draggingId === c.id ? "opacity-50" : ""}`}
               >
                 <div
                   className="min-w-0 flex-1 cursor-grab active:cursor-grabbing"
@@ -334,7 +351,12 @@ export default function ManageTeamsPage() {
                     <span>{c.phone || "No phone"}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
+                  <Switch
+                    checked={c.active !== false}
+                    onCheckedChange={(checked) => toggleCleanerActive(c.id, checked)}
+                    aria-label={`Toggle ${c.name} active`}
+                  />
                   <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                     <Pencil className="h-4 w-4 text-muted-foreground" />
                   </Button>
@@ -374,7 +396,7 @@ export default function ManageTeamsPage() {
                 {list.map((c) => (
                   <div
                     key={c.id}
-                    className={`flex items-center justify-between rounded-md border border-border bg-muted/30 p-2 ${draggingId === c.id ? "opacity-50" : ""}`}
+                    className={`flex items-center justify-between rounded-md border border-border p-2 ${c.active === false ? "bg-muted/10 opacity-60" : "bg-muted/30"} ${draggingId === c.id ? "opacity-50" : ""}`}
                   >
                     <div
                       className="min-w-0 flex-1 cursor-grab active:cursor-grabbing"
@@ -385,13 +407,18 @@ export default function ManageTeamsPage() {
                       <div className="flex items-center gap-1 truncate text-sm font-medium text-foreground">
                         {c.name}
                         {c.is_team_lead && <Star className="h-3 w-3 text-yellow-500" />}
-                    {c.employee_type === 'salesman' && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Sales</Badge>}
+                        {c.employee_type === 'salesman' && <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">Sales</Badge>}
                       </div>
                       <div className="flex items-center gap-2 truncate text-xs text-muted-foreground">
                         <span>{c.phone || "No phone"}</span>
-                          </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <Switch
+                        checked={c.active !== false}
+                        onCheckedChange={(checked) => toggleCleanerActive(c.id, checked)}
+                        aria-label={`Toggle ${c.name} active`}
+                      />
                       <Button variant="ghost" size="icon" onClick={() => setEditingCleaner(c)} title="Edit cleaner">
                         <Pencil className="h-4 w-4 text-muted-foreground" />
                       </Button>

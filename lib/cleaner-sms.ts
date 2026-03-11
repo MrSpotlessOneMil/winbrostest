@@ -530,11 +530,12 @@ export async function processCleanerAssignmentReply(
       .eq('id', pending.job_id)
       .in('status', ['pending', 'new'])
 
-    // Get cleaner info for confirmation
+    // Get cleaner info for confirmation (skip inactive cleaners)
     const { data: cleaner } = await client
       .from('cleaners')
       .select('name, phone, portal_token')
       .eq('id', cleanerId)
+      .eq('active', true)
       .maybeSingle()
 
     const { data: job } = await client
@@ -569,11 +570,12 @@ export async function processCleanerAssignmentReply(
           .eq('assignment_id', other.id)
           .eq('status', 'active')
 
-        // Notify them
+        // Notify them (skip inactive cleaners)
         const { data: otherCleaner } = await client
           .from('cleaners')
           .select('name, phone')
           .eq('id', other.cleaner_id)
+          .eq('active', true)
           .maybeSingle()
 
         if (otherCleaner && job) {

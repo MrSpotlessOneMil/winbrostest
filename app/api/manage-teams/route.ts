@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   if (membersRes.error) return jsonError(membersRes.error.message, 500)
 
   const teams = (teamsRes.data || []).filter((t: any) => Boolean(t.active)) as TeamRow[]
-  const cleaners = (cleanersRes.data || []).filter((c: any) => Boolean(c.active)) as CleanerRow[]
+  const cleaners = (cleanersRes.data || []) as CleanerRow[]
   const members = (membersRes.data || []).filter((m: any) => Boolean(m.is_active)) as TeamMemberRow[]
 
   // Map cleaner -> team_id (first active membership wins)
@@ -195,6 +195,31 @@ export async function POST(request: NextRequest) {
     if (error) return jsonError(error.message, 500)
     await client.from("team_members").update({ is_active: false }).eq("tenant_id", tenant.id).eq("cleaner_id", cleaner_id)
     return NextResponse.json({ success: true, data: { cleaner_id } })
+  }
+
+  if (action === "toggle_active") {
+    const cleaner_id = Number(body.cleaner_id)
+    const active = Boolean(body.active)
+    if (!Number.isFinite(cleaner_id)) return jsonError("cleaner_id is required")
+
+    const { data, error } = await client
+      .from("cleaners")
+      .update({ active })
+      .eq("tenant_id", tenant.id)
+      .eq("id", cleaner_id)
+      .is("deleted_at", null)
+      .select("id,name,active")
+      .single()
+    if (error) return jsonError(error.message, 500)
+
+    // When deactivating, also deactivate team memberships; when activating, reactivate them
+    await client
+      .from("team_members")
+      .update({ is_active: active })
+      .eq("tenant_id", tenant.id)
+      .eq("cleaner_id", cleaner_id)
+
+    return NextResponse.json({ success: true, data })
   }
 
   return jsonError(`Unknown action: ${action}`)
