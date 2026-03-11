@@ -632,6 +632,16 @@ async function processRetargeting(
       .eq('id', customerId)
 
     console.log(`[retargeting] Sent step ${step}/${steps?.length} to customer ${customerId}`)
+
+    // Auto-escalate: new_lead completes → enroll in unresponsive sequence
+    if (isLastStep && sequence === 'new_lead' && tenantId) {
+      try {
+        await scheduleRetargetingSequence(tenantId, customerId, customerPhone, customerName, 'unresponsive')
+        console.log(`[retargeting] Auto-escalated customer ${customerId} from new_lead → unresponsive`)
+      } catch (err) {
+        console.error(`[retargeting] Failed to auto-escalate customer ${customerId}:`, err)
+      }
+    }
   } else {
     console.error(`[retargeting] SMS failed for customer ${customerId}: ${result.error}`)
   }

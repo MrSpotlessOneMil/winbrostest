@@ -49,7 +49,7 @@ export async function GET(
     .select(`
       id, status, created_at,
       jobs!inner(
-        id, date, scheduled_at, address, service_type, status, notes,
+        id, date, scheduled_at, address, service_type, status, notes, job_type,
         bedrooms, bathrooms, sqft, hours, price,
         cleaner_omw_at, cleaner_arrived_at, payment_method,
         customer_id, phone_number,
@@ -76,6 +76,7 @@ export async function GET(
       address: job.address,
       service_type: job.service_type,
       status: job.status,
+      job_type: job.job_type || null,
       assignment_status: asn.status,
       assignment_id: asn.id,
       customer_first_name: job.customers?.first_name || null,

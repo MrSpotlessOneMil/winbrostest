@@ -21,6 +21,7 @@ interface JobCard {
   address: string | null
   service_type: string | null
   status: string
+  job_type: string | null
   assignment_status: string
   assignment_id: string
   customer_first_name: string | null
@@ -65,6 +66,7 @@ function humanize(value: string): string {
 }
 
 function getJobStatusDisplay(job: JobCard): { label: string; color: string } {
+  if (job.job_type === "estimate") return { label: "Estimate", color: "bg-purple-100 text-purple-800" }
   if (job.assignment_status === "pending") return { label: "Needs Response", color: "bg-amber-100 text-amber-800" }
   if (job.status === "completed") return { label: "Done", color: "bg-green-100 text-green-800" }
   if (job.cleaner_arrived_at) return { label: "At Location", color: "bg-blue-100 text-blue-800" }
@@ -218,11 +220,15 @@ function JobCardComponent({
 }) {
   const router = useRouter()
   const statusDisplay = getJobStatusDisplay(job)
+  const isEstimate = job.job_type === "estimate"
+  const href = isEstimate ? `/crew/${token}/estimate/${job.id}` : `/crew/${token}/job/${job.id}`
 
   return (
     <button
-      onClick={() => router.push(`/crew/${token}/job/${job.id}`)}
-      className="w-full text-left bg-white rounded-lg border border-slate-200 p-3 hover:border-blue-300 hover:shadow-sm transition-all"
+      onClick={() => router.push(href)}
+      className={`w-full text-left bg-white rounded-lg border p-3 hover:shadow-sm transition-all ${
+        isEstimate ? "border-purple-200 hover:border-purple-300" : "border-slate-200 hover:border-blue-300"
+      }`}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">

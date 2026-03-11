@@ -120,6 +120,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to create quote" }, { status: 500 })
   }
 
+  // Tag customer for quoted_not_booked retargeting (only if no existing override)
+  if (customer_id) {
+    await supabase
+      .from('customers')
+      .update({ lifecycle_stage_override: 'quoted_not_booked' })
+      .eq('id', customer_id as number)
+      .eq('tenant_id', tenant.id)
+      .is('lifecycle_stage_override', null)
+  }
+
   // Send SMS with quote link if requested and phone number available
   if (send_sms && quote.customer_phone) {
     try {

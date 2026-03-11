@@ -104,7 +104,51 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${eligibleCustomers.length} eligible customers`)
+      // --- Pass 2: Never-booked customers who completed retargeting 30+ days ago ---
+      const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+      const { data: neverBookedCandidates } = await client
+        .from('customers')
+        .select('id, first_name, phone_number, retargeting_completed_at, sms_opt_out')
+        .eq('tenant_id', tenant.id)
+        .not('phone_number', 'is', null)
+        .eq('retargeting_stopped_reason', 'completed')
+        .not('retargeting_completed_at', 'is', null)
+        .lte('retargeting_completed_at', thirtyDaysAgo)
+        .neq('post_job_stage', 'recurring_accepted')
+
+      if (neverBookedCandidates && neverBookedCandidates.length > 0) {
+        for (const nb of neverBookedCandidates) {
+          if (nb.sms_opt_out) continue
+
+          // Confirm they have NO completed jobs (truly never-booked)
+          const { data: completedJob } = await client
+            .from('jobs')
+            .select('id')
+            .eq('customer_id', nb.id)
+            .eq('status', 'completed')
+            .limit(1)
+            .maybeSingle()
+
+          if (completedJob) continue // has completed jobs — handled by pass 1
+
+          // Already in eligible list? skip
+          if (eligibleCustomers.some(e => e.id === nb.id)) continue
+
+          const daysSinceRetargeting = Math.floor(
+            (now - new Date(nb.retargeting_completed_at!).getTime()) / (24 * 60 * 60 * 1000)
+          )
+
+          eligibleCustomers.push({
+            id: nb.id,
+            first_name: nb.first_name,
+            phone_number: nb.phone_number,
+            daysSinceLastJob: daysSinceRetargeting, // reuse field for discount escalation
+          })
+        }
+      }
+
+      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${eligibleCustomers.length} eligible customers (incl. never-booked)`)
 
       for (const cust of eligibleCustomers) {
         try {
