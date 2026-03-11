@@ -679,15 +679,17 @@ export async function createJob(
     return null
   }
 
+  // Strip fields that don't exist on the jobs table
+  const { invoice_sent, user_id, ...cleanJobData } = jobData as any
+
   const { data, error } = await client
     .from('jobs')
     .insert({
-      ...jobData,
+      ...cleanJobData,
       phone_number: dbPhone,
       status: jobData.status || 'lead',
       booked: jobData.booked ?? false,
       paid: jobData.paid ?? false,
-      invoice_sent: jobData.invoice_sent ?? false,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
