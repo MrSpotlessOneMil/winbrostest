@@ -330,6 +330,7 @@ export default function JobsPage() {
   const { user } = useAuth()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
+  const [jobsLoaded, setJobsLoaded] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
@@ -548,6 +549,8 @@ export default function JobsPage() {
         setJobs(data.jobs || [])
       } catch {
         setJobs([])
+      } finally {
+        setJobsLoaded(true)
       }
     }
     fetchJobs()
@@ -1165,7 +1168,7 @@ export default function JobsPage() {
           </div>
         )}
 
-        <div className="calendar-card">
+        <div className="calendar-card" style={{ opacity: jobsLoaded ? 1 : 0, transition: "opacity 0.3s ease-out" }}>
           <div id="calendar">
             <FullCalendar
               ref={calendarRef}
