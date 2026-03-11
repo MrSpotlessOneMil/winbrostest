@@ -604,13 +604,15 @@ async function handleEmailBookingCompletion(
     // WinBros: use pricebook for pricing (never trust AI-extracted price)
     try {
       const { lookupPrice } = await import('@/lib/pricebook')
-      const priceLookup = await lookupPrice({
+      const { getWindowTiersFromDB, getFlatServicesFromDB } = await import('@/lib/pricebook-db')
+      const [emWTiers, emFSvcs] = await Promise.all([getWindowTiersFromDB(tenant.id), getFlatServicesFromDB(tenant.id)])
+      const priceLookup = lookupPrice({
         serviceType: wb.serviceType || null,
         squareFootage: wb.squareFootage || null,
         scope: wb.scope || null,
         pressureWashingSurfaces: wb.pressureWashingSurfaces || null,
         propertyType: wb.propertyType || null,
-      }, tenant.id)
+      }, { windowTiers: emWTiers, flatServices: emFSvcs })
       if (priceLookup) {
         servicePrice = priceLookup.price
         console.log(`[Email Cron] Pricebook: ${priceLookup.serviceName} = $${servicePrice}`)

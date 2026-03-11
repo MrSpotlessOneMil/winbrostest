@@ -10,6 +10,7 @@
  */
 
 import { computeTierPrice, QUOTE_TIERS, QUOTE_ADDONS, type QuoteTier, type QuoteAddon } from './pricebook'
+import { getWindowTiersFromDB } from './pricebook-db'
 import { getSupabaseServiceClient } from './supabase'
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -288,10 +289,11 @@ export async function getQuotePricing(
 // ── Window Cleaning (WinBros) ────────────────────────────────────────
 
 async function getWindowCleaningPricing(squareFootage?: number | null, tenantId?: string): Promise<QuotePricingResult> {
+  const windowTiers = tenantId ? await getWindowTiersFromDB(tenantId) : undefined
   const tierPrices: Record<string, TierPriceResult> = {
-    good: await computeTierPrice('good', squareFootage, tenantId),
-    better: await computeTierPrice('better', squareFootage, tenantId),
-    best: await computeTierPrice('best', squareFootage, tenantId),
+    good: computeTierPrice('good', squareFootage, windowTiers),
+    better: computeTierPrice('better', squareFootage, windowTiers),
+    best: computeTierPrice('best', squareFootage, windowTiers),
   }
 
   return {

@@ -11,6 +11,7 @@ import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
+import { getWindowTiersFromDB, getFlatServicesFromDB } from "@/lib/pricebook-db"
 
 /** Format raw appointment date/time into human-readable text for SMS */
 function formatDateTimeForSMS(date: string | null, time: string | null): string {
@@ -425,14 +426,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   })
 
               // Look up price from pricebook (WinBros window/pressure/gutter)
-              const priceResult = await lookupPrice({
+              const [wTiers, fSvcs] = await Promise.all([getWindowTiersFromDB(tenant.id), getFlatServicesFromDB(tenant.id)])
+              const priceResult = lookupPrice({
                 serviceType: bookingInfo.serviceType || serviceType,
                 squareFootage: bookingInfo.squareFootage || null,
                 notes: jobNotes || null,
                 scope: bookingInfo.scope || null,
                 pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
                 propertyType: bookingInfo.propertyType || null,
-              }, tenant.id)
+              }, { windowTiers: wTiers, flatServices: fSvcs })
               let jobPrice = priceResult?.price || null
               if (jobPrice) console.log(`${tag} Price from pricebook: $${jobPrice} (${priceResult?.serviceName})`)
 
@@ -638,14 +640,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 })
 
             // Look up price from pricebook (WinBros window/pressure/gutter)
-            const existingPriceResult = await lookupPrice({
+            const [eWTiers, eFSvcs] = await Promise.all([getWindowTiersFromDB(tenant.id), getFlatServicesFromDB(tenant.id)])
+            const existingPriceResult = lookupPrice({
               serviceType: bookingInfo.serviceType || serviceType,
               squareFootage: bookingInfo.squareFootage || null,
               notes: existingLeadNotes || null,
               scope: bookingInfo.scope || null,
               pressureWashingSurfaces: bookingInfo.pressureWashingSurfaces || null,
               propertyType: bookingInfo.propertyType || null,
-            }, tenant.id)
+            }, { windowTiers: eWTiers, flatServices: eFSvcs })
             let existingJobPrice = existingPriceResult?.price || null
 
             // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)

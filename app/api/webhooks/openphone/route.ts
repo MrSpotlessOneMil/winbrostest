@@ -1439,6 +1439,7 @@ export async function POST(request: NextRequest) {
             // Window cleaning tenants: ALWAYS use pricebook — never trust job.price or AI-extracted prices
             try {
               const { lookupPrice } = await import("@/lib/pricebook")
+              const { getWindowTiersFromDB, getFlatServicesFromDB } = await import("@/lib/pricebook-db")
               const { parseFormData } = await import("@/lib/utils")
               const formData = parseFormData((bookedLead as any)?.form_data)
               const scope = (formData.scope as string) || null
@@ -1450,7 +1451,8 @@ export async function POST(request: NextRequest) {
                 propertyType: (formData.propertyType as string) || null,
               }
               console.log(`[OpenPhone] Pricebook lookup inputs (phone call): service=${lookupInput.serviceType}, sqft=${lookupInput.squareFootage || 'none'}`)
-              const priceLookup = await lookupPrice(lookupInput, tenant.id)
+              const [opWTiers, opFSvcs] = await Promise.all([getWindowTiersFromDB(tenant.id), getFlatServicesFromDB(tenant.id)])
+              const priceLookup = lookupPrice(lookupInput, { windowTiers: opWTiers, flatServices: opFSvcs })
               if (priceLookup) {
                 servicePrice = priceLookup.price
                 console.log(`[OpenPhone] Pricebook result: ${priceLookup.serviceName} ${priceLookup.tier ? `(${priceLookup.tier})` : ""} = $${priceLookup.price}`)

@@ -113,12 +113,12 @@ export const QUOTE_ADDONS: QuoteAddon[] = [
  * Compute price for a specific tier given property square footage.
  * When tenantId is provided, loads tiers from DB; otherwise uses hardcoded defaults.
  */
-export async function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: number | null, tenantId?: string): Promise<{
+export function computeTierPrice(tierKey: 'good' | 'better' | 'best', sqft?: number | null, windowTiers?: WindowTier[]): {
   price: number
   breakdown: { service: string; price: number }[]
   tier: string
-}> {
-  const tiers = tenantId ? await getWindowTiersFromDB(tenantId) : WINDOW_TIERS
+} {
+  const tiers = windowTiers || WINDOW_TIERS
   const windowTier = getWindowTier(sqft, tiers)
   const quoteTier = QUOTE_TIERS.find(t => t.key === tierKey)!
   const breakdown: { service: string; price: number }[] = []
@@ -204,55 +204,8 @@ const SURFACE_KEYWORD_MAP: Record<string, string> = {
   stone: 'stone',
 }
 
-/**
- * Load window tiers from tenant workflow_config. Falls back to hardcoded WINDOW_TIERS.
- */
-export async function getWindowTiersFromDB(tenantId: string): Promise<WindowTier[]> {
-  try {
-    const { getSupabaseClient } = await import('./supabase')
-    const client = getSupabaseClient()
-    const { data, error } = await client
-      .from('tenants')
-      .select('workflow_config')
-      .eq('id', tenantId)
-      .single()
-
-    if (error || !data) return WINDOW_TIERS
-
-    const wc = (data.workflow_config || {}) as Record<string, unknown>
-    const stored = wc.window_tiers as WindowTier[] | undefined
-    if (!stored || !Array.isArray(stored) || stored.length === 0) return WINDOW_TIERS
-
-    return stored
-  } catch {
-    return WINDOW_TIERS
-  }
-}
-
-/**
- * Load flat services from tenant workflow_config. Falls back to hardcoded FLAT_SERVICES.
- */
-export async function getFlatServicesFromDB(tenantId: string): Promise<FlatService[]> {
-  try {
-    const { getSupabaseClient } = await import('./supabase')
-    const client = getSupabaseClient()
-    const { data, error } = await client
-      .from('tenants')
-      .select('workflow_config')
-      .eq('id', tenantId)
-      .single()
-
-    if (error || !data) return FLAT_SERVICES
-
-    const wc = (data.workflow_config || {}) as Record<string, unknown>
-    const stored = wc.flat_services as FlatService[] | undefined
-    if (!stored || !Array.isArray(stored) || stored.length === 0) return FLAT_SERVICES
-
-    return stored
-  } catch {
-    return FLAT_SERVICES
-  }
-}
+// DB loader functions moved to lib/pricebook-db.ts (server-only)
+// to avoid pulling supabase into the client bundle.
 
 function getWindowTier(sqft?: number | null, tiers?: WindowTier[]): WindowTier {
   const tierList = tiers || WINDOW_TIERS
@@ -337,14 +290,14 @@ export function lookupGutterPrice(
  * When tenantId is provided, loads pricing from DB; otherwise uses hardcoded defaults.
  * Returns null if the service cannot be determined.
  */
-export async function lookupPrice(input: PriceLookupInput, tenantId?: string): Promise<PriceLookupResult | null> {
+export function lookupPrice(input: PriceLookupInput, opts?: { windowTiers?: WindowTier[]; flatServices?: FlatService[] }): PriceLookupResult | null {
   const serviceRaw = normalizeText(input.serviceType || "")
   const notesRaw = normalizeText(input.notes || "")
   const combined = `${serviceRaw} ${notesRaw}`
 
-  // Load DB-backed data when tenantId is available
-  const windowTiers = tenantId ? await getWindowTiersFromDB(tenantId) : WINDOW_TIERS
-  const flatServices = tenantId ? await getFlatServicesFromDB(tenantId) : FLAT_SERVICES
+  // Use pre-loaded data or hardcoded defaults
+  const windowTiers = opts?.windowTiers || WINDOW_TIERS
+  const flatServices = opts?.flatServices || FLAT_SERVICES
 
   // Route to multi-surface lookup for pressure washing
   if (serviceRaw.includes('pressure') || serviceRaw.includes('power wash')) {
