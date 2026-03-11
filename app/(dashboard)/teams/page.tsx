@@ -44,6 +44,7 @@ import {
   Calendar,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import CubeLoader from "@/components/ui/cube-loader"
 import { MessageBubble } from "@/components/message-bubble"
 import type { ApiResponse, Team, TeamDailyMetrics } from "@/lib/types"
 
@@ -95,7 +96,7 @@ const statusConfig = {
 export default function TeamsPage() {
   const [teams, setTeams] = useState<UiTeam[]>([])
   const [unassignedCleaners, setUnassignedCleaners] = useState<MemberDetail[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editingMember, setEditingMember] = useState<{
     id: string; name: string; phone: string; email: string; is_team_lead: boolean; employee_type: EmployeeType
@@ -584,7 +585,7 @@ export default function TeamsPage() {
       </Card>
 
       {/* Two-column layout: teams left, chat right */}
-      <div className="flex flex-col md:flex-row gap-4 md:gap-6 flex-1 min-h-0 stagger-6">
+      {loading ? <CubeLoader /> : <div className="flex flex-col md:flex-row gap-4 md:gap-6 flex-1 min-h-0 stagger-6">
         {/* LEFT: Team list with inline members */}
         <div className="flex-1 min-w-0 overflow-y-auto space-y-4 pr-1">
           {teams.map((team) => {
@@ -809,13 +810,12 @@ export default function TeamsPage() {
             </Card>
           )}
 
-          {loading && <p className="text-sm text-muted-foreground">Loading teams...</p>}
-          {!loading && loadError && (
+          {loadError && (
             <Card className="border-destructive/50">
               <CardContent className="p-4 text-sm text-destructive">{loadError}</CardContent>
             </Card>
           )}
-          {!loading && !loadError && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
+          {!loadError && teams.length === 0 && unassignedCleaners.length === 0 && <p className="text-sm text-muted-foreground">No teams or cleaners found.</p>}
         </div>
 
         {/* RIGHT: Persistent chat panel */}
@@ -892,7 +892,7 @@ export default function TeamsPage() {
             </div>
           )}
         </Card>
-      </div>
+      </div>}
 
       {/* Edit Member Modal */}
       <Dialog open={!!editingMember} onOpenChange={(open) => !open && setEditingMember(null)}>

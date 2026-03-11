@@ -1488,7 +1488,7 @@ export default function CustomersPage() {
           {/* Customer Detail - Scrollable content area */}
           <div className={`flex-1 flex flex-col gap-2 min-h-0 stagger-2 ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
             {loading ? <CubeLoader /> : selectedCustomer ? (
-              <>
+              <div className="flex flex-col flex-1 min-h-0 gap-2 animate-fade-in">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setSelectedCustomer(null)}
@@ -2222,9 +2222,9 @@ export default function CustomersPage() {
 
                   </div>
                 </div>
-              </>
+              </div>
             ) : (
-              <div className="border border-dashed border-zinc-800 rounded-xl p-12 text-center flex-1 flex items-center justify-center">
+              <div className="border border-dashed border-zinc-800 rounded-xl p-12 text-center flex-1 flex items-center justify-center animate-fade-in">
                 <p className="text-sm text-zinc-600">Select a customer to view details</p>
               </div>
             )}
