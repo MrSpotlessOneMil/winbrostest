@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { SESSION_COOKIE_NAME } from '@/lib/auth'
+import { requireAuthWithTenant } from '@/lib/auth'
 import {
   getPricingTiers,
   getPricingAddons,
@@ -11,7 +10,6 @@ import {
   type PricingRow,
   type PricingAddon,
 } from '@/lib/pricing-db'
-import { getDefaultTenant } from '@/lib/tenant'
 
 /**
  * GET /api/pricing
@@ -19,13 +17,9 @@ import { getDefaultTenant } from '@/lib/tenant'
  */
 export async function GET(request: NextRequest) {
   try {
-    const tenant = await getDefaultTenant()
-    if (!tenant) {
-      return NextResponse.json(
-        { success: false, error: 'Tenant not found' },
-        { status: 404 }
-      )
-    }
+    const authResult = await requireAuthWithTenant(request)
+    if (authResult instanceof NextResponse) return authResult
+    const { tenant } = authResult
 
     const [tiers, addons] = await Promise.all([
       getPricingTiers(tenant.id),
@@ -55,37 +49,9 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Verify authentication (basic session check)
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
-    if (!sessionToken) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const client = getSupabaseServiceClient()
-    const { data: session } = await client
-      .from('sessions')
-      .select('user_id, expires_at')
-      .eq('token', sessionToken)
-      .single()
-
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return NextResponse.json(
-        { success: false, error: 'Session expired' },
-        { status: 401 }
-      )
-    }
-
-    const tenant = await getDefaultTenant()
-    if (!tenant) {
-      return NextResponse.json(
-        { success: false, error: 'Tenant not found' },
-        { status: 404 }
-      )
-    }
+    const authResult = await requireAuthWithTenant(request)
+    if (authResult instanceof NextResponse) return authResult
+    const { tenant } = authResult
 
     const body = await request.json()
     const { tiers, addons, action } = body
@@ -160,37 +126,9 @@ export async function POST(request: NextRequest) {
  */
 export async function PUT(request: NextRequest) {
   try {
-    // Verify authentication
-    const cookieStore = await cookies()
-    const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value
-    if (!sessionToken) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const client = getSupabaseServiceClient()
-    const { data: session } = await client
-      .from('sessions')
-      .select('user_id, expires_at')
-      .eq('token', sessionToken)
-      .single()
-
-    if (!session || new Date(session.expires_at) < new Date()) {
-      return NextResponse.json(
-        { success: false, error: 'Session expired' },
-        { status: 401 }
-      )
-    }
-
-    const tenant = await getDefaultTenant()
-    if (!tenant) {
-      return NextResponse.json(
-        { success: false, error: 'Tenant not found' },
-        { status: 404 }
-      )
-    }
+    const authResult = await requireAuthWithTenant(request)
+    if (authResult instanceof NextResponse) return authResult
+    const { tenant } = authResult
 
     const body = await request.json()
     const { id, price, labor_hours, cleaners, hours_per_cleaner } = body
@@ -209,6 +147,7 @@ export async function PUT(request: NextRequest) {
     if (typeof cleaners === 'number') updateData.cleaners = cleaners
     if (typeof hours_per_cleaner === 'number') updateData.hours_per_cleaner = hours_per_cleaner
 
+    const client = getSupabaseServiceClient()
     const { error } = await client
       .from('pricing_tiers')
       .update(updateData)
