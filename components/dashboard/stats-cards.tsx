@@ -5,6 +5,7 @@ import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Clock, Phone } fro
 import { cn } from "@/lib/utils"
 import { useEffect, useMemo, useState } from "react"
 import type { ApiResponse, DailyMetrics } from "@/lib/types"
+import { SlidingNumber } from "@/components/ui/sliding-number"
 
 function pct(n: number, d: number): number {
   if (!d) return 0
@@ -33,8 +34,11 @@ export function StatsCards() {
   type StatTrend = "up" | "down" | "neutral"
   type StatItem = {
     name: string
-    value: string
-    target: string
+    numericValue: number
+    numericTarget: number
+    prefix?: string
+    suffix?: string
+    useCommas?: boolean
     change: string
     trend: StatTrend
     icon: typeof DollarSign
@@ -51,8 +55,10 @@ export function StatsCards() {
     return [
       {
         name: "Today's Revenue",
-        value: `$${revenue.toLocaleString()}`,
-        target: `$${targetRevenue.toLocaleString()}`,
+        numericValue: revenue,
+        numericTarget: targetRevenue,
+        prefix: "$",
+        useCommas: true,
         change: "—",
         trend: revenue >= targetRevenue && targetRevenue > 0 ? "up" : "neutral",
         icon: DollarSign,
@@ -60,8 +66,8 @@ export function StatsCards() {
       },
       {
         name: "Jobs Completed",
-        value: `${jobsCompleted}`,
-        target: `${jobsScheduled || 0}`,
+        numericValue: jobsCompleted,
+        numericTarget: jobsScheduled || 0,
         change: "—",
         trend: jobsCompleted > 0 ? "up" : "neutral",
         icon: CalendarCheck,
@@ -69,8 +75,9 @@ export function StatsCards() {
       },
       {
         name: "Time Saved",
-        value: `${(jobsCompleted * 0.75).toFixed(1)}h`,
-        target: `${(jobsScheduled * 0.75).toFixed(1)}h`,
+        numericValue: parseFloat((jobsCompleted * 0.75).toFixed(1)),
+        numericTarget: parseFloat((jobsScheduled * 0.75).toFixed(1)),
+        suffix: "h",
         change: "—",
         trend: jobsCompleted > 0 ? "up" : "neutral",
         icon: Clock,
@@ -78,8 +85,8 @@ export function StatsCards() {
       },
       {
         name: "Calls Handled",
-        value: `${callsHandled}`,
-        target: `${callsHandled}`,
+        numericValue: callsHandled,
+        numericTarget: callsHandled,
         change: "—",
         trend: callsHandled > 0 ? "up" : "neutral",
         icon: Phone,
@@ -97,8 +104,12 @@ export function StatsCards() {
               <div className="space-y-2">
                 <p className="text-sm font-medium text-zinc-400">{stat.name}</p>
                 <div className="flex items-baseline gap-2">
-                  <p className="text-4xl font-bold gradient-text">{stat.value}</p>
-                  <span className="text-sm text-zinc-500">/ {stat.target}</span>
+                  <p className="text-4xl font-bold gradient-text flex items-center">
+                    {stat.prefix}<SlidingNumber value={stat.numericValue} useCommas={stat.useCommas} />{stat.suffix}
+                  </p>
+                  <span className="text-sm text-zinc-500 flex items-center">
+                    / {stat.prefix}<SlidingNumber value={stat.numericTarget} useCommas={stat.useCommas} />{stat.suffix}
+                  </span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {stat.trend === "up" && (
