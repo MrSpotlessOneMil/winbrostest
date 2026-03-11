@@ -118,6 +118,7 @@
   font-weight: 400;
 }
 
+.fc .fc-event *,
 .fc .fc-event-time,
 .fc .fc-event-title {
   font-weight: 400 !important;

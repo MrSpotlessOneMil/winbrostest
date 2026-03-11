@@ -617,7 +617,6 @@ export default function JobsPage() {
         start,
         end,
         classNames: [className, ...(job.membership_id ? ['event-membership'] : [])],
-        backgroundColor: cleanerColor,
         borderColor: cleanerColor,
         extendedProps: {
           description,
@@ -976,11 +975,15 @@ export default function JobsPage() {
 
     const hours = selectedEvent.hours || 2
     const newEnd = new Date(newStart.getTime() + hours * 3600000)
-    const cleanerName = selectedEvent.cleanerName || ""
     const jobId = selectedEvent.jobId
 
-    if (cleanerName) {
-      const conflicts = findConflicts(cleanerName, newStart, newEnd, jobId)
+    // Use the NEW cleaner from the edit form for conflict detection
+    const newCleanerName = editForm.cleanerId
+      ? cleanersList.find((c) => c.id === editForm.cleanerId)?.name || ""
+      : ""
+
+    if (newCleanerName) {
+      const conflicts = findConflicts(newCleanerName, newStart, newEnd, jobId)
       if (conflicts.length > 0) {
         const conflict = conflicts[0]
         setPendingMove({
@@ -988,7 +991,7 @@ export default function JobsPage() {
           newStart,
           newEnd,
           hours,
-          cleanerName,
+          cleanerName: newCleanerName,
           conflictJobId: String(conflict.id),
           conflictTitle: conflict.title as string,
           conflictStart: new Date(conflict.start as any),
