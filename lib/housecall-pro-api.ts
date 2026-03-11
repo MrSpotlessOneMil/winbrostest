@@ -5,7 +5,7 @@
  * API Docs: https://docs.housecallpro.com/
  */
 
-import { getDefaultTenant, type Tenant } from './tenant'
+import { getDefaultTenant, isHcpSyncEnabled, type Tenant } from './tenant'
 import { maskPhone } from './phone-utils'
 
 const HCP_API_BASE = 'https://api.housecallpro.com'
@@ -469,6 +469,12 @@ async function hcpRequest<T>(
   endpoint: string,
   options: HCPApiOptions = {}
 ): Promise<{ success: boolean; data?: T; error?: string }> {
+  // Master kill switch: block ALL outbound HCP API calls when sync is disabled
+  if (!isHcpSyncEnabled(tenant)) {
+    console.log(`[HCP API] Sync disabled for tenant ${tenant.slug} — blocking ${options.method || 'GET'} ${endpoint}`)
+    return { success: false, error: 'HCP sync is disabled for this tenant' }
+  }
+
   const storedApiKey = normalizeOptionalHeader(tenant.housecall_pro_api_key)
   if (!storedApiKey) {
     console.error(`[HCP API] No API key configured for tenant ${tenant.slug}`)

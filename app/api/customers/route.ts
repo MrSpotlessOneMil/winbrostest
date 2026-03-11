@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
 import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
+import { isHcpSyncEnabled } from "@/lib/tenant"
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Sync to HouseCall Pro if enabled
-    if (tenant.housecall_pro_api_key) {
+    if (isHcpSyncEnabled(tenant)) {
       syncCustomerToHCP({
         tenantId: tenant.id,
         customerId: data.id,
@@ -104,7 +105,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     // Sync changes to HouseCall Pro
-    if (tenant.housecall_pro_api_key) {
+    if (isHcpSyncEnabled(tenant)) {
       syncCustomerToHCP({
         tenantId: tenant.id,
         customerId: data.id,

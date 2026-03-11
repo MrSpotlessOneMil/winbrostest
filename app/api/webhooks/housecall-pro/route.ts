@@ -6,7 +6,7 @@ import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
 import { getApiKey } from "@/lib/user-api-keys"
 import { scheduleTask } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
-import { tenantUsesFeature, getAllActiveTenants } from "@/lib/tenant"
+import { tenantUsesFeature, isHcpSyncEnabled, getAllActiveTenants } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { triggerSatisfactionCheck } from "@/lib/lifecycle-engine"
 import { getCustomer as getHCPCustomer } from "@/integrations/housecall-pro/hcp-client"
@@ -76,6 +76,12 @@ export async function POST(request: NextRequest) {
     if (!tenant) {
       console.error('[HCP Webhook] No tenant with HCP API key configured — cannot process webhook')
       return NextResponse.json({ success: false, error: "No HCP tenant configured" }, { status: 401 })
+    }
+
+    // Master kill switch: drop inbound webhooks when HCP sync is disabled
+    if (!isHcpSyncEnabled(tenant)) {
+      console.log(`[HCP Webhook] Sync disabled for tenant ${tenant.slug} — ignoring webhook`)
+      return NextResponse.json({ success: true, message: "HCP sync disabled, webhook ignored" })
     }
 
     const payload: HousecallProWebhookPayload = JSON.parse(rawBody)

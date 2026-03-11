@@ -49,6 +49,7 @@ import {
   ClipboardList,
   ExternalLink,
   Users,
+  Unlink,
 } from "lucide-react"
 import { CleanersManager } from "./cleaners-manager"
 
@@ -73,6 +74,7 @@ interface WorkflowConfig {
   require_deposit: boolean
   deposit_percentage: number
   sms_auto_response_enabled?: boolean
+  hcp_sync_enabled?: boolean
   // Lifecycle messaging
   seasonal_reminders_enabled?: boolean
   frequency_nudge_enabled?: boolean
@@ -393,6 +395,13 @@ export default function AdminPage() {
 
   async function toggleActive(tenant: Tenant) {
     await updateTenant(tenant.id, { active: !tenant.active })
+  }
+
+  async function toggleHcpSync(tenant: Tenant) {
+    const currentValue = tenant.workflow_config.hcp_sync_enabled !== false
+    await updateTenant(tenant.id, {
+      workflow_config: { hcp_sync_enabled: !currentValue },
+    })
   }
 
   function resetOnboardWizard() {
@@ -780,6 +789,7 @@ export default function AdminPage() {
         workflow_config: {
           use_housecall_pro: true,
           use_route_optimization: true,
+          hcp_sync_enabled: true,
           use_hcp_mirror: true,
           use_rainy_day_reschedule: true,
           use_team_routing: true,
@@ -799,6 +809,7 @@ export default function AdminPage() {
         workflow_config: {
           use_housecall_pro: false,
           use_route_optimization: false,
+          hcp_sync_enabled: false,
           use_hcp_mirror: false,
           use_rainy_day_reschedule: false,
           use_team_routing: false,
@@ -818,6 +829,7 @@ export default function AdminPage() {
         workflow_config: {
           use_housecall_pro: false,
           use_route_optimization: false,
+          hcp_sync_enabled: false,
           use_hcp_mirror: false,
           use_rainy_day_reschedule: false,
           use_team_routing: false,
@@ -1415,6 +1427,48 @@ export default function AdminPage() {
                           disabled={updating === currentTenant.id}
                         />
                       </div>
+
+                      {/* HCP Sync Kill Switch */}
+                      {(() => {
+                        const hasHcpCredentials = !!currentTenant.housecall_pro_api_key
+                        const hcpSyncOn = hasHcpCredentials && currentTenant.workflow_config.hcp_sync_enabled !== false
+                        return (
+                          <div className={`flex items-center justify-between p-4 rounded-lg border ${
+                            !hasHcpCredentials ? "border-border opacity-60" :
+                            hcpSyncOn ? "border-border" : "border-orange-500/30 bg-orange-500/5"
+                          }`}>
+                            <div className="flex items-center gap-3">
+                              <div className={`p-2 rounded-lg ${
+                                !hasHcpCredentials ? "bg-muted" :
+                                hcpSyncOn ? "bg-green-500/10" : "bg-red-500/10"
+                              }`}>
+                                {!hasHcpCredentials ? (
+                                  <Unlink className="h-5 w-5 text-muted-foreground" />
+                                ) : hcpSyncOn ? (
+                                  <CheckCircle2 className="h-5 w-5 text-green-500" />
+                                ) : (
+                                  <PowerOff className="h-5 w-5 text-red-500" />
+                                )}
+                              </div>
+                              <div>
+                                <div className="font-medium">HouseCall Pro Sync</div>
+                                <div className="text-sm text-muted-foreground">
+                                  {!hasHcpCredentials
+                                    ? "No HCP credentials configured — add API key to enable"
+                                    : hcpSyncOn
+                                    ? "All data is syncing to and from HouseCall Pro"
+                                    : "HCP sync is OFF — no data will be sent to or received from HouseCall Pro"}
+                                </div>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={hcpSyncOn}
+                              onCheckedChange={() => toggleHcpSync(currentTenant)}
+                              disabled={!hasHcpCredentials || updating === currentTenant.id}
+                            />
+                          </div>
+                        )
+                      })()}
 
                       {/* Business Active Toggle */}
                       <div className="flex items-center justify-between p-4 rounded-lg border border-border">

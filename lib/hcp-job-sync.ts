@@ -6,7 +6,7 @@
 
 import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
 import { getSupabaseServiceClient } from './supabase'
-import { getTenantById, type Tenant } from './tenant'
+import { getTenantById, isHcpSyncEnabled, type Tenant } from './tenant'
 
 export async function syncNewJobToHCP(params: {
   tenant: Tenant
@@ -29,7 +29,7 @@ export async function syncNewJobToHCP(params: {
 }): Promise<void> {
   const { tenant, jobId } = params
 
-  if (!tenant.housecall_pro_api_key) {
+  if (!isHcpSyncEnabled(tenant)) {
     return
   }
 
@@ -411,7 +411,7 @@ export async function syncCustomerToHCP(params: {
 }): Promise<void> {
   try {
     const tenant = await getTenantById(params.tenantId)
-    if (!tenant?.housecall_pro_api_key) return
+    if (!tenant || !isHcpSyncEnabled(tenant)) return
 
     const client = getSupabaseServiceClient()
 

@@ -61,6 +61,7 @@ export interface WorkflowConfig {
 
   // Kill switches
   sms_auto_response_enabled: boolean
+  hcp_sync_enabled?: boolean           // Master kill switch: blocks ALL data to/from HouseCall Pro when false
   sms_blocklist?: string[]  // Phone numbers that never get auto-responses
 
   // Lifecycle messaging
@@ -401,6 +402,7 @@ export function tenantHasIntegration(
 export function tenantUsesFeature(
   tenant: Tenant,
   feature: keyof Pick<WorkflowConfig,
+    | 'hcp_sync_enabled'
     | 'use_hcp_mirror'
     | 'use_rainy_day_reschedule'
     | 'use_team_routing'
@@ -422,6 +424,17 @@ export function tenantUsesFeature(
   // If flag is explicitly set, use it; otherwise default to false (opt-in, not opt-out)
   // This prevents new tenants from accidentally getting features they didn't enable
   return val !== undefined ? Boolean(val) : false
+}
+
+/**
+ * Check if HCP sync is enabled for this tenant.
+ * Returns true only if the tenant has an HCP API key AND the kill switch is on.
+ * Use this at every HCP boundary (outbound API calls, inbound webhooks).
+ */
+export function isHcpSyncEnabled(tenant: Tenant): boolean {
+  if (!tenant.housecall_pro_api_key) return false
+  // Default to true when flag is undefined (backward compatible — existing HCP tenants keep working)
+  return tenant.workflow_config?.hcp_sync_enabled !== false
 }
 
 /**

@@ -4,6 +4,7 @@ import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { requireAuth, getAuthTenant, AuthUser } from "@/lib/auth"
 import { updateJob as updateHCPJob } from "@/integrations/housecall-pro/hcp-client"
+import { isHcpSyncEnabled } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { notifyScheduleChange } from "@/lib/cleaner-sms"
 
@@ -116,8 +117,8 @@ async function rescheduleJob(
   const { error: updateErr } = await client.from("jobs").update({ date: targetDate }).eq("id", numericId)
   if (updateErr) throw updateErr
 
-  // 2. Sync with HousecallPro if job has HCP ID
-  if (job.hcp_job_id && tenant.housecall_pro_api_key) {
+  // 2. Sync with HousecallPro if job has HCP ID and sync is enabled
+  if (job.hcp_job_id && isHcpSyncEnabled(tenant)) {
     try {
       const newScheduledStart = `${targetDate}T${job.scheduled_time || "09:00"}:00Z`
       await updateHCPJob(job.hcp_job_id, { scheduled_start: newScheduledStart })

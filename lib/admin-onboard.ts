@@ -21,6 +21,7 @@ export function getWorkflowConfigForFlowType(flowType: string): Record<string, a
       return {
         use_housecall_pro: true,
         use_route_optimization: true,
+        hcp_sync_enabled: true,
         use_hcp_mirror: true,
         use_rainy_day_reschedule: true,
         use_team_routing: true,
@@ -37,6 +38,7 @@ export function getWorkflowConfigForFlowType(flowType: string): Record<string, a
       return {
         use_housecall_pro: false,
         use_route_optimization: false,
+        hcp_sync_enabled: false,
         use_hcp_mirror: false,
         use_rainy_day_reschedule: false,
         use_team_routing: false,
@@ -53,6 +55,7 @@ export function getWorkflowConfigForFlowType(flowType: string): Record<string, a
       return {
         use_housecall_pro: false,
         use_route_optimization: false,
+        hcp_sync_enabled: false,
         use_hcp_mirror: false,
         use_rainy_day_reschedule: false,
         use_team_routing: false,

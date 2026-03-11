@@ -241,6 +241,7 @@ export async function POST(request: NextRequest) {
         require_deposit: true,
         deposit_percentage: 50,
         sms_auto_response_enabled: true,
+        hcp_sync_enabled: body.flow_flags?.use_hcp_mirror ?? false,
         // Lifecycle messaging
         seasonal_reminders_enabled: false,
         frequency_nudge_enabled: false,
