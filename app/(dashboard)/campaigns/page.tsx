@@ -33,6 +33,7 @@ import {
   Settings,
 } from "lucide-react"
 import { Checkbox } from "@/components/ui/checkbox"
+import CubeLoader from "@/components/ui/cube-loader"
 import {
   Dialog,
   DialogContent,
@@ -478,9 +479,8 @@ export default function CampaignsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading campaigns...
+      <div className="flex items-center justify-center h-full min-h-[300px]">
+        <CubeLoader />
       </div>
     )
   }

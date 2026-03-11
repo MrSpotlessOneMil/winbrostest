@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
+import CubeLoader from "@/components/ui/cube-loader"
 import FullCalendar from "@fullcalendar/react"
 import dayGridPlugin from "@fullcalendar/daygrid"
 import timeGridPlugin from "@fullcalendar/timegrid"
@@ -346,6 +347,7 @@ export default function JobsPage() {
   const { user } = useAuth()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
+  const [loading, setLoading] = useState(true)
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
@@ -582,6 +584,8 @@ export default function JobsPage() {
         setJobs(data.jobs || [])
       } catch {
         setJobs([])
+      } finally {
+        setLoading(false)
       }
     }
     fetchJobs()
@@ -1201,6 +1205,8 @@ export default function JobsPage() {
       setCreateSaving(false)
     }
   }
+
+  if (loading) return <CubeLoader />
 
   return (
     <>

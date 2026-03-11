@@ -1150,7 +1150,7 @@ export default function AdminPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
+      <div className="stagger-1">
         <div className="flex items-center justify-between">
           <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
             <ShieldCheck className="h-7 w-7 text-primary" />
@@ -1216,7 +1216,7 @@ export default function AdminPage() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Business List */}
-          <Card className="lg:col-span-1">
+          <Card className="lg:col-span-1 stagger-2">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg">Businesses</CardTitle>
@@ -1289,7 +1289,7 @@ export default function AdminPage() {
 
           {/* Business Details */}
           {currentTenant && (
-            <Card className="lg:col-span-3">
+            <Card className="lg:col-span-3 stagger-3">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
