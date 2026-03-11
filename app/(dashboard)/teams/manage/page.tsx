@@ -437,7 +437,7 @@ export default function ManageTeamsPage() {
 
       {/* Edit Cleaner Modal */}
       {editingCleaner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md">
           <Card className="w-full max-w-md">
             <CardHeader>
               <CardTitle>Edit Cleaner</CardTitle>

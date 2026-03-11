@@ -1564,7 +1564,7 @@ export default function CustomersPage() {
                         {paymentOpen && (
                           <>
                           {/* Backdrop for mobile */}
-                          <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => { setPaymentOpen(false); setPaymentType(null); setPaymentResult(null) }} />
+                          <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-md md:hidden" onClick={() => { setPaymentOpen(false); setPaymentType(null); setPaymentResult(null) }} />
                           <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
                             {!paymentType && !paymentResult && !chargeCardResult && (
                               <div className="p-2 space-y-0.5">
@@ -2238,7 +2238,7 @@ export default function CustomersPage() {
 
       {/* Edit Customer Modal */}
       {editingCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingCustomer(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setEditingCustomer(null)}>
           <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-zinc-100">Edit Customer</h3>
@@ -2344,7 +2344,7 @@ export default function CustomersPage() {
 
       {/* New Customer Modal */}
       {newCustomerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setNewCustomerOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setNewCustomerOpen(false)}>
           <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-zinc-100">New Customer</h3>
@@ -2408,7 +2408,7 @@ export default function CustomersPage() {
 
       {/* Edit Job Modal */}
       {editingJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditingJob(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setEditingJob(null)}>
           <div className="w-full max-w-md mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-zinc-100">Edit Job</h3>
@@ -2556,7 +2556,7 @@ export default function CustomersPage() {
 
       {/* Batch Add Customers Modal */}
       {batchOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setBatchOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setBatchOpen(false)}>
           <div className="w-full max-w-2xl mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-zinc-100">Batch Add Customers</h3>
@@ -2723,7 +2723,7 @@ export default function CustomersPage() {
 
       {/* Create Membership Modal (WinBros only) */}
       {createMembershipOpen && !isHouseCleaning && selectedCustomer && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setCreateMembershipOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md" onClick={() => setCreateMembershipOpen(false)}>
           <div className="w-full max-w-sm mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
               <h3 className="text-base font-semibold text-zinc-100">New Membership</h3>
