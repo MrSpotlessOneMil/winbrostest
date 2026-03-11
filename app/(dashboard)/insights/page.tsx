@@ -223,8 +223,8 @@ export default function InsightsPage() {
       </div>
 
       {/* Key Metrics Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-2">
-        <Card>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="stagger-2">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-green-500/10">
@@ -237,7 +237,7 @@ export default function InsightsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="stagger-3">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-blue-500/10">
@@ -250,7 +250,7 @@ export default function InsightsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="stagger-4">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-purple-500/10">
@@ -263,7 +263,7 @@ export default function InsightsPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="stagger-5">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-amber-500/10">
@@ -279,9 +279,9 @@ export default function InsightsPage() {
       </div>
 
       {/* Retargeting Performance + Pipeline Health */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Retargeting Performance */}
-        <Card>
+        <Card className="stagger-6">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Target className="h-5 w-5 text-blue-400" />
@@ -321,7 +321,7 @@ export default function InsightsPage() {
         </Card>
 
         {/* Pipeline Health */}
-        <Card>
+        <Card className="stagger-7">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Users className="h-5 w-5 text-emerald-400" />
@@ -372,7 +372,7 @@ export default function InsightsPage() {
       </div>
 
       {/* Retargeting by Stage */}
-      <Card className="stagger-4">
+      <Card className="stagger-8">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <TrendingUp className="h-5 w-5 text-blue-400" />
@@ -433,7 +433,7 @@ export default function InsightsPage() {
 
       {/* Smart Recommendations */}
       {recommendations.length > 0 && (
-        <Card className="stagger-5">
+        <Card className="stagger-9">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Lightbulb className="h-5 w-5 text-amber-400" />
