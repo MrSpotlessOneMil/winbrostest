@@ -1510,7 +1510,13 @@ export default function CustomersPage() {
                   {/* Customer header */}
                   <div className="px-5 pt-4 pb-0">
                     <div className="flex items-center gap-3 mb-3">
-                      <div className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center text-sm font-semibold text-purple-300">
+                      <div
+                        className="w-9 h-9 rounded-full bg-purple-500/20 flex items-center justify-center text-sm font-semibold text-purple-300"
+                        style={!isHouseCleaning && getCustomerMembership(selectedCustomer.id)
+                          ? { border: '2px solid rgba(255, 215, 0, 0.7)' }
+                          : undefined
+                        }
+                      >
                         {getCustomerName(selectedCustomer).charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1">
