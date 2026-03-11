@@ -683,7 +683,6 @@ export async function createJob(
     .from('jobs')
     .insert({
       ...jobData,
-      user_id: userId,
       phone_number: dbPhone,
       status: jobData.status || 'lead',
       booked: jobData.booked ?? false,
