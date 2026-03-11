@@ -147,7 +147,7 @@ interface ScheduledTask {
 interface MembershipData {
   id: string
   status: "active" | "paused" | "cancelled" | "completed"
-  customer_id: string
+  customer_id: number
   visits_completed: number
   next_visit_at: string | null
   started_at: string | null
@@ -326,12 +326,12 @@ export default function CustomersPage() {
 
   // Helper: get membership for a customer
   const getCustomerMembership = (customerId: number): MembershipData | null => {
-    return membershipsList.find((m) => String(m.customer_id) === String(customerId) && (m.status === "active" || m.status === "paused")) || null
+    return membershipsList.find((m) => m.customer_id === customerId && (m.status === "active" || m.status === "paused")) || null
   }
 
   // Helper: get all memberships for a customer (including completed)
   const getCustomerMemberships = (customerId: number): MembershipData[] => {
-    return membershipsList.filter((m) => String(m.customer_id) === String(customerId))
+    return membershipsList.filter((m) => m.customer_id === customerId)
   }
 
   // Membership actions
