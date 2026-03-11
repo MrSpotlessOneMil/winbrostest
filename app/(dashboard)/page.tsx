@@ -35,11 +35,13 @@ export default function DashboardPage() {
       <StatsCards />
 
       {/* Charts Row */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-3">
-        <div className="md:col-span-2">
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-5 stagger-3">
+        <div className="md:col-span-2 lg:col-span-3 flex">
           <RevenueChart />
         </div>
-        <LeadSourceChart />
+        <div className="lg:col-span-2 flex">
+          <LeadSourceChart />
+        </div>
       </div>
 
       {/* Today's Jobs + Team Status */}

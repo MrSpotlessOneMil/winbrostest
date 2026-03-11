@@ -151,7 +151,7 @@ export function LeadSourceChart() {
   if (selectedSource) {
     const config = getSourceConfig(selectedSource)
     return (
-      <Card>
+      <Card className="h-full flex flex-col">
         <CardHeader className="pb-2">
           <button
             onClick={() => setSelectedSource(null)}
@@ -199,14 +199,14 @@ export function LeadSourceChart() {
   }
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader className="pb-2">
         <CardTitle>Lead Sources</CardTitle>
         <CardDescription>
           {totalLeads} lead{totalLeads !== 1 ? "s" : ""} &middot; {totalJobs} job{totalJobs !== 1 ? "s" : ""}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 flex flex-col">
         {chartData.length === 0 && !loading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No lead data yet</p>
         ) : (

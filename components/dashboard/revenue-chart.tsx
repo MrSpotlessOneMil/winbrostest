@@ -73,7 +73,7 @@ export function RevenueChart() {
   }, [range])
 
   return (
-    <Card>
+    <Card className="h-full flex flex-col">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle>Revenue Overview</CardTitle>
@@ -90,8 +90,8 @@ export function RevenueChart() {
           </SelectContent>
         </Select>
       </CardHeader>
-      <CardContent>
-        <ChartContainer config={chartConfig} className="h-[260px] w-full">
+      <CardContent className="flex-1 flex flex-col">
+        <ChartContainer config={chartConfig} className="h-[260px] w-full flex-1">
           <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
             <defs>
               <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
