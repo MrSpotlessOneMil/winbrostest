@@ -158,6 +158,30 @@ const FLAT_SERVICES: FlatService[] = [
 // Flat gutter cleaning price (matches HCP)
 const DEFAULT_GUTTER_PRICE = 250
 
+/** WinBros add-ons for calendar job creation (QUOTE_ADDONS + FLAT_SERVICES + gutter) */
+export const WINBROS_CALENDAR_ADDONS: { addon_key: string; label: string; flat_price: number; minutes: number }[] = [
+  // QUOTE_ADDONS
+  { addon_key: 'interior', label: 'Interior Window Cleaning', flat_price: 0, minutes: 0 },
+  { addon_key: 'track_detailing', label: 'Track Detailing', flat_price: 0, minutes: 0 },
+  { addon_key: 'solar_panel', label: 'Solar Panel Cleaning', flat_price: 7, minutes: 0 },
+  { addon_key: 'hard_water_treatment', label: 'Hard Water Stain Treatment', flat_price: 12, minutes: 0 },
+  { addon_key: 'rain_repellent', label: 'Rain Repellent', flat_price: 0, minutes: 0 },
+  { addon_key: 'rain_guarantee', label: '7-Day Rain Guarantee', flat_price: 0, minutes: 0 },
+  // FLAT_SERVICES (pressure washing)
+  { addon_key: 'house_wash', label: 'House Washing / Soft Wash', flat_price: 300, minutes: 0 },
+  { addon_key: 'driveway', label: 'Driveway Cleaning', flat_price: 250, minutes: 0 },
+  { addon_key: 'patio', label: 'Patio Cleaning', flat_price: 150, minutes: 0 },
+  { addon_key: 'sidewalk', label: 'Sidewalk Cleaning', flat_price: 100, minutes: 0 },
+  { addon_key: 'deck', label: 'Deck Washing', flat_price: 175, minutes: 0 },
+  { addon_key: 'fence', label: 'Fence Cleaning', flat_price: 250, minutes: 0 },
+  { addon_key: 'pool_deck', label: 'Pool Deck Cleaning', flat_price: 250, minutes: 0 },
+  { addon_key: 'retaining_wall', label: 'Retaining Wall Cleaning', flat_price: 200, minutes: 0 },
+  { addon_key: 'stone', label: 'Stone Cleaning', flat_price: 150, minutes: 0 },
+  { addon_key: 'gutter_soffit', label: 'Gutter and Soffit Washing', flat_price: 200, minutes: 0 },
+  // Gutter cleaning
+  { addon_key: 'gutter_cleaning', label: 'Gutter Cleaning', flat_price: DEFAULT_GUTTER_PRICE, minutes: 0 },
+]
+
 // Map from structured surface identifiers to FLAT_SERVICES keywords
 const SURFACE_KEYWORD_MAP: Record<string, string> = {
   house_wash: 'house_wash',

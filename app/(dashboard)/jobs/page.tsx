@@ -9,6 +9,7 @@ import listPlugin from "@fullcalendar/list"
 import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
+import { WINBROS_CALENDAR_ADDONS } from "@/lib/pricebook"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -416,8 +417,13 @@ export default function JobsPage() {
 
   // Fetch add-ons when create modal or add-charge form opens
   useEffect(() => {
-    if ((!createOpen && !addChargeOpen) || !isHouseCleaning) return
+    if (!createOpen && !addChargeOpen) return
     if (addonsList.length > 0) return // already fetched
+    if (!isHouseCleaning) {
+      // WinBros: use hard-coded pricebook add-ons
+      setAddonsList(WINBROS_CALENDAR_ADDONS)
+      return
+    }
     fetch("/api/pricing/addons")
       .then((r) => r.json())
       .then((res) => {
@@ -2203,8 +2209,8 @@ export default function JobsPage() {
               </div>
             </div>
 
-            {/* Add-ons — house cleaning only */}
-            {isHouseCleaning && addonsList.length > 0 && (
+            {/* Add-ons */}
+            {addonsList.length > 0 && (
               <div style={{ marginBottom: "0.5rem" }}>
                 <label className="cal-form-label">Add-ons</label>
                 <div style={{
