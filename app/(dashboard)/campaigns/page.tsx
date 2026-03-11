@@ -477,31 +477,12 @@ export default function CampaignsPage() {
     return { type: "single" as const, stage: csvDefaultStage, total: rowsWithPhone.length }
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[300px]">
-        <CubeLoader />
-      </div>
-    )
-  }
-
-  if (error && !settings) {
-    return (
-      <div className="text-center py-20">
-        <p className="text-red-400 mb-4">{error}</p>
-        <Button onClick={fetchSettings}>Retry</Button>
-      </div>
-    )
-  }
-
-  if (!settings) return null
-
   const importPreview = getImportPreview()
 
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between stagger-1">
         <div>
           <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
             <Target className="h-7 w-7 text-primary" />
@@ -520,6 +501,14 @@ export default function CampaignsPage() {
         </div>
       </div>
 
+      {loading ? <CubeLoader /> : !settings ? (
+        error ? (
+          <div className="text-center py-20">
+            <p className="text-red-400 mb-4">{error}</p>
+            <Button onClick={fetchSettings}>Retry</Button>
+          </div>
+        ) : null
+      ) : <>
       {error && (
         <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-sm text-red-400">
           {error}
@@ -1107,6 +1096,8 @@ export default function CampaignsPage() {
           </CardContent>
         )}
       </Card>
+
+      </>}
 
       {/* CSV Import Modal */}
       <Dialog open={showImportModal} onOpenChange={setShowImportModal}>

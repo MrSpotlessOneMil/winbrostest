@@ -1206,12 +1206,10 @@ export default function JobsPage() {
     }
   }
 
-  if (loading) return <CubeLoader />
-
   return (
     <>
       <div className="calendar-shell animate-fade-in">
-        <div className="mb-6" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="mb-6 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
             <p className="text-sm text-muted-foreground">
@@ -1223,6 +1221,7 @@ export default function JobsPage() {
           </button>
         </div>
 
+        {loading ? <CubeLoader /> : <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: "1.25rem" }}>
           {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
             <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
@@ -1300,6 +1299,7 @@ export default function JobsPage() {
             />
           </div>
         </div>
+        </>}
       </div>
 
       {/* Mobile FAB — Create Job */}

@@ -94,10 +94,6 @@ export default function InsightsPage() {
 
   useEffect(() => { fetchInsights() }, [])
 
-  if (loading) {
-    return <CubeLoader />
-  }
-
   const pipeline = data?.pipeline || {}
   const metrics = data?.metrics
   const weekMetrics = data?.weekMetrics || []
@@ -219,6 +215,7 @@ export default function InsightsPage() {
         </Button>
       </div>
 
+      {loading ? <CubeLoader /> : <>
       {/* Key Metrics Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="stagger-2">
@@ -477,6 +474,7 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       )}
+      </>}
     </div>
   )
 }

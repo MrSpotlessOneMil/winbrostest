@@ -1264,17 +1264,13 @@ export default function CustomersPage() {
     })
   }, [filteredCustomers, messages, readVersion, searchQuery])
 
-  if (loading) {
-    return <CubeLoader />
-  }
-
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden animate-fade-in">
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Main Layout */}
         <div className="flex flex-1 gap-4 min-h-0 overflow-hidden">
           {/* Customer List Sidebar - Hidden on mobile when a customer is selected */}
-          <div className={`w-full md:w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden ${selectedCustomer ? "hidden md:flex" : "flex"}`}>
+          <div className={`w-full md:w-72 flex-shrink-0 flex flex-col min-h-0 overflow-hidden stagger-1 ${selectedCustomer ? "hidden md:flex" : "flex"}`}>
             <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col h-full overflow-hidden">
               <div className="p-3 border-b border-zinc-800 space-y-2">
                 <div className="relative">
@@ -1490,8 +1486,8 @@ export default function CustomersPage() {
           </div>
 
           {/* Customer Detail - Scrollable content area */}
-          <div className={`flex-1 flex flex-col gap-2 min-h-0 ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
-            {selectedCustomer ? (
+          <div className={`flex-1 flex flex-col gap-2 min-h-0 stagger-2 ${selectedCustomer ? "flex" : "hidden md:flex"}`}>
+            {loading ? <CubeLoader /> : selectedCustomer ? (
               <>
                 {/* Mobile back button */}
                 <button
