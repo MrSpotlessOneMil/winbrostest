@@ -43,7 +43,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     <AuthProvider>
       <div className="flex h-[100dvh] overflow-hidden bg-zinc-950">
         {/* Desktop sidebar */}
-        <div className="hidden md:block relative z-[60]">
+        <div className="hidden md:block">
           <Sidebar collapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
 
@@ -67,12 +67,10 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           ) : (
             <>
-              <div className="relative z-[60]">
-                <TopNav
-                  onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
-                  onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
-                />
-              </div>
+              <TopNav
+                onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+                onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
+              />
               <main className="flex-1 flex flex-col overflow-y-auto overscroll-contain p-3 md:p-4">{children}</main>
             </>
           )}
