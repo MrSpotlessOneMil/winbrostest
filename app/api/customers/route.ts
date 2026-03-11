@@ -264,10 +264,13 @@ export async function GET(request: NextRequest) {
     : (await import("@/lib/supabase")).getSupabaseServiceClient()
 
   // Fetch messages first — needed to sort customers by last activity
+  // Explicit limit required: Supabase defaults to 1000 rows, which silently
+  // drops recent messages once a tenant exceeds that count.
   const { data: messages, error: messagesError } = await client
     .from("messages")
     .select("*")
     .order("timestamp", { ascending: true })
+    .limit(10000)
 
   if (messagesError) {
     return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
