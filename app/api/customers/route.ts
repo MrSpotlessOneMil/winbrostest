@@ -3,6 +3,7 @@ import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAuth, requireAuthWithTenant, getAuthTenant } from "@/lib/auth"
 import { syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { isHcpSyncEnabled } from "@/lib/tenant"
+import { toE164 } from "@/lib/phone-utils"
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       .from("customers")
       .insert({
         tenant_id: tenant.id,
-        phone_number: phone_number.trim(),
+        phone_number: toE164(phone_number) || phone_number.trim(),
         first_name: first_name?.trim() || null,
         last_name: last_name?.trim() || null,
         email: email?.trim() || null,
@@ -354,7 +355,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (missingPhones.size > 0) {
-      // Fetch those missing customers
+      // Fetch those missing customers — try E.164 format first
       const phonesArray = Array.from(missingPhones).slice(0, 50)
       const { data: extraCustomers } = await client
         .from("customers")
@@ -362,6 +363,35 @@ export async function GET(request: NextRequest) {
         .in("phone_number", phonesArray)
       if (extraCustomers && extraCustomers.length > 0) {
         customers = [...customers, ...extraCustomers]
+      }
+
+      // If some phones still not found, try normalized 10-digit lookup
+      // (handles customers stored with non-E.164 formats like "(555) 123-4567")
+      const foundPhones = new Set([
+        ...customers.map((c: { phone_number: string }) => normalizePhoneDigits(c.phone_number))
+      ])
+      const stillMissing = phonesArray
+        .filter(p => !foundPhones.has(normalizePhoneDigits(p)))
+        .map(p => normalizePhoneDigits(p))
+        .filter(Boolean)
+
+      if (stillMissing.length > 0) {
+        const existingIds = new Set(customers.map((c: { id: number }) => c.id))
+        for (const digits of stillMissing.slice(0, 10)) {
+          const { data: found } = await client
+            .from("customers")
+            .select("*")
+            .ilike("phone_number", `%${digits.slice(-10)}%`)
+            .limit(1)
+          if (found) {
+            for (const c of found) {
+              if (!existingIds.has(c.id)) {
+                customers.push(c)
+                existingIds.add(c.id)
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -451,6 +481,8 @@ export async function GET(request: NextRequest) {
         .filter((p: string) => p.length >= 7)
     }
   }
+
+  console.log(`[customers API] tenant=${tenant?.slug || 'admin'} customers=${sortedCustomers.length} messages=${(messages || []).length}`)
 
   return NextResponse.json({
     success: true,

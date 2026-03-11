@@ -286,9 +286,23 @@ export default function CustomersPage() {
           const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
           setSelectedCustomer(restored || json.data.customers[0])
         }
+      } else {
+        // API returned error — clear stale data so we don't show wrong tenant's info
+        console.warn('[customers] API error:', json.error)
+        setCustomers([])
+        setMessages([])
+        setJobs([])
+        setCalls([])
+        setLeads([])
       }
     } catch (error) {
       console.error("Failed to fetch customers:", error)
+      // Network error — clear stale data
+      setCustomers([])
+      setMessages([])
+      setJobs([])
+      setCalls([])
+      setLeads([])
     } finally {
       setLoading(false)
     }
@@ -319,8 +333,15 @@ export default function CustomersPage() {
   // Initial data fetch + re-fetch when account switches
   const currentUserId = user?.id
   useEffect(() => {
-    // Reset selected customer when account changes so the right panel updates
+    // Reset ALL state when account changes to prevent stale cross-tenant data
     setSelectedCustomer(null)
+    setCustomers([])
+    setMessages([])
+    setJobs([])
+    setCalls([])
+    setLeads([])
+    setScheduledTasks([])
+    setCleanerPhones([])
     setLoading(true)
     fetchCustomers()
     if (!isHouseCleaning) {
@@ -508,7 +529,7 @@ export default function CustomersPage() {
     }, 3000)
 
     return () => clearInterval(pollInterval)
-  }, [messages.length])
+  }, [messages.length, currentUserId])
 
   const getCustomerName = (customer: Customer) => {
     if (customer.first_name || customer.last_name) {
