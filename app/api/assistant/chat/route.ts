@@ -2474,8 +2474,14 @@ export async function POST(request: NextRequest) {
 
   const { messages, conversationId } = await request.json()
 
-  if (!messages || !Array.isArray(messages)) {
+  if (!messages || !Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ success: false, error: "messages required" }, { status: 400 })
+  }
+
+  // Validate last message has non-empty content
+  const lastMsg = messages[messages.length - 1]
+  if (!lastMsg?.content || (typeof lastMsg.content === 'string' && !lastMsg.content.trim())) {
+    return NextResponse.json({ success: false, error: "Message cannot be empty" }, { status: 400 })
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY
