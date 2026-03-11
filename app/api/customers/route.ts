@@ -264,14 +264,17 @@ export async function GET(request: NextRequest) {
     ? await getTenantScopedClient(tenant.id)
     : (await import("@/lib/supabase")).getSupabaseServiceClient()
 
-  // Fetch messages first — needed to sort customers by last activity
-  // Explicit limit required: Supabase defaults to 1000 rows, which silently
-  // drops recent messages once a tenant exceeds that count.
-  const { data: messages, error: messagesError } = await client
+  // Fetch messages first — needed to sort customers by last activity.
+  // IMPORTANT: PostgREST enforces a server-side max of 1000 rows regardless of
+  // the client .limit() value. Ordering DESC ensures we always get the NEWEST
+  // 1000 messages (old ones beyond 1000 are dropped, which is acceptable).
+  // We reverse the array afterward so display order is chronological.
+  const { data: rawMessages, error: messagesError } = await client
     .from("messages")
     .select("*")
-    .order("timestamp", { ascending: true })
-    .limit(10000)
+    .order("timestamp", { ascending: false })
+    .limit(1000)
+  const messages = rawMessages ? [...rawMessages].reverse() : []
 
   if (messagesError) {
     return NextResponse.json({ success: false, error: messagesError.message }, { status: 500 })
