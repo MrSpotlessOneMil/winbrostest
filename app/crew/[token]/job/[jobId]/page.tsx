@@ -420,8 +420,8 @@ export default function JobDetailPage() {
         {/* Special Instructions (cleaned notes — structured tags stripped by API) */}
         {job.notes && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <p className="font-semibold text-amber-800 text-sm mb-1">Special Instructions</p>
-            <p className="text-sm text-amber-900 whitespace-pre-wrap">{job.notes}</p>
+            <p className="font-semibold text-amber-800 text-sm mb-2">Special Instructions</p>
+            <NotesDisplay notes={job.notes} />
           </div>
         )}
 
@@ -699,6 +699,45 @@ export default function JobDetailPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Parse pipe-separated + asterisk-bulleted notes into clean sections */
+function NotesDisplay({ notes }: { notes: string }) {
+  // Split on | or newlines, trim each segment
+  const segments = notes
+    .split(/\||\n/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+
+  // Separate: lines starting with * are bullet items, rest are description
+  const description: string[] = []
+  const bullets: string[] = []
+
+  for (const seg of segments) {
+    if (seg.startsWith("*")) {
+      bullets.push(seg.replace(/^\*\s*/, ""))
+    } else {
+      description.push(seg)
+    }
+  }
+
+  return (
+    <div className="text-sm text-amber-900 space-y-2">
+      {description.length > 0 && (
+        <p>{description.join(" — ")}</p>
+      )}
+      {bullets.length > 0 && (
+        <ul className="space-y-1 ml-1">
+          {bullets.map((item, i) => (
+            <li key={i} className="flex items-start gap-2">
+              <span className="text-amber-500 mt-0.5 shrink-0">&#x2022;</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
