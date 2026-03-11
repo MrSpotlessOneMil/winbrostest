@@ -383,6 +383,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Track retargeting reply: if customer has active sequence and hasn't replied yet, mark first reply
+  const isRetargetingReply = !!(customer?.retargeting_sequence && !customer?.retargeting_stopped_reason)
   if (customer?.retargeting_sequence && !customer?.retargeting_completed_at && !customer?.retargeting_replied_at) {
     await client
       .from("customers")
@@ -1907,7 +1908,7 @@ export async function POST(request: NextRequest) {
         tenant,
         conversationHistory,
         knownInfo,
-        { isReturningCustomer: false, customerContext: postBookingCtx }
+        { isReturningCustomer: false, isRetargetingReply, customerContext: postBookingCtx }
       )
 
       // Send AI response (strip [BOOKING_COMPLETE] — never re-trigger for assigned leads)
@@ -2211,7 +2212,7 @@ export async function POST(request: NextRequest) {
           tenant,
           conversationHistory,
           knownInfo,
-          { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
+          { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
         )
 
         if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
@@ -2821,7 +2822,7 @@ export async function POST(request: NextRequest) {
         tenant,
         conversationHistory,
         knownInfoNew,
-        { isReturningCustomer: isSeasonalReply, customerContext: customerCtx }
+        { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
       )
 
       if (autoResponse.shouldSend && autoResponse.response) {

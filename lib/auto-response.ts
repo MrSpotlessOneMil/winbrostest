@@ -34,6 +34,7 @@ export interface KnownCustomerInfo {
 
 export interface AutoResponseOptions {
   isReturningCustomer?: boolean
+  isRetargetingReply?: boolean
   customerContext?: CustomerContext | null
 }
 
@@ -302,7 +303,7 @@ export async function generateAutoResponse(
   // House cleaning SMS booking flow (all non-window-cleaning tenants)
   if (tenant && !tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
-      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext)
+      return await generateHouseCleaningResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext, options?.isRetargetingReply)
     } catch (error) {
       console.error('[Auto-Response] House cleaning response failed, falling back to generic:', error)
     }
@@ -1167,7 +1168,8 @@ async function generateHouseCleaningResponse(
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   knownCustomerInfo?: KnownCustomerInfo,
   isReturningCustomer?: boolean,
-  customerContext?: CustomerContext | null
+  customerContext?: CustomerContext | null,
+  isRetargetingReply?: boolean,
 ): Promise<AutoResponseResult> {
   const { buildHouseCleaningSmsSystemPrompt } = await import('./house-cleaning-sms-prompt')
   // Reuse escalation/booking detection from WinBros (same tag format)
@@ -1202,8 +1204,10 @@ async function generateHouseCleaningResponse(
   }
 
   let returningCustomerBlock = ''
-  if (isReturningCustomer) {
-    returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
+  if (isRetargetingReply) {
+    returningCustomerBlock = '\n\nIMPORTANT: This customer is replying to a retargeting text we sent them. They already know who we are. Do NOT pitch them immediately or list service types right away. Just be conversational and warm, like a friend checking in. Ask how you can help or what they had in mind. Build rapport first, let THEM tell you what they need. Only start collecting booking info once they express clear interest.\n'
+  } else if (isReturningCustomer) {
+    returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a promotional message we sent them. Treat them as a valued returning customer. Be warm, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
   }
 
   // Inject customer context (active jobs, history, profile) for situation awareness
@@ -1287,8 +1291,8 @@ async function generateHouseCleaningResponse(
   const hasHistory = conversationHistory && conversationHistory.length > 0
   return {
     response: hasHistory
-      ? `Thanks for your message! Are you looking for a Standard Cleaning, Deep Cleaning, or Move-in/Move-out Cleaning?`
-      : `Hi! This is ${sdrName} from ${businessName}. Are you looking for a Standard Cleaning, Deep Cleaning, or Move-in/Move-out Cleaning?`,
+      ? `Thanks for reaching out! How can I help get your home taken care of?`
+      : `Hey! This is ${sdrName} from ${businessName}, how can I help get your home taken care of?`,
     shouldSend: true,
     reason: 'House cleaning template fallback',
   }
