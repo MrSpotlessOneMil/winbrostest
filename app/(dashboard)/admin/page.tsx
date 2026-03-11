@@ -2895,7 +2895,7 @@ export default function AdminPage() {
 
       {/* Delete Business Confirmation */}
       {showDeleteConfirm && currentTenant && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
           <Card className="w-full max-w-md mx-4 !bg-zinc-900 border-border shadow-2xl">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -2949,7 +2949,7 @@ export default function AdminPage() {
 
       {/* Campaign Create/Edit Modal */}
       {showCampaignModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-lg mx-4">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -3061,7 +3061,7 @@ export default function AdminPage() {
 
       {/* Onboarding Wizard */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <Card className="w-full max-w-3xl mx-4 max-h-[95vh] flex flex-col overflow-hidden !bg-zinc-900">
             <CardHeader className="shrink-0">
               <div className="flex items-center justify-between">

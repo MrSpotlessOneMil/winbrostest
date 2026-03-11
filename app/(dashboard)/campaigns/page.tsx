@@ -1300,6 +1300,83 @@ export default function CampaignsPage() {
           )}
         </DialogContent>
       </Dialog>
+                  <Megaphone className="h-5 w-5" />
+                  {editingCampaign ? "Edit Campaign" : "New Campaign"}
+                </CardTitle>
+                <Button variant="ghost" size="icon" onClick={() => setShowModal(false)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription>
+                {editingCampaign ? "Update this seasonal campaign" : "Create a new SMS campaign to reach your customers"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Campaign Name *</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="Spring Window Cleaning Special"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>SMS Message *</Label>
+                  <span className={`text-xs ${form.message.length > 160 ? "text-red-400" : "text-muted-foreground"}`}>
+                    {form.message.length}/160
+                  </span>
+                </div>
+                <textarea
+                  value={form.message}
+                  onChange={(e) => setForm({ ...form, message: e.target.value })}
+                  placeholder="Spring is here! Ready to get your windows sparkling? Reply YES for 15% off your next cleaning!"
+                  maxLength={160}
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 resize-none"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Customer name is auto-prepended (e.g., &quot;Hi John! &quot; + your message)
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date *</Label>
+                  <Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>End Date *</Label>
+                  <Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Target Customers</Label>
+                <select
+                  value={form.target_segment}
+                  onChange={(e) => setForm({ ...form, target_segment: e.target.value as SeasonalCampaign["target_segment"] })}
+                  aria-label="Target customer segment"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  <option value="all">All Customers</option>
+                  <option value="inactive_30">Inactive 30+ days</option>
+                  <option value="inactive_60">Inactive 60+ days</option>
+                  <option value="inactive_90">Inactive 90+ days</option>
+                  <option value="completed_customers">Past Completed Customers</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label>Enabled</Label>
+                <Switch checked={form.enabled} onCheckedChange={(checked) => setForm({ ...form, enabled: checked })} />
+              </div>
+              <div className="flex gap-2 pt-4">
+                <Button variant="outline" className="flex-1" onClick={() => setShowModal(false)}>Cancel</Button>
+                <Button
+                  className="flex-1"
+                  onClick={saveCampaign}
+                  disabled={saving || !form.name || !form.message || !form.start_date || !form.end_date || form.message.length > 160}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                  {editingCampaign ? "Save Changes" : "Create Campaign"}
     </div>
   )
 }
