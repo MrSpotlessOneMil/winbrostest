@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -222,12 +223,7 @@ export default function QuotesPage() {
 
   // Loading state
   if (loading && quotes.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-20 text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
-        Loading quotes...
-      </div>
-    )
+    return <CubeLoader />
   }
 
   // Error state

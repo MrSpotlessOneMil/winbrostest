@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -94,11 +95,7 @@ export default function InsightsPage() {
   useEffect(() => { fetchInsights() }, [])
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
+    return <CubeLoader />
   }
 
   const pipeline = data?.pipeline || {}

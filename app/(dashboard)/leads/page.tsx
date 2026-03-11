@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -438,7 +439,7 @@ export default function LeadsPage() {
                 </div>
               )
             })}
-            {loading && <p className="text-sm text-muted-foreground">Loading leads…</p>}
+            {loading && <CubeLoader />}
             {!loading && leads.length === 0 && (
               <p className="text-sm text-muted-foreground">No leads yet.</p>
             )}

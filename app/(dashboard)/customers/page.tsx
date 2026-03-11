@@ -8,6 +8,7 @@ import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
 import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
+import CubeLoader from "@/components/ui/cube-loader"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -1264,11 +1265,7 @@ export default function CustomersPage() {
   }, [filteredCustomers, messages, readVersion, searchQuery])
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full py-24">
-        <div className="text-sm text-zinc-500">Loading customers...</div>
-      </div>
-    )
+    return <CubeLoader />
   }
 
   return (

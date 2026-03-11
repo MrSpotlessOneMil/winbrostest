@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -273,9 +274,7 @@ export default function MembershipsPage() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
+            <CubeLoader />
           ) : filtered.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               No memberships found

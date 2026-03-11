@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -101,7 +102,7 @@ export default function CallsPage() {
               </div>
             ))}
 
-            {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {loading && <CubeLoader />}
             {!loading && calls.length === 0 && (
               <p className="text-sm text-muted-foreground">No calls found.</p>
             )}

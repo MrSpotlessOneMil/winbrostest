@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import CubeLoader from "@/components/ui/cube-loader"
 import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -315,7 +316,7 @@ export default function ExceptionsPage() {
               )}
 
               {eventsLoading && filteredEvents.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">Loading events...</div>
+                <CubeLoader />
               )}
 
               {!eventsLoading && filteredEvents.length === 0 && !eventsError && (

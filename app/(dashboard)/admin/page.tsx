@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
+import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -1206,7 +1207,7 @@ export default function AdminPage() {
       )}
 
       {loading ? (
-        <div className="text-center py-8 text-muted-foreground">Loading businesses...</div>
+        <CubeLoader />
       ) : tenants.length === 0 ? (
         <Alert>
           <AlertTitle>No businesses found</AlertTitle>
