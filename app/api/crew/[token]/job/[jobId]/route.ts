@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
+import { getEstimateFromNotes } from '@/lib/pricing-config'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
 
@@ -110,12 +111,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const customer = (job as any).customers
   const customerData: any = {
     first_name: customer?.first_name || null,
+    last_name: customer?.last_name || null,
   }
   if (showCustomerPhone) {
     customerData.phone = customer?.phone_number || job.phone_number || null
   }
 
   const hasCardOnFile = !!(customer?.stripe_customer_id && customer?.card_on_file_at)
+
+  // Parse structured tags from notes
+  const estimate = getEstimateFromNotes(job.notes)
+
+  // Strip structured tags from notes so frontend only shows human-readable instructions
+  const cleanedNotes = job.notes
+    ? job.notes
+        .split('\n')
+        .filter((line: string) => {
+          const trimmed = line.trim().toUpperCase()
+          return (
+            !trimmed.startsWith('OVERRIDE:') &&
+            !trimmed.startsWith('PAYMENT:') &&
+            !trimmed.startsWith('HOURS:') &&
+            !trimmed.startsWith('PAY:')
+          )
+        })
+        .join('\n')
+        .trim() || null
+    : null
 
   return NextResponse.json({
     job: {
@@ -125,12 +147,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       address: job.address,
       service_type: job.service_type,
       status: job.status,
-      notes: job.notes,
+      notes: cleanedNotes,
       bedrooms: job.bedrooms,
       bathrooms: job.bathrooms,
       sqft: job.sqft,
       hours: job.hours,
-      price: job.price,
+      cleaner_pay: estimate.cleanerPay ?? null,
+      total_hours: estimate.totalHours ?? null,
+      hours_per_cleaner: estimate.hoursPerCleaner ?? null,
+      num_cleaners: estimate.cleaners ?? null,
       paid: (job as any).paid || false,
       payment_status: (job as any).payment_status || null,
       cleaner_omw_at: job.cleaner_omw_at,

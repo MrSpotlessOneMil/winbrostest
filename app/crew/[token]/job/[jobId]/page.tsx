@@ -33,7 +33,10 @@ interface JobDetail {
   bathrooms: number | null
   sqft: number | null
   hours: number | null
-  price: number | null
+  cleaner_pay: number | null
+  total_hours: number | null
+  hours_per_cleaner: number | null
+  num_cleaners: number | null
   paid: boolean
   payment_status: string | null
   cleaner_omw_at: string | null
@@ -64,7 +67,7 @@ interface Message {
 interface JobData {
   job: JobDetail
   assignment: { id: string; status: string }
-  customer: { first_name: string | null; phone?: string | null }
+  customer: { first_name: string | null; last_name: string | null; phone?: string | null }
   checklist: ChecklistItem[]
   tenant: { name: string; slug: string }
 }
@@ -345,30 +348,7 @@ export default function JobDetailPage() {
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4 space-y-4">
-        {/* Accept/Decline (pending assignments) */}
-        {isPending && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <h3 className="font-semibold text-amber-800 mb-3">New Job Assignment</h3>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleAcceptDecline("accept")}
-                disabled={!!updating}
-                className="flex-1 bg-green-500 text-white py-2.5 rounded-lg font-medium hover:bg-green-600 disabled:opacity-50"
-              >
-                {updating === "accept" ? "..." : "Accept"}
-              </button>
-              <button
-                onClick={() => handleAcceptDecline("decline")}
-                disabled={!!updating}
-                className="flex-1 bg-red-500 text-white py-2.5 rounded-lg font-medium hover:bg-red-600 disabled:opacity-50"
-              >
-                {updating === "decline" ? "..." : "Decline"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Job Info Card */}
+        {/* Job Info Card — always shown first so cleaner sees details before acting */}
         <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
           <div className="flex items-center gap-2 text-sm text-slate-600">
             <Calendar className="size-4" />
@@ -391,10 +371,10 @@ export default function JobDetailPage() {
             </div>
           )}
 
-          {customer.first_name && (
+          {(customer.first_name || customer.last_name) && (
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <User className="size-4" />
-              <span>{customer.first_name}</span>
+              <span>{[customer.first_name, customer.last_name].filter(Boolean).join(" ")}</span>
             </div>
           )}
 
@@ -409,20 +389,64 @@ export default function JobDetailPage() {
 
           {(job.bedrooms || job.bathrooms || job.sqft) && (
             <div className="flex gap-4 text-sm text-slate-500 pt-1 border-t border-slate-100">
-              {job.bedrooms && <span>{job.bedrooms} bed</span>}
-              {job.bathrooms && <span>{job.bathrooms} bath</span>}
-              {job.sqft && <span>{job.sqft} sqft</span>}
-              {job.hours && <span>{job.hours}h</span>}
+              {job.bedrooms != null && <span>{job.bedrooms} bed</span>}
+              {job.bathrooms != null && <span>{job.bathrooms} bath</span>}
+              {job.sqft != null && <span>{job.sqft} sqft</span>}
             </div>
           )}
 
-          {job.notes && (
-            <div className="text-sm text-slate-500 pt-1 border-t border-slate-100">
-              <p className="font-medium text-slate-600 mb-0.5">Notes</p>
-              <p className="whitespace-pre-wrap">{job.notes}</p>
+          {/* Hours & Cleaners */}
+          {(job.total_hours || job.num_cleaners || job.hours) && (
+            <div className="flex gap-4 text-sm text-slate-500 pt-1 border-t border-slate-100">
+              {(job.total_hours || job.hours) && (
+                <span>{job.total_hours ?? job.hours}h estimated</span>
+              )}
+              {job.num_cleaners && <span>{job.num_cleaners} cleaner{job.num_cleaners > 1 ? "s" : ""}</span>}
+              {job.hours_per_cleaner && <span>{job.hours_per_cleaner}h each</span>}
+            </div>
+          )}
+
+          {/* Cleaner Pay — prominent */}
+          {job.cleaner_pay != null && (
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+              <DollarSign className="size-4 text-green-600" />
+              <span className="text-sm font-semibold text-green-700">
+                Your pay: ${Number(job.cleaner_pay).toFixed(2)}
+              </span>
             </div>
           )}
         </div>
+
+        {/* Special Instructions (cleaned notes — structured tags stripped by API) */}
+        {job.notes && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p className="font-semibold text-amber-800 text-sm mb-1">Special Instructions</p>
+            <p className="text-sm text-amber-900 whitespace-pre-wrap">{job.notes}</p>
+          </div>
+        )}
+
+        {/* Accept/Decline (pending assignments) — after details so cleaner sees everything first */}
+        {isPending && (
+          <div className="bg-white border border-slate-200 rounded-lg p-4">
+            <h3 className="font-semibold text-slate-800 mb-3">Accept this job?</h3>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleAcceptDecline("accept")}
+                disabled={!!updating}
+                className="flex-1 bg-green-500 text-white py-2.5 rounded-lg font-medium hover:bg-green-600 disabled:opacity-50"
+              >
+                {updating === "accept" ? "..." : "Accept"}
+              </button>
+              <button
+                onClick={() => handleAcceptDecline("decline")}
+                disabled={!!updating}
+                className="flex-1 bg-red-500 text-white py-2.5 rounded-lg font-medium hover:bg-red-600 disabled:opacity-50"
+              >
+                {updating === "decline" ? "..." : "Decline"}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Status Buttons (OMW → HERE → DONE) */}
         {isActive && !isPending && (
@@ -523,7 +547,7 @@ export default function JobDetailPage() {
           <div className="bg-white rounded-lg border border-slate-200 p-4">
             <h3 className="font-semibold text-slate-800 mb-2">Charge Card on File</h3>
             <p className="text-sm text-slate-500 mb-3">
-              Charge ${job.price ? Number(job.price).toFixed(2) : "0.00"} to customer&apos;s saved card.
+              Charge customer&apos;s saved card for this job.
             </p>
             {chargeResult?.success && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 flex items-center gap-2">
@@ -545,7 +569,7 @@ export default function JobDetailPage() {
               {charging ? (
                 <><Loader2 className="size-4 animate-spin" /> Charging...</>
               ) : (
-                <><CreditCard className="size-4" /> Charge ${job.price ? Number(job.price).toFixed(2) : "0.00"}</>
+                <><CreditCard className="size-4" /> Charge Customer</>
               )}
             </button>
           </div>
@@ -557,7 +581,7 @@ export default function JobDetailPage() {
             <CheckCircle className="size-5 text-green-500" />
             <div>
               <p className="font-semibold text-green-800 text-sm">Payment Collected</p>
-              <p className="text-green-600 text-xs">${job.price ? Number(job.price).toFixed(2) : "0.00"} via {job.payment_method || "card"}</p>
+              <p className="text-green-600 text-xs">Paid via {job.payment_method || "card"}</p>
             </div>
           </div>
         )}
