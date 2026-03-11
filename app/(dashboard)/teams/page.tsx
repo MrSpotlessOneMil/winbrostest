@@ -496,7 +496,7 @@ export default function TeamsPage() {
           <Button asChild>
             <Link href="/teams/manage">
               <Users className="mr-2 h-4 w-4" />
-              Manage Teams
+              Manage / Create Teams
             </Link>
           </Button>
         </div>

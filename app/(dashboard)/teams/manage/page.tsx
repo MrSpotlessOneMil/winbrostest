@@ -240,7 +240,7 @@ export default function ManageTeamsPage() {
         <div>
           <h1 className="flex items-center gap-3 text-2xl font-semibold text-foreground">
             <Users className="h-7 w-7" />
-            Manage Teams
+            Manage / Create Teams
           </h1>
           <p className="text-sm text-muted-foreground">Drag & drop cleaners between teams (live Supabase updates)</p>
         </div>
