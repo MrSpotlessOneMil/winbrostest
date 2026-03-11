@@ -400,34 +400,20 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   {
     name: "update_job",
     description:
-      "Update an existing job's status, date, time, notes, or address. If the date/time changes and a cleaner is assigned, they'll be notified via Telegram.",
+      "Update an existing job. Can reschedule (change date/time), change status (complete, cancel, in_progress), update price, address, notes, service type, bedrooms, bathrooms. If rescheduled with a cleaner assigned, they'll be notified.",
     input_schema: {
       type: "object" as const,
       properties: {
-        job_id: {
-          type: "number",
-          description: "The job ID to update",
-        },
-        status: {
-          type: "string",
-          description: "New status: 'scheduled', 'in_progress', 'completed', 'cancelled'",
-        },
-        date: {
-          type: "string",
-          description: "New date in YYYY-MM-DD format",
-        },
-        time: {
-          type: "string",
-          description: "New time in HH:MM format (24-hour)",
-        },
-        notes: {
-          type: "string",
-          description: "Updated notes/instructions",
-        },
-        address: {
-          type: "string",
-          description: "Updated service address",
-        },
+        job_id: { type: "number", description: "The job ID to update" },
+        status: { type: "string", enum: ["scheduled", "in_progress", "completed", "cancelled", "pending"], description: "New job status" },
+        date: { type: "string", description: "New date in YYYY-MM-DD format" },
+        time: { type: "string", description: "New time in HH:MM format (24-hour)" },
+        price: { type: "number", description: "New price in dollars" },
+        notes: { type: "string", description: "Updated notes/instructions" },
+        address: { type: "string", description: "Updated service address" },
+        service_type: { type: "string", description: "New service type" },
+        bedrooms: { type: "number", description: "Number of bedrooms" },
+        bathrooms: { type: "number", description: "Number of bathrooms" },
       },
       required: ["job_id"],
     },
@@ -435,18 +421,19 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   {
     name: "update_customer",
     description:
-      "Update a customer's details: email, name, or address. Useful for adding an email before generating payment links.",
+      "Update a customer's details: name, email, address, bedrooms, bathrooms, sqft, notes. Useful for adding info before generating payment links or improving pricing accuracy.",
     input_schema: {
       type: "object" as const,
       properties: {
-        phone_number: {
-          type: "string",
-          description: "The customer's phone number (used to find them)",
-        },
+        phone_number: { type: "string", description: "The customer's phone number (used to find them)" },
         first_name: { type: "string", description: "Updated first name" },
         last_name: { type: "string", description: "Updated last name" },
         email: { type: "string", description: "Updated email address" },
         address: { type: "string", description: "Updated service address" },
+        bedrooms: { type: "number", description: "Number of bedrooms" },
+        bathrooms: { type: "number", description: "Number of bathrooms" },
+        sqft: { type: "number", description: "Square footage" },
+        notes: { type: "string", description: "Customer notes" },
       },
       required: ["phone_number"],
     },
@@ -702,51 +689,6 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
   },
   // ── NEW POWER TOOLS ─────────────────────────────────────────────
   {
-    name: "update_job",
-    description:
-      "Update an existing job. Can reschedule (change date/time), change status (cancel, complete, mark in_progress), update price, address, notes, or any other field. Use lookup_customer first to get the job ID.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        job_id: { type: "number", description: "The job ID to update" },
-        date: { type: "string", description: "New date in YYYY-MM-DD format" },
-        time: { type: "string", description: "New time in HH:MM format (24-hour)" },
-        status: {
-          type: "string",
-          enum: ["scheduled", "in_progress", "completed", "cancelled", "pending"],
-          description: "New job status",
-        },
-        price: { type: "number", description: "New price in dollars" },
-        address: { type: "string", description: "New service address" },
-        notes: { type: "string", description: "Updated notes" },
-        service_type: { type: "string", description: "New service type" },
-        bedrooms: { type: "number", description: "Number of bedrooms" },
-        bathrooms: { type: "number", description: "Number of bathrooms" },
-      },
-      required: ["job_id"],
-    },
-  },
-  {
-    name: "update_customer",
-    description:
-      "Update a customer's information. Can change name, email, address, property details, or any field. Look up the customer first to get their current info.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        phone_number: { type: "string", description: "Customer's phone number (to identify them)" },
-        first_name: { type: "string", description: "Updated first name" },
-        last_name: { type: "string", description: "Updated last name" },
-        email: { type: "string", description: "Updated email" },
-        address: { type: "string", description: "Updated address" },
-        bedrooms: { type: "number", description: "Number of bedrooms" },
-        bathrooms: { type: "number", description: "Number of bathrooms" },
-        sqft: { type: "number", description: "Square footage" },
-        notes: { type: "string", description: "Customer notes" },
-      },
-      required: ["phone_number"],
-    },
-  },
-  {
     name: "charge_card",
     description:
       "Charge a customer's saved card on file. Requires the customer to have previously saved a card via Stripe. Use lookup_customer to verify they have a card on file first.",
@@ -812,19 +754,6 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
         custom_price: { type: "number", description: "Override price instead of using tier pricing (in dollars)" },
         notes: { type: "string", description: "Notes for the customer" },
         send_sms: { type: "boolean", description: "Whether to text the quote link to the customer (default: true)" },
-      },
-      required: ["phone_number"],
-    },
-  },
-  {
-    name: "view_messages",
-    description:
-      "View recent SMS conversations with a customer. Shows both inbound and outbound messages. Useful for context before responding.",
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        phone_number: { type: "string", description: "Customer's phone number" },
-        limit: { type: "number", description: "Number of recent messages to show (default: 20)" },
       },
       required: ["phone_number"],
     },
@@ -1769,9 +1698,13 @@ async function executeTool(
       if (toolInput.time) updates.scheduled_at = toolInput.time
       if (toolInput.notes) updates.notes = toolInput.notes
       if (toolInput.address) updates.address = toolInput.address
+      if (toolInput.price != null) updates.price = toolInput.price
+      if (toolInput.service_type) updates.service_type = toolInput.service_type
+      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
+      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
       updates.updated_at = new Date().toISOString()
 
-      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change (status, date, time, notes, address)."
+      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change."
 
       // Fetch current job for comparison
       const { data: oldJob } = await client
@@ -1782,6 +1715,14 @@ async function executeTool(
         .single()
 
       if (!oldJob) return `Job #${jobId} not found.`
+
+      // Completion/cancellation side effects
+      if (toolInput.status === "completed" && !oldJob.completed_at) {
+        updates.completed_at = new Date().toISOString()
+      }
+      if (toolInput.status === "cancelled") {
+        updates.booked = false
+      }
 
       const { data: updatedJob, error } = await client
         .from("jobs")
@@ -1842,9 +1783,13 @@ async function executeTool(
       if (toolInput.last_name) updates.last_name = toolInput.last_name
       if (toolInput.email) updates.email = toolInput.email
       if (toolInput.address) updates.address = toolInput.address
+      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
+      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
+      if (toolInput.sqft != null) updates.sqft = toolInput.sqft
+      if (toolInput.notes) updates.notes = toolInput.notes
       updates.updated_at = new Date().toISOString()
 
-      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change (first_name, last_name, email, address)."
+      if (Object.keys(updates).length === 1) return "No updates provided. Specify at least one field to change."
 
       const { error } = await client
         .from("customers")
@@ -2437,85 +2382,6 @@ async function executeTool(
     }
   }
 
-  // ── UPDATE JOB ────────────────────────────────────────────────────
-  if (toolName === "update_job") {
-    try {
-      const jobId = String(toolInput.job_id)
-      const { updateJob, getJobById } = await import("@/lib/supabase")
-
-      const existingJob = await getJobById(jobId)
-      if (!existingJob) return `No job found with ID ${jobId}.`
-      if (tenantId && existingJob.tenant_id !== tenantId) return `No job found with ID ${jobId}.`
-
-      const updates: Record<string, any> = {}
-      if (toolInput.date) updates.date = toolInput.date
-      if (toolInput.time) updates.scheduled_at = toolInput.time
-      if (toolInput.status) updates.status = toolInput.status
-      if (toolInput.price != null) updates.price = toolInput.price
-      if (toolInput.address) updates.address = toolInput.address
-      if (toolInput.notes) updates.notes = toolInput.notes
-      if (toolInput.service_type) updates.service_type = toolInput.service_type
-      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
-      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
-
-      // Handle completion side effects
-      if (toolInput.status === "completed" && !existingJob.completed_at) {
-        updates.completed_at = new Date().toISOString()
-      }
-      if (toolInput.status === "cancelled") {
-        updates.booked = false
-      }
-
-      if (Object.keys(updates).length === 0) return "No updates specified. What would you like to change?"
-
-      updates.updated_at = new Date().toISOString()
-      const updated = await updateJob(jobId, updates, {})
-      if (!updated) return "Failed to update job. Please check the job ID."
-
-      const changes = Object.entries(updates)
-        .filter(([k]) => k !== "updated_at")
-        .map(([k, v]) => `- ${k}: ${v}`)
-        .join("\n")
-
-      return `Job #${jobId} updated successfully!\n${changes}`
-    } catch (err: any) {
-      return `Error updating job: ${err.message}`
-    }
-  }
-
-  // ── UPDATE CUSTOMER ──────────────────────────────────────────────
-  if (toolName === "update_customer") {
-    try {
-      const customer: any = await findCustomerByPhone(client, toolInput.phone_number, tenantId)
-      if (!customer) return `No customer found with phone ${toolInput.phone_number}.`
-
-      const updates: Record<string, any> = {}
-      if (toolInput.first_name) updates.first_name = toolInput.first_name
-      if (toolInput.last_name) updates.last_name = toolInput.last_name
-      if (toolInput.email) updates.email = toolInput.email
-      if (toolInput.address) updates.address = toolInput.address
-      if (toolInput.bedrooms != null) updates.bedrooms = toolInput.bedrooms
-      if (toolInput.bathrooms != null) updates.bathrooms = toolInput.bathrooms
-      if (toolInput.sqft != null) updates.sqft = toolInput.sqft
-      if (toolInput.notes) updates.notes = toolInput.notes
-
-      if (Object.keys(updates).length === 0) return "No updates specified. What would you like to change?"
-
-      updates.updated_at = new Date().toISOString()
-      const { error } = await client.from("customers").update(updates).eq("id", customer.id)
-      if (error) return `Failed to update customer: ${error.message}`
-
-      const changes = Object.entries(updates)
-        .filter(([k]) => k !== "updated_at")
-        .map(([k, v]) => `- ${k}: ${v}`)
-        .join("\n")
-
-      return `Customer ${customer.first_name || ""} ${customer.last_name || ""} updated!\n${changes}`
-    } catch (err: any) {
-      return `Error updating customer: ${err.message}`
-    }
-  }
-
   // ── CHARGE CARD ON FILE ──────────────────────────────────────────
   if (toolName === "charge_card") {
     try {
@@ -2751,34 +2617,6 @@ async function executeTool(
       return `Quote created!\n- Quote ID: ${quote.id}\n- Tier: ${customPrice ? "Custom" : selectedTier}\n- Total: $${total.toFixed(2)}\n- Link: ${quoteLink}\n${toolInput.send_sms !== false ? "- SMS sent to customer" : "- SMS not sent (as requested)"}`
     } catch (err: any) {
       return `Error creating quote: ${err.message}`
-    }
-  }
-
-  // ── VIEW MESSAGES ────────────────────────────────────────────────
-  if (toolName === "view_messages") {
-    try {
-      const e164 = toE164(toolInput.phone_number)
-      const phone = e164 || toolInput.phone_number
-      const limit = Math.min(toolInput.limit || 20, 50)
-
-      let query = client.from("messages").select("id, direction, body, created_at, from_number, to_number")
-        .or(`from_number.eq.${phone},to_number.eq.${phone}`)
-        .order("created_at", { ascending: false }).limit(limit)
-
-      if (tenantId) query = query.eq("tenant_id", tenantId)
-      const { data: messages, error } = await query
-      if (error) return `Error loading messages: ${error.message}`
-      if (!messages || messages.length === 0) return `No messages found for ${toolInput.phone_number}.`
-
-      const formatted = messages.reverse().map((m: any) => ({
-        direction: m.direction === "inbound" ? "CUSTOMER" : "BUSINESS",
-        message: m.body,
-        time: new Date(m.created_at).toLocaleString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
-      }))
-
-      return JSON.stringify({ phone, messageCount: messages.length, conversation: formatted })
-    } catch (err: any) {
-      return `Error loading messages: ${err.message}`
     }
   }
 
