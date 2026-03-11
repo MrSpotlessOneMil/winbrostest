@@ -21,9 +21,11 @@ const ENROLLABLE_STAGES: RetargetingSequenceType[] = [
   'quoted_not_booked',
   'one_time',
   'lapsed',
+  'new_lead',
+  'lost',
 ]
 
-const MAX_ENROLLMENTS_PER_TENANT = 20
+const MAX_ENROLLMENTS_PER_TENANT = 50
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -49,6 +51,14 @@ export async function GET(request: NextRequest) {
       // Refresh lifecycle stages
       await client.rpc('refresh_customer_lifecycles', { p_tenant_id: tenant.id })
 
+      // Get cleaner phone numbers to exclude
+      const { data: cleanerPhones } = await client
+        .from('cleaners')
+        .select('phone')
+        .eq('tenant_id', tenant.id)
+        .not('phone', 'is', null)
+      const cleanerPhoneSet = new Set((cleanerPhones || []).map(c => c.phone).filter(Boolean))
+
       // Find customers eligible for auto-enrollment
       const { data: candidates, error: queryError } = await client
         .from('customers')
@@ -71,6 +81,12 @@ export async function GET(request: NextRequest) {
 
         // Skip opted-out customers
         if (cust.sms_opt_out) {
+          skipped++
+          continue
+        }
+
+        // Skip cleaners
+        if (cust.phone_number && cleanerPhoneSet.has(cust.phone_number)) {
           skipped++
           continue
         }

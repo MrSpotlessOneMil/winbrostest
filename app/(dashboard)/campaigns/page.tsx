@@ -88,52 +88,52 @@ const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; 
   unresponsive: {
     summary: "3 steps, 7 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "9-Word Reactivation", a: "Hey {name}! We have a couple openings for {service} this week — want me to save you a spot?", b: "Hey {name}, quick question — are you still needing {service}? Reply YES and I'll get you on the schedule." },
-      { step: 2, delay: "Day 3", template: "Value Nudge", a: "Hi {name}, just finished a job near you and thought of you! We've got one more opening this week for {service}. Want me to pencil you in?", b: "Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?" },
-      { step: 3, delay: "Day 7", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Opener", a: "Hey {name}, we got a couple spots open for {service} this week if you're interested", b: "Hey {name} its been a bit, you still looking into getting {service} done?" },
+      { step: 2, delay: "Day 3", template: "Value Nudge", a: "Hey {name} we just finished up a job near you actually, got one more opening this week if you wanna get on the schedule for {service}", b: "Hey {name} we got a couple spots left this week for {service} if you wanna grab one before they fill up" },
+      { step: 3, delay: "Day 7", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
   quoted_not_booked: {
     summary: "6 steps, 14 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Quote Follow-up", a: "Hey {name}, your {service} quote is still good! Any questions or want to adjust anything? Just reply here — happy to work with you.", b: "Hi {name}, following up on your quote — I can hold your spot if you want to lock it in this week. Just say the word!" },
-      { step: 2, delay: "Day 2", template: "Question-Based", a: "Hey {name}, totally get that timing matters. Is there anything we can do to make booking easier for you? We're flexible on scheduling.", b: "Hi {name}, was there something we could do differently? Happy to work around your schedule or adjust the price." },
-      { step: 3, delay: "Day 4", template: "Limited Time", a: "Hey {name}, only 2 openings left this week for {service} — want me to hold one for you? They go fast!", b: "Hi {name}, we just had a cancellation and have a spot open for {service}. Want it? Reply YES to grab it." },
-      { step: 4, delay: "Day 7", template: "Check-In", a: "Hey {name}, just circling back — still interested in {service}? I can work with you on timing or price. What would make this a yes?", b: "Hi {name}, wanted to make sure your quote didn't slip through the cracks. We've got availability this week — want me to book you in?" },
-      { step: 5, delay: "Day 10", template: "Social Proof", a: "Hey {name}, just wrapped up {service} for a neighbor nearby and they loved it! We'd love to take care of your place too. Reply YES to book.", b: "Hi {name}, we've been busy in your area doing {service} — your neighbors are loving the results! Want us to swing by yours too?" },
-      { step: 6, delay: "Day 14", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to get you booked for {service} but no pressure. Reply YES to book, otherwise I'll close out your file.", b: "Hi {name}, I'm closing out quotes this week — should I keep yours open for {service}, or would you rather I stop reaching out? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Quote Follow-up", a: "Hey {name} just following up on that {service} quote, let me know if you have any questions or wanna tweak anything", b: "Hey {name} your quote for {service} is still good, I can hold a spot for you this week if you wanna lock it in" },
+      { step: 2, delay: "Day 2", template: "Question-Based", a: "Hey {name} totally get that timing matters, anything we can do to make it easier to get {service} scheduled? pretty flexible on our end", b: "Hey {name} was there anything holding you back from booking? happy to work around your schedule for {service}" },
+      { step: 3, delay: "Day 4", template: "Limited Time", a: "Hey {name} we only got like 2 openings left this week for {service}, want me to hold one for you?", b: "Hey {name} just had a cancellation so we got a spot open for {service} if you want it" },
+      { step: 4, delay: "Day 7", template: "Check-In", a: "Hey {name} just circling back on {service}, happy to work with you on timing or price. what would make it work for you?", b: "Hey {name} didn't wanna let your quote slip through the cracks, we got availability this week if you wanna get {service} booked" },
+      { step: 5, delay: "Day 10", template: "Social Proof", a: "Hey {name} we just wrapped up {service} for someone nearby and they were super happy with it, would love to take care of your place too", b: "Hey {name} we've been busy in your area with {service} lately, your neighbors are loving it. want us to swing by yours?" },
+      { step: 6, delay: "Day 14", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
   one_time: {
     summary: "3 steps, 14 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "We Miss You", a: "Hey {name}! It's been a minute — your place is probably due for {service} again. Want us to swing by? Reply YES to book.", b: "Hi {name}, we were just in your area doing {service} and thought of you! Ready for another round? Just say when." },
-      { step: 2, delay: "Day 7", template: "Seasonal Nudge", a: "Hey {name}, perfect time of year for {service}! We're booking up this week — want me to squeeze you in?", b: "Hi {name}, most of our customers are getting their {service} done right now. Want me to get you on the schedule too?" },
-      { step: 3, delay: "Day 14", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Check-In", a: "Hey {name} its been a while, your place is probably due for {service} again. want us to swing by?", b: "Hey {name} we were in your area doing {service} and thought of you, let me know if you wanna get back on the schedule" },
+      { step: 2, delay: "Day 7", template: "Seasonal Nudge", a: "Hey {name} great time of year for {service}, we're filling up this week, want me to squeeze you in?", b: "Hey {name} most of our regulars are getting their {service} done right now, want me to get you on the schedule too?" },
+      { step: 3, delay: "Day 14", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
   lapsed: {
     summary: "3 steps, 10 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name}, real quick — was there anything we could've done better last time? We'd love another chance to impress you.", b: "Hi {name}, just checking in. If there's anything we can improve, I'd love to hear it. Either way, we'd love to have you back!" },
-      { step: 2, delay: "Day 5", template: "Incentive Offer", a: "Hey {name}, we'd love to have you back! Reply YES and I'll get you priority scheduling for your next {service}.", b: "Hi {name}, we're offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?" },
-      { step: 3, delay: "Day 10", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name} real quick, was there anything we could've done better last time? would love another shot", b: "Hey {name} just wanted to check in, if there was anything we could improve I'd love to hear it. either way hope you're doing well" },
+      { step: 2, delay: "Day 5", template: "Priority Offer", a: "Hey {name} we'd love to have you back, I can get you priority scheduling for your next {service} if you're interested", b: "Hey {name} we're giving priority booking to returning customers this week for {service}, want me to put you at the top of the list?" },
+      { step: 3, delay: "Day 10", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
   new_lead: {
     summary: "3 steps, 5 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "9-Word Reactivation", a: "Hey {name}! We have a couple openings for {service} this week — want me to save you a spot?", b: "Hey {name}, quick question — are you still needing {service}? Reply YES and I'll get you on the schedule." },
-      { step: 2, delay: "Day 2", template: "Value Nudge", a: "Hi {name}, just finished a job near you and thought of you! We've got one more opening this week for {service}. Want me to pencil you in?", b: "Hi {name}, we have 2 spots left this week for {service}. Want me to grab one for you before they fill up?" },
-      { step: 3, delay: "Day 5", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Opener", a: "Hey {name}, we got a couple spots open for {service} this week if you're interested", b: "Hey {name} its been a bit, you still looking into getting {service} done?" },
+      { step: 2, delay: "Day 2", template: "Value Nudge", a: "Hey {name} we just finished up a job near you actually, got one more opening this week if you wanna get on the schedule for {service}", b: "Hey {name} we got a couple spots left this week for {service} if you wanna grab one before they fill up" },
+      { step: 3, delay: "Day 5", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
   lost: {
     summary: "3 steps, 10 days",
     steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name}, real quick — was there anything we could've done better last time? We'd love another chance to impress you.", b: "Hi {name}, just checking in. If there's anything we can improve, I'd love to hear it. Either way, we'd love to have you back!" },
-      { step: 2, delay: "Day 5", template: "Incentive Offer", a: "Hey {name}, we'd love to have you back! Reply YES and I'll get you priority scheduling for your next {service}.", b: "Hi {name}, we're offering priority booking to returning customers this week. Want me to put you at the top of the list for {service}?" },
-      { step: 3, delay: "Day 10", template: "Closing File", a: "Hey {name}, last check-in from me! We'd love to have you back for {service} but no pressure. Reply YES to book, otherwise I'll stop reaching out.", b: "Hi {name}, I'm cleaning up my list — should I keep you on it for {service}, or would you rather I stop texting? Either way, no hard feelings!" },
+      { step: 1, delay: "Immediately", template: "Feedback Ask", a: "Hey {name} real quick, was there anything we could've done better last time? would love another shot", b: "Hey {name} just wanted to check in, if there was anything we could improve I'd love to hear it. either way hope you're doing well" },
+      { step: 2, delay: "Day 5", template: "Priority Offer", a: "Hey {name} we'd love to have you back, I can get you priority scheduling for your next {service} if you're interested", b: "Hey {name} we're giving priority booking to returning customers this week for {service}, want me to put you at the top of the list?" },
+      { step: 3, delay: "Day 10", template: "Last Check", a: "Hey {name} last message from me, would love to get you on the schedule for {service} but totally understand if the timing isn't right. just let me know either way", b: "Hey {name} I'm cleaning up my list, should I keep you on it for {service} or would you rather I stop texting? no hard feelings either way" },
     ],
   },
 }

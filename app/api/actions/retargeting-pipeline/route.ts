@@ -67,6 +67,14 @@ export async function POST(request: NextRequest) {
 
   const supabase = getSupabaseServiceClient()
 
+  // Get cleaner phone numbers to exclude
+  const { data: cleanerPhones } = await supabase
+    .from("cleaners")
+    .select("phone")
+    .eq("tenant_id", tenant.id)
+    .not("phone", "is", null)
+  const cleanerPhoneSet = new Set((cleanerPhones || []).map(c => c.phone).filter(Boolean))
+
   // Get customers to enroll — either specific IDs or all in this lifecycle stage
   let query = supabase
     .from("customers")
@@ -95,6 +103,12 @@ export async function POST(request: NextRequest) {
   for (const c of batch) {
     if (!c.phone_number) {
       errors.push(`Skipped ${c.first_name || "unknown"}: no phone number`)
+      continue
+    }
+
+    // Skip cleaners
+    if (cleanerPhoneSet.has(c.phone_number)) {
+      errors.push(`Skipped ${c.first_name || "unknown"}: is a cleaner`)
       continue
     }
 
