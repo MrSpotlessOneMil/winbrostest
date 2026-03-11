@@ -128,7 +128,7 @@ export default function TeamsPage() {
       return saved ? JSON.parse(saved) : null
     } catch { return null }
   })
-  const [activeTab, setActiveTab] = useState<ActiveTab>("overview")
+  const [activeTab, setActiveTab] = useState<ActiveTab>("sms")
 
   // Overview tab state
   const [earningsPeriod, setEarningsPeriod] = useState<EarningsPeriod>("week")
@@ -420,7 +420,7 @@ export default function TeamsPage() {
 
   function selectCleaner(c: CleanerDetail) {
     setSelectedCleaner(c)
-    setActiveTab("overview")
+    setActiveTab("sms")
   }
 
   async function toggleCleanerActive(cleanerId: string, active: boolean) {
