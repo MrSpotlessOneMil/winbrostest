@@ -9,7 +9,10 @@
  * Supports DB-backed pricing when tenantId is provided, with hardcoded fallback.
  */
 
-import { getSupabaseClient } from './supabase'
+// NOTE: Do NOT use top-level import of supabase here.
+// pricebook.ts is imported client-side (jobs/page.tsx uses WINBROS_CALENDAR_ADDONS),
+// and supabase.ts chains to async_hooks which breaks the browser build.
+// Use dynamic import inside DB functions instead.
 
 export type WindowTier = {
   maxSqft: number
@@ -206,6 +209,7 @@ const SURFACE_KEYWORD_MAP: Record<string, string> = {
  */
 export async function getWindowTiersFromDB(tenantId: string): Promise<WindowTier[]> {
   try {
+    const { getSupabaseClient } = await import('./supabase')
     const client = getSupabaseClient()
     const { data, error } = await client
       .from('tenants')
@@ -230,6 +234,7 @@ export async function getWindowTiersFromDB(tenantId: string): Promise<WindowTier
  */
 export async function getFlatServicesFromDB(tenantId: string): Promise<FlatService[]> {
   try {
+    const { getSupabaseClient } = await import('./supabase')
     const client = getSupabaseClient()
     const { data, error } = await client
       .from('tenants')
