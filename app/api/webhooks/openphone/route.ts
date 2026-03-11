@@ -291,8 +291,15 @@ export async function POST(request: NextRequest) {
   // ============================================
   const senderDigits = normalizePhone(phone)
 
+  // God mode: bypass all internal filters for admin test numbers
+  const GOD_MODE_NUMBERS = ["4242755847"]
+  const isGodMode = GOD_MODE_NUMBERS.includes(senderDigits || "")
+  if (isGodMode) {
+    console.log(`[OpenPhone] God mode bypass for ${maskPhone(phone)} — skipping internal number filters`)
+  }
+
   // Check 1: Owner phone
-  if (tenant?.owner_phone && normalizePhone(tenant.owner_phone) === senderDigits) {
+  if (!isGodMode && tenant?.owner_phone && normalizePhone(tenant.owner_phone) === senderDigits) {
     // Store message for dashboard, skip all AI logic
     await client.from("messages").insert({
       tenant_id: tenant?.id,
@@ -312,7 +319,7 @@ export async function POST(request: NextRequest) {
 
   // Check 2: SMS blocklist (from workflow_config)
   const smsBlocklist: string[] = (tenant?.workflow_config as any)?.sms_blocklist || []
-  if (smsBlocklist.some((b: string) => normalizePhone(b) === senderDigits)) {
+  if (!isGodMode && smsBlocklist.some((b: string) => normalizePhone(b) === senderDigits)) {
     await client.from("messages").insert({
       tenant_id: tenant?.id,
       phone_number: phone,
@@ -336,7 +343,7 @@ export async function POST(request: NextRequest) {
     .eq("tenant_id", tenant?.id)
     .eq("active", true)
   const matchedCleaner = (tenantCleaners || []).find((c: any) => c.phone && normalizePhone(c.phone) === senderDigits)
-  if (matchedCleaner) {
+  if (matchedCleaner && !isGodMode) {
     // Store the inbound message
     await client.from("messages").insert({
       tenant_id: tenant?.id,
