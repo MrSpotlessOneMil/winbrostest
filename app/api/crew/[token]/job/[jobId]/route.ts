@@ -46,10 +46,10 @@ async function resolveContext(token: string, jobId: string) {
     .from('jobs')
     .select(`
       id, date, scheduled_at, address, service_type, status, notes,
-      bedrooms, bathrooms, sqft, hours, price,
+      bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
-      customers(id, first_name, last_name, address, phone_number)
+      customers(id, first_name, last_name, address, phone_number, stripe_customer_id, card_on_file_at)
     `)
     .eq('id', parseInt(jobId))
     .eq('tenant_id', cleaner.tenant_id)
@@ -115,6 +115,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     customerData.phone = customer?.phone_number || job.phone_number || null
   }
 
+  const hasCardOnFile = !!(customer?.stripe_customer_id && customer?.card_on_file_at)
+
   return NextResponse.json({
     job: {
       id: job.id,
@@ -128,9 +130,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       bathrooms: job.bathrooms,
       sqft: job.sqft,
       hours: job.hours,
+      price: job.price,
+      paid: (job as any).paid || false,
+      payment_status: (job as any).payment_status || null,
       cleaner_omw_at: job.cleaner_omw_at,
       cleaner_arrived_at: job.cleaner_arrived_at,
       payment_method: job.payment_method,
+      card_on_file: hasCardOnFile,
     },
     assignment: {
       id: assignment.id,

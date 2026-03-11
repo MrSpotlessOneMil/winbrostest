@@ -33,9 +33,13 @@ interface JobDetail {
   bathrooms: number | null
   sqft: number | null
   hours: number | null
+  price: number | null
+  paid: boolean
+  payment_status: string | null
   cleaner_omw_at: string | null
   cleaner_arrived_at: string | null
   payment_method: string | null
+  card_on_file: boolean
 }
 
 interface ChecklistItem {
@@ -105,6 +109,10 @@ export default function JobDetailPage() {
   const [messageText, setMessageText] = useState("")
   const [sendingMessage, setSendingMessage] = useState(false)
   const [showMessages, setShowMessages] = useState(false)
+  const [charging, setCharging] = useState(false)
+  const [chargeResult, setChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
+  const [sendingTipLink, setSendingTipLink] = useState(false)
+  const [tipLinkSent, setTipLinkSent] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const apiBase = `/api/crew/${token}/job/${jobId}`
@@ -218,6 +226,50 @@ export default function JobDetailPage() {
       alert("Network error")
     } finally {
       setUpdating(null)
+    }
+  }
+
+  async function chargeCard() {
+    if (charging) return
+    setCharging(true)
+    setChargeResult(null)
+    try {
+      const res = await fetch(`${apiBase}/charge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setChargeResult({ success: false, error: json.error || "Charge failed" })
+      } else {
+        setChargeResult({ success: true, amount: json.amount })
+        fetchData() // Refresh to update paid status
+      }
+    } catch {
+      setChargeResult({ success: false, error: "Network error" })
+    } finally {
+      setCharging(false)
+    }
+  }
+
+  async function sendTipLink() {
+    if (sendingTipLink) return
+    setSendingTipLink(true)
+    try {
+      const res = await fetch(`${apiBase}/tip-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+      if (res.ok) {
+        setTipLinkSent(true)
+      } else {
+        const json = await res.json()
+        alert(json.error || "Failed to send tip link")
+      }
+    } catch {
+      alert("Network error")
+    } finally {
+      setSendingTipLink(false)
     }
   }
 
@@ -463,6 +515,78 @@ export default function JobDetailPage() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Charge Card (completed jobs with card on file) */}
+        {isCompleted && job.card_on_file && !job.paid && (
+          <div className="bg-white rounded-lg border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-800 mb-2">Charge Card on File</h3>
+            <p className="text-sm text-slate-500 mb-3">
+              Charge ${job.price ? Number(job.price).toFixed(2) : "0.00"} to customer&apos;s saved card.
+            </p>
+            {chargeResult?.success && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                <CheckCircle className="size-4 text-green-500" />
+                <span className="text-sm text-green-700">Charged ${chargeResult.amount?.toFixed(2)}</span>
+              </div>
+            )}
+            {chargeResult && !chargeResult.success && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                <AlertCircle className="size-4 text-red-500" />
+                <span className="text-sm text-red-700">{chargeResult.error}</span>
+              </div>
+            )}
+            <button
+              onClick={chargeCard}
+              disabled={charging}
+              className="w-full bg-green-500 text-white py-2.5 rounded-lg font-medium hover:bg-green-600 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {charging ? (
+                <><Loader2 className="size-4 animate-spin" /> Charging...</>
+              ) : (
+                <><CreditCard className="size-4" /> Charge ${job.price ? Number(job.price).toFixed(2) : "0.00"}</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Already paid indicator */}
+        {isCompleted && job.paid && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+            <CheckCircle className="size-5 text-green-500" />
+            <div>
+              <p className="font-semibold text-green-800 text-sm">Payment Collected</p>
+              <p className="text-green-600 text-xs">${job.price ? Number(job.price).toFixed(2) : "0.00"} via {job.payment_method || "card"}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Send Tip Link (completed jobs) */}
+        {isCompleted && (
+          <div className="bg-white rounded-lg border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-800 mb-2">Tip Link</h3>
+            {tipLinkSent ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                <CheckCircle className="size-4 text-green-500" />
+                <span className="text-sm text-green-700">Tip link sent to customer!</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-slate-500 mb-3">Send the customer a link to leave a tip.</p>
+                <button
+                  onClick={sendTipLink}
+                  disabled={sendingTipLink}
+                  className="w-full bg-blue-500 text-white py-2.5 rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {sendingTipLink ? (
+                    <><Loader2 className="size-4 animate-spin" /> Sending...</>
+                  ) : (
+                    <><DollarSign className="size-4" /> Send Tip Link</>
+                  )}
+                </button>
+              </>
+            )}
           </div>
         )}
 

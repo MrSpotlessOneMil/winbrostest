@@ -70,7 +70,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const { job, tenant } = ctx
+  const { job, tenant, client } = ctx
   const customer = (job as any).customers
 
   // Get pricing tiers/addons for this tenant
@@ -79,6 +79,25 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     bedrooms: job.bedrooms,
     bathrooms: job.bathrooms,
   }, 'standard')
+
+  // Get job counts per day for next 14 days (availability indicator)
+  const today = new Date().toISOString().split('T')[0]
+  const twoWeeksOut = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const { data: dayCounts } = await client
+    .from('jobs')
+    .select('date')
+    .eq('tenant_id', tenant.id)
+    .gte('date', today)
+    .lte('date', twoWeeksOut)
+    .in('status', ['scheduled', 'in_progress', 'pending'])
+    .neq('job_type', 'estimate')
+
+  const availability: Record<string, number> = {}
+  for (const j of dayCounts || []) {
+    if (j.date) {
+      availability[j.date] = (availability[j.date] || 0) + 1
+    }
+  }
 
   return NextResponse.json({
     job: {
@@ -109,6 +128,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       name: tenant.business_name_short || tenant.name,
       slug: tenant.slug,
     },
+    availability,
   })
 }
 

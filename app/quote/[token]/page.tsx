@@ -15,6 +15,7 @@ import {
   Minus,
   CheckCircle,
   Clock,
+  Calendar,
   AlertTriangle,
   MapPin,
   Phone,
@@ -80,6 +81,7 @@ export default function QuotePage() {
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
   const [showTerms, setShowTerms] = useState(false)
+  const [serviceDate, setServiceDate] = useState("")
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -214,6 +216,7 @@ export default function QuotePage() {
           membership_plan: selectedPlan?.slug || null,
           customer_name: customerName || undefined,
           customer_email: customerEmail || undefined,
+          service_date: serviceDate || undefined,
           service_agreement_accepted: true,
         }),
       })
@@ -582,7 +585,35 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* Customer info (name/email) collected during SMS conversation, not needed here */}
+        {/* ── Preferred Service Date ─────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <Calendar className="size-5 text-blue-500" />
+              Preferred Service Date
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">Pick a date that works best for you.</p>
+
+            <div className={`border-2 rounded-2xl p-4 transition-all ${serviceDate ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
+              <input
+                type="date"
+                value={serviceDate}
+                min={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setServiceDate(e.target.value)}
+                className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+              />
+              {serviceDate && (
+                <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
+                  <CheckCircle className="size-4" />
+                  {new Date(serviceDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                </p>
+              )}
+              {!serviceDate && (
+                <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* ── Service Agreement ───────────────────────────────── */}
         {!isExpired && serviceAgreement && (

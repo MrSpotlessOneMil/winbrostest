@@ -33,6 +33,7 @@ interface EstimateData {
   customer: { id: number | null; first_name: string | null; last_name: string | null; phone: string | null; email: string | null; address: string | null }
   pricing: { tiers: QuoteTier[]; tierPrices: Record<string, TierPrice>; addons: QuoteAddon[]; serviceType: string }
   tenant: { name: string; slug: string }
+  availability: Record<string, number>
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -484,27 +485,66 @@ export default function EstimatePage() {
         {/* Service Date & Time */}
         <div>
           <h2 className="font-bold text-slate-800 mb-1">Service Date</h2>
-          <p className="text-xs text-slate-400 mb-3">Required if customer accepts. When should the crew come?</p>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-xs text-slate-500 mb-1 block">Date</label>
-              <input
-                type="date"
-                value={serviceDate}
-                min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
-            <div className="w-32">
-              <label className="text-xs text-slate-500 mb-1 block">Time (optional)</label>
-              <input
-                type="time"
-                value={serviceTime}
-                onChange={(e) => setServiceTime(e.target.value)}
-                className="w-full h-11 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-              />
-            </div>
+          <p className="text-xs text-slate-400 mb-3">Required if customer accepts. Dots show how busy each day is.</p>
+
+          {/* Day picker grid */}
+          <div className="grid grid-cols-7 gap-1.5 mb-3">
+            {Array.from({ length: 14 }, (_, i) => {
+              const d = new Date()
+              d.setDate(d.getDate() + i)
+              const dateStr = d.toISOString().split("T")[0]
+              const dayName = d.toLocaleDateString("en-US", { weekday: "short" })
+              const dayNum = d.getDate()
+              const isSelected = serviceDate === dateStr
+              const jobCount = data?.availability?.[dateStr] || 0
+              const isBusy = jobCount >= 5
+              const isMod = jobCount >= 3 && jobCount < 5
+
+              return (
+                <button
+                  key={dateStr}
+                  type="button"
+                  onClick={() => setServiceDate(isSelected ? "" : dateStr)}
+                  className={`
+                    flex flex-col items-center py-2 rounded-lg border-2 transition-all text-center active:scale-95
+                    ${isSelected
+                      ? "bg-blue-600 border-blue-600 text-white shadow-md"
+                      : isBusy
+                        ? "bg-red-50 border-red-200 text-slate-600"
+                        : isMod
+                          ? "bg-amber-50 border-amber-200 text-slate-600"
+                          : "bg-white border-slate-200 text-slate-600 hover:border-blue-300"
+                    }
+                  `}
+                >
+                  <span className={`text-[10px] font-medium ${isSelected ? "text-blue-200" : "text-slate-400"}`}>{dayName}</span>
+                  <span className={`text-sm font-bold ${isSelected ? "text-white" : ""}`}>{dayNum}</span>
+                  {jobCount > 0 && (
+                    <div className="flex gap-0.5 mt-0.5">
+                      {Array.from({ length: Math.min(jobCount, 5) }, (_, j) => (
+                        <div key={j} className={`size-1 rounded-full ${isSelected ? "bg-blue-300" : isBusy ? "bg-red-400" : isMod ? "bg-amber-400" : "bg-slate-300"}`} />
+                      ))}
+                    </div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="flex items-center gap-4 text-[10px] text-slate-400 mb-3">
+            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-slate-300" /> Available</span>
+            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-amber-400" /> Moderate</span>
+            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-red-400" /> Busy</span>
+          </div>
+
+          <div className="w-32">
+            <label className="text-xs text-slate-500 mb-1 block">Time (optional)</label>
+            <input
+              type="time"
+              value={serviceTime}
+              onChange={(e) => setServiceTime(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
           </div>
         </div>
 

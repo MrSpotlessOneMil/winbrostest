@@ -548,6 +548,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   }
 
   // Create job from the approved quote (with membership_id if applicable)
+  const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -555,7 +556,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     address: quote.customer_address || null,
     service_type: serviceName,
     price: Number(quote.total) || 0,
-    status: 'pending',
+    status: hasServiceDate ? 'scheduled' : 'pending',
     booked: true,
     paid: false,
     payment_status: 'pending',
@@ -563,6 +564,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     stripe_checkout_session_id: session.id,
     notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved — card on file — ${serviceName} package`,
     quote_id: quote.id,
+    ...(hasServiceDate ? { date: quote.service_date } : {}),
     ...(membershipId ? { membership_id: membershipId } : {}),
   }
 
@@ -576,13 +578,19 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
   }
 
-  // Send confirmation SMS (no deposit mention)
+  // Send confirmation SMS (with date if selected)
   const smsPhone = customerPhone
   if (smsPhone && tenant) {
     try {
       const customerName = quote.customer_name?.split(' ')[0] || 'there'
       const businessName = tenant.business_name || tenant.name
-      const message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is confirmed. We'll be in touch to schedule your service. Thank you!`
+      let message: string
+      if (hasServiceDate) {
+        const dateStr = new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is booked for ${dateStr}. We'll send you a reminder before your appointment. Thank you!`
+      } else {
+        message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is confirmed. We'll be in touch to schedule your service. Thank you!`
+      }
       await sendSMS(tenant, smsPhone, message)
     } catch (err) {
       console.error('[Stripe Webhook] Failed to send quote confirmation SMS:', err)
@@ -624,6 +632,39 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       await triggerCleanerAssignment(String(newJob.id))
     } catch (err) {
       console.error('[Stripe Webhook] Cleaner assignment from quote failed:', err)
+    }
+  }
+
+  // Notify salesman if this quote originated from an estimate
+  if (tenant && quote.customer_id) {
+    try {
+      const { data: estimateAssignment } = await serviceClient
+        .from('jobs')
+        .select(`
+          id,
+          cleaner_assignments!inner(cleaner_id, cleaners!inner(name, phone))
+        `)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('customer_id', quote.customer_id)
+        .eq('job_type', 'estimate')
+        .eq('status', 'completed')
+        .order('completed_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (estimateAssignment) {
+        const assignments = (estimateAssignment as any).cleaner_assignments
+        if (assignments?.length > 0) {
+          const salesman = assignments[0].cleaners
+          if (salesman?.phone) {
+            const custName = quote.customer_name?.split(' ')[0] || 'A customer'
+            await sendSMS(tenant, salesman.phone, `${custName} just accepted your quote for $${Number(quote.total || 0).toFixed(0)}! Job is booked. Nice work, ${salesman.name?.split(' ')[0] || 'team'}!`)
+            console.log(`[Stripe Webhook] Notified salesman ${salesman.name} about quote conversion`)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to notify salesman:', err)
     }
   }
 }
