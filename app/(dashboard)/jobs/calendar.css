@@ -559,8 +559,8 @@ select.cal-form-control {
 
 .fc .fc-daygrid-event:hover,
 .fc .fc-timegrid-event:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3), 0 1px 4px rgba(0, 0, 0, 0.3);
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4), 0 2px 6px rgba(0, 0, 0, 0.4);
   z-index: 10;
 }
 
