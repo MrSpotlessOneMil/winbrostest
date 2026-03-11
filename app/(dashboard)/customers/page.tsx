@@ -316,14 +316,18 @@ export default function CustomersPage() {
     }
   }
 
-  // Initial data fetch
+  // Initial data fetch + re-fetch when account switches
+  const currentUserId = user?.id
   useEffect(() => {
+    // Reset selected customer when account changes so the right panel updates
+    setSelectedCustomer(null)
+    setLoading(true)
     fetchCustomers()
     if (!isHouseCleaning) {
       fetchMemberships()
       fetchServicePlans()
     }
-  }, [])
+  }, [currentUserId])
 
   // Helper: get membership for a customer
   const getCustomerMembership = (customerId: number): MembershipData | null => {
