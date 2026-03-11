@@ -21,6 +21,8 @@ const ALLOWED_NUMERIC_FIELDS = [
 const ALLOWED_JSON_FIELDS = [
   "window_tiers",
   "flat_services",
+  "job_service_types",
+  "winbros_addons",
 ] as const
 
 export async function GET(request: NextRequest) {
@@ -42,6 +44,8 @@ export async function GET(request: NextRequest) {
     tenant_name: authTenant.name,
     window_tiers: wc.window_tiers ?? null,
     flat_services: wc.flat_services ?? null,
+    job_service_types: wc.job_service_types ?? null,
+    winbros_addons: wc.winbros_addons ?? null,
   })
 }
 

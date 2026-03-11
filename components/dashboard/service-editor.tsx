@@ -42,6 +42,12 @@ type PricingTierRow = {
   hours_per_cleaner: number | null
 }
 
+type WinBrosAddonRow = {
+  addon_key: string
+  label: string
+  flat_price: number
+}
+
 type ServicePlan = {
   id?: string
   slug: string
@@ -68,6 +74,8 @@ export function ServiceEditor() {
   const [windowTiers, setWindowTiers] = useState<WindowTierRow[]>([])
   const [flatServices, setFlatServices] = useState<FlatServiceRow[]>([])
   const [plans, setPlans] = useState<ServicePlan[]>([])
+  const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
+  const [winbrosAddons, setWinbrosAddons] = useState<WinBrosAddonRow[]>([])
 
   // House cleaning state
   const [serviceTypes, setServiceTypes] = useState<string[]>([])
@@ -130,6 +138,29 @@ export function ServiceEditor() {
           ])
         }
 
+        // Load job service types (calendar create-job dropdown)
+        const storedJobTypes = settingsData.job_service_types as string[] | null
+        if (storedJobTypes && Array.isArray(storedJobTypes) && storedJobTypes.length > 0) {
+          setJobServiceTypes(storedJobTypes)
+        } else {
+          setJobServiceTypes(["Window cleaning", "Pressure washing", "Gutter cleaning", "Walkthru"])
+        }
+
+        // Load WinBros add-ons
+        const storedAddons = settingsData.winbros_addons as WinBrosAddonRow[] | null
+        if (storedAddons && Array.isArray(storedAddons) && storedAddons.length > 0) {
+          setWinbrosAddons(storedAddons)
+        } else {
+          setWinbrosAddons([
+            { addon_key: "interior", label: "Interior Window Cleaning", flat_price: 0 },
+            { addon_key: "track_detailing", label: "Track Detailing", flat_price: 0 },
+            { addon_key: "solar_panel", label: "Solar Panel Cleaning", flat_price: 7 },
+            { addon_key: "hard_water_treatment", label: "Hard Water Stain Treatment", flat_price: 12 },
+            { addon_key: "rain_repellent", label: "Rain Repellent", flat_price: 0 },
+            { addon_key: "rain_guarantee", label: "7-Day Rain Guarantee", flat_price: 0 },
+          ])
+        }
+
         // Load membership plans
         const plansRes = await fetch("/api/service-plans")
         const plansData = await plansRes.json()
@@ -187,6 +218,13 @@ export function ServiceEditor() {
                 : [f.name.toLowerCase().replace(/[^a-z0-9\s]+/g, "").trim().replace(/\s+/g, "_")],
               price: f.price,
             })),
+            job_service_types: jobServiceTypes.filter((t) => t.trim() !== ""),
+            winbros_addons: winbrosAddons
+              .filter((a) => a.label.trim() !== "")
+              .map((a) => ({
+                ...a,
+                addon_key: a.addon_key || a.label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+              })),
           }),
         })
         const settingsResult = await settingsRes.json()
@@ -272,6 +310,8 @@ export function ServiceEditor() {
   const prettifyType = (t: string) =>
     t.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
 
+  const selectOnFocus = (e: React.FocusEvent<HTMLInputElement>) => e.target.select()
+
   // ── Render ─────────────────────────────────────────────────────────
 
   if (loading) {
@@ -287,6 +327,47 @@ export function ServiceEditor() {
       <div className="space-y-10">
         {isWindowCleaning ? (
           <>
+            {/* ── WinBros: Job Service Types ── */}
+            <section>
+              <h2 className="text-base font-semibold text-zinc-100 mb-1">Job Service Types</h2>
+              <p className="text-sm text-zinc-500 mb-5">
+                Options shown in the calendar create-job dropdown
+              </p>
+              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
+                <div className="divide-y divide-white/[0.04]">
+                  {jobServiceTypes.map((type, i) => (
+                    <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                      <input
+                        type="text"
+                        value={type}
+                        onChange={(e) => {
+                          const updated = [...jobServiceTypes]
+                          updated[i] = e.target.value
+                          setJobServiceTypes(updated)
+                        }}
+                        className="flex-1 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                      />
+                      <button
+                        onClick={() => setJobServiceTypes(jobServiceTypes.filter((_, j) => j !== i))}
+                        className="text-zinc-600 hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="px-4 py-3 border-t border-white/[0.04]">
+                  <button
+                    onClick={() => setJobServiceTypes([...jobServiceTypes, ""])}
+                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Service Type
+                  </button>
+                </div>
+              </div>
+            </section>
+
             {/* ── WinBros: Window Tiers ── */}
             <section>
               <h2 className="text-base font-semibold text-zinc-100 mb-1">Window Cleaning Tiers</h2>
@@ -311,6 +392,7 @@ export function ServiceEditor() {
                         <td className="px-4 py-2">
                           <input
                             type="number"
+                            onFocus={selectOnFocus}
                             value={tier.maxSqft}
                             onChange={(e) => {
                               const updated = [...windowTiers]
@@ -335,6 +417,7 @@ export function ServiceEditor() {
                         <td className="px-4 py-2">
                           <input
                             type="number"
+                            onFocus={selectOnFocus}
                             value={tier.exterior}
                             onChange={(e) => {
                               const updated = [...windowTiers]
@@ -347,6 +430,7 @@ export function ServiceEditor() {
                         <td className="px-4 py-2">
                           <input
                             type="number"
+                            onFocus={selectOnFocus}
                             value={tier.interior}
                             onChange={(e) => {
                               const updated = [...windowTiers]
@@ -359,6 +443,7 @@ export function ServiceEditor() {
                         <td className="px-4 py-2">
                           <input
                             type="number"
+                            onFocus={selectOnFocus}
                             value={tier.trackDetailing}
                             onChange={(e) => {
                               const updated = [...windowTiers]
@@ -427,6 +512,7 @@ export function ServiceEditor() {
                         <td className="px-4 py-2">
                           <input
                             type="number"
+                            onFocus={selectOnFocus}
                             value={svc.price}
                             onChange={(e) => {
                               const updated = [...flatServices]
@@ -455,6 +541,74 @@ export function ServiceEditor() {
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Add Service
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            {/* ── WinBros: Add-Ons ── */}
+            <section>
+              <h2 className="text-base font-semibold text-zinc-100 mb-1">Add-Ons</h2>
+              <p className="text-sm text-zinc-500 mb-5">
+                Optional extras shown when creating or quoting a job
+              </p>
+              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Label</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Price $</th>
+                      <th className="px-4 py-3 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {winbrosAddons.map((addon, i) => (
+                      <tr key={i} className="border-b border-white/[0.04]">
+                        <td className="px-4 py-2">
+                          <input
+                            type="text"
+                            value={addon.label}
+                            onChange={(e) => {
+                              const updated = [...winbrosAddons]
+                              updated[i] = { ...addon, label: e.target.value }
+                              setWinbrosAddons(updated)
+                            }}
+                            className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          <input
+                            type="number"
+                            onFocus={selectOnFocus}
+                            min={0}
+                            value={addon.flat_price}
+                            onChange={(e) => {
+                              const updated = [...winbrosAddons]
+                              updated[i] = { ...addon, flat_price: Number(e.target.value) || 0 }
+                              setWinbrosAddons(updated)
+                            }}
+                            className="w-24 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          <button
+                            onClick={() => setWinbrosAddons(winbrosAddons.filter((_, j) => j !== i))}
+                            className="text-zinc-600 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="px-4 py-3 border-t border-white/[0.04]">
+                  <button
+                    onClick={() => setWinbrosAddons([...winbrosAddons, { addon_key: "", label: "", flat_price: 0 }])}
+                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Add-On
                   </button>
                 </div>
               </div>
@@ -507,6 +661,7 @@ export function ServiceEditor() {
                             <label className="text-xs text-zinc-500 mb-1 block">Visits/Year</label>
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               value={plan.visits_per_year}
                               onChange={(e) => {
@@ -521,6 +676,7 @@ export function ServiceEditor() {
                             <label className="text-xs text-zinc-500 mb-1 block">Interval (months)</label>
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               value={plan.interval_months}
                               onChange={(e) => {
@@ -535,6 +691,7 @@ export function ServiceEditor() {
                             <label className="text-xs text-zinc-500 mb-1 block">Discount/Visit $</label>
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={0}
                               value={plan.discount_per_visit}
                               onChange={(e) => {
@@ -699,6 +856,7 @@ export function ServiceEditor() {
                           <td className="px-4 py-2">
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               value={row.bedrooms}
                               onChange={(e) => {
@@ -713,6 +871,7 @@ export function ServiceEditor() {
                           <td className="px-4 py-2">
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               step={0.5}
                               value={row.bathrooms}
@@ -728,6 +887,7 @@ export function ServiceEditor() {
                           <td className="px-4 py-2">
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               value={row.max_sq_ft}
                               onChange={(e) => {
@@ -742,6 +902,7 @@ export function ServiceEditor() {
                           <td className="px-4 py-2">
                             <input
                               type="number"
+                              onFocus={selectOnFocus}
                               min={1}
                               value={row.price}
                               onChange={(e) => {
@@ -833,6 +994,7 @@ export function ServiceEditor() {
                       <span className="text-xs text-zinc-500">$</span>
                       <input
                         type="number"
+                        onFocus={selectOnFocus}
                         min={0}
                         value={addon.flat_price ?? 0}
                         onChange={(e) => {

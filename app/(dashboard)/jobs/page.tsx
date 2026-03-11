@@ -348,6 +348,7 @@ export default function JobsPage() {
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
@@ -356,7 +357,7 @@ export default function JobsPage() {
     customer_name: "",
     email: "",
     address: "",
-    service_type: "Standard cleaning",
+    service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning",
     date: "",
     time: "",
     duration_minutes: "120",
@@ -579,9 +580,38 @@ export default function JobsPage() {
   useEffect(() => {
     async function fetchJobs() {
       try {
-        const res = await fetch("/api/calendar")
-        const data = await res.json()
-        setJobs(data.jobs || [])
+        const [calRes, settingsRes] = await Promise.all([
+          fetch("/api/calendar"),
+          fetch("/api/actions/settings"),
+        ])
+        const calData = await calRes.json()
+        setJobs(calData.jobs || [])
+
+        const settingsData = await settingsRes.json()
+        const types = settingsData.job_service_types as string[] | null
+        if (types && Array.isArray(types) && types.length > 0) {
+          setJobServiceTypes(types)
+        }
+
+        // Pre-load WinBros add-ons: merge quote add-ons + flat services into one list
+        const customAddons = settingsData.winbros_addons as { addon_key: string; label: string; flat_price: number }[] | null
+        const customFlat = settingsData.flat_services as { name: string; keywords: string[]; price: number }[] | null
+        if (customAddons || customFlat) {
+          const addonEntries = (customAddons || []).map((a) => ({
+            addon_key: a.addon_key,
+            label: a.label,
+            flat_price: a.flat_price ?? 0,
+            minutes: 0,
+          }))
+          const flatEntries = (customFlat || []).map((f) => ({
+            addon_key: (f.keywords?.[0] || f.name.toLowerCase().replace(/\s+/g, "_")),
+            label: f.name,
+            flat_price: f.price ?? 0,
+            minutes: 0,
+          }))
+          const merged = [...addonEntries, ...flatEntries]
+          if (merged.length > 0) setAddonsList(merged)
+        }
       } catch {
         setJobs([])
       } finally {
@@ -666,7 +696,7 @@ export default function JobsPage() {
       customer_name: "",
       email: "",
       address: "",
-      service_type: "Standard cleaning",
+      service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning",
       date,
       time: time === "00:00" ? "09:00" : time,
       duration_minutes: duration,
@@ -1167,7 +1197,7 @@ export default function JobsPage() {
           customer_name: createForm.customer_name.trim() || undefined,
           email: createForm.email.trim() || undefined,
           address: createForm.address.trim() || undefined,
-          service_type: createForm.service_type || "Standard cleaning",
+          service_type: createForm.service_type || (isHouseCleaning ? "Standard cleaning" : "Window cleaning"),
           scheduled_date: createForm.date,
           scheduled_time: createForm.time || "09:00",
           duration_minutes: Number(createForm.duration_minutes) || 120,
@@ -1313,7 +1343,7 @@ export default function JobsPage() {
             customer_name: "",
             email: "",
             address: "",
-            service_type: "Standard cleaning",
+            service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning",
             date,
             time: "09:00",
             duration_minutes: "120",
@@ -1983,58 +2013,61 @@ export default function JobsPage() {
               </div>
               <div>
                 <label className="cal-form-label">Service Type</label>
-                <select
-                  className="cal-form-control"
-                  value={["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) ? createForm.service_type : "__custom__"}
-                  onChange={(e) => {
-                    if (e.target.value === "__custom__") {
-                      setCreateForm((prev) => ({ ...prev, service_type: "" }))
-                    } else {
-                      setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                    }
-                  }}
-                  style={!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru","__custom__"].includes(createForm.service_type) ? { display: "none" } : undefined}
-                >
-                  {isHouseCleaning ? (
+                {(() => {
+                  const hcTypes = ["Standard cleaning", "Deep cleaning", "Move-in/move-out"]
+                  const winTypes = jobServiceTypes.length > 0
+                    ? jobServiceTypes
+                    : ["Window cleaning", "Pressure washing", "Gutter cleaning", "Walkthru"]
+                  const knownTypes = isHouseCleaning ? hcTypes : winTypes
+                  const defaultType = knownTypes[0] || "Window cleaning"
+                  const isKnown = knownTypes.includes(createForm.service_type)
+
+                  return (
                     <>
-                      <option value="Standard cleaning">Standard Cleaning</option>
-                      <option value="Deep cleaning">Deep Cleaning</option>
-                      <option value="Move-in/move-out">Move-in/Move-out</option>
+                      <select
+                        className="cal-form-control"
+                        value={isKnown ? createForm.service_type : "__custom__"}
+                        onChange={(e) => {
+                          if (e.target.value === "__custom__") {
+                            setCreateForm((prev) => ({ ...prev, service_type: "" }))
+                          } else {
+                            setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                          }
+                        }}
+                        style={!isKnown && createForm.service_type !== "" ? { display: "none" } : undefined}
+                      >
+                        {knownTypes.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                        <option value="__custom__">Other (type your own)</option>
+                      </select>
+                      {!isKnown && (
+                        <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
+                          <input
+                            type="text"
+                            className="cal-form-control"
+                            placeholder="Type service name..."
+                            autoFocus
+                            value={createForm.service_type}
+                            onChange={(e) =>
+                              setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                            }
+                            style={{ flex: 1 }}
+                          />
+                          <button
+                            type="button"
+                            className="cal-form-control"
+                            style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
+                            onClick={() => setCreateForm((prev) => ({ ...prev, service_type: defaultType }))}
+                            title="Back to list"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      )}
                     </>
-                  ) : (
-                    <>
-                      <option value="Window cleaning">Window Cleaning</option>
-                      <option value="Pressure washing">Pressure Washing</option>
-                      <option value="Gutter cleaning">Gutter Cleaning</option>
-                      <option value="Walkthru">Walkthru</option>
-                    </>
-                  )}
-                  <option value="__custom__">Other (type your own)</option>
-                </select>
-                {!["Standard cleaning","Deep cleaning","Move-in/move-out","Window cleaning","Pressure washing","Gutter cleaning","Walkthru"].includes(createForm.service_type) && (
-                  <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
-                    <input
-                      type="text"
-                      className="cal-form-control"
-                      placeholder="Type service name..."
-                      autoFocus
-                      value={createForm.service_type}
-                      onChange={(e) =>
-                        setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                      }
-                      style={{ flex: 1 }}
-                    />
-                    <button
-                      type="button"
-                      className="cal-form-control"
-                      style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
-                      onClick={() => setCreateForm((prev) => ({ ...prev, service_type: isHouseCleaning ? "Standard cleaning" : "Window cleaning" }))}
-                      title="Back to list"
-                    >
-                      &times;
-                    </button>
-                  </div>
-                )}
+                  )
+                })()}
               </div>
             </div>
 
