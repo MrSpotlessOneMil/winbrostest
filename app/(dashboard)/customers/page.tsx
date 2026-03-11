@@ -1427,7 +1427,7 @@ export default function CustomersPage() {
                         }`}
                       >
                         <div className="flex items-start gap-3">
-                          {/* Avatar with card-on-file dot */}
+                          {/* Avatar with card-on-file dot + membership ring */}
                           <div className="relative flex-shrink-0 mt-0.5">
                             <div
                               className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold ${
@@ -1435,6 +1435,10 @@ export default function CustomersPage() {
                                   ? "bg-purple-500/20 text-purple-300"
                                   : "bg-zinc-800 text-zinc-400"
                               }`}
+                              style={!isHouseCleaning && getCustomerMembership(customer.id)
+                                ? { border: '2px solid rgba(255, 215, 0, 0.7)' }
+                                : undefined
+                              }
                             >
                               {name.charAt(0).toUpperCase()}
                             </div>
@@ -1445,12 +1449,7 @@ export default function CustomersPage() {
                           <div className="flex-1 min-w-0">
                             {/* Top row: name + timestamp */}
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>
-                                {name}
-                                {!isHouseCleaning && getCustomerMembership(customer.id) && (
-                                  <Crown className="inline w-3 h-3 ml-1 text-amber-400" />
-                                )}
-                              </span>
+                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
                                   {formatThreadTimestamp(lastMessage.timestamp)}

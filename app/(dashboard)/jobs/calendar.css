@@ -21,6 +21,22 @@
   inset: 0;
 }
 
+/* Event fade-in animation */
+.fc-event {
+  animation: eventFadeIn 0.3s ease-out both;
+}
+
+@keyframes eventFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* FullCalendar Dark Theme */
 .fc {
   --fc-border-color: rgba(63, 63, 70, 0.5);
@@ -106,7 +122,7 @@
 }
 
 .fc .event-membership {
-  border: 1.5px solid rgba(245, 158, 11, 0.6) !important;
+  border: 1.5px solid rgba(255, 215, 0, 0.7) !important;
 }
 
 .fc .event-confirmed {
