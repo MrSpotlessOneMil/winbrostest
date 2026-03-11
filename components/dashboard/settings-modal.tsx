@@ -34,7 +34,10 @@ function formatTimeDisplay(minutes: number): string {
   return `${h12}:${String(m).padStart(2, "0")} ${period}`
 }
 
+type SettingsTab = "general" | "service-editor"
+
 export function SettingsModal({ open, onClose }: SettingsModalProps) {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("general")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -109,8 +112,27 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             Back
           </button>
           <div className="h-4 w-px bg-zinc-800" />
-          <div>
-            <h1 className="text-sm font-semibold text-zinc-100">Settings</h1>
+          <div className="flex items-center gap-1 bg-zinc-800/60 rounded-lg p-0.5">
+            <button
+              onClick={() => setActiveTab("general")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                activeTab === "general"
+                  ? "bg-zinc-700 text-zinc-100"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              General
+            </button>
+            <button
+              onClick={() => setActiveTab("service-editor")}
+              className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                activeTab === "service-editor"
+                  ? "bg-zinc-700 text-zinc-100"
+                  : "text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Service Editor
+            </button>
           </div>
           {tenantName && (
             <>
@@ -122,6 +144,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
+          {activeTab === "service-editor" ? (
+            <div className="flex items-center justify-center h-full">
+              <p className="text-sm text-zinc-500">Service Editor coming soon</p>
+            </div>
+          ) : (
           <div className="max-w-2xl mx-auto px-4 md:px-8 py-8">
             {loading ? (
               <div className="flex items-center justify-center py-24">
@@ -306,6 +333,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
     </div>
