@@ -119,6 +119,7 @@
 }
 
 .fc .fc-daygrid-block-event .fc-event-time,
+.fc .fc-daygrid-dot-event,
 .fc .fc-daygrid-dot-event .fc-event-title {
   font-weight: 400;
 }
