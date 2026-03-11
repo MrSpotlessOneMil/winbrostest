@@ -50,16 +50,6 @@ export default function CubeLoader() {
         <div className='absolute -bottom-20 w-24 h-8 bg-black/40 blur-xl rounded-[100%] animate-shadow-breathe' />
       </div>
 
-      {/* Loading Text */}
-      <div className='flex flex-col items-center gap-1 mt-2'>
-        <h3 className='text-sm font-semibold tracking-[0.3em] text-cyan-300 uppercase'>
-          Loading
-        </h3>
-        <p className='text-xs text-slate-400'>
-          Preparing your experience, please wait…
-        </p>
-      </div>
-
       <style jsx>{`
         .perspective-container {
           perspective: 1200px;
