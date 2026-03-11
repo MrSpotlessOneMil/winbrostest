@@ -6,7 +6,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 
 // Normalize phone to 10 digits for comparison
@@ -43,7 +43,7 @@ function formatThreadTimestamp(timestamp: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
-type TabType = "messages" | "jobs" | "invoices"
+type TabType = "messages" | "jobs" | "invoices" | "membership"
 
 interface Customer {
   id: number
@@ -144,6 +144,36 @@ interface ScheduledTask {
   }
 }
 
+interface MembershipData {
+  id: string
+  status: "active" | "paused" | "cancelled" | "completed"
+  customer_id: string
+  visits_completed: number
+  next_visit_at: string | null
+  started_at: string | null
+  renewal_choice: string | null
+  renewal_asked_at: string | null
+  created_at: string
+  customers?: { id: string; first_name: string | null; last_name: string | null } | null
+  service_plans: {
+    id: string
+    name: string
+    slug: string
+    visits_per_year: number
+    interval_months: number
+    discount_per_visit: number
+  } | null
+}
+
+interface ServicePlan {
+  id: string
+  name: string
+  slug: string
+  visits_per_year: number
+  interval_months: number
+  discount_per_visit: number
+}
+
 interface TimelineItem {
   type: "message" | "call"
   timestamp: string
@@ -165,7 +195,7 @@ export default function CustomersPage() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
-      if (saved === "messages" || saved === "jobs" || saved === "invoices") return saved
+      if (saved === "messages" || saved === "jobs" || saved === "invoices" || saved === "membership") return saved
     }
     return "messages"
   })
@@ -214,6 +244,15 @@ export default function CustomersPage() {
   // Cleaner phones for badge
   const [cleanerPhones, setCleanerPhones] = useState<string[]>([])
 
+  // Membership state (WinBros only)
+  const [membershipsList, setMembershipsList] = useState<MembershipData[]>([])
+  const [membershipPlans, setMembershipPlans] = useState<ServicePlan[]>([])
+  const [membershipActionLoading, setMembershipActionLoading] = useState<string | null>(null)
+  const [createMembershipOpen, setCreateMembershipOpen] = useState(false)
+  const [createMembershipPlanSlug, setCreateMembershipPlanSlug] = useState("")
+  const [createMembershipSaving, setCreateMembershipSaving] = useState(false)
+  const [createMembershipError, setCreateMembershipError] = useState("")
+
   // Batch add state
   const [syncingContacts, setSyncingContacts] = useState(false)
   const [syncResult, setSyncResult] = useState<{ updated: number; created: number; total_contacts: number } | null>(null)
@@ -254,10 +293,97 @@ export default function CustomersPage() {
     }
   }
 
+  // Fetch memberships for WinBros
+  const fetchMemberships = async () => {
+    try {
+      const res = await fetch("/api/actions/memberships?limit=200")
+      const data = await res.json()
+      if (data.memberships) setMembershipsList(data.memberships)
+    } catch {
+      // silent
+    }
+  }
+
+  // Fetch service plans for create membership modal
+  const fetchServicePlans = async () => {
+    try {
+      const res = await fetch("/api/service-plans")
+      const data = await res.json()
+      if (data.plans) setMembershipPlans(data.plans)
+    } catch {
+      // silent
+    }
+  }
+
   // Initial data fetch
   useEffect(() => {
     fetchCustomers()
+    if (!isHouseCleaning) {
+      fetchMemberships()
+      fetchServicePlans()
+    }
   }, [])
+
+  // Helper: get membership for a customer
+  const getCustomerMembership = (customerId: number): MembershipData | null => {
+    return membershipsList.find((m) => String(m.customer_id) === String(customerId) && (m.status === "active" || m.status === "paused")) || null
+  }
+
+  // Helper: get all memberships for a customer (including completed)
+  const getCustomerMemberships = (customerId: number): MembershipData[] => {
+    return membershipsList.filter((m) => String(m.customer_id) === String(customerId))
+  }
+
+  // Membership actions
+  const handleMembershipAction = async (membershipId: string, action: "pause" | "resume" | "cancel") => {
+    setMembershipActionLoading(membershipId)
+    try {
+      const res = await fetch("/api/actions/memberships", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ membership_id: membershipId, action }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        await fetchMemberships()
+      } else {
+        alert(data.error || `Failed to ${action} membership`)
+      }
+    } catch {
+      alert(`Failed to ${action} membership`)
+    } finally {
+      setMembershipActionLoading(null)
+    }
+  }
+
+  // Create membership
+  const handleCreateMembership = async () => {
+    if (!selectedCustomer || !createMembershipPlanSlug) {
+      setCreateMembershipError("Select a plan")
+      return
+    }
+    setCreateMembershipSaving(true)
+    setCreateMembershipError("")
+    try {
+      const res = await fetch("/api/actions/memberships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: selectedCustomer.id, plan_slug: createMembershipPlanSlug }),
+      })
+      const data = await res.json()
+      if (!data.success) {
+        setCreateMembershipError(data.error || "Failed to create membership")
+        return
+      }
+      setCreateMembershipOpen(false)
+      setCreateMembershipPlanSlug("")
+      await fetchMemberships()
+    } catch {
+      setCreateMembershipError("Connection error")
+    } finally {
+      setCreateMembershipSaving(false)
+    }
+  }
 
   // Handle URL params from global search (e.g. ?customerId=123&q=term&phone=+1234)
   useEffect(() => {
@@ -1077,6 +1203,11 @@ export default function CustomersPage() {
             getCustomerCalls(selectedCustomer.phone_number).length,
         },
         { id: "jobs", label: "Jobs", count: getCustomerJobs(selectedCustomer.phone_number).length },
+        ...(!isHouseCleaning ? [{
+          id: "membership" as TabType,
+          label: "Membership",
+          count: getCustomerMemberships(selectedCustomer.id).filter(m => m.status === "active" || m.status === "paused").length,
+        }] : []),
       ]
     : []
 
@@ -1314,7 +1445,12 @@ export default function CustomersPage() {
                           <div className="flex-1 min-w-0">
                             {/* Top row: name + timestamp */}
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
+                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>
+                                {name}
+                                {!isHouseCleaning && getCustomerMembership(customer.id) && (
+                                  <Crown className="inline w-3 h-3 ml-1 text-amber-400" />
+                                )}
+                              </span>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
                                   {formatThreadTimestamp(lastMessage.timestamp)}
@@ -1906,6 +2042,186 @@ export default function CustomersPage() {
                       </div>
                     )}
 
+                    {/* Membership Tab (WinBros only) */}
+                    {activeTab === "membership" && !isHouseCleaning && (() => {
+                      const custMemberships = getCustomerMemberships(selectedCustomer.id)
+                      const activeMembership = custMemberships.find(m => m.status === "active" || m.status === "paused") || null
+                      const pastMemberships = custMemberships.filter(m => m.status === "completed" || m.status === "cancelled")
+
+                      return (
+                        <div className="space-y-4 overflow-y-auto">
+                          {/* Active/Paused Membership */}
+                          {activeMembership ? (() => {
+                            const plan = activeMembership.service_plans
+                            const visitsTotal = plan?.visits_per_year || 1
+                            const visitsDone = activeMembership.visits_completed
+                            const progressPct = Math.min(100, Math.round((visitsDone / visitsTotal) * 100))
+                            const isLoading = membershipActionLoading === activeMembership.id
+
+                            return (
+                              <div className="border border-zinc-800 rounded-lg p-4 space-y-4">
+                                {/* Plan header */}
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <Crown className="w-4 h-4 text-amber-400" />
+                                    <span className="text-sm font-semibold text-zinc-100">{plan?.name || "Membership"}</span>
+                                  </div>
+                                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide ${
+                                    activeMembership.status === "active"
+                                      ? "bg-green-500/20 text-green-400"
+                                      : "bg-amber-500/20 text-amber-400"
+                                  }`}>
+                                    {activeMembership.status}
+                                  </span>
+                                </div>
+
+                                {/* Visit progress */}
+                                <div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs text-zinc-400">Visit progress</span>
+                                    <span className="text-xs font-mono text-zinc-300">{visitsDone}/{visitsTotal}</span>
+                                  </div>
+                                  <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-amber-500 rounded-full transition-all"
+                                      style={{ width: `${progressPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Details grid */}
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div>
+                                    <span className="text-zinc-500">Discount</span>
+                                    <p className="text-zinc-200 font-medium">${plan?.discount_per_visit || 0}/visit</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-zinc-500">Interval</span>
+                                    <p className="text-zinc-200 font-medium">Every {plan?.interval_months || 1} month{(plan?.interval_months || 1) > 1 ? "s" : ""}</p>
+                                  </div>
+                                  <div>
+                                    <span className="text-zinc-500">Next visit</span>
+                                    <p className="text-zinc-200 font-medium">
+                                      {activeMembership.next_visit_at
+                                        ? new Date(activeMembership.next_visit_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                        : "—"}
+                                    </p>
+                                  </div>
+                                  <div>
+                                    <span className="text-zinc-500">Started</span>
+                                    <p className="text-zinc-200 font-medium">
+                                      {activeMembership.started_at
+                                        ? new Date(activeMembership.started_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                        : "—"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Renewal status */}
+                                {activeMembership.renewal_asked_at && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-zinc-500">Renewal:</span>
+                                    {activeMembership.renewal_choice === "renew" ? (
+                                      <span className="text-green-400 font-medium">Renewing</span>
+                                    ) : activeMembership.renewal_choice === "cancel" ? (
+                                      <span className="text-red-400 font-medium">Declined</span>
+                                    ) : (
+                                      <span className="text-blue-400 font-medium">Awaiting reply</span>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* Actions */}
+                                <div className="flex items-center gap-2 pt-1 border-t border-zinc-800">
+                                  {activeMembership.status === "active" && (
+                                    <>
+                                      <button
+                                        onClick={() => handleMembershipAction(activeMembership.id, "pause")}
+                                        disabled={isLoading}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 rounded-lg transition-colors disabled:opacity-50"
+                                      >
+                                        <Pause className="w-3 h-3" /> Pause
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          if (confirm("Cancel this membership? This cannot be undone.")) {
+                                            handleMembershipAction(activeMembership.id, "cancel")
+                                          }
+                                        }}
+                                        disabled={isLoading}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors disabled:opacity-50"
+                                      >
+                                        <XCircle className="w-3 h-3" /> Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                  {activeMembership.status === "paused" && (
+                                    <>
+                                      <button
+                                        onClick={() => handleMembershipAction(activeMembership.id, "resume")}
+                                        disabled={isLoading}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-400 bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 rounded-lg transition-colors disabled:opacity-50"
+                                      >
+                                        <Play className="w-3 h-3" /> Resume
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          if (confirm("Cancel this membership? This cannot be undone.")) {
+                                            handleMembershipAction(activeMembership.id, "cancel")
+                                          }
+                                        }}
+                                        disabled={isLoading}
+                                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-400 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-lg transition-colors disabled:opacity-50"
+                                      >
+                                        <XCircle className="w-3 h-3" /> Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                  {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />}
+                                </div>
+                              </div>
+                            )
+                          })() : (
+                            <div className="border border-dashed border-zinc-800 rounded-lg p-6 text-center space-y-3">
+                              <p className="text-sm text-zinc-500">No active membership</p>
+                              <button
+                                onClick={() => { setCreateMembershipOpen(true); setCreateMembershipPlanSlug(""); setCreateMembershipError("") }}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5" /> Create Membership
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Past memberships */}
+                          {pastMemberships.length > 0 && (
+                            <div>
+                              <p className="text-xs text-zinc-500 mb-2">Past memberships</p>
+                              <div className="space-y-2">
+                                {pastMemberships.map((m) => (
+                                  <div key={m.id} className="flex items-center justify-between py-2 px-3 bg-zinc-800/30 rounded-lg">
+                                    <div>
+                                      <span className="text-xs text-zinc-300">{m.service_plans?.name || "Plan"}</span>
+                                      <span className="text-[10px] text-zinc-500 ml-2">
+                                        {m.visits_completed}/{m.service_plans?.visits_per_year || "?"} visits
+                                      </span>
+                                    </div>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                      m.status === "completed"
+                                        ? "bg-zinc-600/30 text-zinc-400"
+                                        : "bg-red-500/20 text-red-400"
+                                    }`}>
+                                      {m.status}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
                   </div>
                 </div>
               </>
@@ -2398,6 +2714,56 @@ export default function CustomersPage() {
               {batchResult && (
                 <button onClick={() => setBatchOpen(false)} className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors">Done</button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Membership Modal (WinBros only) */}
+      {createMembershipOpen && !isHouseCleaning && selectedCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setCreateMembershipOpen(false)}>
+          <div className="w-full max-w-sm mx-4 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
+              <h3 className="text-base font-semibold text-zinc-100">New Membership</h3>
+              <button onClick={() => setCreateMembershipOpen(false)} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">Customer</label>
+                <p className="text-sm text-zinc-200">{getCustomerName(selectedCustomer)}</p>
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1.5">Plan</label>
+                <select
+                  value={createMembershipPlanSlug}
+                  onChange={(e) => setCreateMembershipPlanSlug(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 focus:outline-none focus:border-purple-500"
+                >
+                  <option value="">Select a plan...</option>
+                  {membershipPlans.map((p) => (
+                    <option key={p.slug} value={p.slug}>
+                      {p.name} ({p.visits_per_year} visits, -${p.discount_per_visit}/visit)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {createMembershipError && (
+                <p className="text-sm text-red-400">{createMembershipError}</p>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-zinc-800">
+              <button onClick={() => setCreateMembershipOpen(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateMembership}
+                disabled={createMembershipSaving || !createMembershipPlanSlug}
+                className="px-4 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {createMembershipSaving ? "Creating..." : "Create"}
+              </button>
             </div>
           </div>
         </div>
