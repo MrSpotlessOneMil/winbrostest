@@ -99,12 +99,12 @@ export function StatsCards() {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat, i) => (
         <Card key={stat.name} className={`relative overflow-hidden stat-card-border hover-glow-border stagger-${i + 1}`}>
-          <CardContent className="p-6">
+          <CardContent className="p-4">
             <div className="flex items-start justify-between">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <p className="text-sm font-medium text-zinc-400">{stat.name}</p>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-bold text-violet-300 flex items-center">
+                  <span className="text-2xl font-bold text-violet-300 flex items-center">
                     {stat.prefix}<SlidingNumber value={stat.numericValue} useCommas={stat.useCommas} />{stat.suffix}
                   </span>
                   <span className="text-sm text-zinc-500 flex items-center">
@@ -130,13 +130,13 @@ export function StatsCards() {
                   </span>
                 </div>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 icon-glow text-primary">
-                <stat.icon className="h-6 w-6" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 icon-glow text-primary">
+                <stat.icon className="h-5 w-5" />
               </div>
             </div>
 
             {/* Progress bar */}
-            <div className="mt-4">
+            <div className="mt-3">
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/60">
                 <div
                   className="h-full rounded-full progress-bar-glow transition-all duration-700 ease-out"

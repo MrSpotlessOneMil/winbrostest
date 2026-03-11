@@ -169,7 +169,7 @@ export function LeadSourceChart() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="max-h-[360px] overflow-y-auto space-y-2 pr-1">
+          <div className="max-h-[240px] overflow-y-auto space-y-2 pr-1">
             {filteredLeads.map((lead) => (
               <div
                 key={lead.id}
@@ -210,15 +210,15 @@ export function LeadSourceChart() {
         {chartData.length === 0 && !loading ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No lead data yet</p>
         ) : (
-          <ChartContainer config={chartConfig} className="mx-auto h-[200px] w-full">
+          <ChartContainer config={chartConfig} className="mx-auto h-[140px] w-full">
             <PieChart>
               <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
               <Pie
                 data={chartData}
                 cx="50%"
                 cy="50%"
-                innerRadius={50}
-                outerRadius={80}
+                innerRadius={35}
+                outerRadius={58}
                 paddingAngle={2}
                 dataKey="value"
                 nameKey="name"
@@ -234,7 +234,7 @@ export function LeadSourceChart() {
         )}
 
         {/* Legend */}
-        <div className="mt-4 grid grid-cols-1 gap-2">
+        <div className="mt-2 grid grid-cols-2 gap-2">
           {chartData.map((source) => (
             <button
               key={source.name}
@@ -246,8 +246,8 @@ export function LeadSourceChart() {
                 style={{ backgroundColor: source.fill }}
               />
               <div className="flex flex-1 items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">{source.label}</span>
-                <span className="text-xs font-medium text-foreground">
+                <span className="text-xs text-muted-foreground truncate">{source.label}</span>
+                <span className="text-xs font-medium text-foreground whitespace-nowrap shrink-0">
                   {source.value} lead{source.value !== 1 ? "s" : ""} &middot;{" "}
                   {totalLeads ? Math.round((source.value / totalLeads) * 100) : 0}%
                 </span>

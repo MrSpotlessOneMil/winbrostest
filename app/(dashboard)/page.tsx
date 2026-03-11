@@ -13,14 +13,11 @@ import { TopPerformer } from "@/components/dashboard/top-performer"
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 stagger-1">
         <div className="min-w-0">
           <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">Command Center</h1>
-          <p className="text-xs md:text-sm text-zinc-500 hidden sm:block">
-            Real-time overview of operations
-          </p>
         </div>
         <div className="text-right hidden md:block">
           <p className="text-xs text-zinc-500 uppercase tracking-wider font-medium">Today</p>
