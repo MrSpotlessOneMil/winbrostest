@@ -1,7 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { Loader2, Save, Plus, Trash2, X } from "lucide-react"
+import { Loader2, Save, Plus, Trash2, X, ChevronUp, Layers, Grid3X3, DollarSign, Puzzle, Crown } from "lucide-react"
+import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ type FlatServiceRow = {
   name: string
   keywords: string[]
   price: number
+  active?: boolean
 }
 
 type AddonRow = {
@@ -46,6 +48,7 @@ type WinBrosAddonRow = {
   addon_key: string
   label: string
   flat_price: number
+  active?: boolean
 }
 
 type ServicePlan = {
@@ -69,6 +72,10 @@ export function ServiceEditor() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [isWindowCleaning, setIsWindowCleaning] = useState(false)
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({})
+
+  const toggleSection = (key: string) =>
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // WinBros state
   const [windowTiers, setWindowTiers] = useState<WindowTierRow[]>([])
@@ -217,6 +224,7 @@ export function ServiceEditor() {
                 ? f.keywords
                 : [f.name.toLowerCase().replace(/[^a-z0-9\s]+/g, "").trim().replace(/\s+/g, "_")],
               price: f.price,
+              active: f.active !== false,
             })),
             job_service_types: jobServiceTypes.filter((t) => t.trim() !== ""),
             winbros_addons: winbrosAddons
@@ -324,725 +332,1075 @@ export function ServiceEditor() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-8 py-8">
-      <div className="space-y-10">
+      <div className="space-y-4">
         {isWindowCleaning ? (
           <>
             {/* ── WinBros: Job Service Types ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Job Service Types</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Options shown in the calendar create-job dropdown
-              </p>
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
-                <div className="divide-y divide-white/[0.04]">
-                  {jobServiceTypes.map((type, i) => (
-                    <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                      <input
-                        type="text"
-                        value={type}
-                        onChange={(e) => {
-                          const updated = [...jobServiceTypes]
-                          updated[i] = e.target.value
-                          setJobServiceTypes(updated)
-                        }}
-                        className="flex-1 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                      />
-                      <button
-                        onClick={() => setJobServiceTypes(jobServiceTypes.filter((_, j) => j !== i))}
-                        className="text-zinc-600 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.jobTypes ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("jobTypes")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10 transition-colors duration-300">
+                  <Layers className="h-5 w-5 text-purple-400" />
                 </div>
-                <div className="px-4 py-3 border-t border-white/[0.04]">
-                  <button
-                    onClick={() => setJobServiceTypes([...jobServiceTypes, ""])}
-                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Service Type
-                  </button>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Job Service Types</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.jobTypes ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {jobServiceTypes.length} types configured
+                  </p>
                 </div>
-              </div>
-            </section>
-
-            {/* ── WinBros: Window Tiers ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Window Cleaning Tiers</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Square footage-based pricing for exterior, interior, and track detailing
-              </p>
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Max Sqft</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Label</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Exterior $</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Interior $</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Track $</th>
-                      <th className="px-4 py-3 w-10" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {windowTiers.map((tier, i) => (
-                      <tr key={i} className="border-b border-white/[0.04]">
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            value={tier.maxSqft}
-                            onChange={(e) => {
-                              const updated = [...windowTiers]
-                              updated[i] = { ...tier, maxSqft: Number(e.target.value) || 0 }
-                              setWindowTiers(updated)
-                            }}
-                            className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={tier.label}
-                            onChange={(e) => {
-                              const updated = [...windowTiers]
-                              updated[i] = { ...tier, label: e.target.value }
-                              setWindowTiers(updated)
-                            }}
-                            className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            value={tier.exterior}
-                            onChange={(e) => {
-                              const updated = [...windowTiers]
-                              updated[i] = { ...tier, exterior: Number(e.target.value) || 0 }
-                              setWindowTiers(updated)
-                            }}
-                            className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            value={tier.interior}
-                            onChange={(e) => {
-                              const updated = [...windowTiers]
-                              updated[i] = { ...tier, interior: Number(e.target.value) || 0 }
-                              setWindowTiers(updated)
-                            }}
-                            className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            value={tier.trackDetailing}
-                            onChange={(e) => {
-                              const updated = [...windowTiers]
-                              updated[i] = { ...tier, trackDetailing: Number(e.target.value) || 0 }
-                              setWindowTiers(updated)
-                            }}
-                            className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <button
-                            onClick={() => setWindowTiers(windowTiers.filter((_, j) => j !== i))}
-                            className="text-zinc-600 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="px-4 py-3 border-t border-white/[0.04]">
-                  <button
-                    onClick={() =>
-                      setWindowTiers([...windowTiers, { maxSqft: 0, label: "", exterior: 0, interior: 0, trackDetailing: 0 }])
-                    }
-                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Tier
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            {/* ── WinBros: Flat Services ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Flat Rate Services</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Pressure washing surfaces and other flat-rate services
-              </p>
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Service Name</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Price $</th>
-                      <th className="px-4 py-3 w-10" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {flatServices.map((svc, i) => (
-                      <tr key={i} className="border-b border-white/[0.04]">
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={svc.name}
-                            onChange={(e) => {
-                              const updated = [...flatServices]
-                              updated[i] = { ...svc, name: e.target.value }
-                              setFlatServices(updated)
-                            }}
-                            className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            value={svc.price}
-                            onChange={(e) => {
-                              const updated = [...flatServices]
-                              updated[i] = { ...svc, price: Number(e.target.value) || 0 }
-                              setFlatServices(updated)
-                            }}
-                            className="w-24 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <button
-                            onClick={() => setFlatServices(flatServices.filter((_, j) => j !== i))}
-                            className="text-zinc-600 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="px-4 py-3 border-t border-white/[0.04]">
-                  <button
-                    onClick={() => setFlatServices([...flatServices, { name: "", keywords: [], price: 0 }])}
-                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Service
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            {/* ── WinBros: Add-Ons ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Add-Ons</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Optional extras shown when creating or quoting a job
-              </p>
-              <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Label</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Price $</th>
-                      <th className="px-4 py-3 w-10" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {winbrosAddons.map((addon, i) => (
-                      <tr key={i} className="border-b border-white/[0.04]">
-                        <td className="px-4 py-2">
-                          <input
-                            type="text"
-                            value={addon.label}
-                            onChange={(e) => {
-                              const updated = [...winbrosAddons]
-                              updated[i] = { ...addon, label: e.target.value }
-                              setWinbrosAddons(updated)
-                            }}
-                            className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            onFocus={selectOnFocus}
-                            min={0}
-                            value={addon.flat_price}
-                            onChange={(e) => {
-                              const updated = [...winbrosAddons]
-                              updated[i] = { ...addon, flat_price: Number(e.target.value) || 0 }
-                              setWinbrosAddons(updated)
-                            }}
-                            className="w-24 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <button
-                            onClick={() => setWinbrosAddons(winbrosAddons.filter((_, j) => j !== i))}
-                            className="text-zinc-600 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="px-4 py-3 border-t border-white/[0.04]">
-                  <button
-                    onClick={() => setWinbrosAddons([...winbrosAddons, { addon_key: "", label: "", flat_price: 0 }])}
-                    className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add Add-On
-                  </button>
-                </div>
-              </div>
-            </section>
-
-            {/* ── WinBros: Membership Plans ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Membership Plans</h2>
-              <p className="text-sm text-zinc-500 mb-3">
-                Recurring service plans for customers
-              </p>
-              <p className="text-xs text-amber-500/80 mb-5">
-                Changes to active plans affect existing memberships
-              </p>
-              <div className="space-y-3">
-                {plans
-                  .filter((p) => !p._deleted)
-                  .map((plan, i) => {
-                    const actualIndex = plans.findIndex((p) => p === plan)
-                    return (
-                      <div
-                        key={plan.id || `new-${i}`}
-                        className="rounded-xl border border-white/[0.06] bg-zinc-900/50 p-5"
-                      >
-                        <div className="flex items-start justify-between gap-4 mb-4">
-                          <input
-                            type="text"
-                            value={plan.name}
-                            onChange={(e) => {
-                              const updated = [...plans]
-                              updated[actualIndex] = { ...plan, name: e.target.value }
-                              setPlans(updated)
-                            }}
-                            placeholder="Plan name"
-                            className="text-sm font-medium bg-transparent border-b border-zinc-700/50 text-zinc-200 focus:outline-none focus:border-purple-500/50 pb-1 flex-1"
-                          />
-                          <button
-                            onClick={() => {
-                              const updated = [...plans]
-                              updated[actualIndex] = { ...plan, _deleted: true }
-                              setPlans(updated)
-                            }}
-                            className="text-zinc-600 hover:text-red-400 transition-colors shrink-0"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Visits/Year</label>
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              value={plan.visits_per_year}
-                              onChange={(e) => {
-                                const updated = [...plans]
-                                updated[actualIndex] = { ...plan, visits_per_year: Math.max(1, Number(e.target.value) || 1) }
-                                setPlans(updated)
-                              }}
-                              className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Interval (months)</label>
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              value={plan.interval_months}
-                              onChange={(e) => {
-                                const updated = [...plans]
-                                updated[actualIndex] = { ...plan, interval_months: Math.max(1, Number(e.target.value) || 1) }
-                                setPlans(updated)
-                              }}
-                              className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Discount/Visit $</label>
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={0}
-                              value={plan.discount_per_visit}
-                              onChange={(e) => {
-                                const updated = [...plans]
-                                updated[actualIndex] = { ...plan, discount_per_visit: Math.max(0, Number(e.target.value) || 0) }
-                                setPlans(updated)
-                              }}
-                              className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-zinc-500 mb-1 block">Free Add-ons</label>
-                            <input
-                              type="text"
-                              value={(plan.free_addons || []).join(", ")}
-                              onChange={(e) => {
-                                const updated = [...plans]
-                                updated[actualIndex] = {
-                                  ...plan,
-                                  free_addons: e.target.value
-                                    .split(",")
-                                    .map((s) => s.trim())
-                                    .filter(Boolean),
-                                }
-                                setPlans(updated)
-                              }}
-                              placeholder="comma separated"
-                              className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
                 <button
-                  onClick={() =>
-                    setPlans([
-                      ...plans,
-                      {
-                        slug: "",
-                        name: "",
-                        visits_per_year: 1,
-                        interval_months: 12,
-                        discount_per_visit: 0,
-                        free_addons: [],
-                        active: true,
-                        _isNew: true,
-                        _deleted: false,
-                      },
-                    ])
-                  }
-                  className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); setJobServiceTypes([...jobServiceTypes, ""]); setOpenSections((prev) => ({ ...prev, jobTypes: true })) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Add Plan
+                  Add
                 </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.jobTypes ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
               </div>
-            </section>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.jobTypes ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06]">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Type Name</th>
+                            <th className="px-3 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {jobServiceTypes.map((type, i) => (
+                            <tr
+                              key={i}
+                              className={cn(
+                                "border-b border-white/[0.04]",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.jobTypes ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.jobTypes ? `${i * 50}ms` : "0ms" }}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={type}
+                                  onChange={(e) => {
+                                    const updated = [...jobServiceTypes]
+                                    updated[i] = e.target.value
+                                    setJobServiceTypes(updated)
+                                  }}
+                                  className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => setJobServiceTypes(jobServiceTypes.filter((_, j) => j !== i))}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── WinBros: Window Tiers ── */}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.tiers ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("tiers")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-500/10 transition-colors duration-300">
+                  <Grid3X3 className="h-5 w-5 text-blue-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Window Cleaning Tiers</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.tiers ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {windowTiers.length} tiers · sqft-based pricing
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setWindowTiers([...windowTiers, { maxSqft: 0, label: "", exterior: 0, interior: 0, trackDetailing: 0 }])
+                    setOpenSections((prev) => ({ ...prev, tiers: true }))
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.tiers ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
+              </div>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.tiers ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06]">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Max Sqft</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Label</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Exterior $</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Interior $</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Track $</th>
+                            <th className="px-3 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {windowTiers.map((tier, i) => (
+                            <tr
+                              key={i}
+                              className={cn(
+                                "border-b border-white/[0.04]",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.tiers ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.tiers ? `${i * 50}ms` : "0ms" }}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  value={tier.maxSqft}
+                                  onChange={(e) => {
+                                    const updated = [...windowTiers]
+                                    updated[i] = { ...tier, maxSqft: Number(e.target.value) || 0 }
+                                    setWindowTiers(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={tier.label}
+                                  onChange={(e) => {
+                                    const updated = [...windowTiers]
+                                    updated[i] = { ...tier, label: e.target.value }
+                                    setWindowTiers(updated)
+                                  }}
+                                  className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  value={tier.exterior}
+                                  onChange={(e) => {
+                                    const updated = [...windowTiers]
+                                    updated[i] = { ...tier, exterior: Number(e.target.value) || 0 }
+                                    setWindowTiers(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  value={tier.interior}
+                                  onChange={(e) => {
+                                    const updated = [...windowTiers]
+                                    updated[i] = { ...tier, interior: Number(e.target.value) || 0 }
+                                    setWindowTiers(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  value={tier.trackDetailing}
+                                  onChange={(e) => {
+                                    const updated = [...windowTiers]
+                                    updated[i] = { ...tier, trackDetailing: Number(e.target.value) || 0 }
+                                    setWindowTiers(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => setWindowTiers(windowTiers.filter((_, j) => j !== i))}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── WinBros: Flat Services ── */}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.flatServices ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("flatServices")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10 transition-colors duration-300">
+                  <DollarSign className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Flat Rate Services</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.flatServices ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {flatServices.length} services · pressure washing & more
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFlatServices([...flatServices, { name: "", keywords: [], price: 0, active: true }]); setOpenSections((prev) => ({ ...prev, flatServices: true })) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.flatServices ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
+              </div>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.flatServices ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06]">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Service Name</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price $</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Status</th>
+                            <th className="px-3 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flatServices.map((svc, i) => (
+                            <tr
+                              key={i}
+                              className={cn(
+                                "border-b border-white/[0.04]",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.flatServices ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.flatServices ? `${i * 50}ms` : "0ms" }}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={svc.name}
+                                  onChange={(e) => {
+                                    const updated = [...flatServices]
+                                    updated[i] = { ...svc, name: e.target.value }
+                                    setFlatServices(updated)
+                                  }}
+                                  className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  placeholder="Service name"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  value={svc.price}
+                                  onChange={(e) => {
+                                    const updated = [...flatServices]
+                                    updated[i] = { ...svc, price: Number(e.target.value) || 0 }
+                                    setFlatServices(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => {
+                                    const updated = [...flatServices]
+                                    updated[i] = { ...svc, active: svc.active === false ? true : false }
+                                    setFlatServices(updated)
+                                  }}
+                                  className={cn(
+                                    "text-xs px-2 py-1 rounded-md border transition-colors",
+                                    svc.active !== false
+                                      ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:shadow-[0_0_12px_rgba(16,185,129,0.2)]"
+                                      : "text-zinc-500 border-zinc-700/50 bg-zinc-800/50 hover:bg-zinc-700/50 hover:text-zinc-300",
+                                  )}
+                                >
+                                  {svc.active !== false ? "Active" : "Off"}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => setFlatServices(flatServices.filter((_, j) => j !== i))}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── WinBros: Add-Ons ── */}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.addons ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("addons")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 transition-colors duration-300">
+                  <Puzzle className="h-5 w-5 text-amber-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Add-Ons</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.addons ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {winbrosAddons.length} extras · optional job add-ons
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setWinbrosAddons([...winbrosAddons, { addon_key: "", label: "", flat_price: 0, active: true }]); setOpenSections((prev) => ({ ...prev, addons: true })) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.addons ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
+              </div>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.addons ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06]">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Add-On Name</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price $</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Status</th>
+                            <th className="px-3 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {winbrosAddons.map((addon, i) => (
+                            <tr
+                              key={i}
+                              className={cn(
+                                "border-b border-white/[0.04]",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.addons ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.addons ? `${i * 50}ms` : "0ms" }}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={addon.label}
+                                  onChange={(e) => {
+                                    const updated = [...winbrosAddons]
+                                    updated[i] = { ...addon, label: e.target.value }
+                                    setWinbrosAddons(updated)
+                                  }}
+                                  className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  placeholder="Add-on name"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  min={0}
+                                  value={addon.flat_price}
+                                  onChange={(e) => {
+                                    const updated = [...winbrosAddons]
+                                    updated[i] = { ...addon, flat_price: Number(e.target.value) || 0 }
+                                    setWinbrosAddons(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => {
+                                    const updated = [...winbrosAddons]
+                                    updated[i] = { ...addon, active: addon.active === false ? true : false }
+                                    setWinbrosAddons(updated)
+                                  }}
+                                  className={cn(
+                                    "text-xs px-2 py-1 rounded-md border transition-colors",
+                                    addon.active !== false
+                                      ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:shadow-[0_0_12px_rgba(16,185,129,0.2)]"
+                                      : "text-zinc-500 border-zinc-700/50 bg-zinc-800/50 hover:bg-zinc-700/50 hover:text-zinc-300",
+                                  )}
+                                >
+                                  {addon.active !== false ? "Active" : "Off"}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => setWinbrosAddons(winbrosAddons.filter((_, j) => j !== i))}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── WinBros: Membership Plans ── */}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.plans ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("plans")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-500/10 transition-colors duration-300">
+                  <Crown className="h-5 w-5 text-violet-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Membership Plans</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.plans ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {plans.filter((p) => !p._deleted).length} plans · recurring service
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPlans([...plans, {
+                      slug: "", name: "", visits_per_year: 1, interval_months: 12,
+                      discount_per_visit: 0, free_addons: [], active: true, _isNew: true, _deleted: false,
+                    }])
+                    setOpenSections((prev) => ({ ...prev, plans: true }))
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.plans ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
+              </div>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.plans ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-4 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <p className="text-xs text-amber-500/80 mb-3">
+                      Changes to active plans affect existing memberships
+                    </p>
+                    <div className="space-y-3">
+                      {plans
+                        .filter((p) => !p._deleted)
+                        .map((plan, i) => {
+                          const actualIndex = plans.findIndex((p) => p === plan)
+                          return (
+                            <div
+                              key={plan.id || `new-${i}`}
+                              className={cn(
+                                "rounded-xl border border-white/[0.06] bg-zinc-800/30 p-4",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.plans ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.plans ? `${i * 75}ms` : "0ms" }}
+                            >
+                              <div className="flex items-start justify-between gap-4 mb-4">
+                                <input
+                                  type="text"
+                                  value={plan.name}
+                                  onChange={(e) => {
+                                    const updated = [...plans]
+                                    updated[actualIndex] = { ...plan, name: e.target.value }
+                                    setPlans(updated)
+                                  }}
+                                  placeholder="Plan name"
+                                  className="text-sm font-medium bg-transparent border-b border-zinc-700/50 text-zinc-200 focus:outline-none focus:border-purple-500/50 pb-1 flex-1"
+                                />
+                                <button
+                                  onClick={() => {
+                                    const updated = [...plans]
+                                    updated[actualIndex] = { ...plan, _deleted: true }
+                                    setPlans(updated)
+                                  }}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors shrink-0 p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div>
+                                  <label className="text-xs text-zinc-500 mb-1 block">Visits/Year</label>
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    value={plan.visits_per_year}
+                                    onChange={(e) => {
+                                      const updated = [...plans]
+                                      updated[actualIndex] = { ...plan, visits_per_year: Math.max(1, Number(e.target.value) || 1) }
+                                      setPlans(updated)
+                                    }}
+                                    className="w-full px-3 py-2 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-zinc-500 mb-1 block">Interval (months)</label>
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    value={plan.interval_months}
+                                    onChange={(e) => {
+                                      const updated = [...plans]
+                                      updated[actualIndex] = { ...plan, interval_months: Math.max(1, Number(e.target.value) || 1) }
+                                      setPlans(updated)
+                                    }}
+                                    className="w-full px-3 py-2 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-zinc-500 mb-1 block">Discount/Visit $</label>
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={0}
+                                    value={plan.discount_per_visit}
+                                    onChange={(e) => {
+                                      const updated = [...plans]
+                                      updated[actualIndex] = { ...plan, discount_per_visit: Math.max(0, Number(e.target.value) || 0) }
+                                      setPlans(updated)
+                                    }}
+                                    className="w-full px-3 py-2 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-zinc-500 mb-1 block">Free Add-ons</label>
+                                  <input
+                                    type="text"
+                                    value={(plan.free_addons || []).join(", ")}
+                                    onChange={(e) => {
+                                      const updated = [...plans]
+                                      updated[actualIndex] = {
+                                        ...plan,
+                                        free_addons: e.target.value
+                                          .split(",")
+                                          .map((s) => s.trim())
+                                          .filter(Boolean),
+                                      }
+                                      setPlans(updated)
+                                    }}
+                                    placeholder="comma separated"
+                                    className="w-full px-3 py-2 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </>
         ) : (
           <>
             {/* ── House Cleaning: Service Types ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Service Types</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Manage service types and their bed/bath pricing
-              </p>
-
-              {/* Type pills */}
-              <div className="flex items-center gap-2 flex-wrap mb-5">
-                {serviceTypes.map((type) => (
-                  <div
-                    key={type}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedType(type)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
-                      selectedType === type
-                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
-                        : "bg-zinc-800/60 text-zinc-400 border border-transparent hover:text-zinc-200"
-                    }`}
-                  >
-                    {prettifyType(type)}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        const updated = { ...tiers }
-                        delete updated[type]
-                        setTiers(updated)
-                        const newTypes = serviceTypes.filter((t) => t !== type)
-                        setServiceTypes(newTypes)
-                        if (selectedType === type) setSelectedType(newTypes[0] || "")
-                      }}
-                      className="ml-1 text-zinc-600 hover:text-red-400"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-
-                {(() => {
-                  const availableTypes = ALLOWED_SERVICE_TYPES.filter((t) => !serviceTypes.includes(t))
-                  if (availableTypes.length === 0) return null
-                  return showNewType ? (
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        value={newTypeName}
-                        onChange={(e) => {
-                          const val = e.target.value
-                          if (val && !serviceTypes.includes(val)) {
-                            setServiceTypes([...serviceTypes, val])
-                            setTiers({ ...tiers, [val]: [] })
-                            setSelectedType(val)
-                          }
-                          setNewTypeName("")
-                          setShowNewType(false)
-                        }}
-                        autoFocus
-                        className="w-32 px-2 py-1 text-xs bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                      >
-                        <option value="">Select type...</option>
-                        {availableTypes.map((t) => (
-                          <option key={t} value={t}>{prettifyType(t)}</option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          setNewTypeName("")
-                          setShowNewType(false)
-                        }}
-                        className="text-zinc-500 hover:text-zinc-300"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setShowNewType(true)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-zinc-800/40 rounded-lg border border-dashed border-zinc-700/50 transition-colors"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add Type
-                    </button>
-                  )
-                })()}
-              </div>
-
-              {/* Pricing grid for selected type */}
-              {selectedType && (
-                <div className="rounded-xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-white/[0.06]">
-                        <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Beds</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Baths</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Max Sqft</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-zinc-400">Price $</th>
-                        <th className="px-4 py-3 w-10" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(tiers[selectedType] || []).map((row, i) => (
-                        <tr key={i} className="border-b border-white/[0.04]">
-                          <td className="px-4 py-2">
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              value={row.bedrooms}
-                              onChange={(e) => {
-                                const updated = { ...tiers }
-                                updated[selectedType] = [...(updated[selectedType] || [])]
-                                updated[selectedType][i] = { ...row, bedrooms: Math.max(1, Number(e.target.value) || 1) }
-                                setTiers(updated)
-                              }}
-                              className="w-16 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              step={0.5}
-                              value={row.bathrooms}
-                              onChange={(e) => {
-                                const updated = { ...tiers }
-                                updated[selectedType] = [...(updated[selectedType] || [])]
-                                updated[selectedType][i] = { ...row, bathrooms: Math.max(1, Number(e.target.value) || 1) }
-                                setTiers(updated)
-                              }}
-                              className="w-16 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              value={row.max_sq_ft}
-                              onChange={(e) => {
-                                const updated = { ...tiers }
-                                updated[selectedType] = [...(updated[selectedType] || [])]
-                                updated[selectedType][i] = { ...row, max_sq_ft: Math.max(1, Number(e.target.value) || 1) }
-                                setTiers(updated)
-                              }}
-                              className="w-24 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <input
-                              type="number"
-                              onFocus={selectOnFocus}
-                              min={1}
-                              value={row.price}
-                              onChange={(e) => {
-                                const updated = { ...tiers }
-                                updated[selectedType] = [...(updated[selectedType] || [])]
-                                updated[selectedType][i] = { ...row, price: Math.max(1, Number(e.target.value) || 1) }
-                                setTiers(updated)
-                              }}
-                              className="w-24 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <button
-                              onClick={() => {
-                                const updated = { ...tiers }
-                                updated[selectedType] = (updated[selectedType] || []).filter((_, j) => j !== i)
-                                setTiers(updated)
-                              }}
-                              className="text-zinc-600 hover:text-red-400 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="px-4 py-3 border-t border-white/[0.04]">
-                    <button
-                      onClick={() => {
-                        const updated = { ...tiers }
-                        updated[selectedType] = [
-                          ...(updated[selectedType] || []),
-                          {
-                            service_type: selectedType,
-                            bedrooms: 1,
-                            bathrooms: 1,
-                            max_sq_ft: 1000,
-                            price: 100,
-                            price_min: null,
-                            price_max: null,
-                            labor_hours: 2,
-                            cleaners: 1,
-                            hours_per_cleaner: null,
-                          },
-                        ]
-                        setTiers(updated)
-                      }}
-                      className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Add Row
-                    </button>
-                  </div>
-                </div>
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.serviceTypes ? "rounded-3xl" : "rounded-2xl",
               )}
-            </section>
-
-            {/* ── House Cleaning: Add-Ons ── */}
-            <section>
-              <h2 className="text-base font-semibold text-zinc-100 mb-1">Add-Ons</h2>
-              <p className="text-sm text-zinc-500 mb-5">
-                Optional services customers can add to their booking
-              </p>
-              <div className="space-y-3">
-                {addons.map((addon, i) => (
-                  <div
-                    key={addon.addon_key + i}
-                    className="flex items-center gap-3 rounded-xl border border-white/[0.06] bg-zinc-900/50 px-4 py-3"
-                  >
-                    <input
-                      type="text"
-                      value={addon.label}
-                      onChange={(e) => {
-                        const updated = [...addons]
-                        updated[i] = {
-                          ...addon,
-                          label: e.target.value,
-                          addon_key: addon.id
-                            ? addon.addon_key
-                            : e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
-                        }
-                        setAddons(updated)
-                      }}
-                      placeholder="Add-on name"
-                      className="flex-1 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                    />
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs text-zinc-500">$</span>
-                      <input
-                        type="number"
-                        onFocus={selectOnFocus}
-                        min={0}
-                        value={addon.flat_price ?? 0}
-                        onChange={(e) => {
-                          const updated = [...addons]
-                          updated[i] = { ...addon, flat_price: Number(e.target.value) || 0 }
-                          setAddons(updated)
-                        }}
-                        className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                      />
-                    </div>
-                    <button
-                      onClick={() => {
-                        const updated = [...addons]
-                        updated[i] = { ...addon, active: !addon.active }
-                        setAddons(updated)
-                      }}
-                      className={`text-xs px-2 py-1 rounded-md border transition-colors ${
-                        addon.active
-                          ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10"
-                          : "text-zinc-500 border-zinc-700/50 bg-zinc-800/50"
-                      }`}
-                    >
-                      {addon.active ? "Active" : "Off"}
-                    </button>
-                    <button
-                      onClick={() => setAddons(addons.filter((_, j) => j !== i))}
-                      className="text-zinc-600 hover:text-red-400 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("serviceTypes")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10 transition-colors duration-300">
+                  <Layers className="h-5 w-5 text-purple-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Service Types</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.serviceTypes ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {serviceTypes.length} types · {Object.values(tiers).reduce((sum, rows) => sum + rows.length, 0)} pricing tiers
+                  </p>
+                </div>
                 <button
-                  onClick={() =>
-                    setAddons([
-                      ...addons,
-                      { addon_key: "", label: "", flat_price: 0, active: true },
-                    ])
-                  }
-                  className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const updated = { ...tiers }
+                    if (selectedType) {
+                      updated[selectedType] = [
+                        ...(updated[selectedType] || []),
+                        {
+                          service_type: selectedType,
+                          bedrooms: 1,
+                          bathrooms: 1,
+                          max_sq_ft: 1000,
+                          price: 100,
+                          price_min: null,
+                          price_max: null,
+                          labor_hours: 2,
+                          cleaners: 1,
+                          hours_per_cleaner: null,
+                        },
+                      ]
+                      setTiers(updated)
+                    }
+                    setOpenSections((prev) => ({ ...prev, serviceTypes: true }))
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Add Add-On
+                  Add Row
                 </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.serviceTypes ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
               </div>
-            </section>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.serviceTypes ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    {/* Pill slider for Standard / Deep */}
+                    <div className="flex items-center gap-2 px-1 mb-3">
+                      <div className="inline-flex rounded-lg bg-zinc-800/80 border border-zinc-700/50 p-0.5">
+                        {serviceTypes.map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => setSelectedType(type)}
+                            className={cn(
+                              "px-4 py-1.5 text-xs font-medium rounded-md transition-all duration-300",
+                              selectedType === type
+                                ? "bg-purple-500/20 text-purple-300 shadow-sm"
+                                : "text-zinc-400 hover:text-zinc-200",
+                            )}
+                          >
+                            {prettifyType(type)}
+                          </button>
+                        ))}
+                      </div>
+                      {(() => {
+                        const availableTypes = ALLOWED_SERVICE_TYPES.filter((t) => !serviceTypes.includes(t))
+                        if (availableTypes.length === 0) return null
+                        return showNewType ? (
+                          <div className="flex items-center gap-1.5">
+                            <select
+                              value={newTypeName}
+                              onChange={(e) => {
+                                const val = e.target.value
+                                if (val && !serviceTypes.includes(val)) {
+                                  setServiceTypes([...serviceTypes, val])
+                                  setTiers({ ...tiers, [val]: [] })
+                                  setSelectedType(val)
+                                }
+                                setNewTypeName("")
+                                setShowNewType(false)
+                              }}
+                              autoFocus
+                              className="w-32 px-2 py-1 text-xs bg-zinc-800/80 border border-zinc-700/50 rounded-md text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                            >
+                              <option value="">Select type...</option>
+                              {availableTypes.map((t) => (
+                                <option key={t} value={t}>{prettifyType(t)}</option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => {
+                                setNewTypeName("")
+                                setShowNewType(false)
+                              }}
+                              className="text-zinc-500 hover:text-zinc-300"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setShowNewType(true)}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-zinc-800/40 rounded-lg border border-dashed border-zinc-700/50 transition-colors"
+                          >
+                            <Plus className="w-3 h-3" />
+                            Add Type
+                          </button>
+                        )
+                      })()}
+                      {serviceTypes.length > 1 && selectedType && (
+                        <button
+                          onClick={() => {
+                            const updated = { ...tiers }
+                            delete updated[selectedType]
+                            setTiers(updated)
+                            const newTypes = serviceTypes.filter((t) => t !== selectedType)
+                            setServiceTypes(newTypes)
+                            setSelectedType(newTypes[0] || "")
+                          }}
+                          className="ml-auto text-xs text-zinc-600 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Pricing grid for selected type */}
+                    {selectedType && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-white/[0.06]">
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Beds</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Baths</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Max Sqft</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price $</th>
+                              <th className="px-3 py-2.5 w-10" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(tiers[selectedType] || []).map((row, i) => (
+                              <tr
+                                key={i}
+                                className={cn(
+                                  "border-b border-white/[0.04]",
+                                  "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                  openSections.serviceTypes ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                                )}
+                                style={{ transitionDelay: openSections.serviceTypes ? `${i * 50}ms` : "0ms" }}
+                              >
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    value={row.bedrooms}
+                                    onChange={(e) => {
+                                      const updated = { ...tiers }
+                                      updated[selectedType] = [...(updated[selectedType] || [])]
+                                      updated[selectedType][i] = { ...row, bedrooms: Math.max(1, Number(e.target.value) || 1) }
+                                      setTiers(updated)
+                                    }}
+                                    className="w-16 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    step={0.5}
+                                    value={row.bathrooms}
+                                    onChange={(e) => {
+                                      const updated = { ...tiers }
+                                      updated[selectedType] = [...(updated[selectedType] || [])]
+                                      updated[selectedType][i] = { ...row, bathrooms: Math.max(1, Number(e.target.value) || 1) }
+                                      setTiers(updated)
+                                    }}
+                                    className="w-16 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    value={row.max_sq_ft}
+                                    onChange={(e) => {
+                                      const updated = { ...tiers }
+                                      updated[selectedType] = [...(updated[selectedType] || [])]
+                                      updated[selectedType][i] = { ...row, max_sq_ft: Math.max(1, Number(e.target.value) || 1) }
+                                      setTiers(updated)
+                                    }}
+                                    className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="number"
+                                    onFocus={selectOnFocus}
+                                    min={1}
+                                    value={row.price}
+                                    onChange={(e) => {
+                                      const updated = { ...tiers }
+                                      updated[selectedType] = [...(updated[selectedType] || [])]
+                                      updated[selectedType][i] = { ...row, price: Math.max(1, Number(e.target.value) || 1) }
+                                      setTiers(updated)
+                                    }}
+                                    className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <button
+                                    onClick={() => {
+                                      const updated = { ...tiers }
+                                      updated[selectedType] = (updated[selectedType] || []).filter((_, j) => j !== i)
+                                      setTiers(updated)
+                                    }}
+                                    className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* ── House Cleaning: Add-Ons ── */}
+            <div
+              className={cn(
+                "rounded-2xl border border-white/[0.06] bg-zinc-900/50 overflow-hidden",
+                "shadow-xl shadow-black/10",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.hcAddons ? "rounded-3xl" : "rounded-2xl",
+              )}
+            >
+              <div className="flex items-center gap-4 p-4 cursor-pointer select-none" onClick={() => toggleSection("hcAddons")}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-500/10 transition-colors duration-300">
+                  <Puzzle className="h-5 w-5 text-purple-400" />
+                </div>
+                <div className="flex-1 overflow-hidden">
+                  <h3 className="text-base font-semibold text-zinc-100">Add-Ons</h3>
+                  <p className={cn(
+                    "text-sm text-zinc-500",
+                    "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.hcAddons ? "opacity-0 max-h-0 mt-0" : "opacity-100 max-h-6 mt-0.5",
+                  )}>
+                    {addons.length} add-ons configured
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setAddons([...addons, { addon_key: "", label: "", flat_price: 0, active: true }])
+                    setOpenSections((prev) => ({ ...prev, hcAddons: true }))
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add
+                </button>
+                <div className="flex h-8 w-8 items-center justify-center">
+                  <ChevronUp className={cn(
+                    "h-5 w-5 text-zinc-400 transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                    openSections.hcAddons ? "rotate-0" : "rotate-180",
+                  )} />
+                </div>
+              </div>
+
+              <div className={cn(
+                "grid",
+                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                openSections.hcAddons ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+              )}>
+                <div className="overflow-hidden">
+                  <div className="px-2 pb-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-white/[0.06]">
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Add-On Name</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price $</th>
+                            <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Status</th>
+                            <th className="px-3 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {addons.map((addon, i) => (
+                            <tr
+                              key={addon.addon_key + i}
+                              className={cn(
+                                "border-b border-white/[0.04]",
+                                "transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
+                                openSections.hcAddons ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+                              )}
+                              style={{ transitionDelay: openSections.hcAddons ? `${i * 50}ms` : "0ms" }}
+                            >
+                              <td className="px-3 py-2">
+                                <input
+                                  type="text"
+                                  value={addon.label}
+                                  onChange={(e) => {
+                                    const updated = [...addons]
+                                    updated[i] = {
+                                      ...addon,
+                                      label: e.target.value,
+                                      addon_key: addon.id
+                                        ? addon.addon_key
+                                        : e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""),
+                                    }
+                                    setAddons(updated)
+                                  }}
+                                  placeholder="Add-on name"
+                                  className="w-full px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <input
+                                  type="number"
+                                  onFocus={selectOnFocus}
+                                  min={0}
+                                  value={addon.flat_price ?? 0}
+                                  onChange={(e) => {
+                                    const updated = [...addons]
+                                    updated[i] = { ...addon, flat_price: Number(e.target.value) || 0 }
+                                    setAddons(updated)
+                                  }}
+                                  className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                                />
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => {
+                                    const updated = [...addons]
+                                    updated[i] = { ...addon, active: !addon.active }
+                                    setAddons(updated)
+                                  }}
+                                  className={cn(
+                                    "text-xs px-2 py-1 rounded-md border transition-colors",
+                                    addon.active
+                                      ? "text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:shadow-[0_0_12px_rgba(16,185,129,0.2)]"
+                                      : "text-zinc-500 border-zinc-700/50 bg-zinc-800/50 hover:bg-zinc-700/50 hover:text-zinc-300",
+                                  )}
+                                >
+                                  {addon.active ? "Active" : "Off"}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2">
+                                <button
+                                  onClick={() => setAddons(addons.filter((_, j) => j !== i))}
+                                  className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </>
         )}
 
@@ -1054,15 +1412,16 @@ export function ServiceEditor() {
         )}
 
         {/* ── Save bar ── */}
-        <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4 bg-zinc-950">
+        <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4">
           <button
             onClick={handleSave}
             disabled={saving}
-            className={`w-full py-3 text-sm font-medium rounded-xl flex items-center justify-center gap-2 transition-all ${
+            className={cn(
+              "w-full py-3 text-sm font-medium rounded-xl flex items-center justify-center gap-2 transition-all",
               success
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                : "bg-purple-500 hover:bg-purple-600 disabled:bg-zinc-700 disabled:text-zinc-500 text-white"
-            }`}
+                : "btn-glow glow-pulse text-white disabled:opacity-50 disabled:pointer-events-none",
+            )}
           >
             {saving ? (
               <>

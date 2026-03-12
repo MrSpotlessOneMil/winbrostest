@@ -26,6 +26,7 @@ export type FlatService = {
   name: string
   keywords: string[]
   price: number
+  active?: boolean
 }
 
 // Window cleaning tiers ordered by sqft range (hardcoded defaults)
@@ -249,7 +250,7 @@ export function lookupPressureWashingPrice(
   flatServices?: FlatService[]
 ): PriceLookupResult | null {
   if (!surfaces || surfaces.length === 0) return null
-  const services = flatServices || FLAT_SERVICES
+  const services = (flatServices || FLAT_SERVICES).filter(s => s.active !== false)
 
   let totalPrice = 0
   const serviceNames: string[] = []
@@ -297,7 +298,7 @@ export function lookupPrice(input: PriceLookupInput, opts?: { windowTiers?: Wind
 
   // Use pre-loaded data or hardcoded defaults
   const windowTiers = opts?.windowTiers || WINDOW_TIERS
-  const flatServices = opts?.flatServices || FLAT_SERVICES
+  const flatServices = (opts?.flatServices || FLAT_SERVICES).filter(s => s.active !== false)
 
   // Route to multi-surface lookup for pressure washing
   if (serviceRaw.includes('pressure') || serviceRaw.includes('power wash')) {

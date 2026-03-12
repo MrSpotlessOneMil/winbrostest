@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { ArrowLeft, Loader2, Clock, Save } from "lucide-react"
+import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
 import { ServiceEditor } from "./service-editor"
 
@@ -151,7 +152,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           {activeTab === "service-editor" ? (
             <ServiceEditor />
           ) : (
-          <div className="max-w-2xl mx-auto px-4 md:px-8 py-8">
+          <div className="max-w-3xl mx-auto px-4 md:px-8 py-8">
             {loading ? (
               <div className="flex items-center justify-center py-24">
                 <CubeLoader />
@@ -307,15 +308,16 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                 )}
 
                 {/* Save bar */}
-                <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4 bg-zinc-950">
+                <div className="sticky bottom-0 -mx-4 md:-mx-8 px-4 md:px-8 py-4">
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className={`w-full py-3 text-sm font-medium rounded-xl flex items-center justify-center gap-2 transition-all ${
+                    className={cn(
+                      "w-full py-3 text-sm font-medium rounded-xl flex items-center justify-center gap-2 transition-all",
                       success
                         ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        : "bg-purple-500 hover:bg-purple-600 disabled:bg-zinc-700 disabled:text-zinc-500 text-white"
-                    }`}
+                        : "btn-glow glow-pulse text-white disabled:opacity-50 disabled:pointer-events-none",
+                    )}
                   >
                     {saving ? (
                       <>
