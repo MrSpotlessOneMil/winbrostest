@@ -183,6 +183,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processMidConvoNudge(payload, tenant)
       break
 
+    case 'manual_call':
+      await processManualCall(payload, tenant, tenant_id)
+      break
+
     default:
       console.warn(`[process-scheduled-tasks] Unknown task type: ${task_type}`)
   }
@@ -207,6 +211,12 @@ async function processLeadFollowup(
   // Graceful legacy skip: old tasks with call/double_call action
   if (action === 'call' || action === 'double_call') {
     console.log(`[lead-followup] Legacy ${action} task for lead ${leadId} stage ${stage} — skipping (calls removed)`)
+    return
+  }
+
+  // Manual call step — create a call_tasks checklist item instead of sending SMS
+  if (action === 'manual_call') {
+    await processManualCall({ ...payload, source: 'lead_followup' }, tenant, tenantId)
     return
   }
 
@@ -555,6 +565,47 @@ async function processSmsRetry(
 }
 
 /**
+ * Process manual call step — creates a call_tasks checklist item for the VA dashboard.
+ * No SMS is sent. The VA sees it on the overview page and calls manually.
+ */
+async function processManualCall(
+  payload: Record<string, unknown>,
+  tenant: any,
+  tenantId?: string | null,
+): Promise<void> {
+  const phone = String(payload.leadPhone || payload.customerPhone || '')
+  const name = String(payload.leadName || payload.customerName || '')
+  const source = String(payload.source || 'lead_followup')
+
+  if (!phone || !tenantId) {
+    console.warn('[manual-call] Missing phone or tenant_id — skipping')
+    return
+  }
+
+  const client = getSupabaseServiceClient()
+  const today = new Date().toISOString().split('T')[0]
+
+  const { error } = await client.from('call_tasks').insert({
+    tenant_id: tenantId,
+    phone_number: phone,
+    customer_name: name || null,
+    customer_id: (payload.customerId as number) || null,
+    lead_id: (payload.leadId as string) || null,
+    source,
+    source_context: payload,
+    scheduled_for: today,
+    status: 'pending',
+  })
+
+  if (error) {
+    console.error(`[manual-call] Failed to create call task for ${phone.slice(-4)}:`, error.message)
+    throw error
+  }
+
+  console.log(`[manual-call] Created call task for ${phone.slice(-4)} (${source}, tenant ${tenant?.slug})`)
+}
+
+/**
  * Process retargeting sequence step
  * Sends segment-specific SMS, updates customer retargeting progress,
  * and auto-stops if customer has converted (booked a job).
@@ -625,6 +676,29 @@ async function processRetargeting(
       .update({ status: 'cancelled' })
       .like('task_key', `retarget-${customerId}-${sequence}-%`)
       .eq('status', 'pending')
+    return
+  }
+
+  // Manual call step — create a call_tasks checklist item instead of sending SMS
+  if (template === 'manual_call') {
+    await processManualCall(
+      { customerId, customerPhone, customerName, source: 'quoted_not_booked', step, sequence },
+      tenant,
+      tenantId,
+    )
+    // Still update retargeting step so the sequence advances
+    const steps = RETARGETING_SEQUENCES[sequence]
+    const isLastStep = step >= (steps?.length || 0)
+    await supabase
+      .from('customers')
+      .update({
+        retargeting_step: step,
+        ...(isLastStep ? {
+          retargeting_completed_at: new Date().toISOString(),
+          retargeting_stopped_reason: 'completed',
+        } : {}),
+      })
+      .eq('id', customerId)
     return
   }
 

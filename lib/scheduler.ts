@@ -29,6 +29,7 @@ export type TaskType =
   | 'quote_followup_urgent'
   | 'mid_convo_nudge'
   | 'monthly_reengagement'
+  | 'manual_call'
 
 export interface ScheduledTask {
   id: string
@@ -270,18 +271,21 @@ export async function failTask(taskId: string, error: string): Promise<void> {
 
 /**
  * Schedule lead follow-up sequence
- * 6 SMS-only touches over 14 days:
- * 1 (instant), 2 (15min), 3 (day 1), 4 (day 3), 5 (day 7), 6 (day 14)
+ * 7 touches over 14 days (6 SMS + 1 manual call):
+ * 1 (instant/text), 2 (15min/text), 3 (12hr/call), 4 (day 1/text), 5 (day 3/text), 6 (day 7/text), 7 (day 14/text)
  */
 export async function scheduleLeadFollowUp(
   tenantId: string,
   leadId: string,
   leadPhone: string,
   leadName: string,
-  delays: number[] = [0, 15, 1440, 4320, 10080, 20160] // Default delays in minutes
+  delays: number[] = [0, 15, 720, 1440, 4320, 10080, 20160] // Default delays in minutes
 ): Promise<{ success: boolean; taskIds: string[] }> {
   const taskIds: string[] = []
   const now = new Date()
+
+  // Stage 3 is a manual call; all others are text
+  const CALL_STAGE = 3
 
   for (let i = 0; i < delays.length; i++) {
     const stage = i + 1
@@ -297,7 +301,7 @@ export async function scheduleLeadFollowUp(
         leadPhone,
         leadName,
         stage,
-        action: 'text',
+        action: stage === CALL_STAGE ? 'manual_call' : 'text',
       },
     })
 
@@ -402,10 +406,11 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
   quoted_not_booked: [
     { step: 1, delay_days: 1, template: 'quote_followup' },
     { step: 2, delay_days: 2, template: 'question_based' },
-    { step: 3, delay_days: 4, template: 'limited_time' },
-    { step: 4, delay_days: 7, template: 'check_in' },
-    { step: 5, delay_days: 10, template: 'social_proof' },
-    { step: 6, delay_days: 14, template: 'closing_file' },
+    { step: 3, delay_days: 3, template: 'manual_call' },
+    { step: 4, delay_days: 5, template: 'limited_time' },
+    { step: 5, delay_days: 7, template: 'check_in' },
+    { step: 6, delay_days: 10, template: 'social_proof' },
+    { step: 7, delay_days: 14, template: 'closing_file' },
   ],
   one_time: [
     { step: 1, delay_days: 0, template: 'we_miss_you' },
