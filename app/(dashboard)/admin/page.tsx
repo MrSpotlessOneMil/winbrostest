@@ -1857,19 +1857,22 @@ export default function AdminPage() {
                     </div>
 
                     {/* Domain mismatch warning */}
-                    {currentTenant.webhook_registered_base_url &&
-                      typeof window !== "undefined" &&
-                      currentTenant.webhook_registered_base_url !== window.location.origin && (
-                      <Alert className="border-orange-500/30 bg-orange-500/5">
-                        <AlertTriangle className="h-4 w-4 text-orange-500" />
-                        <AlertTitle className="text-orange-600">Domain mismatch</AlertTitle>
-                        <AlertDescription className="text-muted-foreground">
-                          Webhooks were registered under <span className="font-mono text-xs">{currentTenant.webhook_registered_base_url}</span>.
-                          Current domain is <span className="font-mono text-xs">{window.location.origin}</span>.
-                          Click &quot;Register Webhooks&quot; to update all webhook URLs.
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                    {(() => {
+                      if (!currentTenant.webhook_registered_base_url || typeof window === "undefined") return null
+                      const normalize = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "").toLowerCase()
+                      if (normalize(currentTenant.webhook_registered_base_url) === normalize(window.location.origin)) return null
+                      return (
+                        <Alert className="border-orange-500/30 bg-orange-500/5">
+                          <AlertTriangle className="h-4 w-4 text-orange-500" />
+                          <AlertTitle className="text-orange-600">Domain mismatch</AlertTitle>
+                          <AlertDescription className="text-muted-foreground">
+                            Webhooks were registered under <span className="font-mono text-xs">{currentTenant.webhook_registered_base_url}</span>.
+                            Current domain is <span className="font-mono text-xs">{window.location.origin}</span>.
+                            Click &quot;Register Webhooks&quot; to update all webhook URLs.
+                          </AlertDescription>
+                        </Alert>
+                      )
+                    })()}
 
                     {/* Business Info */}
                     <div className="p-4 rounded-lg border border-border space-y-4">
