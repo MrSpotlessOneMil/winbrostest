@@ -84,16 +84,34 @@ export async function sendSMS(
     console.error(`[${tenant.slug}] SMS opt-out check failed:`, optOutErr)
   }
 
-  // ── Per-recipient SMS throttle ──
-  // Max 20 outbound messages per recipient per 24 hours
-  // Max 1 message with same content per recipient per 30 minutes (dedup)
-  // Skipped for cleaner phones (high-volume operational SMS)
+  // ── Content dedup (ALWAYS runs, even for cleaner messages) ──
+  // Prevents the same message from being sent twice within 5 minutes
+  try {
+    const dedupClient = getSupabaseServiceClient()
+    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    const contentPrefix = message.slice(0, 100)
+    const { data: recentDupes } = await dedupClient
+      .from('messages')
+      .select('id')
+      .eq('phone_number', toE164Format)
+      .eq('direction', 'outbound')
+      .gte('created_at', fiveMinsAgo)
+      .like('content', `${contentPrefix}%`)
+      .limit(1)
+
+    if (recentDupes && recentDupes.length > 0) {
+      console.warn(`[${tenant.slug}] SMS deduped for ${toE164Format}: same message sent within 5 min`)
+      return { success: false, error: 'SMS deduped: identical message recently sent' }
+    }
+  } catch (dedupErr) {
+    console.error(`[${tenant.slug}] SMS dedup check failed:`, dedupErr)
+  }
+
+  // ── Per-recipient daily limit (skipped for cleaner operational SMS) ──
   if (!options?.skipThrottle) try {
     const throttleClient = getSupabaseServiceClient()
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString()
 
-    // Daily limit check
     const { count: dailyCount } = await throttleClient
       .from('messages')
       .select('id', { count: 'exact', head: true })
@@ -105,24 +123,7 @@ export async function sendSMS(
       console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} messages in 24h (limit 20)`)
       return { success: false, error: `SMS throttled: customer received ${dailyCount} messages in 24h` }
     }
-
-    // Duplicate content check (same message within 30 min)
-    const contentPrefix = message.slice(0, 100) // Match on first 100 chars
-    const { data: recentDupes } = await throttleClient
-      .from('messages')
-      .select('id')
-      .eq('phone_number', toE164Format)
-      .eq('direction', 'outbound')
-      .gte('created_at', thirtyMinsAgo)
-      .like('content', `${contentPrefix}%`)
-      .limit(1)
-
-    if (recentDupes && recentDupes.length > 0) {
-      console.warn(`[${tenant.slug}] SMS deduped for ${toE164Format}: same message sent within 30 min`)
-      return { success: false, error: 'SMS deduped: identical message recently sent' }
-    }
   } catch (throttleErr) {
-    // Don't block SMS if throttle check fails — log and continue
     console.error(`[${tenant.slug}] SMS throttle check failed:`, throttleErr)
   }
 

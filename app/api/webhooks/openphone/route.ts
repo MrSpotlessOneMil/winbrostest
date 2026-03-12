@@ -169,8 +169,9 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       // Dedup: check if this outbound message was already stored by our system
-      // (e.g., VAPI confirmation, auto-response, deposit flow, card-on-file, etc.)
-      const outboundDedupCutoff = new Date(Date.now() - 60000).toISOString()
+      // (e.g., VAPI confirmation, auto-response, deposit flow, card-on-file, cleaner SMS, etc.)
+      // 5-minute window to handle slow webhook delivery from OpenPhone
+      const outboundDedupCutoff = new Date(Date.now() - 300000).toISOString()
       const { data: existingOutbound } = await client
         .from("messages")
         .select("id")
