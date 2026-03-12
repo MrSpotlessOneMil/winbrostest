@@ -308,6 +308,9 @@ export default function AdminPage() {
   const [registeringWebhook, setRegisteringWebhook] = useState<string | null>(null)
   const [webhookResults, setWebhookResults] = useState<Record<string, { success: boolean; message: string }>>({})
 
+  // Server base URL (for domain mismatch detection)
+  const [serverBaseUrl, setServerBaseUrl] = useState<string | null>(null)
+
   // Webhook verification state
   const [verifyingWebhooks, setVerifyingWebhooks] = useState(false)
   const [webhookVerification, setWebhookVerification] = useState<Record<string, { active: boolean; message: string }>>({})
@@ -340,6 +343,7 @@ export default function AdminPage() {
         return
       }
       setTenants(json.data || [])
+      if (json.baseUrl) setServerBaseUrl(json.baseUrl)
       if (json.data?.length > 0 && !selectedTenant) {
         selectTenant(json.data[0].id)
       }
@@ -1858,16 +1862,16 @@ export default function AdminPage() {
 
                     {/* Domain mismatch warning */}
                     {(() => {
-                      if (!currentTenant.webhook_registered_base_url || typeof window === "undefined") return null
+                      if (!currentTenant.webhook_registered_base_url || !serverBaseUrl) return null
                       const normalize = (u: string) => u.replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "").toLowerCase()
-                      if (normalize(currentTenant.webhook_registered_base_url) === normalize(window.location.origin)) return null
+                      if (normalize(currentTenant.webhook_registered_base_url) === normalize(serverBaseUrl)) return null
                       return (
                         <Alert className="border-orange-500/30 bg-orange-500/5">
                           <AlertTriangle className="h-4 w-4 text-orange-500" />
                           <AlertTitle className="text-orange-600">Domain mismatch</AlertTitle>
                           <AlertDescription className="text-muted-foreground">
                             Webhooks were registered under <span className="font-mono text-xs">{currentTenant.webhook_registered_base_url}</span>.
-                            Current domain is <span className="font-mono text-xs">{window.location.origin}</span>.
+                            Current production domain is <span className="font-mono text-xs">{serverBaseUrl}</span>.
                             Click &quot;Register Webhooks&quot; to update all webhook URLs.
                           </AlertDescription>
                         </Alert>

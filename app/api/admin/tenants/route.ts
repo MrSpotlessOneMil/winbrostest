@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { randomBytes } from "crypto"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
+import { getBaseUrl } from "@/lib/admin-onboard"
 
 
 // GET - List all tenants with all credential fields
@@ -156,7 +157,7 @@ export async function GET(request: NextRequest) {
     }
   })
 
-  return NextResponse.json({ success: true, data: enrichedTenants })
+  return NextResponse.json({ success: true, data: enrichedTenants, baseUrl: getBaseUrl() })
 }
 
 // POST - Create new tenant
