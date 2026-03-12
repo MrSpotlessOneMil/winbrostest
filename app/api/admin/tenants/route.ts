@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
       vapi_webhook_registered_at,
       vapi_webhook_error,
       vapi_webhook_error_at,
+      webhook_registered_base_url,
       workflow_config,
       active,
       created_at,
