@@ -1858,14 +1858,14 @@ export default function AdminPage() {
 
                     {/* Domain mismatch warning */}
                     {currentTenant.webhook_registered_base_url &&
-                      process.env.NEXT_PUBLIC_BASE_URL &&
-                      currentTenant.webhook_registered_base_url !== process.env.NEXT_PUBLIC_BASE_URL && (
+                      typeof window !== "undefined" &&
+                      currentTenant.webhook_registered_base_url !== window.location.origin && (
                       <Alert className="border-orange-500/30 bg-orange-500/5">
                         <AlertTriangle className="h-4 w-4 text-orange-500" />
                         <AlertTitle className="text-orange-600">Domain mismatch</AlertTitle>
                         <AlertDescription className="text-muted-foreground">
                           Webhooks were registered under <span className="font-mono text-xs">{currentTenant.webhook_registered_base_url}</span>.
-                          Current domain is <span className="font-mono text-xs">{process.env.NEXT_PUBLIC_BASE_URL}</span>.
+                          Current domain is <span className="font-mono text-xs">{window.location.origin}</span>.
                           Click &quot;Register Webhooks&quot; to update all webhook URLs.
                         </AlertDescription>
                       </Alert>
