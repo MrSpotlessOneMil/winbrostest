@@ -10,7 +10,7 @@ import listPlugin from "@fullcalendar/list"
 import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
-import { WINBROS_CALENDAR_ADDONS } from "@/lib/pricebook"
+import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -106,6 +106,7 @@ type CreateForm = {
   is_quote: boolean
   selected_addons: string[]
   membership_id: string
+  selected_tier_index: string
 }
 
 type CustomerMembership = {
@@ -372,6 +373,7 @@ export default function JobsPage() {
     is_quote: false,
     selected_addons: [],
     membership_id: "",
+    selected_tier_index: "",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -389,6 +391,7 @@ export default function JobsPage() {
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
+  const [windowTiers, setWindowTiers] = useState<WindowTier[]>(WINDOW_TIERS)
 
   // Auto-populate price when property details change (house cleaning only)
   useEffect(() => {
@@ -424,17 +427,6 @@ export default function JobsPage() {
     return () => { cancelled = true }
   }, [createForm.bedrooms, createForm.bathrooms, createForm.sqft, createForm.service_type])
 
-  // Recalculate price when add-ons or base price change
-  useEffect(() => {
-    if (!basePrice && isHouseCleaning) return
-    if (!basePrice && !createForm.selected_addons.length) return
-    const addonTotal = createForm.selected_addons.reduce((sum, key) => {
-      const addon = addonsList.find((a) => a.addon_key === key)
-      return sum + (addon?.flat_price || 0)
-    }, 0)
-    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
-  }, [createForm.selected_addons, basePrice])
-
   // Fetch add-ons when create modal or add-charge form opens
   useEffect(() => {
     if (!createOpen && !addChargeOpen) return
@@ -442,6 +434,15 @@ export default function JobsPage() {
     if (!isHouseCleaning) {
       // WinBros: use hard-coded pricebook add-ons
       setAddonsList(WINBROS_CALENDAR_ADDONS)
+      // Fetch tenant-specific window tiers (falls back to hardcoded)
+      fetch("/api/actions/settings")
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.window_tiers && Array.isArray(res.window_tiers) && res.window_tiers.length > 0) {
+            setWindowTiers(res.window_tiers)
+          }
+        })
+        .catch(() => {})
       return
     }
     fetch("/api/pricing/addons")
@@ -453,6 +454,63 @@ export default function JobsPage() {
       })
       .catch(() => {})
   }, [createOpen, addChargeOpen])
+
+  // Derive addon list with tier-specific prices for interior/track_detailing (WinBros)
+  const derivedAddonsList = useMemo(() => {
+    if (isHouseCleaning) return addonsList
+    const raw = createForm.selected_tier_index
+    const tierIdx = raw === "" ? -1 : Number(raw)
+    const tier = tierIdx >= 0 && tierIdx < windowTiers.length ? windowTiers[tierIdx] : null
+    return addonsList.map((addon) => {
+      if (addon.addon_key === "interior" && tier) {
+        return { ...addon, flat_price: tier.interior }
+      }
+      if (addon.addon_key === "track_detailing" && tier) {
+        return { ...addon, flat_price: tier.trackDetailing }
+      }
+      return addon
+    })
+  }, [addonsList, createForm.selected_tier_index, windowTiers, isHouseCleaning])
+
+  // Recalculate price when add-ons or base price change
+  useEffect(() => {
+    if (!basePrice && isHouseCleaning) return
+    if (!basePrice && !createForm.selected_addons.length) return
+    const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+      const addon = derivedAddonsList.find((a) => a.addon_key === key)
+      return sum + (addon?.flat_price || 0)
+    }, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
+  }, [createForm.selected_addons, basePrice, derivedAddonsList])
+
+  // Auto-populate price when window tier changes (WinBros only)
+  useEffect(() => {
+    if (isHouseCleaning) return
+    if (createForm.selected_tier_index === "") return
+    const tierIdx = Number(createForm.selected_tier_index)
+    if (isNaN(tierIdx) || tierIdx < 0 || tierIdx >= windowTiers.length) return
+    const tier = windowTiers[tierIdx]
+    const base = tier.exterior
+    setBasePrice(base)
+    // Compute addon total directly from tier to avoid stale derivedAddonsList closure
+    const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+      if (key === "interior") return sum + tier.interior
+      if (key === "track_detailing") return sum + tier.trackDetailing
+      const addon = addonsList.find((a) => a.addon_key === key)
+      return sum + (addon?.flat_price || 0)
+    }, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+  }, [createForm.selected_tier_index, windowTiers])
+
+  // Reset tier and price when WinBros service type changes away from window cleaning
+  useEffect(() => {
+    if (isHouseCleaning) return
+    const isWindow = createForm.service_type.toLowerCase().includes("window")
+    if (!isWindow && createForm.selected_tier_index !== "") {
+      setBasePrice(0)
+      setCreateForm((prev) => ({ ...prev, selected_tier_index: "", price: "" }))
+    }
+  }, [createForm.service_type])
 
   // Fetch service plans for membership dropdown (WinBros only)
   useEffect(() => {
@@ -711,6 +769,7 @@ export default function JobsPage() {
       is_quote: false,
       selected_addons: [],
       membership_id: "",
+      selected_tier_index: "",
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -1159,6 +1218,10 @@ export default function JobsPage() {
         return
       }
     }
+    if (!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && !createForm.selected_tier_index) {
+      setCreateError("Please select a window cleaning tier")
+      return
+    }
 
     setCreateSaving(true)
     setCreateError("")
@@ -1212,7 +1275,7 @@ export default function JobsPage() {
           assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
-            const addon = addonsList.find((a) => a.addon_key === key)
+            const addon = derivedAddonsList.find((a) => a.addon_key === key)
             return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
           }) : undefined,
         }),
@@ -1358,6 +1421,7 @@ export default function JobsPage() {
             is_quote: false,
             selected_addons: [],
             membership_id: "",
+            selected_tier_index: "",
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -2132,6 +2196,27 @@ export default function JobsPage() {
               )}
             </div>
 
+            {/* Window Tier — WinBros window cleaning only */}
+            {!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && (
+              <div style={{ marginBottom: "0.5rem" }}>
+                <label className="cal-form-label">Window Tier *</label>
+                <select
+                  className="cal-form-control"
+                  value={createForm.selected_tier_index}
+                  onChange={(e) =>
+                    setCreateForm((prev) => ({ ...prev, selected_tier_index: e.target.value }))
+                  }
+                >
+                  <option value="">Select tier</option>
+                  {windowTiers.map((tier, idx) => (
+                    <option key={idx} value={String(idx)}>
+                      {tier.label} — ${tier.exterior}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Property Details — house cleaning tenants only */}
             {isHouseCleaning && (
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
@@ -2330,7 +2415,7 @@ export default function JobsPage() {
             </div>
 
             {/* Add-ons */}
-            {addonsList.length > 0 && (
+            {derivedAddonsList.length > 0 && (
               <div style={{ marginBottom: "0.5rem" }}>
                 <label className="cal-form-label">Add-ons</label>
                 <div style={{
@@ -2344,7 +2429,7 @@ export default function JobsPage() {
                   maxHeight: 160,
                   overflowY: "auto",
                 }}>
-                  {addonsList.map((addon) => (
+                  {derivedAddonsList.map((addon) => (
                     <label
                       key={addon.addon_key}
                       style={{
@@ -2401,7 +2486,7 @@ export default function JobsPage() {
                       // Capture manually-entered price as base, subtract current add-on total
                       const total = Number(e.target.value) || 0
                       const addonTotal = createForm.selected_addons.reduce((sum, key) => {
-                        const addon = addonsList.find((a) => a.addon_key === key)
+                        const addon = derivedAddonsList.find((a) => a.addon_key === key)
                         return sum + (addon?.flat_price || 0)
                       }, 0)
                       setBasePrice(Math.max(0, total - addonTotal))
