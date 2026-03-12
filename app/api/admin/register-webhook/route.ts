@@ -57,6 +57,7 @@ export async function POST(request: NextRequest) {
           telegram_webhook_registered_at: new Date().toISOString(),
           telegram_webhook_error: null,
           telegram_webhook_error_at: null,
+          webhook_registered_base_url: baseUrl,
           updated_at: new Date().toISOString(),
         }
         if (result.secret) {
@@ -80,6 +81,7 @@ export async function POST(request: NextRequest) {
           stripe_webhook_registered_at: new Date().toISOString(),
           stripe_webhook_error: null,
           stripe_webhook_error_at: null,
+          webhook_registered_base_url: baseUrl,
           updated_at: new Date().toISOString(),
         }
         if (result.secret) {
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
           openphone_webhook_registered_at: new Date().toISOString(),
           openphone_webhook_error: null,
           openphone_webhook_error_at: null,
+          webhook_registered_base_url: baseUrl,
           updated_at: new Date().toISOString(),
         }
         if (result.secret) {
@@ -127,6 +130,7 @@ export async function POST(request: NextRequest) {
           vapi_webhook_registered_at: new Date().toISOString(),
           vapi_webhook_error: null,
           vapi_webhook_error_at: null,
+          webhook_registered_base_url: baseUrl,
           updated_at: new Date().toISOString(),
         }
         const { error: vapiDbError } = await client.from("tenants").update(vapiUpdate).eq("id", tenantId)

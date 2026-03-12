@@ -1124,6 +1124,7 @@ export default function AdminPage() {
     if (!currentTenantRef) return
     setRegisteringAll(true)
     const services: string[] = []
+    if (currentTenantRef.telegram_bot_token) services.push("telegram")
     if (currentTenantRef.workflow_config.use_stripe && currentTenantRef.stripe_secret_key) services.push("stripe")
     if (currentTenantRef.openphone_api_key) services.push("openphone")
     if (currentTenantRef.vapi_api_key && currentTenantRef.vapi_assistant_id) services.push("vapi")
@@ -1854,6 +1855,21 @@ export default function AdminPage() {
                         </Button>
                       )}
                     </div>
+
+                    {/* Domain mismatch warning */}
+                    {currentTenant.webhook_registered_base_url &&
+                      process.env.NEXT_PUBLIC_BASE_URL &&
+                      currentTenant.webhook_registered_base_url !== process.env.NEXT_PUBLIC_BASE_URL && (
+                      <Alert className="border-orange-500/30 bg-orange-500/5">
+                        <AlertTriangle className="h-4 w-4 text-orange-500" />
+                        <AlertTitle className="text-orange-600">Domain mismatch</AlertTitle>
+                        <AlertDescription className="text-muted-foreground">
+                          Webhooks were registered under <span className="font-mono text-xs">{currentTenant.webhook_registered_base_url}</span>.
+                          Current domain is <span className="font-mono text-xs">{process.env.NEXT_PUBLIC_BASE_URL}</span>.
+                          Click &quot;Register Webhooks&quot; to update all webhook URLs.
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
                     {/* Business Info */}
                     <div className="p-4 rounded-lg border border-border space-y-4">

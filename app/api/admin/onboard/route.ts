@@ -412,7 +412,7 @@ export async function POST(request: NextRequest) {
       // Step 7: Save webhook results to tenant
       // -----------------------------------------------------------------------
 
-      const webhookUpdate: Record<string, any> = { updated_at: new Date().toISOString() }
+      const webhookUpdate: Record<string, any> = { updated_at: new Date().toISOString(), webhook_registered_base_url: baseUrl }
 
       for (let i = 0; i < webhookRegistrations.length; i++) {
         const key = webhookRegistrations[i].key
