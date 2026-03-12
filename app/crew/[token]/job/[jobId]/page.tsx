@@ -415,15 +415,15 @@ export default function JobDetailPage() {
               </span>
             </div>
           )}
-        </div>
 
-        {/* Special Instructions (cleaned notes — structured tags stripped by API) */}
-        {job.notes && (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <p className="font-semibold text-amber-800 text-sm mb-2">Special Instructions</p>
-            <NotesDisplay notes={job.notes} />
-          </div>
-        )}
+          {/* Special Instructions — inline in the info card */}
+          {job.notes && (
+            <div className="pt-1 border-t border-slate-100">
+              <p className="font-medium text-slate-700 text-sm mb-1">Notes</p>
+              <NotesDisplay notes={job.notes} />
+            </div>
+          )}
+        </div>
 
         {/* Accept/Decline (pending assignments) — after details so cleaner sees everything first */}
         {isPending && (

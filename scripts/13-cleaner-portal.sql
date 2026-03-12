@@ -70,12 +70,23 @@ INSERT INTO cleaning_checklists (tenant_id, service_category, item_order, item_t
 SELECT t.id, 'standard_cleaning', item_order, item_text, true
 FROM tenants t
 CROSS JOIN (VALUES
-  (1, 'Kitchen counters & sink'),
-  (2, 'Bathroom sanitized'),
-  (3, 'Floors vacuumed & mopped'),
-  (4, 'Dusting (surfaces & shelves)'),
-  (5, 'Trash emptied'),
-  (6, 'Mirrors & glass cleaned')
+  (1,  'Countertops, backsplash & sink'),
+  (2,  'Stovetop, burners & drip pans'),
+  (3,  'Appliance exteriors, range hood & small appliances'),
+  (4,  'Cabinet fronts wiped'),
+  (5,  'Toilet scrubbed & sanitized inside and out'),
+  (6,  'Shower/tub, sink & vanity cleaned'),
+  (7,  'Fixtures, faucets & showerheads polished'),
+  (8,  'Towel bars, TP holders & hooks wiped'),
+  (9,  'Floors vacuumed (edges & corners)'),
+  (10, 'Floors mopped (all hard surfaces)'),
+  (11, 'Dusting - surfaces, shelves & mantels'),
+  (12, 'Mirrors & glass streak-free'),
+  (13, 'Light switches, door handles & high-touch surfaces'),
+  (14, 'Light fixtures & ceiling fans'),
+  (15, 'Windowsills & air vents'),
+  (16, 'Baseboards wiped'),
+  (17, 'Trash emptied, liners replaced, beds made & tidy')
 ) AS items(item_order, item_text)
 WHERE t.active = true
 ON CONFLICT DO NOTHING;
