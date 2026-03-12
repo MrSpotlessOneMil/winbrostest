@@ -37,6 +37,7 @@ type CalendarJob = {
   frequency?: string
   parent_job_id?: number | null
   membership_id?: string | null
+  leads?: { source: string }[]
 }
 
 type CalendarEventDetails = {
@@ -60,6 +61,7 @@ type CalendarEventDetails = {
   frequency: string
   parentJobId: string | null
   jobType: string
+  leadSource: string
 }
 
 type PendingMove = {
@@ -157,6 +159,21 @@ const CLEANER_COLORS = [
   "#06b6d4", // cyan
 ]
 
+const LEAD_SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
+  phone: { label: "Phone", color: "#5b8def" },
+  vapi: { label: "Vapi", color: "#7ca3f0" },
+  meta: { label: "Meta", color: "#4ade80" },
+  website: { label: "Website", color: "#facc15" },
+  sms: { label: "SMS", color: "#f472b6" },
+  housecall_pro: { label: "HCP", color: "#a78bfa" },
+  ghl: { label: "GHL", color: "#fb923c" },
+  manual: { label: "Manual", color: "#94a3b8" },
+}
+
+function getLeadSourceConfig(source: string) {
+  return LEAD_SOURCE_CONFIG[source] || { label: source, color: "#6b7280" }
+}
+
 const emptyValue = "\u2014"
 
 function resolveCustomer(job: CalendarJob) {
@@ -250,6 +267,13 @@ function resolveCleanerId(job: CalendarJob): string {
     return c?.id ? String(c.id) : ""
   }
   return resolveCleanerFromAssignments(job)?.id || ""
+}
+
+function resolveLeadSource(job: CalendarJob): string {
+  if (job.leads && Array.isArray(job.leads) && job.leads.length > 0) {
+    return job.leads[0].source || ""
+  }
+  return ""
 }
 
 function resolveStart(job: CalendarJob) {
@@ -735,6 +759,7 @@ export default function JobsPage() {
           parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
           jobType: (job as any).job_type || "",
           isCommercial: !!customer?.is_commercial,
+          leadSource: resolveLeadSource(job),
         },
       }
     })
@@ -824,6 +849,7 @@ export default function JobsPage() {
       frequency: info.event.extendedProps.frequency || "one-time",
       parentJobId: info.event.extendedProps.parentJobId || null,
       jobType: info.event.extendedProps.jobType || "",
+      leadSource: info.event.extendedProps.leadSource || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1504,6 +1530,24 @@ export default function JobsPage() {
                     }}>Card on file</span>
                   )}
                 </div>
+                {selectedEvent?.leadSource && (() => {
+                  const cfg = getLeadSourceConfig(selectedEvent.leadSource)
+                  return (
+                    <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                      <strong>Source:</strong>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "2px 8px",
+                        borderRadius: 8,
+                        fontSize: "0.7rem",
+                        fontWeight: 600,
+                        backgroundColor: cfg.color,
+                        color: "#fff",
+                      }}>{cfg.label}</span>
+                    </div>
+                  )
+                })()}
                 {selectedEvent?.service && (
                   <div style={{ marginBottom: "0.5rem" }}>
                     <strong>Service:</strong> {selectedEvent.service}

@@ -117,6 +117,8 @@ interface Lead {
   id: number
   phone_number: string
   status: string
+  source?: string
+  converted_to_job_id?: number | null
   followup_stage: number
   followup_started_at?: string
   stripe_payment_link?: string
@@ -179,6 +181,21 @@ interface TimelineItem {
   type: "message" | "call"
   timestamp: string
   data: Message | Call
+}
+
+const LEAD_SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
+  phone: { label: "Phone", color: "#5b8def" },
+  vapi: { label: "Vapi", color: "#7ca3f0" },
+  meta: { label: "Meta", color: "#4ade80" },
+  website: { label: "Website", color: "#facc15" },
+  sms: { label: "SMS", color: "#f472b6" },
+  housecall_pro: { label: "HCP", color: "#a78bfa" },
+  ghl: { label: "GHL", color: "#fb923c" },
+  manual: { label: "Manual", color: "#94a3b8" },
+}
+
+function getLeadSourceConfig(source: string) {
+  return LEAD_SOURCE_CONFIG[source] || { label: source, color: "#6b7280" }
 }
 
 export default function CustomersPage() {
@@ -571,6 +588,11 @@ export default function CustomersPage() {
     return customerLeads.sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     )[0]
+  }
+
+  const getJobLeadSource = (jobId: number): string => {
+    const lead = leads.find((l) => l.converted_to_job_id === jobId)
+    return lead?.source || ""
   }
 
   // Get badge config for a lead's current stage
@@ -2021,6 +2043,25 @@ export default function CustomersPage() {
                                     }`}>
                                       {job.frequency && job.frequency !== "one-time" ? "Recurring" : "One-time"}
                                     </span>
+                                    {(() => {
+                                      const src = getJobLeadSource(job.id)
+                                      if (!src) return null
+                                      const cfg = getLeadSourceConfig(src)
+                                      return (
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            padding: "2px 8px",
+                                            borderRadius: 8,
+                                            fontSize: "0.625rem",
+                                            fontWeight: 600,
+                                            backgroundColor: cfg.color,
+                                            color: "#fff",
+                                          }}
+                                        >{cfg.label}</span>
+                                      )
+                                    })()}
                                   </div>
                                   <div className="text-xs text-zinc-500">
                                     {job.date
