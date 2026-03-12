@@ -763,10 +763,12 @@ export function ServiceEditor() {
               {/* Type pills */}
               <div className="flex items-center gap-2 flex-wrap mb-5">
                 {serviceTypes.map((type) => (
-                  <button
+                  <div
                     key={type}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedType(type)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
                       selectedType === type
                         ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
                         : "bg-zinc-800/60 text-zinc-400 border border-transparent hover:text-zinc-200"
@@ -787,7 +789,7 @@ export function ServiceEditor() {
                     >
                       <X className="w-3 h-3" />
                     </button>
-                  </button>
+                  </div>
                 ))}
 
                 {(() => {

@@ -78,9 +78,9 @@ export function TeamStatus() {
         <CardDescription>Real-time crew tracking</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {teams.map((team) => (
+        {teams.map((team, idx) => (
           <div
-            key={team.name}
+            key={`${team.name}-${idx}`}
             className={cn(
               "rounded-lg border border-border p-4 transition-colors",
               team.status === "off" ? "opacity-50" : "bg-muted/30 hover:bg-muted/50"

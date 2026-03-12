@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Phone, Instagram, Globe, MessageSquare, ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
+import CubeLoader from "@/components/ui/cube-loader"
 
 type SourceData = { source: string; leads: number; jobs: number }
 type LeadData = {
@@ -89,7 +90,9 @@ export function LeadSourceChart() {
   const [sources, setSources] = useState<SourceData[]>([])
   const [leads, setLeads] = useState<LeadData[]>([])
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [selectedSource, setSelectedSource] = useState<string | null>(null)
+  useEffect(() => { setLoaded(true) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -147,116 +150,122 @@ export function LeadSourceChart() {
     setSelectedSource(entry.name === selectedSource ? null : entry.name)
   }
 
-  // Drilldown view
-  if (selectedSource) {
-    const config = getSourceConfig(selectedSource)
-    return (
-      <Card className="h-full flex flex-col">
-        <CardHeader className="pb-2">
-          <button
-            onClick={() => setSelectedSource(null)}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back to all sources
-          </button>
-          <CardTitle className="flex items-center gap-2 mt-1">
-            <div className="h-3 w-3 rounded-full" style={{ backgroundColor: config.color }} />
-            {config.label}
-          </CardTitle>
-          <CardDescription>
-            {filteredLeads.length} lead{filteredLeads.length !== 1 ? "s" : ""}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="max-h-[240px] overflow-y-auto space-y-2 pr-1">
-            {filteredLeads.map((lead) => (
-              <div
-                key={lead.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground truncate">
-                    {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown"}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {lead.phone_number || lead.email || "No contact"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {lead.status && <StatusBadge status={lead.status} />}
-                  <SourceBadge source={lead.source || "unknown"} />
-                </div>
-              </div>
-            ))}
-            {filteredLeads.length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">No leads from this source</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  const selectedConfig = selectedSource ? getSourceConfig(selectedSource) : null
 
   return (
-    <Card className="h-full flex flex-col">
-      <CardHeader className="pb-2">
-        <CardTitle>Lead Sources</CardTitle>
-        <CardDescription>
-          {totalLeads} lead{totalLeads !== 1 ? "s" : ""} &middot; {totalJobs} job{totalJobs !== 1 ? "s" : ""}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex-1 flex flex-col">
-        {chartData.length === 0 && !loading ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No lead data yet</p>
-        ) : (
-          <ChartContainer config={chartConfig} className="mx-auto h-[140px] w-full">
-            <PieChart>
-              <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
-              <Pie
-                data={chartData}
-                cx="50%"
-                cy="50%"
-                innerRadius={35}
-                outerRadius={58}
-                paddingAngle={2}
-                dataKey="value"
-                nameKey="name"
-                className="cursor-pointer"
-                onClick={(_: unknown, index: number) => handleSliceClick(chartData[index])}
-              >
-                {chartData.map((entry) => (
-                  <Cell key={entry.name} fill={entry.fill} stroke="transparent" />
-                ))}
-              </Pie>
-            </PieChart>
-          </ChartContainer>
-        )}
-
-        {/* Legend */}
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          {chartData.map((source) => (
-            <button
-              key={source.name}
-              onClick={() => handleSliceClick(source)}
-              className="flex items-center gap-2 rounded-md px-1.5 py-1 -mx-1.5 hover:bg-zinc-800/50 transition-colors text-left"
-            >
-              <div
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ backgroundColor: source.fill }}
-              />
-              <div className="flex flex-1 items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground truncate">{source.label}</span>
-                <span className="text-xs font-medium text-foreground whitespace-nowrap shrink-0">
-                  {source.value} lead{source.value !== 1 ? "s" : ""} &middot;{" "}
-                  {totalLeads ? Math.round((source.value / totalLeads) * 100) : 0}%
-                </span>
+    <Card className={`h-full flex flex-col overflow-hidden gap-2 ${loaded ? "stagger-3" : "opacity-0"}`}>
+      {selectedSource && selectedConfig ? (
+        <>
+          <CardHeader className="pb-2 shrink-0">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedSource(null)}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: selectedConfig.color }} />
+                {selectedConfig.label}
+              </CardTitle>
+            </div>
+            <CardDescription>
+              {filteredLeads.length} lead{filteredLeads.length !== 1 ? "s" : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1">
+              {filteredLeads.map((lead) => (
+                <div
+                  key={lead.id}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground truncate">
+                      {[lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown"}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {lead.phone_number || lead.email || "No contact"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {lead.status && <StatusBadge status={lead.status} />}
+                    <SourceBadge source={lead.source || "unknown"} />
+                  </div>
+                </div>
+              ))}
+              {filteredLeads.length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">No leads from this source</p>
+              )}
+            </div>
+          </CardContent>
+        </>
+      ) : (
+        <>
+          <CardHeader className="pb-2">
+            <CardTitle>Lead Sources</CardTitle>
+            <CardDescription>
+              {totalLeads} lead{totalLeads !== 1 ? "s" : ""} &middot; {totalJobs} job{totalJobs !== 1 ? "s" : ""}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="h-[200px]">
+                <CubeLoader compact />
               </div>
-            </button>
-          ))}
-        </div>
-        {loading && <p className="mt-2 text-xs text-muted-foreground">Loading&hellip;</p>}
-      </CardContent>
+            ) : chartData.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">No lead data yet</p>
+            ) : (
+              <div className="flex items-start gap-4 animate-fade-in">
+                <ChartContainer config={chartConfig} className="flex-1 h-[200px] aspect-auto">
+                  <PieChart>
+                    <ChartTooltip content={<ChartTooltipContent nameKey="name" hideLabel />} />
+                    <Pie
+                      data={chartData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={65}
+                      outerRadius={100}
+                      paddingAngle={2}
+                      dataKey="value"
+                      nameKey="name"
+                      className="cursor-pointer"
+                      onClick={(_: unknown, index: number) => handleSliceClick(chartData[index])}
+                    >
+                      {chartData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.fill} stroke="transparent" />
+                      ))}
+                    </Pie>
+                  </PieChart>
+                </ChartContainer>
+
+                {/* Legend */}
+                <div className="grid grid-cols-1 gap-1.5 shrink-0 mr-8">
+                  {chartData.map((source) => (
+                    <button
+                      key={source.name}
+                      onClick={() => handleSliceClick(source)}
+                      className="flex items-center gap-2 rounded-md px-1.5 py-1 -mx-1.5 hover:bg-zinc-800/50 transition-colors text-left"
+                    >
+                      <div
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: source.fill }}
+                      />
+                      <div className="flex flex-1 items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground truncate">{source.label}</span>
+                        <span className="text-xs font-medium text-foreground whitespace-nowrap shrink-0">
+                          {source.value} &middot;{" "}
+                          {totalLeads ? Math.round((source.value / totalLeads) * 100) : 0}%
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </>
+      )}
     </Card>
   )
 }

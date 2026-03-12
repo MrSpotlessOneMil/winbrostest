@@ -2,18 +2,18 @@
 
 import React from 'react'
 
-export default function CubeLoader() {
+export default function CubeLoader({ compact = false }: { compact?: boolean }) {
   return (
-    <div className='flex flex-col items-center justify-center gap-12 p-12 flex-1 min-h-[400px] h-full bg-slate-950/0 perspective-container'>
+    <div className={`flex flex-col items-center justify-center h-full bg-slate-950/0 perspective-container ${compact ? 'gap-4 p-4' : 'gap-12 p-12 flex-1 min-h-[400px]'}`}>
 
       {/* 3D Scene Wrapper */}
-      <div className='relative w-24 h-24 flex items-center justify-center preserve-3d'>
+      <div className={`relative flex items-center justify-center preserve-3d ${compact ? 'w-14 h-14' : 'w-24 h-24'}`}>
 
         {/* THE SPINNING CUBE CONTAINER */}
         <div className='relative w-full h-full preserve-3d animate-cube-spin'>
 
           {/* Internal Core (The energy source) */}
-          <div className='absolute inset-0 m-auto w-8 h-8 bg-white rounded-full blur-md shadow-[0_0_40px_rgba(255,255,255,0.8)] animate-pulse-fast' />
+          <div className={`absolute inset-0 m-auto rounded-full blur-md animate-pulse-fast ${compact ? 'w-5 h-5 shadow-[0_0_20px_rgba(255,255,255,0.6)]' : 'w-8 h-8 shadow-[0_0_40px_rgba(255,255,255,0.8)]'}`} style={{ backgroundColor: 'white' }} />
 
           {/* Front */}
           <div className='side-wrapper front'>
@@ -47,7 +47,7 @@ export default function CubeLoader() {
         </div>
 
         {/* Floor Shadow */}
-        <div className='absolute -bottom-20 w-24 h-8 bg-black/40 blur-xl rounded-[100%] animate-shadow-breathe' />
+        <div className={`absolute bg-black/40 blur-xl rounded-[100%] animate-shadow-breathe ${compact ? '-bottom-12 w-14 h-5' : '-bottom-20 w-24 h-8'}`} />
       </div>
 
       <style jsx>{`

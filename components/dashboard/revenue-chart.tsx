@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { ApiResponse, DailyMetrics } from "@/lib/types"
+import CubeLoader from "@/components/ui/cube-loader"
 
 type Point = { date: string; revenue: number; target: number }
 
@@ -31,6 +32,9 @@ export function RevenueChart() {
   const [range, setRange] = useState<"week" | "month" | "quarter">("week")
   const [data, setData] = useState<Point[]>([])
   const [loading, setLoading] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => { setLoaded(true) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -73,7 +77,7 @@ export function RevenueChart() {
   }, [range])
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className={`h-full ${loaded ? "stagger-3" : "opacity-0"}`}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle>Revenue Overview</CardTitle>
@@ -90,50 +94,57 @@ export function RevenueChart() {
           </SelectContent>
         </Select>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col">
-        <ChartContainer config={chartConfig} className="h-[260px] w-full flex-1">
-          <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#5b8def" stopOpacity={0.3} />
-                <stop offset="100%" stopColor="#5b8def" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-            <XAxis
-              dataKey="date"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#9ca3af", fontSize: 12 }}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "#9ca3af", fontSize: 12 }}
-              tickFormatter={(value) => `$${value / 1000}k`}
-            />
-            <ChartTooltip 
-              content={<ChartTooltipContent />} 
-              formatter={(value) => [`$${Number(value).toLocaleString()}`, undefined]}
-            />
-            <Area
-              type="monotone"
-              dataKey="target"
-              stroke="#6b7280"
-              strokeWidth={2}
-              strokeDasharray="5 5"
-              fill="transparent"
-            />
-            <Area
-              type="monotone"
-              dataKey="revenue"
-              stroke="#5b8def"
-              strokeWidth={2}
-              fill="url(#revenueGradient)"
-            />
-          </AreaChart>
-        </ChartContainer>
-        {loading && <p className="mt-2 text-xs text-muted-foreground">Loading…</p>}
+      <CardContent>
+        {loading ? (
+          <div className="h-[220px]">
+            <CubeLoader compact />
+          </div>
+        ) : data.length > 0 ? (
+          <ChartContainer config={chartConfig} className="h-[220px] w-full">
+            <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#5b8def" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#5b8def" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+              <XAxis
+                dataKey="date"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "#9ca3af", fontSize: 12 }}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "#9ca3af", fontSize: 12 }}
+                tickFormatter={(value) => `$${value / 1000}k`}
+              />
+              <ChartTooltip
+                content={<ChartTooltipContent />}
+                formatter={(value) => [`$${Number(value).toLocaleString()}`, undefined]}
+              />
+              <Area
+                type="monotone"
+                dataKey="target"
+                stroke="#6b7280"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                fill="transparent"
+              />
+              <Area
+                type="monotone"
+                dataKey="revenue"
+                stroke="#5b8def"
+                strokeWidth={2}
+                fill="url(#revenueGradient)"
+              />
+            </AreaChart>
+          </ChartContainer>
+        ) : (
+          <div className="h-[220px]" />
+        )}
       </CardContent>
     </Card>
   )
