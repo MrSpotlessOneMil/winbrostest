@@ -554,28 +554,34 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   isWinBros
                 )
 
+                // Insert DB record BEFORE sending so outbound webhook dedup finds it
+                const { data: confirmMsgRecord } = await client.from("messages").insert({
+                  tenant_id: tenant.id,
+                  customer_id: customerId,
+                  phone_number: phone,
+                  role: "assistant",
+                  content: confirmationMsg,
+                  direction: "outbound",
+                  message_type: "sms",
+                  ai_generated: false,
+                  timestamp: nowIso,
+                  source: "vapi_booking_confirmation",
+                }).select("id").single()
+
                 const smsResult = await sendSMS(tenant, phone, confirmationMsg)
 
                 if (smsResult.success) {
                   console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
-                  await client.from("messages").insert({
-                    tenant_id: tenant.id,
-                    customer_id: customerId,
-                    phone_number: phone,
-                    role: "assistant",
-                    content: confirmationMsg,
-                    direction: "outbound",
-                    message_type: "sms",
-                    ai_generated: false,
-                    timestamp: nowIso,
-                    source: "vapi_booking_confirmation",
-                  })
                 } else {
                   console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
+                  // Clean up pre-inserted record since send failed
+                  if (confirmMsgRecord?.id) {
+                    await client.from("messages").delete().eq("id", confirmMsgRecord.id)
+                  }
                 }
 
-                // Deposit link is NOT sent here — customer must reply with email first.
-                // OpenPhone webhook handles: email received → deposit flow (invoice + Stripe link)
+                // Deposit link is NOT sent here - customer must reply with email first.
+                // OpenPhone webhook handles: email received -> deposit flow (invoice + Stripe link)
                 // Stripe webhook then triggers cleaner assignment after deposit payment.
               }
             }
@@ -758,27 +764,32 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 isWinBrosExisting
               )
 
+              // Insert DB record BEFORE sending so outbound webhook dedup finds it
+              const { data: confirmMsgRecord2 } = await client.from("messages").insert({
+                tenant_id: tenant.id,
+                customer_id: customerId,
+                phone_number: phone,
+                role: "assistant",
+                content: confirmationMsg,
+                direction: "outbound",
+                message_type: "sms",
+                ai_generated: false,
+                timestamp: nowIso,
+                source: "vapi_booking_confirmation",
+              }).select("id").single()
+
               const smsResult = await sendSMS(tenant, phone, confirmationMsg)
 
               if (smsResult.success) {
                 console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
-                await client.from("messages").insert({
-                  tenant_id: tenant.id,
-                  customer_id: customerId,
-                  phone_number: phone,
-                  role: "assistant",
-                  content: confirmationMsg,
-                  direction: "outbound",
-                  message_type: "sms",
-                  ai_generated: false,
-                  timestamp: nowIso,
-                  source: "vapi_booking_confirmation",
-                })
               } else {
                 console.error(`${tag} Failed to send confirmation text:`, smsResult.error)
+                if (confirmMsgRecord2?.id) {
+                  await client.from("messages").delete().eq("id", confirmMsgRecord2.id)
+                }
               }
 
-              // Deposit link sent later: customer replies with email → OpenPhone handles deposit flow
+              // Deposit link sent later: customer replies with email -> OpenPhone handles deposit flow
             }
 
             await logSystemEvent({

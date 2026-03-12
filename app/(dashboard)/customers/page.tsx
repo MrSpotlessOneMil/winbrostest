@@ -1941,7 +1941,7 @@ export default function CustomersPage() {
                     {/* Messages + Calls Timeline */}
                     {activeTab === "messages" && (
                       <div className="flex flex-col flex-1 min-h-0">
-                        <div className="flex-1 overflow-y-auto" ref={messagesContainerRef}>
+                        <div className="flex-1 overflow-y-auto overflow-x-hidden" ref={messagesContainerRef}>
                           {getCustomerTimeline(selectedCustomer).length === 0 ? (
                             <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
                               No messages or calls

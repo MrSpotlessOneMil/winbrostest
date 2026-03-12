@@ -61,21 +61,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Send the SMS (use tenant for proper OpenPhone routing)
-    const result = await sendSMS(authTenant, phoneNumber, message)
-
-    if (!result.success) {
-      return NextResponse.json(
-        { error: result.error || 'Failed to send SMS' },
-        { status: 500 }
-      )
-    }
-
-    // Save outbound message to messages table for UI display
+    // Pre-resolve customer and insert DB record BEFORE sending so the
+    // outbound webhook dedup check always finds it (fixes double messages)
     const client = await getTenantScopedClient(authTenant.id)
     const e164Phone = toE164(phoneNumber)
 
-    // Find customer by phone number
     const { data: customer } = await client
       .from('customers')
       .select('id')
@@ -83,7 +73,7 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', authTenant.id)
       .maybeSingle()
 
-    const { error: msgError } = await client.from('messages').insert({
+    const { data: msgRecord, error: msgError } = await client.from('messages').insert({
       tenant_id: authTenant.id,
       customer_id: customer?.id || null,
       phone_number: e164Phone,
@@ -94,13 +84,27 @@ export async function POST(request: NextRequest) {
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: 'dashboard',
-    })
+    }).select('id').single()
 
     if (msgError) {
       console.error('[send-sms] Failed to save message to DB:', msgError)
-    } else {
-      console.log(`[send-sms] Saved outbound message to DB for ${e164Phone}`)
     }
+
+    // Send the SMS (use tenant for proper OpenPhone routing)
+    const result = await sendSMS(authTenant, phoneNumber, message)
+
+    if (!result.success) {
+      // Clean up the pre-inserted record since send failed
+      if (msgRecord?.id) {
+        await client.from('messages').delete().eq('id', msgRecord.id)
+      }
+      return NextResponse.json(
+        { error: result.error || 'Failed to send SMS' },
+        { status: 500 }
+      )
+    }
+
+    console.log(`[send-sms] Saved outbound message to DB for ${e164Phone}`)
 
     // Update texting transcript (legacy)
     const timestamp = new Date().toISOString()

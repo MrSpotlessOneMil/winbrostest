@@ -31,14 +31,9 @@ async function sendMultiPartSMS(
 
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
-    const result = await sendSMS(tenant, phone, part)
-    if (result.success) {
-      messageIds.push(result.messageId || '')
-    } else {
-      allSuccess = false
-    }
 
-    // Store each part as a separate message in DB for dashboard display
+    // Insert DB record BEFORE sending so the outbound webhook dedup check
+    // always finds it (fixes race condition that caused double messages)
     await client.from("messages").insert({
       tenant_id: tenant.id,
       customer_id: customerId,
@@ -52,6 +47,13 @@ async function sendMultiPartSMS(
       source: "openphone",
       metadata: { ...metadata, part: i + 1, total_parts: parts.length },
     })
+
+    const result = await sendSMS(tenant, phone, part)
+    if (result.success) {
+      messageIds.push(result.messageId || '')
+    } else {
+      allSuccess = false
+    }
 
     // Small delay between texts so they arrive in order
     if (i < parts.length - 1) {

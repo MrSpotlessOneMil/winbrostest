@@ -36,10 +36,10 @@ export function MessageBubble({ role, content, timestamp, showTimestamp = true }
         </div>
 
         {/* Message content — break long URLs, make links clickable */}
-        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+        <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]">
           {content.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
             /^https?:\/\//.test(part) ? (
-              <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200">
+              <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="underline text-blue-300 hover:text-blue-200 break-all">
                 {part}
               </a>
             ) : part

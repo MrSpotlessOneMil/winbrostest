@@ -347,19 +347,11 @@ async function processLeadFollowup(
       message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${serviceType} services. We're here to help!`
   }
 
-  // Send the SMS
-  let smsResult
+  // Insert DB record BEFORE sending so outbound webhook dedup finds it
+  let msgRecordId: string | null = null
   if (tenant) {
-    smsResult = await sendSMS(tenant, leadPhone, message)
-  } else {
-    console.error(`[lead-followup] No tenant for lead ${leadId} — skipping SMS`)
-    smsResult = { success: false, error: 'No tenant' }
-  }
-
-  // Save the outbound message to the database
-  if (smsResult.success) {
-    const { error: msgError } = await client.from('messages').insert({
-      tenant_id: tenant?.id,
+    const { data: msgRecord } = await client.from('messages').insert({
+      tenant_id: tenant.id,
       customer_id: lead.customer_id,
       phone_number: leadPhone,
       role: 'assistant',
@@ -369,11 +361,24 @@ async function processLeadFollowup(
       ai_generated: false,
       timestamp: new Date().toISOString(),
       source: 'scheduled_followup',
-    })
-    if (msgError) {
-      console.error(`[lead-followup] Failed to save message to DB:`, msgError)
-    }
+    }).select('id').single()
+    msgRecordId = msgRecord?.id || null
+  }
+
+  // Send the SMS
+  let smsResult
+  if (tenant) {
+    smsResult = await sendSMS(tenant, leadPhone, message)
   } else {
+    console.error(`[lead-followup] No tenant for lead ${leadId} -- skipping SMS`)
+    smsResult = { success: false, error: 'No tenant' }
+  }
+
+  if (!smsResult.success) {
+    // Clean up pre-inserted record since send failed
+    if (msgRecordId) {
+      await client.from('messages').delete().eq('id', msgRecordId)
+    }
     console.error(`[lead-followup] SMS send failed for ${leadPhone}:`, smsResult.error)
   }
 
@@ -465,24 +470,34 @@ async function processDayBeforeReminder(
 
   const message = `Hi ${customerName}! This is a reminder that your ${serviceType} with ${businessName} is scheduled for tomorrow. Please ensure we have access to your home. Reply with any questions!`
 
+  // Insert DB record BEFORE sending so outbound webhook dedup finds it
+  let msgRecordId: string | null = null
+  if (tenant) {
+    const reminderClient = getSupabaseServiceClient()
+    const { data: msgRecord } = await reminderClient.from('messages').insert({
+      tenant_id: tenant.id,
+      phone_number: customerPhone,
+      role: 'assistant',
+      content: message,
+      direction: 'outbound',
+      message_type: 'sms',
+      timestamp: new Date().toISOString(),
+      source: 'day_before_reminder',
+    }).select('id').single()
+    msgRecordId = msgRecord?.id || null
+  }
+
   let smsResult
   if (tenant) {
     smsResult = await sendSMS(tenant, customerPhone, message)
   } else {
-    console.error(`[day-before-reminder] No tenant for job ${jobId} — skipping reminder SMS`)
+    console.error(`[day-before-reminder] No tenant for job ${jobId} -- skipping reminder SMS`)
     smsResult = { success: false, error: 'No tenant' }
   }
 
-  // Save the outbound message to the database
-  if (smsResult.success) {
-    const client = getSupabaseServiceClient()
-    await client.from('messages').insert({
-      tenant_id: tenant?.id,
-      phone_number: customerPhone,
-      role: 'assistant',
-      content: message,
-      timestamp: new Date().toISOString(),
-    })
+  if (!smsResult.success && msgRecordId) {
+    const cleanupClient = getSupabaseServiceClient()
+    await cleanupClient.from('messages').delete().eq('id', msgRecordId)
   }
 }
 
@@ -851,6 +866,20 @@ async function processMidConvoNudge(
 
   const message = `Still here if you have any questions!`
 
+  // Insert DB record BEFORE sending so outbound webhook dedup finds it
+  const { data: nudgeRecord } = await client.from('messages').insert({
+    tenant_id: tenant.id,
+    customer_id: customerId,
+    phone_number: customerPhone,
+    role: 'assistant',
+    content: message,
+    direction: 'outbound',
+    message_type: 'sms',
+    ai_generated: false,
+    timestamp: new Date().toISOString(),
+    source: 'mid_convo_nudge',
+  }).select('id').single()
+
   const result = await sendSMS(tenant, customerPhone, message)
 
   // Always clear awaiting_reply_since to prevent infinite nudge loop
@@ -861,22 +890,10 @@ async function processMidConvoNudge(
 
   if (result.success) {
     await recordMessageSent(tenant.id, customerId, customerPhone, 'mid_convo_nudge', 'conversation')
-
-    // Save message to DB for dashboard
-    await client.from('messages').insert({
-      tenant_id: tenant.id,
-      customer_id: customerId,
-      phone_number: customerPhone,
-      role: 'assistant',
-      content: message,
-      direction: 'outbound',
-      message_type: 'sms',
-      ai_generated: false,
-      timestamp: new Date().toISOString(),
-      source: 'mid_convo_nudge',
-    })
-
     console.log(`[mid-convo-nudge] Nudge sent to customer ${customerId}`)
+  } else if (nudgeRecord?.id) {
+    // Clean up pre-inserted record since send failed
+    await client.from('messages').delete().eq('id', nudgeRecord.id)
   }
 }
 
