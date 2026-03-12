@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/lifecycle-auto-enroll",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/sync-openphone-contacts",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

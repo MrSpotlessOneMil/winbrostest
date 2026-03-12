@@ -169,6 +169,59 @@ export async function sendSMS(
 }
 
 /**
+ * Create or update a contact in OpenPhone so names show up in the app.
+ * Uses externalId = "customer-{id}" for dedup (409 = already exists).
+ */
+export async function syncContactToOpenPhone(
+  tenant: { openphone_api_key?: string; slug: string },
+  customer: { id: number; first_name?: string | null; last_name?: string | null; phone_number: string; email?: string | null }
+): Promise<{ success: boolean; contactId?: string; skipped?: boolean; error?: string }> {
+  const apiKey = tenant.openphone_api_key
+  if (!apiKey) return { success: false, error: 'No OpenPhone API key' }
+
+  const firstName = customer.first_name || 'Unknown'
+  const externalId = `customer-${customer.id}`
+
+  try {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+
+    const body: Record<string, unknown> = {
+      externalId,
+      source: 'osiris',
+      defaultFields: {
+        firstName,
+        ...(customer.last_name ? { lastName: customer.last_name } : {}),
+        phoneNumbers: [{ name: 'mobile', value: customer.phone_number }],
+        ...(customer.email ? { emails: [{ name: 'main', value: customer.email }] } : {}),
+      },
+    }
+
+    const response = await fetch('https://api.openphone.com/v1/contacts', {
+      method: 'POST',
+      headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    clearTimeout(timeout)
+
+    if (response.status === 409) {
+      return { success: true, skipped: true }
+    }
+
+    if (!response.ok) {
+      const err = await response.text()
+      return { success: false, error: `${response.status}: ${err}` }
+    }
+
+    const data = await response.json()
+    return { success: true, contactId: data.id }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/**
  * SMS message templates (kept for backwards compatibility)
  */
 export const SMS_TEMPLATES = {
