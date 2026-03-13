@@ -34,6 +34,7 @@ const STANDARD_TIMEOUT_MINUTES = 30
 const URGENT_TIMEOUT_MINUTES = 15
 const OWNER_ALERT_MINUTES = 30
 const MAX_FOLLOWUP_ATTEMPTS = 3
+const FOLLOWUP_HORIZON_HOURS = 48 // Only send follow-ups for jobs within the next 48 hours
 const CANCEL_REASSIGN_INTERVAL_MINUTES = 20
 const CANCEL_REASSIGN_ALERT_MINUTES = CANCEL_REASSIGN_INTERVAL_MINUTES * 2
 const CANCEL_REASSIGN_LOOKBACK_MINUTES = 180
@@ -125,6 +126,16 @@ async function executeCheckTimeouts(request: NextRequest) {
 
       const job = await getJobById(jobId)
       if (!job) continue
+
+      // Only send follow-ups for jobs within the next 48 hours.
+      // Jobs further out don't need urgent reminders - cleaners can respond when ready.
+      if (job.date) {
+        const jobDate = new Date(job.date + 'T23:59:59')
+        const horizonMs = FOLLOWUP_HORIZON_HOURS * 60 * 60 * 1000
+        if (jobDate.getTime() - now.getTime() > horizonMs) {
+          continue
+        }
+      }
 
       const cancelEvent = await getLatestSystemEvent(client, 'CLEANER_CANCELLED', jobId)
       if (cancelEvent) {
