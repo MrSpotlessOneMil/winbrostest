@@ -107,6 +107,7 @@ export async function GET(request: NextRequest) {
               customerName,
               tenantId: tenant.id,
               isTimeout: true,
+              googleReviewLink: tenant.google_review_link || null,
             },
           })
 

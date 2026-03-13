@@ -787,7 +787,7 @@ async function processPostJobReview(
     if (!canSend) return
   }
 
-  const reviewLink = tenant.google_review_link || 'https://g.page/review'
+  const reviewLink = payload.googleReviewLink || tenant.google_review_link || 'https://g.page/review'
   const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
   const message = `Hi ${customerName}! Thanks for choosing us. A quick review really helps our small business grow: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
 

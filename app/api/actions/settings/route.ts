@@ -1,8 +1,8 @@
 /**
  * Tenant Settings API
  *
- * GET  /api/actions/settings — returns current scheduling config
- * POST /api/actions/settings — updates scheduling config fields in workflow_config
+ * GET  /api/actions/settings — returns current scheduling config + business info
+ * POST /api/actions/settings — updates scheduling config (workflow_config) and/or business info (tenant columns)
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -25,6 +25,26 @@ const ALLOWED_JSON_FIELDS = [
   "winbros_addons",
 ] as const
 
+// Business info fields stored as direct tenant columns
+const ALLOWED_TENANT_FIELDS = [
+  "business_name",
+  "business_name_short",
+  "service_area",
+  "timezone",
+  "sdr_persona",
+  "owner_phone",
+  "owner_email",
+  "google_review_link",
+] as const
+
+const ALLOWED_TIMEZONES = [
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+] as const
+
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
@@ -40,6 +60,16 @@ export async function GET(request: NextRequest) {
       salesman_buffer_minutes: wc.salesman_buffer_minutes ?? 30,
       technician_buffer_minutes: wc.technician_buffer_minutes ?? 30,
     },
+    business_info: {
+      business_name: authTenant.business_name || "",
+      business_name_short: authTenant.business_name_short || "",
+      service_area: authTenant.service_area || "",
+      timezone: authTenant.timezone || "America/Chicago",
+      sdr_persona: authTenant.sdr_persona || "Mary",
+      owner_phone: authTenant.owner_phone || "",
+      owner_email: authTenant.owner_email || "",
+      google_review_link: authTenant.google_review_link || "",
+    },
     service_description: authTenant.service_description || null,
     tenant_name: authTenant.name,
     window_tiers: wc.window_tiers ?? null,
@@ -54,10 +84,18 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant: authTenant } = authResult
 
-  const body = await request.json()
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Invalid request body" },
+      { status: 400 }
+    )
+  }
 
-  // Validate: accept known numeric fields and JSON fields
-  const updates: Record<string, unknown> = {}
+  // ── Workflow config updates (numeric + JSON fields) ──
+  const workflowUpdates: Record<string, unknown> = {}
   for (const field of ALLOWED_NUMERIC_FIELDS) {
     if (field in body) {
       const val = Number(body[field])
@@ -67,50 +105,123 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
-      updates[field] = val
+      workflowUpdates[field] = val
     }
   }
 
   for (const field of ALLOWED_JSON_FIELDS) {
     if (field in body) {
-      updates[field] = body[field]
+      workflowUpdates[field] = body[field]
     }
   }
 
-  if (Object.keys(updates).length === 0) {
+  // ── Tenant column updates (business info) ──
+  const tenantUpdates: Record<string, string | null> = {}
+  const businessInfo = body.business_info as Record<string, unknown> | undefined
+  if (businessInfo && typeof businessInfo === "object") {
+    for (const field of ALLOWED_TENANT_FIELDS) {
+      if (field in businessInfo) {
+        const val = String(businessInfo[field] ?? "").trim()
+
+        // Allow clearing optional fields by setting to null
+        // Required fields (business_name, timezone, sdr_persona) must keep a value
+        const REQUIRED_FIELDS = ["business_name", "timezone", "sdr_persona"]
+        if (!val && REQUIRED_FIELDS.includes(field)) continue
+        if (!val) {
+          tenantUpdates[field] = null
+          continue
+        }
+
+        // Field-specific validation
+        if (field === "timezone" && !ALLOWED_TIMEZONES.includes(val as typeof ALLOWED_TIMEZONES[number])) {
+          return NextResponse.json(
+            { success: false, error: `Invalid timezone: ${val}` },
+            { status: 400 }
+          )
+        }
+        if (field === "business_name" && val.length > 100) {
+          return NextResponse.json(
+            { success: false, error: "Business name must be 100 characters or less" },
+            { status: 400 }
+          )
+        }
+        if (field === "business_name_short" && val.length > 30) {
+          return NextResponse.json(
+            { success: false, error: "Short name must be 30 characters or less" },
+            { status: 400 }
+          )
+        }
+        if (field === "owner_email" && val && !val.includes("@")) {
+          return NextResponse.json(
+            { success: false, error: "Invalid email format" },
+            { status: 400 }
+          )
+        }
+
+        tenantUpdates[field] = val
+      }
+    }
+  }
+
+  const hasWorkflow = Object.keys(workflowUpdates).length > 0
+  const hasTenant = Object.keys(tenantUpdates).length > 0
+
+  if (!hasWorkflow && !hasTenant) {
     return NextResponse.json(
       { success: false, error: "No valid settings provided" },
       { status: 400 }
     )
   }
 
-  // Validate business hours range
-  const wc = ((authTenant.workflow_config ?? {}) as unknown as Record<string, unknown>)
-  const newStart = updates.business_hours_start ?? wc.business_hours_start ?? 480
-  const newEnd = updates.business_hours_end ?? wc.business_hours_end ?? 1020
-  if (newStart >= newEnd) {
-    return NextResponse.json(
-      { success: false, error: "Business hours start must be before end" },
-      { status: 400 }
-    )
-  }
-
-  // Merge into existing workflow_config
-  const merged = { ...wc, ...updates }
-
   const client = getSupabaseServiceClient()
-  const { error } = await client
-    .from("tenants")
-    .update({ workflow_config: merged })
-    .eq("id", authTenant.id)
 
-  if (error) {
-    console.error("[settings] Update failed:", error.message)
-    return NextResponse.json(
-      { success: false, error: "Failed to save settings" },
-      { status: 500 }
-    )
+  // ── Save workflow_config updates ──
+  if (hasWorkflow) {
+    // Validate business hours range
+    const wc = ((authTenant.workflow_config ?? {}) as unknown as Record<string, unknown>)
+    const newStart = workflowUpdates.business_hours_start ?? wc.business_hours_start ?? 480
+    const newEnd = workflowUpdates.business_hours_end ?? wc.business_hours_end ?? 1020
+    if (newStart >= newEnd) {
+      return NextResponse.json(
+        { success: false, error: "Business hours start must be before end" },
+        { status: 400 }
+      )
+    }
+
+    const merged = { ...wc, ...workflowUpdates }
+    const { error } = await client
+      .from("tenants")
+      .update({ workflow_config: merged })
+      .eq("id", authTenant.id)
+
+    if (error) {
+      console.error("[settings] Workflow config update failed:", error.message)
+      return NextResponse.json(
+        { success: false, error: "Failed to save settings" },
+        { status: 500 }
+      )
+    }
   }
 
-  return NextResponse.json({ success: true, settings: updates })
+  // ── Save tenant column updates ──
+  if (hasTenant) {
+    const { error } = await client
+      .from("tenants")
+      .update({ ...tenantUpdates, updated_at: new Date().toISOString() })
+      .eq("id", authTenant.id)
+
+    if (error) {
+      console.error("[settings] Tenant info update failed:", error.message)
+      return NextResponse.json(
+        { success: false, error: "Failed to save business info" },
+        { status: 500 }
+      )
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    settings: workflowUpdates,
+    business_info: tenantUpdates,
+  })
 }
