@@ -33,7 +33,7 @@ import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 const STANDARD_TIMEOUT_MINUTES = 30
 const URGENT_TIMEOUT_MINUTES = 15
 const OWNER_ALERT_MINUTES = 30
-const MAX_FOLLOWUP_ATTEMPTS = 10
+const MAX_FOLLOWUP_ATTEMPTS = 3
 const CANCEL_REASSIGN_INTERVAL_MINUTES = 20
 const CANCEL_REASSIGN_ALERT_MINUTES = CANCEL_REASSIGN_INTERVAL_MINUTES * 2
 const CANCEL_REASSIGN_LOOKBACK_MINUTES = 180
@@ -84,6 +84,9 @@ async function executeCheckTimeouts(request: NextRequest) {
     console.log(`Found ${pendingAssignments?.length || 0} pending assignments past minimum timeout`)
 
     const processedJobs = new Set<string>()
+    // Per-cleaner dedup: each cleaner gets at most 1 follow-up per cron run
+    // regardless of how many pending jobs they have. Prevents SMS spam.
+    const messagedCleaners = new Set<string>()
     let urgentsSent = 0
     let ownerAlerts = 0
 
@@ -236,13 +239,19 @@ async function executeCheckTimeouts(request: NextRequest) {
       }
 
       // Send urgent follow-up (under the limit)
+      // Per-cleaner dedup: skip cleaners already messaged in this cron run
       let jobUrgentsSent = 0
       for (const pending of allPending || []) {
+        const cleanerKey = String(pending.cleaner_id)
+        if (messagedCleaners.has(cleanerKey)) {
+          continue // Already sent this cleaner a follow-up for a different job this run
+        }
         const cleaner = await getCleanerById(pending.cleaner_id)
         if (cleaner?.phone) {
           const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
           const result = jobTenant ? await sendUrgentFollowUp(jobTenant, cleaner, job) : { success: false, error: 'No tenant' }
           if (result.success) {
+            messagedCleaners.add(cleanerKey)
             urgentsSent++
             jobUrgentsSent++
           }
