@@ -181,6 +181,8 @@ export async function PATCH(request: NextRequest) {
     // Handle cleaner reassignment
     const { cleaner_id } = body
     if (cleaner_id !== undefined) {
+      // Update the direct cleaner_id on jobs table so the calendar join reflects the change
+      updates.cleaner_id = cleaner_id ? Number(cleaner_id) : null
       const tenantId = tenant?.id || (oldJob as any)?.tenant_id
       if (tenantId) {
         // Clear all existing assignments for this job and insert the new one
