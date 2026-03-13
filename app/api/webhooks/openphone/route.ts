@@ -440,7 +440,17 @@ export async function POST(request: NextRequest) {
   // ============================================
   const trimmedLower = (extracted.content || "").trim().toLowerCase()
   const stopKeywords = ['stop', 'unsubscribe', 'opt out', 'optout', 'cancel texts', 'quit']
-  const isStopRequest = stopKeywords.includes(trimmedLower)
+  // Exact match on keyword, OR detect clear opt-out intent in longer messages.
+  // Catches: "Stop texting me please", "Please stop", "stop messaging me"
+  // Avoids false positives: "the dog won't stop barking", "had to stop at the store"
+  const isStopRequest = stopKeywords.includes(trimmedLower) ||
+    /^stop\b/.test(trimmedLower) ||              // starts with "stop"
+    /\bplease stop\b/.test(trimmedLower) ||      // "please stop"
+    /\bstop (texting|messaging|sending|contacting|emailing)\b/.test(trimmedLower) ||
+    /\bunsubscribe\b/.test(trimmedLower) ||
+    /\bopt\s*out\b/.test(trimmedLower) ||
+    /\bremove me\b/.test(trimmedLower) ||
+    /\bleave me alone\b/.test(trimmedLower)
   const isStartRequest = trimmedLower === 'start'
 
   if (isStopRequest && tenant && customer) {
