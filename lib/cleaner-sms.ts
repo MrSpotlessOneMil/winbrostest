@@ -196,6 +196,7 @@ export async function notifyCleanerNotSelected(
 
 /**
  * Send urgent follow-up for unresponsive cleaners.
+ * Includes address and portal link so cleaner knows which job it is.
  */
 export async function sendUrgentFollowUp(
   tenant: Tenant,
@@ -207,7 +208,15 @@ export async function sendUrgentFollowUp(
   }
 
   const date = formatDate(job.date)
-  const message = `We still need your response for the ${date} job. Reply YES or NO.`
+  const time = formatTime(job.scheduled_at)
+  const address = job.address || 'See details'
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = `\n${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `We still need your response for the ${date} ${time} job at ${address}.${link}\nReply YES or NO.`
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 }
 

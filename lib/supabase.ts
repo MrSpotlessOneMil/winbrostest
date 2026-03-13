@@ -99,6 +99,7 @@ export interface Cleaner {
   home_lat?: number
   home_lng?: number
   employee_type?: 'technician' | 'salesman'
+  portal_token?: string | null
   created_at?: string
 }
 

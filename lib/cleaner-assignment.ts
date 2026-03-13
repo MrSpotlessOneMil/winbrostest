@@ -8,10 +8,12 @@
 import {
   getCleaners,
   getCleanerAvailability,
+  getCleanerById,
   createCleanerAssignment,
   getCleanerAssignmentsForJob,
   getJobById,
   getCustomerByPhone,
+  getSupabaseServiceClient,
   Cleaner,
   CleanerAssignment,
   Job,
@@ -350,6 +352,20 @@ export async function triggerCleanerAssignment(
     const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
 
     // ──────────────────────────────────────────────────────────────────────
+    // RECURRING PREFERRED CLEANER — runs before broadcast/routing split.
+    // If this is a recurring child job, try to assign the same cleaner
+    // who did the most recent completed sibling in the same series.
+    // ──────────────────────────────────────────────────────────────────────
+    const parentJobId = (job as any).parent_job_id
+    if (parentJobId && tenant) {
+      const preferredResult = await tryAssignPreferredCleaner(jobId, job, parentJobId, tenant)
+      if (preferredResult?.success) {
+        return preferredResult
+      }
+      // Preferred cleaner unavailable or not found - fall through to normal logic
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // TENANT ISOLATION — TWO MUTUALLY EXCLUSIVE ASSIGNMENT MODES:
     //
     // BROADCAST (Cedar Rapids: use_broadcast_assignment=true):
@@ -660,4 +676,109 @@ export async function getJobAssignmentStats(jobId: string): Promise<{
   }
 
   return stats
+}
+
+/**
+ * Try to assign the preferred cleaner for a recurring child job.
+ * Looks up the most recent completed sibling in the same series
+ * and checks if that cleaner is available for this job's date.
+ * Returns null if no preferred cleaner found or they're unavailable.
+ */
+async function tryAssignPreferredCleaner(
+  jobId: string,
+  job: Job,
+  parentJobId: number,
+  tenant: NonNullable<Awaited<ReturnType<typeof getTenantById>>>
+): Promise<{ success: boolean; error?: string } | null> {
+  const client = getSupabaseServiceClient()
+
+  // Step 1: Find all sibling job IDs in the same recurring series (+ parent)
+  const { data: siblings } = await client
+    .from('jobs')
+    .select('id')
+    .eq('parent_job_id', parentJobId)
+    .neq('id', jobId)
+
+  const siblingIds = (siblings || []).map(s => String(s.id))
+  siblingIds.push(String(parentJobId)) // include parent itself
+  if (siblingIds.length === 0) return null
+
+  // Step 2: Find the most recent accepted/confirmed cleaner for any sibling
+  const { data: siblingAssignment } = await client
+    .from('cleaner_assignments')
+    .select('cleaner_id')
+    .in('job_id', siblingIds)
+    .in('status', ['accepted', 'confirmed'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!siblingAssignment?.cleaner_id) {
+    console.log(`[cleaner-assignment] No preferred cleaner found for recurring job ${jobId}`)
+    return null
+  }
+
+  const preferredCleanerId = siblingAssignment.cleaner_id
+
+  // Check if this cleaner is available for the job date
+  const effectiveTenantId = (job as any).tenant_id || undefined
+  const availableCleaners = await getCleanerAvailability(
+    job.date || '',
+    job.scheduled_at || undefined,
+    effectiveTenantId
+  )
+
+  const isAvailable = availableCleaners.some(c => String(c.id) === String(preferredCleanerId))
+  if (!isAvailable) {
+    console.log(`[cleaner-assignment] Preferred cleaner ${preferredCleanerId} not available for job ${jobId} on ${job.date}`)
+    return null
+  }
+
+  // Preferred cleaner is available - assign them directly
+  const cleaner = await getCleanerById(preferredCleanerId)
+  if (!cleaner || !cleaner.id) {
+    return null
+  }
+
+  const assignment = await createCleanerAssignment(jobId, cleaner.id)
+  if (!assignment) {
+    console.error(`[cleaner-assignment] Failed to create preferred assignment for cleaner ${cleaner.id}`)
+    return null
+  }
+
+  // Send notification
+  const customer = job.phone_number ? await getCustomerByPhone(job.phone_number) : null
+  if (cleaner.phone) {
+    const notifyResult = await notifyCleanerAssignment(
+      tenant,
+      cleaner,
+      job,
+      customer || undefined,
+      assignment.id
+    )
+    if (!notifyResult.success) {
+      console.error(`[cleaner-assignment] Failed to notify preferred cleaner ${cleaner.name}: ${notifyResult.error}`)
+    }
+  }
+
+  await logSystemEvent({
+    source: 'openphone',
+    event_type: 'CLEANER_BROADCAST',
+    message: `Preferred cleaner ${cleaner.name} assigned to recurring job ${jobId} (same as previous in series)`,
+    job_id: jobId,
+    phone_number: job.phone_number,
+    cleaner_id: cleaner.id,
+    metadata: {
+      cleaner_name: cleaner.name,
+      assignment_id: assignment.id,
+      job_date: job.date,
+      job_time: job.scheduled_at,
+      notification_sent: !!cleaner.phone,
+      mode: 'preferred_recurring',
+      parent_job_id: parentJobId,
+    },
+  })
+
+  console.log(`[cleaner-assignment] Preferred cleaner ${cleaner.name} assigned to recurring job ${jobId}`)
+  return { success: true }
 }
