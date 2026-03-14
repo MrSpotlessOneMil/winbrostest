@@ -438,6 +438,7 @@ export async function POST(request: NextRequest) {
         if (body.bedrooms != null) custUpdates.bedrooms = Number(body.bedrooms)
         if (body.bathrooms != null) custUpdates.bathrooms = Number(body.bathrooms)
         if (body.sqft != null) custUpdates.sqft = Number(body.sqft)
+        if (body.lead_source) custUpdates.lead_source = String(body.lead_source)
         if (Object.keys(custUpdates).length > 0) {
           await client.from("customers").update(custUpdates).eq("id", customerId)
         }
@@ -454,6 +455,7 @@ export async function POST(request: NextRequest) {
             bedrooms: body.bedrooms != null ? Number(body.bedrooms) : undefined,
             bathrooms: body.bathrooms != null ? Number(body.bathrooms) : undefined,
             sqft: body.sqft != null ? Number(body.sqft) : undefined,
+            lead_source: body.lead_source || undefined,
           })
           .select("*")
           .single()

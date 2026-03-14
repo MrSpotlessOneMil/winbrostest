@@ -109,6 +109,7 @@ type CreateForm = {
   selected_addons: string[]
   membership_id: string
   selected_tier_index: string
+  lead_source: string
 }
 
 type CustomerMembership = {
@@ -398,6 +399,7 @@ export default function JobsPage() {
     selected_addons: [],
     membership_id: "",
     selected_tier_index: "",
+    lead_source: "",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -498,7 +500,7 @@ export default function JobsPage() {
 
   // Recalculate price when add-ons or base price change
   useEffect(() => {
-    if (!basePrice && isHouseCleaning) return
+    if (!basePrice && isHouseCleaning && !createForm.selected_addons.length) return
     if (!basePrice && !createForm.selected_addons.length) return
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
@@ -795,6 +797,7 @@ export default function JobsPage() {
       selected_addons: [],
       membership_id: "",
       selected_tier_index: "",
+      lead_source: "",
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -1303,6 +1306,7 @@ export default function JobsPage() {
           cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
           assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
+          lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
             const addon = derivedAddonsList.find((a) => a.addon_key === key)
             return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
@@ -1451,6 +1455,7 @@ export default function JobsPage() {
             selected_addons: [],
             membership_id: "",
             selected_tier_index: "",
+            lead_source: "",
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -2069,7 +2074,7 @@ export default function JobsPage() {
           if (e.target === e.currentTarget) setCreateOpen(false)
         }}
       >
-        <div className="cal-modal" style={{ maxWidth: 500 }}>
+        <div className="cal-modal" style={{ maxWidth: 900 }}>
           <div className="cal-modal-header">
             <h5>Create Job</h5>
             <button
@@ -2080,499 +2085,634 @@ export default function JobsPage() {
             </button>
           </div>
           <div className="cal-modal-body">
-            {/* Customer Phone (required) */}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Customer Phone *</label>
-              <input
-                type="tel"
-                className="cal-form-control"
-                placeholder="(555) 123-4567"
-                value={createForm.customer_phone}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, customer_phone: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* Customer Name */}
-            <div style={{ marginBottom: "0.5rem" }}>
-              <label className="cal-form-label">Customer Name</label>
-              <input
-                type="text"
-                className="cal-form-control"
-                placeholder="John Smith"
-                value={createForm.customer_name}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, customer_name: e.target.value }))
-                }
-              />
-            </div>
-
-            {/* Email & Address */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
+              {/* ── LEFT COLUMN ── */}
               <div>
-                <label className="cal-form-label">Email</label>
-                <input
-                  type="email"
-                  className="cal-form-control"
-                  placeholder="john@example.com"
-                  value={createForm.email}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, email: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="cal-form-label">Service Type</label>
-                {(() => {
-                  const hcTypes = ["Standard cleaning", "Deep cleaning", "Move-in/move-out"]
-                  const winTypes = jobServiceTypes.length > 0
-                    ? jobServiceTypes
-                    : ["Window cleaning", "Pressure washing", "Gutter cleaning", "Walkthru"]
-                  const knownTypes = isHouseCleaning ? hcTypes : winTypes
-                  const defaultType = knownTypes[0] || "Window cleaning"
-                  const isKnown = knownTypes.includes(createForm.service_type)
+                {/* Row 1: Phone, Service Type */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Customer Phone *</label>
+                    <input
+                      type="tel"
+                      className="cal-form-control"
+                      placeholder="(555) 123-4567"
+                      value={createForm.customer_phone}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, customer_phone: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Service Type</label>
+                    {(() => {
+                      const hcTypes = ["Standard cleaning", "Deep cleaning", "Move-in/move-out"]
+                      const winTypes = jobServiceTypes.length > 0
+                        ? jobServiceTypes
+                        : ["Window cleaning", "Pressure washing", "Gutter cleaning", "Walkthru"]
+                      const knownTypes = isHouseCleaning ? hcTypes : winTypes
+                      const defaultType = knownTypes[0] || "Window cleaning"
+                      const isKnown = knownTypes.includes(createForm.service_type)
 
-                  return (
-                    <>
+                      return (
+                        <>
+                          <select
+                            className="cal-form-control"
+                            value={isKnown ? createForm.service_type : "__custom__"}
+                            onChange={(e) => {
+                              if (e.target.value === "__custom__") {
+                                setCreateForm((prev) => ({ ...prev, service_type: "" }))
+                              } else {
+                                setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                              }
+                            }}
+                            style={!isKnown && createForm.service_type !== "" ? { display: "none" } : undefined}
+                          >
+                            {knownTypes.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                            <option value="__custom__">Other (type your own)</option>
+                          </select>
+                          {!isKnown && (
+                            <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
+                              <input
+                                type="text"
+                                className="cal-form-control"
+                                placeholder="Type service name..."
+                                autoFocus
+                                value={createForm.service_type}
+                                onChange={(e) =>
+                                  setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
+                                }
+                                style={{ flex: 1 }}
+                              />
+                              <button
+                                type="button"
+                                className="cal-form-control"
+                                style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
+                                onClick={() => setCreateForm((prev) => ({ ...prev, service_type: defaultType }))}
+                                title="Back to list"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      )
+                    })()}
+                  </div>
+                </div>
+
+                {/* Row 2: Customer Name, Email */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Customer Name</label>
+                    <input
+                      type="text"
+                      className="cal-form-control"
+                      placeholder="John Smith"
+                      value={createForm.customer_name}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, customer_name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Email</label>
+                    <input
+                      type="email"
+                      className="cal-form-control"
+                      placeholder="john@example.com"
+                      value={createForm.email}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, email: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: Address */}
+                <div style={{ marginBottom: "0.5rem", position: "relative" }}>
+                  <label className="cal-form-label">Address</label>
+                  <input
+                    type="text"
+                    className="cal-form-control"
+                    placeholder="123 Main St, City, State"
+                    value={createForm.address}
+                    onChange={(e) => {
+                      setCreateForm((prev) => ({ ...prev, address: e.target.value }))
+                      setShowAddressSuggestions(true)
+                    }}
+                    onFocus={() => setShowAddressSuggestions(true)}
+                    onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
+                  />
+                  {showAddressSuggestions && addressSuggestions.length > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      zIndex: 100,
+                      background: "#1e1e21",
+                      border: "1px solid rgba(63, 63, 70, 0.6)",
+                      borderRadius: 8,
+                      marginTop: 2,
+                      maxHeight: 200,
+                      overflowY: "auto",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                    }}>
+                      {addressSuggestions.map((s) => (
+                        <button
+                          key={s.place_id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            setCreateForm((prev) => ({ ...prev, address: s.description }))
+                            setShowAddressSuggestions(false)
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "0.5rem 0.75rem",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                            color: "#e4e4e7",
+                            fontSize: "0.8rem",
+                            cursor: "pointer",
+                          }}
+                          onMouseOver={(e) => (e.currentTarget.style.background = "rgba(63, 63, 70, 0.3)")}
+                          onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          {s.description}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Property Details — house cleaning tenants only */}
+                {isHouseCleaning && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                    <div>
+                      <label className="cal-form-label">Bedrooms *</label>
                       <select
                         className="cal-form-control"
-                        value={isKnown ? createForm.service_type : "__custom__"}
-                        onChange={(e) => {
-                          if (e.target.value === "__custom__") {
-                            setCreateForm((prev) => ({ ...prev, service_type: "" }))
-                          } else {
-                            setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                          }
-                        }}
-                        style={!isKnown && createForm.service_type !== "" ? { display: "none" } : undefined}
+                        value={createForm.bedrooms}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
+                        }
                       >
-                        {knownTypes.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
-                        <option value="__custom__">Other (type your own)</option>
+                        <option value="">Select</option>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6+</option>
                       </select>
-                      {!isKnown && (
-                        <div style={{ display: "flex", gap: "0.25rem", marginTop: "0.25rem" }}>
-                          <input
-                            type="text"
-                            className="cal-form-control"
-                            placeholder="Type service name..."
-                            autoFocus
-                            value={createForm.service_type}
-                            onChange={(e) =>
-                              setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
-                            }
-                            style={{ flex: 1 }}
-                          />
-                          <button
-                            type="button"
-                            className="cal-form-control"
-                            style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
-                            onClick={() => setCreateForm((prev) => ({ ...prev, service_type: defaultType }))}
-                            title="Back to list"
-                          >
-                            &times;
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
+                    </div>
+                    <div>
+                      <label className="cal-form-label">Bathrooms *</label>
+                      <select
+                        className="cal-form-control"
+                        value={createForm.bathrooms}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
+                        }
+                      >
+                        <option value="">Select</option>
+                        <option value="1">1</option>
+                        <option value="1.5">1.5</option>
+                        <option value="2">2</option>
+                        <option value="2.5">2.5</option>
+                        <option value="3">3</option>
+                        <option value="3.5">3.5</option>
+                        <option value="4">4+</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="cal-form-label">Sqft *</label>
+                      <input
+                        type="number"
+                        className="cal-form-control"
+                        placeholder="1500"
+                        min="0"
+                        value={createForm.sqft}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
 
-            {/* Address with autocomplete */}
-            <div style={{ marginBottom: "0.5rem", position: "relative" }}>
-              <label className="cal-form-label">Address</label>
-              <input
-                type="text"
-                className="cal-form-control"
-                placeholder="123 Main St, City, State"
-                value={createForm.address}
-                onChange={(e) => {
-                  setCreateForm((prev) => ({ ...prev, address: e.target.value }))
-                  setShowAddressSuggestions(true)
-                }}
-                onFocus={() => setShowAddressSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
-              />
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div style={{
-                  position: "absolute",
-                  top: "100%",
-                  left: 0,
-                  right: 0,
-                  zIndex: 100,
-                  background: "#1e1e21",
-                  border: "1px solid rgba(63, 63, 70, 0.6)",
-                  borderRadius: 8,
-                  marginTop: 2,
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                }}>
-                  {addressSuggestions.map((s) => (
-                    <button
-                      key={s.place_id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        setCreateForm((prev) => ({ ...prev, address: s.description }))
-                        setShowAddressSuggestions(false)
+                {/* Row 4: Assignment & Membership/Frequency */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Assignment</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.assignment_mode === "specific" ? `cleaner:${createForm.cleaner_id}` : createForm.assignment_mode}
+                      onChange={(e) => {
+                        const val = e.target.value
+                        if (val === "auto_broadcast") {
+                          setCreateForm((prev) => ({ ...prev, assignment_mode: "auto_broadcast", cleaner_id: "" }))
+                        } else if (val === "unassigned") {
+                          setCreateForm((prev) => ({ ...prev, assignment_mode: "unassigned", cleaner_id: "" }))
+                        } else if (val.startsWith("cleaner:")) {
+                          setCreateForm((prev) => ({ ...prev, assignment_mode: "specific", cleaner_id: val.replace("cleaner:", "") }))
+                        }
                       }}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "0.5rem 0.75rem",
-                        background: "transparent",
-                        border: "none",
-                        borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
-                        color: "#e4e4e7",
-                        fontSize: "0.8rem",
-                        cursor: "pointer",
-                      }}
-                      onMouseOver={(e) => (e.currentTarget.style.background = "rgba(63, 63, 70, 0.3)")}
-                      onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      {s.description}
-                    </button>
-                  ))}
+                      <option value="auto_broadcast">Auto Broadcast</option>
+                      <option value="unassigned">Unassigned</option>
+                      {cleanersList.length > 0 && (
+                        <option disabled style={{ fontWeight: 600, color: "#71717a" }}>── Assign to ──</option>
+                      )}
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={`cleaner:${c.id}`}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {isHouseCleaning ? (
+                    <div>
+                      <label className="cal-form-label">Frequency *</label>
+                      <select
+                        className="cal-form-control"
+                        value={createForm.frequency}
+                        onChange={(e) =>
+                          setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
+                        }
+                      >
+                        <option value="one-time">One-time</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="bi-weekly">Bi-weekly</option>
+                        <option value="monthly">Monthly</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="cal-form-label">Membership</label>
+                      <select
+                        className="cal-form-control"
+                        value={createForm.membership_id}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          let discount = 0
+                          if (val.startsWith("membership:")) {
+                            const mem = customerMemberships.find((m) => m.id === val.replace("membership:", ""))
+                            discount = mem?.service_plans?.discount_per_visit || 0
+                          } else if (val.startsWith("plan:")) {
+                            const plan = servicePlans.find((p) => p.slug === val.replace("plan:", ""))
+                            discount = plan?.discount_per_visit || 0
+                          }
+                          setCreateForm((prev) => {
+                            const updated = { ...prev, membership_id: val }
+                            const currentBase = basePrice || Number(prev.price) || 0
+                            if (discount && currentBase > 0) {
+                              updated.price = String(Math.max(0, currentBase - discount))
+                            } else if (!val && currentBase > 0) {
+                              updated.price = String(currentBase)
+                            }
+                            return updated
+                          })
+                        }}
+                      >
+                        <option value="">No membership</option>
+                        {servicePlans.map((plan) => {
+                          const existing = customerMemberships.find((m) => m.service_plans?.slug === plan.slug)
+                          if (existing) {
+                            return (
+                              <option key={plan.slug} value={`membership:${existing.id}`}>
+                                ✓ {plan.name} — {existing.visits_completed}/{plan.visits_per_year} visits
+                                {plan.discount_per_visit ? ` (-$${plan.discount_per_visit})` : ""}
+                              </option>
+                            )
+                          }
+                          return (
+                            <option key={plan.slug} value={`plan:${plan.slug}`}>
+                              {plan.name}
+                              {plan.discount_per_visit ? ` (-$${plan.discount_per_visit}/visit)` : ""}
+                            </option>
+                          )
+                        })}
+                      </select>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Window Tier — WinBros window cleaning only */}
-            {!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && (
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label className="cal-form-label">Window Tier *</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.selected_tier_index}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, selected_tier_index: e.target.value }))
-                  }
-                >
-                  <option value="">Select tier</option>
-                  {windowTiers.map((tier, idx) => (
-                    <option key={idx} value={String(idx)}>
-                      {tier.label} — ${tier.exterior}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+                {/* Row 5: Lead Source */}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Lead Source</label>
+                  {(() => {
+                    const knownSources = ["Website", "Google", "Referral", "Facebook", "Instagram", "Nextdoor", "Yelp", "Thumbtack", "Angi", "Door Hanger", "Yard Sign", "Repeat Customer"]
+                    const isKnown = knownSources.includes(createForm.lead_source) || createForm.lead_source === ""
 
-            {/* Property Details — house cleaning tenants only */}
-            {isHouseCleaning && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                <div>
-                  <label className="cal-form-label">Bedrooms *</label>
-                  <select
-                    className="cal-form-control"
-                    value={createForm.bedrooms}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
-                    }
-                  >
-                    <option value="">Select</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                    <option value="6">6+</option>
-                  </select>
+                    return (
+                      <>
+                        <select
+                          className="cal-form-control"
+                          value={isKnown ? createForm.lead_source : "__custom__"}
+                          onChange={(e) => {
+                            if (e.target.value === "__custom__") {
+                              setCreateForm((prev) => ({ ...prev, lead_source: "__custom__" }))
+                            } else {
+                              setCreateForm((prev) => ({ ...prev, lead_source: e.target.value }))
+                            }
+                          }}
+                          style={!isKnown ? { display: "none" } : undefined}
+                        >
+                          <option value="">Select source</option>
+                          {knownSources.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                          <option value="__custom__">Other (type your own)</option>
+                        </select>
+                        {!isKnown && (
+                          <div style={{ display: "flex", gap: "0.25rem" }}>
+                            <input
+                              type="text"
+                              className="cal-form-control"
+                              placeholder="Type lead source..."
+                              autoFocus
+                              value={createForm.lead_source === "__custom__" ? "" : createForm.lead_source}
+                              onChange={(e) =>
+                                setCreateForm((prev) => ({ ...prev, lead_source: e.target.value }))
+                              }
+                              style={{ flex: 1 }}
+                            />
+                            <button
+                              type="button"
+                              className="cal-form-control"
+                              style={{ width: "auto", padding: "0 0.5rem", cursor: "pointer", color: "#a1a1aa" }}
+                              onClick={() => setCreateForm((prev) => ({ ...prev, lead_source: "" }))}
+                              title="Back to list"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
-                <div>
-                  <label className="cal-form-label">Bathrooms *</label>
-                  <select
-                    className="cal-form-control"
-                    value={createForm.bathrooms}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
-                    }
-                  >
-                    <option value="">Select</option>
-                    <option value="1">1</option>
-                    <option value="1.5">1.5</option>
-                    <option value="2">2</option>
-                    <option value="2.5">2.5</option>
-                    <option value="3">3</option>
-                    <option value="3.5">3.5</option>
-                    <option value="4">4+</option>
-                  </select>
+
+                {/* Row 6: Date, Time, Duration */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Date *</label>
+                    <input
+                      type="date"
+                      className="cal-form-control"
+                      value={createForm.date}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, date: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Start Time</label>
+                    <input
+                      type="time"
+                      className="cal-form-control"
+                      value={createForm.time}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, time: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Duration</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.duration_minutes}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, duration_minutes: e.target.value }))
+                      }
+                    >
+                      <option value="60">1 hour</option>
+                      <option value="90">1.5 hours</option>
+                      <option value="120">2 hours</option>
+                      <option value="150">2.5 hours</option>
+                      <option value="180">3 hours</option>
+                      <option value="240">4 hours</option>
+                      <option value="300">5 hours</option>
+                      <option value="360">6 hours</option>
+                    </select>
+                  </div>
                 </div>
+
+                {/* Row 6: Notes + Send as Quote */}
                 <div>
-                  <label className="cal-form-label">Sqft *</label>
-                  <input
-                    type="number"
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
+                    <label className="cal-form-label" style={{ margin: 0 }}>Notes</label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", cursor: "pointer", fontSize: "0.8rem", color: createForm.is_quote ? "#22d3ee" : "#a1a1aa" }}>
+                      <input
+                        type="checkbox"
+                        checked={createForm.is_quote}
+                        onChange={(e) => setCreateForm((prev) => ({ ...prev, is_quote: e.target.checked }))}
+                        style={{ accentColor: "#06b6d4" }}
+                      />
+                      Send as Quote
+                    </label>
+                  </div>
+                  <textarea
                     className="cal-form-control"
-                    placeholder="1500"
-                    min="0"
-                    value={createForm.sqft}
+                    rows={2}
+                    placeholder="Special instructions, access codes, etc."
+                    value={createForm.notes}
                     onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, sqft: e.target.value }))
+                      setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
                     }
                   />
                 </div>
               </div>
-            )}
 
-            {/* Frequency (house cleaning) or Membership (WinBros) & Cleaner (all tenants) */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              {isHouseCleaning && (
-                <div>
-                  <label className="cal-form-label">Frequency *</label>
-                  <select
-                    className="cal-form-control"
-                    value={createForm.frequency}
-                    onChange={(e) =>
-                      setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
-                    }
-                  >
-                    <option value="one-time">One-time</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="bi-weekly">Bi-weekly</option>
-                    <option value="monthly">Monthly</option>
-                  </select>
-                </div>
-              )}
-              {!isHouseCleaning && (
-                <div>
-                  <label className="cal-form-label">Membership</label>
-                  <select
-                    className="cal-form-control"
-                    value={createForm.membership_id}
-                    onChange={(e) => {
-                      const val = e.target.value
-                      let discount = 0
-                      if (val.startsWith("membership:")) {
-                        const mem = customerMemberships.find((m) => m.id === val.replace("membership:", ""))
-                        discount = mem?.service_plans?.discount_per_visit || 0
-                      } else if (val.startsWith("plan:")) {
-                        const plan = servicePlans.find((p) => p.slug === val.replace("plan:", ""))
-                        discount = plan?.discount_per_visit || 0
+              {/* ── RIGHT COLUMN ── */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {/* Window Tier — WinBros window cleaning only */}
+                {!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && (
+                  <div>
+                    <label className="cal-form-label">Window Tier *</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.selected_tier_index}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, selected_tier_index: e.target.value }))
                       }
-                      setCreateForm((prev) => {
-                        const updated = { ...prev, membership_id: val }
-                        const currentBase = basePrice || Number(prev.price) || 0
-                        if (discount && currentBase > 0) {
-                          updated.price = String(Math.max(0, currentBase - discount))
-                        } else if (!val && currentBase > 0) {
-                          updated.price = String(currentBase)
-                        }
-                        return updated
-                      })
-                    }}
-                  >
-                    <option value="">No membership</option>
-                    {servicePlans.map((plan) => {
-                      const existing = customerMemberships.find((m) => m.service_plans?.slug === plan.slug)
-                      if (existing) {
-                        return (
-                          <option key={plan.slug} value={`membership:${existing.id}`}>
-                            ✓ {plan.name} — {existing.visits_completed}/{plan.visits_per_year} visits
-                            {plan.discount_per_visit ? ` (-$${plan.discount_per_visit})` : ""}
-                          </option>
-                        )
-                      }
-                      return (
-                        <option key={plan.slug} value={`plan:${plan.slug}`}>
-                          {plan.name}
-                          {plan.discount_per_visit ? ` (-$${plan.discount_per_visit}/visit)` : ""}
-                        </option>
-                      )
-                    })}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="cal-form-label">Assignment</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.assignment_mode === "specific" ? `cleaner:${createForm.cleaner_id}` : createForm.assignment_mode}
-                  onChange={(e) => {
-                    const val = e.target.value
-                    if (val === "auto_broadcast") {
-                      setCreateForm((prev) => ({ ...prev, assignment_mode: "auto_broadcast", cleaner_id: "" }))
-                    } else if (val === "unassigned") {
-                      setCreateForm((prev) => ({ ...prev, assignment_mode: "unassigned", cleaner_id: "" }))
-                    } else if (val.startsWith("cleaner:")) {
-                      setCreateForm((prev) => ({ ...prev, assignment_mode: "specific", cleaner_id: val.replace("cleaner:", "") }))
-                    }
-                  }}
-                >
-                  <option value="auto_broadcast">Auto Broadcast</option>
-                  <option value="unassigned">Unassigned</option>
-                  {cleanersList.length > 0 && (
-                    <option disabled style={{ fontWeight: 600, color: "#71717a" }}>── Assign to ──</option>
-                  )}
-                  {cleanersList.map((c) => (
-                    <option key={c.id} value={`cleaner:${c.id}`}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Date, Time, Duration */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-              <div>
-                <label className="cal-form-label">Date *</label>
-                <input
-                  type="date"
-                  className="cal-form-control"
-                  value={createForm.date}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, date: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="cal-form-label">Start Time</label>
-                <input
-                  type="time"
-                  className="cal-form-control"
-                  value={createForm.time}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, time: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <label className="cal-form-label">Duration (min)</label>
-                <select
-                  className="cal-form-control"
-                  value={createForm.duration_minutes}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, duration_minutes: e.target.value }))
-                  }
-                >
-                  <option value="60">1 hour</option>
-                  <option value="90">1.5 hours</option>
-                  <option value="120">2 hours</option>
-                  <option value="150">2.5 hours</option>
-                  <option value="180">3 hours</option>
-                  <option value="240">4 hours</option>
-                  <option value="300">5 hours</option>
-                  <option value="360">6 hours</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Add-ons */}
-            {derivedAddonsList.length > 0 && (
-              <div style={{ marginBottom: "0.5rem" }}>
-                <label className="cal-form-label">Add-ons</label>
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0.25rem",
-                  background: "rgba(39, 39, 42, 0.3)",
-                  borderRadius: 8,
-                  border: "1px solid rgba(63, 63, 70, 0.4)",
-                  padding: "0.5rem",
-                  maxHeight: 160,
-                  overflowY: "auto",
-                }}>
-                  {derivedAddonsList.map((addon) => (
-                    <label
-                      key={addon.addon_key}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "0.35rem",
-                        cursor: "pointer",
-                        padding: "0.2rem 0.25rem",
-                        borderRadius: 4,
-                        fontSize: "0.8rem",
-                        color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
-                        background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
-                      }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={createForm.selected_addons.includes(addon.addon_key)}
-                        onChange={(e) => {
-                          setCreateForm((prev) => ({
-                            ...prev,
-                            selected_addons: e.target.checked
-                              ? [...prev.selected_addons, addon.addon_key]
-                              : prev.selected_addons.filter((k) => k !== addon.addon_key),
-                          }))
-                        }}
-                        style={{ accentColor: "#8b5cf6" }}
-                      />
-                      <span style={{ flex: 1 }}>{addon.label}</span>
-                      {addon.flat_price != null && addon.flat_price > 0 && (
-                        <span style={{ color: "#71717a", fontSize: "0.7rem" }}>+${addon.flat_price}</span>
-                      )}
-                    </label>
-                  ))}
+                      <option value="">Select tier</option>
+                      {windowTiers.map((tier, idx) => (
+                        <option key={idx} value={String(idx)}>
+                          {tier.label} — ${tier.exterior}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {/* Add-ons */}
+                {derivedAddonsList.length > 0 && (
+                  <div>
+                    <label className="cal-form-label">Add-ons</label>
+                    <div style={{
+                      background: "rgba(39, 39, 42, 0.3)",
+                      borderRadius: 8,
+                      border: "1px solid rgba(63, 63, 70, 0.4)",
+                      padding: "0.5rem",
+                      maxHeight: isHouseCleaning ? 300 : 150,
+                      overflowY: "auto",
+                    }}>
+                      {derivedAddonsList.map((addon) => (
+                        <label
+                          key={addon.addon_key}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            cursor: "pointer",
+                            padding: "0.35rem 0.4rem",
+                            borderRadius: 4,
+                            fontSize: "0.8rem",
+                            color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
+                            background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={createForm.selected_addons.includes(addon.addon_key)}
+                            onChange={(e) => {
+                              setCreateForm((prev) => ({
+                                ...prev,
+                                selected_addons: e.target.checked
+                                  ? [...prev.selected_addons, addon.addon_key]
+                                  : prev.selected_addons.filter((k) => k !== addon.addon_key),
+                              }))
+                            }}
+                            style={{ accentColor: "#8b5cf6" }}
+                          />
+                          <span style={{ flex: 1 }}>{addon.label}</span>
+                          <span style={{
+                            color: addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                          }}>
+                            {addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Price Summary — WinBros only */}
+                {!isHouseCleaning && (
+                  <div style={{
+                    background: "rgba(39, 39, 42, 0.3)",
+                    borderRadius: 8,
+                    border: "1px solid rgba(63, 63, 70, 0.4)",
+                    padding: "0.75rem",
+                    height: 150,
+                    overflowY: "auto",
+                  }}>
+                    <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#e4e4e7", marginBottom: "0.5rem" }}>
+                      Price Summary
+                    </div>
+                    {(() => {
+                      const tierIdx = createForm.selected_tier_index === "" ? -1 : Number(createForm.selected_tier_index)
+                      const tier = tierIdx >= 0 && tierIdx < windowTiers.length ? windowTiers[tierIdx] : null
+                      const isWindow = createForm.service_type.toLowerCase().includes("window")
+
+                      if (isWindow && !tier) {
+                        return <p style={{ color: "#71717a", fontSize: "0.8rem", fontStyle: "italic", margin: 0 }}>Select a tier to see pricing</p>
+                      }
+
+                      const items: { label: string; price: number }[] = []
+
+                      if (isWindow && tier) {
+                        items.push({ label: "Exterior Window Cleaning", price: tier.exterior })
+                      } else if (basePrice > 0) {
+                        items.push({ label: createForm.service_type || "Base Service", price: basePrice })
+                      }
+
+                      // Selected add-ons
+                      for (const key of createForm.selected_addons) {
+                        const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                        if (addon) {
+                          items.push({ label: addon.label, price: addon.flat_price || 0 })
+                        }
+                      }
+
+                      // Membership discount
+                      let discount = 0
+                      if (createForm.membership_id) {
+                        if (createForm.membership_id.startsWith("membership:")) {
+                          const mem = customerMemberships.find((m) => m.id === createForm.membership_id.replace("membership:", ""))
+                          discount = mem?.service_plans?.discount_per_visit || 0
+                        } else if (createForm.membership_id.startsWith("plan:")) {
+                          const plan = servicePlans.find((p) => p.slug === createForm.membership_id.replace("plan:", ""))
+                          discount = plan?.discount_per_visit || 0
+                        }
+                      }
+
+                      const subtotal = items.reduce((sum, i) => sum + i.price, 0)
+                      const total = Math.max(0, subtotal - discount)
+
+                      if (items.length === 0) {
+                        return <p style={{ color: "#71717a", fontSize: "0.8rem", fontStyle: "italic", margin: 0 }}>No items yet</p>
+                      }
+
+                      return (
+                        <div style={{ fontSize: "0.8rem" }}>
+                          {items.map((item, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: item.price > 0 ? "#e4e4e7" : "#4ade80" }}>
+                              <span>{item.label}</span>
+                              <span>{item.price > 0 ? `$${item.price}` : "FREE"}</span>
+                            </div>
+                          ))}
+                          {discount > 0 && (
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#4ade80" }}>
+                              <span>Membership Discount</span>
+                              <span>-${discount}</span>
+                            </div>
+                          )}
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "0.4rem 0 0", marginTop: "0.3rem", borderTop: "1px solid rgba(63, 63, 70, 0.4)", fontWeight: 700, color: "#e4e4e7" }}>
+                            <span>Total</span>
+                            <span>${total}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
+
+                {/* Override Price */}
+                <div>
+                  <label className="cal-form-label">Override Price</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="0.00"
+                    min="0"
+                    step="0.01"
+                    value={createForm.price}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, price: e.target.value }))
+                    }
+                    onBlur={(e) => {
+                      if (!isHouseCleaning) {
+                        const total = Number(e.target.value) || 0
+                        const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+                          const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                          return sum + (addon?.flat_price || 0)
+                        }, 0)
+                        setBasePrice(Math.max(0, total - addonTotal))
+                      }
+                    }}
+                  />
                 </div>
               </div>
-            )}
-
-            {/* Price + Quote toggle */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "0.5rem", alignItems: "end", marginBottom: "0.5rem" }}>
-              <div>
-                <label className="cal-form-label">Price ($)</label>
-                <input
-                  type="number"
-                  className="cal-form-control"
-                  placeholder="0.00"
-                  min="0"
-                  step="0.01"
-                  value={createForm.price}
-                  onChange={(e) =>
-                    setCreateForm((prev) => ({ ...prev, price: e.target.value }))
-                  }
-                  onBlur={(e) => {
-                    if (!isHouseCleaning) {
-                      // Capture manually-entered price as base, subtract current add-on total
-                      const total = Number(e.target.value) || 0
-                      const addonTotal = createForm.selected_addons.reduce((sum, key) => {
-                        const addon = derivedAddonsList.find((a) => a.addon_key === key)
-                        return sum + (addon?.flat_price || 0)
-                      }, 0)
-                      setBasePrice(Math.max(0, total - addonTotal))
-                    }
-                  }}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setCreateForm((prev) => ({ ...prev, is_quote: !prev.is_quote }))}
-                style={{
-                  padding: "0.5rem 0.75rem",
-                  borderRadius: 8,
-                  border: `1px solid ${createForm.is_quote ? "rgba(6, 182, 212, 0.4)" : "rgba(63, 63, 70, 0.6)"}`,
-                  background: createForm.is_quote ? "rgba(6, 182, 212, 0.15)" : "rgba(39, 39, 42, 0.5)",
-                  color: createForm.is_quote ? "#22d3ee" : "#a1a1aa",
-                  cursor: "pointer",
-                  fontSize: "0.8rem",
-                  fontWeight: 500,
-                  whiteSpace: "nowrap",
-                  height: "fit-content",
-                }}
-              >
-                {createForm.is_quote ? "Quote" : "Scheduled"}
-              </button>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="cal-form-label">Notes</label>
-              <textarea
-                className="cal-form-control"
-                rows={2}
-                placeholder="Special instructions, access codes, etc."
-                value={createForm.notes}
-                onChange={(e) =>
-                  setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
-                }
-              />
             </div>
 
             {createError && (
