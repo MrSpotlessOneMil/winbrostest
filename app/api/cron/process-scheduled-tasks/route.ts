@@ -341,16 +341,11 @@ async function processLeadFollowup(
     case 2:
       message = `Just making sure you got our message — we have openings for ${serviceType} this week. ${detailsRequest}`
       break
-    case 3:
-      message = `We just finished a ${serviceType} job nearby and the customer loved it! We'd love to help you too. ${quoteQuestion}`
-      break
+    // Stage 3 is manual_call — handled above, never reaches here
     case 4:
-      message = `Any questions about pricing? We're happy to work with your budget. ${detailsRequest}`
-      break
-    case 5:
       message = `Our schedule is filling up for ${currentMonth}! ${lastChanceDetails}`
       break
-    case 6:
+    case 5:
       message = `Last check-in from me! Reply if you'd like to get on the schedule, otherwise no worries at all.`
       break
     default:
@@ -390,25 +385,6 @@ async function processLeadFollowup(
       await client.from('messages').delete().eq('id', msgRecordId)
     }
     console.error(`[lead-followup] SMS send failed for ${leadPhone}:`, smsResult.error)
-  }
-
-  // After stage 6: enroll in new_lead retargeting
-  if (stage === 6 && smsResult.success && tenant?.id && lead.customer_id) {
-    try {
-      const customerName = lead.customers?.first_name
-        ? `${lead.customers.first_name} ${lead.customers.last_name || ''}`.trim()
-        : leadName
-      await scheduleRetargetingSequence(
-        tenant.id,
-        lead.customer_id,
-        leadPhone,
-        customerName,
-        'new_lead',
-      )
-      console.log(`[lead-followup] Enrolled lead ${leadId} customer ${lead.customer_id} in new_lead retargeting`)
-    } catch (err) {
-      console.error(`[lead-followup] Failed to enroll in retargeting:`, err)
-    }
   }
 
   // Update lead's followup_stage + last_contact_at
@@ -732,16 +708,6 @@ async function processRetargeting(
       .eq('id', customerId)
 
     console.log(`[retargeting] Sent step ${step}/${steps?.length} to customer ${customerId}`)
-
-    // Auto-escalate: new_lead completes → enroll in unresponsive sequence
-    if (isLastStep && sequence === 'new_lead' && tenantId) {
-      try {
-        await scheduleRetargetingSequence(tenantId, customerId, customerPhone, customerName, 'unresponsive')
-        console.log(`[retargeting] Auto-escalated customer ${customerId} from new_lead → unresponsive`)
-      } catch (err) {
-        console.error(`[retargeting] Failed to auto-escalate customer ${customerId}:`, err)
-      }
-    }
   } else {
     console.error(`[retargeting] SMS failed for customer ${customerId}: ${result.error}`)
   }

@@ -11,6 +11,7 @@ import { getTenantByPhoneNumber, getTenantByOpenPhoneId, isSmsAutoResponseEnable
 import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { analyzeSimpleSentiment, recordMessageSent, cancelPendingTasks } from "@/lib/lifecycle-engine"
+import { isKeywordOptOut, isStartRequest, detectOptOutIntent } from "@/lib/sms-opt-out"
 
 /**
  * Send a multi-part AI response as separate SMS messages.
@@ -436,22 +437,19 @@ export async function POST(request: NextRequest) {
   }
 
   // ============================================
-  // STOP / START — TCPA opt-out compliance
+  // STOP / START — TCPA opt-out compliance (hybrid: keywords + AI intent)
   // ============================================
-  const trimmedLower = (extracted.content || "").trim().toLowerCase()
-  const stopKeywords = ['stop', 'unsubscribe', 'opt out', 'optout', 'cancel texts', 'quit']
-  // Exact match on keyword, OR detect clear opt-out intent in longer messages.
-  // Catches: "Stop texting me please", "Please stop", "stop messaging me"
-  // Avoids false positives: "the dog won't stop barking", "had to stop at the store"
-  const isStopRequest = stopKeywords.includes(trimmedLower) ||
-    /^stop\b/.test(trimmedLower) ||              // starts with "stop"
-    /\bplease stop\b/.test(trimmedLower) ||      // "please stop"
-    /\bstop (texting|messaging|sending|contacting|emailing)\b/.test(trimmedLower) ||
-    /\bunsubscribe\b/.test(trimmedLower) ||
-    /\bopt\s*out\b/.test(trimmedLower) ||
-    /\bremove me\b/.test(trimmedLower) ||
-    /\bleave me alone\b/.test(trimmedLower)
-  const isStartRequest = trimmedLower === 'start'
+  const optOutMessage = extracted.content || ""
+  const isStopKeyword = isKeywordOptOut(optOutMessage)
+  const isStartKeyword = isStartRequest(optOutMessage)
+
+  // AI-based opt-out detection: only runs when keyword check doesn't match
+  let isAiOptOut = false
+  if (!isStopKeyword && !isStartKeyword && tenant && customer) {
+    isAiOptOut = await detectOptOutIntent(optOutMessage)
+  }
+
+  const isStopRequest = isStopKeyword || isAiOptOut
 
   if (isStopRequest && tenant && customer) {
     // Send confirmation FIRST (before opt-out, so it goes through)
@@ -539,7 +537,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, action: "opt_out", customerId: customer.id })
   }
 
-  if (isStartRequest && tenant && customer) {
+  if (isStartKeyword && tenant && customer) {
     // Re-subscribe
     await client
       .from("customers")

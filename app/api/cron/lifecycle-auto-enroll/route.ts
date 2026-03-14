@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       // Find customers eligible for auto-enrollment
       const { data: candidates, error: queryError } = await client
         .from('customers')
-        .select('id, first_name, last_name, phone_number, lifecycle_stage, retargeting_sequence, retargeting_stopped_reason, sms_opt_out')
+        .select('id, first_name, last_name, phone_number, lifecycle_stage, retargeting_sequence, retargeting_stopped_reason, retargeting_completed_at, sms_opt_out')
         .eq('tenant_id', tenant.id)
         .in('lifecycle_stage', ENROLLABLE_STAGES)
         .not('phone_number', 'is', null)
@@ -107,6 +107,16 @@ export async function GET(request: NextRequest) {
         ) {
           skipped++
           continue
+        }
+
+        // Global cooldown: skip if any sequence completed within the last 14 days
+        if (cust.retargeting_completed_at) {
+          const completedAt = new Date(cust.retargeting_completed_at)
+          const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+          if (completedAt > fourteenDaysAgo) {
+            skipped++
+            continue
+          }
         }
 
         // Never enrolled, or completed a DIFFERENT sequence → eligible

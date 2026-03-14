@@ -271,20 +271,20 @@ export async function failTask(taskId: string, error: string): Promise<void> {
 
 /**
  * Schedule lead follow-up sequence
- * 7 touches over 14 days (6 SMS + 1 manual call):
- * 1 (instant/text), 2 (15min/text), 3 (12hr/call), 4 (day 1/text), 5 (day 3/text), 6 (day 7/text), 7 (day 14/text)
+ * 5 touches over 14 days (4 SMS + 1 manual call):
+ * 1 (instant/text), 2 (day 1/text), 3 (day 3/call), 4 (day 7/text), 5 (day 14/text)
  */
 export async function scheduleLeadFollowUp(
   tenantId: string,
   leadId: string,
   leadPhone: string,
   leadName: string,
-  delays: number[] = [0, 15, 720, 1440, 4320, 10080, 20160] // Default delays in minutes
+  delays: number[] = [0, 1440, 4320, 10080, 20160] // Default delays in minutes
 ): Promise<{ success: boolean; taskIds: string[] }> {
   const taskIds: string[] = []
   const now = new Date()
 
-  // Stage 3 is a manual call; all others are text
+  // Stage 3 (day 3) is a manual call; all others are text
   const CALL_STAGE = 3
 
   for (let i = 0; i < delays.length; i++) {
@@ -405,12 +405,10 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
   ],
   quoted_not_booked: [
     { step: 1, delay_days: 1, template: 'quote_followup' },
-    { step: 2, delay_days: 2, template: 'question_based' },
-    { step: 3, delay_days: 3, template: 'manual_call' },
-    { step: 4, delay_days: 5, template: 'limited_time' },
-    { step: 5, delay_days: 7, template: 'check_in' },
-    { step: 6, delay_days: 10, template: 'social_proof' },
-    { step: 7, delay_days: 14, template: 'closing_file' },
+    { step: 2, delay_days: 3, template: 'question_based' },
+    { step: 3, delay_days: 7, template: 'manual_call' },
+    { step: 4, delay_days: 14, template: 'social_proof' },
+    { step: 5, delay_days: 21, template: 'closing_file' },
   ],
   one_time: [
     { step: 1, delay_days: 0, template: 'we_miss_you' },
