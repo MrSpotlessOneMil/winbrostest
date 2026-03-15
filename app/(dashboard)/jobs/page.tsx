@@ -507,7 +507,6 @@ export default function JobsPage() {
 
   // Recalculate price when add-ons or base price change
   useEffect(() => {
-    if (!basePrice && isHouseCleaning && !createForm.selected_addons.length) return
     if (!basePrice && !createForm.selected_addons.length) return
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
@@ -705,10 +704,11 @@ export default function JobsPage() {
       revertPreview()
     }
 
+    const controller = new AbortController()
     const timer = setTimeout(() => {
       if (lookedUpCustomerIdRef.current) return
 
-      fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`)
+      fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`, { signal: controller.signal })
         .then((r) => r.json())
         .then((res) => {
           if (lookedUpCustomerIdRef.current) return
@@ -720,10 +720,12 @@ export default function JobsPage() {
           setPhoneSuggestions(res.data)
           setShowPhoneSuggestions(true)
         })
-        .catch(() => setPhoneSuggestions([]))
+        .catch((err) => {
+          if (err?.name !== "AbortError") setPhoneSuggestions([])
+        })
     }, 400)
 
-    return () => clearTimeout(timer)
+    return () => { clearTimeout(timer); controller.abort() }
   }, [createForm.customer_phone, createOpen])
 
   // Preview highlight helper — highlights all populated fields during hover preview
@@ -2239,6 +2241,7 @@ export default function JobsPage() {
                       onChange={(e) => {
                         setCreateForm((prev) => ({ ...prev, customer_phone: e.target.value }))
                         setLookedUpCustomerId(null)
+                        lookedUpCustomerIdRef.current = null
                         setShowPhoneSuggestions(true)
                       }}
                       onFocus={() => { if (phoneSuggestions.length > 0) setShowPhoneSuggestions(true) }}
