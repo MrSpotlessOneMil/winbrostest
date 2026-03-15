@@ -417,6 +417,13 @@ export default function JobsPage() {
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
+  const [phoneSuggestions, setPhoneSuggestions] = useState<any[]>([])
+  const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false)
+  const [isPreviewing, setIsPreviewing] = useState(false)
+  // Refs for values read inside closures/timeouts to avoid stale captures
+  const isPreviewingRef = useRef(false)
+  const formSnapshotRef = useRef<CreateForm | null>(null)
+  const basePriceSnapshotRef = useRef<number>(0)
   const [windowTiers, setWindowTiers] = useState<WindowTier[]>(WINDOW_TIERS)
 
   // Auto-populate price when property details change (house cleaning only)
@@ -531,7 +538,7 @@ export default function JobsPage() {
   // Reset tier and price when WinBros service type changes away from window cleaning
   useEffect(() => {
     if (isHouseCleaning) return
-    const isWindow = createForm.service_type.toLowerCase().includes("window")
+    const isWindow = (createForm.service_type || "").toLowerCase().includes("window")
     if (!isWindow && createForm.selected_tier_index !== "") {
       setBasePrice(0)
       setCreateForm((prev) => ({ ...prev, selected_tier_index: "", price: "" }))
@@ -549,66 +556,179 @@ export default function JobsPage() {
       .catch(() => {})
   }, [createOpen, isHouseCleaning])
 
-  // Auto-populate from phone number (debounced)
+  // Build preview form values from a customer (shared by preview and commit)
+  const buildCustomerForm = (c: any, prev: CreateForm) => {
+    const lastJob = c.last_job as { service_type?: string; addons?: { key: string }[]; price?: number } | null
+    let lastServiceType = ""
+    let lastAddons: string[] = []
+    let lastTierIndex = ""
+    if (lastJob) {
+      lastServiceType = lastJob.service_type || ""
+      if (Array.isArray(lastJob.addons)) {
+        lastAddons = lastJob.addons.map((a) => a.key).filter(Boolean)
+      }
+      if (!isHouseCleaning && lastServiceType.toLowerCase().includes("window") && lastJob.price) {
+        const bestMatch = windowTiers.reduce((best, t, idx) => {
+          if (t.exterior <= lastJob.price! && t.exterior > (best.price || 0)) {
+            return { idx, price: t.exterior }
+          }
+          return best
+        }, { idx: -1, price: 0 })
+        if (bestMatch.idx >= 0) lastTierIndex = String(bestMatch.idx)
+      }
+    }
+    return {
+      form: {
+        ...prev,
+        customer_name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "",
+        email: c.email || "",
+        address: c.address || "",
+        bedrooms: c.bedrooms ? String(c.bedrooms) : "",
+        bathrooms: c.bathrooms ? String(c.bathrooms) : "",
+        sqft: c.sqft ? String(c.sqft) : "",
+        service_type: lastServiceType || prev.service_type || "",
+        selected_addons: lastAddons.length > 0 ? lastAddons : [],
+        selected_tier_index: lastTierIndex || "",
+        price: lastJob?.price ? String(Number(lastJob.price)) : "",
+        membership_id: "",
+      },
+      lastJob,
+      lastServiceType,
+      lastAddons,
+      lastTierIndex,
+    }
+  }
+
+  // Compute basePrice from last job (extracted to avoid calling setBasePrice inside setCreateForm updater)
+  const computeLastJobBasePrice = (lastJob: any, lastServiceType: string, lastTierIndex: string, addons: string[]) => {
+    if (!lastJob?.price || (lastServiceType.toLowerCase().includes("window") && lastTierIndex)) return null
+    const addonTotal = addons.reduce((sum, key) => {
+      const addon = derivedAddonsList.find((a) => a.addon_key === key)
+      return sum + (addon?.flat_price || 0)
+    }, 0)
+    return Number(lastJob.price) - addonTotal
+  }
+
+  // Preview customer on hover (reversible)
+  const previewPhoneCustomer = (c: any) => {
+    let newBase: number | null = null
+    setCreateForm((prev) => {
+      if (!formSnapshotRef.current) {
+        formSnapshotRef.current = prev
+        basePriceSnapshotRef.current = basePrice
+      }
+      const result = buildCustomerForm(c, formSnapshotRef.current)
+      newBase = computeLastJobBasePrice(result.lastJob, result.lastServiceType, result.lastTierIndex, result.lastAddons)
+      isPreviewingRef.current = true
+      return result.form
+    })
+    setBasePrice(newBase !== null ? newBase : 0)
+    setIsPreviewing(true)
+  }
+
+  // Revert preview on mouse leave (preserves current phone input)
+  const revertPreview = () => {
+    const snap = formSnapshotRef.current
+    if (snap) {
+      formSnapshotRef.current = null
+      setCreateForm((prev) => ({
+        ...snap,
+        customer_phone: prev.customer_phone,
+        selected_addons: snap.selected_addons || [],
+      }))
+      setBasePrice(basePriceSnapshotRef.current)
+    }
+    isPreviewingRef.current = false
+    setIsPreviewing(false)
+  }
+
+  // Auto-fill form from a selected customer (commit)
+  const selectPhoneCustomer = (c: any) => {
+    const original = formSnapshotRef.current
+    formSnapshotRef.current = null
+    isPreviewingRef.current = false
+    setIsPreviewing(false)
+    setPhoneLookedUp(c.phone_number?.replace(/\D/g, "") || "")
+    setLookedUpCustomerId(c.id || null)
+    setShowPhoneSuggestions(false)
+
+    let newBase: number | null = null
+    setCreateForm((prev) => {
+      const base = original || prev
+      const result = buildCustomerForm(c, base)
+      newBase = computeLastJobBasePrice(result.lastJob, result.lastServiceType, result.lastTierIndex, result.lastAddons)
+      return { ...result.form, customer_phone: c.phone_number || result.form.customer_phone }
+    })
+    if (newBase !== null) setBasePrice(newBase)
+
+    // Fetch active memberships for this customer (WinBros only)
+    if (c.id && !isHouseCleaning) {
+      fetch(`/api/actions/memberships?customer_id=${c.id}&status=active`)
+        .then((r) => r.json())
+        .then((mRes) => {
+          const mems = mRes.data || []
+          setCustomerMemberships(mems)
+          if (mems.length === 1) {
+            const mem = mems[0]
+            setCreateForm((prev) => {
+              if (prev.membership_id) return prev
+              const updated = { ...prev, membership_id: `membership:${mem.id}` }
+              const currentBase = basePrice || Number(prev.price) || 0
+              if (mem.service_plans?.discount_per_visit && currentBase > 0) {
+                updated.price = String(Math.max(0, currentBase - mem.service_plans.discount_per_visit))
+              }
+              return updated
+            })
+          }
+        })
+        .catch(() => setCustomerMemberships([]))
+    }
+  }
+
+  // Keep a ref for lookedUpCustomerId to avoid stale closures in the fetch effect
+  const lookedUpCustomerIdRef = useRef<string | null>(null)
+  useEffect(() => { lookedUpCustomerIdRef.current = lookedUpCustomerId }, [lookedUpCustomerId])
+
+  // Fetch phone suggestions (debounced, starts at 3 digits)
   useEffect(() => {
     if (!createOpen) return
     const digits = createForm.customer_phone.replace(/\D/g, "")
-    if (digits.length < 10 || digits === phoneLookedUp) return
+    if (digits.length < 3) {
+      setPhoneSuggestions([])
+      return
+    }
+    // Skip fetch if a customer was already committed (clicked)
+    if (lookedUpCustomerIdRef.current) return
+
+    // If previewing, revert first so the form reflects actual state
+    if (isPreviewingRef.current) {
+      revertPreview()
+    }
 
     const timer = setTimeout(() => {
+      if (lookedUpCustomerIdRef.current) return
+
       fetch(`/api/customers/lookup?phone=${encodeURIComponent(digits)}`)
         .then((r) => r.json())
         .then((res) => {
+          if (lookedUpCustomerIdRef.current) return
+
           if (!res.success || !res.data?.length) {
-            setLookedUpCustomerId(null)
-            setCustomerMemberships([])
+            setPhoneSuggestions([])
             return
           }
-          const c = res.data[0]
-          setPhoneLookedUp(digits)
-          setLookedUpCustomerId(c.id || null)
-          setCreateForm((prev) => ({
-            ...prev,
-            customer_name: prev.customer_name || [c.first_name, c.last_name].filter(Boolean).join(" "),
-            email: prev.email || c.email || "",
-            address: prev.address || c.address || "",
-            bedrooms: prev.bedrooms || (c.bedrooms ? String(c.bedrooms) : ""),
-            bathrooms: prev.bathrooms || (c.bathrooms ? String(c.bathrooms) : ""),
-            sqft: prev.sqft || (c.sqft ? String(c.sqft) : ""),
-            membership_id: "",
-          }))
-          // Fetch active memberships for this customer (WinBros only)
-          if (c.id && !isHouseCleaning) {
-            fetch(`/api/actions/memberships?customer_id=${c.id}&status=active`)
-              .then((r) => r.json())
-              .then((mRes) => {
-                const mems = mRes.data || []
-                setCustomerMemberships(mems)
-                // Auto-select if there's exactly one active membership
-                // and user hasn't already manually picked one
-                if (mems.length === 1) {
-                  const mem = mems[0]
-                  setCreateForm((prev) => {
-                    // Guard: don't overwrite if user already selected a membership
-                    if (prev.membership_id) return prev
-                    const updated = { ...prev, membership_id: `membership:${mem.id}` }
-                    // Auto-apply membership discount to price
-                    const currentBase = basePrice || Number(prev.price) || 0
-                    if (mem.service_plans?.discount_per_visit && currentBase > 0) {
-                      updated.price = String(Math.max(0, currentBase - mem.service_plans.discount_per_visit))
-                    }
-                    return updated
-                  })
-                }
-              })
-              .catch(() => setCustomerMemberships([]))
-          }
+          setPhoneSuggestions(res.data)
+          setShowPhoneSuggestions(true)
         })
-        .catch(() => {})
-    }, 500)
+        .catch(() => setPhoneSuggestions([]))
+    }, 400)
 
     return () => clearTimeout(timer)
   }, [createForm.customer_phone, createOpen])
+
+  // Preview highlight helper — highlights all populated fields during hover preview
+  const previewClass = (field: keyof CreateForm) =>
+    isPreviewing && createForm[field] ? " previewing" : ""
 
   // Address suggestions via Google Places Autocomplete (debounced)
   useEffect(() => {
@@ -801,6 +921,12 @@ export default function JobsPage() {
     })
     setCreateError("")
     setPhoneLookedUp("")
+    setPhoneSuggestions([])
+    setShowPhoneSuggestions(false)
+    formSnapshotRef.current = null
+    isPreviewingRef.current = false
+    basePriceSnapshotRef.current = 0
+    setIsPreviewing(false)
     setBasePrice(0)
     setAddressSuggestions([])
     setLookedUpCustomerId(null)
@@ -1250,7 +1376,7 @@ export default function JobsPage() {
         return
       }
     }
-    if (!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && !createForm.selected_tier_index) {
+    if (!isHouseCleaning && (createForm.service_type || "").toLowerCase().includes("window") && !createForm.selected_tier_index) {
       setCreateError("Please select a window cleaning tier")
       return
     }
@@ -1322,6 +1448,12 @@ export default function JobsPage() {
 
       setCreateOpen(false)
       setPhoneLookedUp("")
+      setPhoneSuggestions([])
+      setShowPhoneSuggestions(false)
+      formSnapshotRef.current = null
+      isPreviewingRef.current = false
+      basePriceSnapshotRef.current = 0
+      setIsPreviewing(false)
       setLookedUpCustomerId(null)
       setCustomerMemberships([])
       await refreshJobs()
@@ -1335,7 +1467,7 @@ export default function JobsPage() {
   return (
     <>
       <div className="calendar-shell animate-fade-in">
-        <div className="mb-6 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="mb-3 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
             <p className="text-sm text-muted-foreground">
@@ -1348,7 +1480,7 @@ export default function JobsPage() {
         </div>
 
         {loading ? <CubeLoader /> : <>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: "1.25rem" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0 }}>
           {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
             <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
               <span style={{
@@ -1460,6 +1592,12 @@ export default function JobsPage() {
           })
           setCreateError("")
           setPhoneLookedUp("")
+          setPhoneSuggestions([])
+          setShowPhoneSuggestions(false)
+          formSnapshotRef.current = null
+          isPreviewingRef.current = false
+          basePriceSnapshotRef.current = 0
+          setIsPreviewing(false)
           setBasePrice(0)
           setAddressSuggestions([])
           setLookedUpCustomerId(null)
@@ -2075,7 +2213,7 @@ export default function JobsPage() {
           if (e.target === e.currentTarget) setCreateOpen(false)
         }}
       >
-        <div className="cal-modal" style={{ maxWidth: 900 }}>
+        <div className="cal-modal" style={{ maxWidth: 900, maxHeight: "calc(100vh - 2rem)" }}>
           <div className="cal-modal-header">
             <h5>Create Job</h5>
             <button
@@ -2091,17 +2229,68 @@ export default function JobsPage() {
               <div>
                 {/* Row 1: Phone, Service Type */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <div>
+                  <div style={{ position: "relative" }}>
                     <label className="cal-form-label">Customer Phone *</label>
                     <input
                       type="tel"
                       className="cal-form-control"
                       placeholder="(555) 123-4567"
                       value={createForm.customer_phone}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setCreateForm((prev) => ({ ...prev, customer_phone: e.target.value }))
-                      }
+                        setLookedUpCustomerId(null)
+                        setShowPhoneSuggestions(true)
+                      }}
+                      onFocus={() => { if (phoneSuggestions.length > 0) setShowPhoneSuggestions(true) }}
+                      onBlur={() => setTimeout(() => { if (!isPreviewingRef.current) setShowPhoneSuggestions(false) }, 200)}
                     />
+                    {showPhoneSuggestions && phoneSuggestions.length > 0 && (
+                      <div style={{
+                        position: "absolute",
+                        top: "100%",
+                        left: 0,
+                        right: 0,
+                        zIndex: 100,
+                        background: "#1e1e21",
+                        border: "1px solid rgba(63, 63, 70, 0.6)",
+                        borderRadius: 8,
+                        marginTop: 2,
+                        maxHeight: 200,
+                        overflowY: "auto",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                      }}>
+                        {phoneSuggestions.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              selectPhoneCustomer(s)
+                            }}
+                            style={{
+                              display: "block",
+                              width: "100%",
+                              textAlign: "left",
+                              padding: "0.5rem 0.75rem",
+                              background: "transparent",
+                              border: "none",
+                              borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                              color: "#e4e4e7",
+                              fontSize: "0.8rem",
+                              cursor: "pointer",
+                            }}
+                            onMouseEnter={() => previewPhoneCustomer(s)}
+                            onMouseLeave={() => revertPreview()}
+                          >
+                            <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{[s.first_name, s.last_name].filter(Boolean).join(" ")}</div>
+                            <div style={{ color: "#71717a", fontSize: "0.75rem", wordBreak: "break-word" }}>
+                              {s.phone_number}
+                              {s.address && <span style={{ color: "#52525b", marginLeft: "0.5rem" }}>{s.address}</span>}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="cal-form-label">Service Type</label>
@@ -2112,13 +2301,15 @@ export default function JobsPage() {
                         : ["Window cleaning", "Pressure washing", "Gutter cleaning", "Walkthru"]
                       const knownTypes = isHouseCleaning ? hcTypes : winTypes
                       const defaultType = knownTypes[0] || "Window cleaning"
-                      const isKnown = knownTypes.includes(createForm.service_type)
+                      // Case-insensitive match so last-job auto-fill (e.g. "Power Washing") still matches known types
+                      const matchedKnown = knownTypes.find((t) => t.toLowerCase() === (createForm.service_type || "").toLowerCase())
+                      const isKnown = !!matchedKnown
 
                       return (
                         <>
                           <select
-                            className="cal-form-control"
-                            value={isKnown ? createForm.service_type : "__custom__"}
+                            className={`cal-form-control${previewClass("service_type")}`}
+                            value={isKnown ? (matchedKnown || createForm.service_type) : "__custom__"}
                             onChange={(e) => {
                               if (e.target.value === "__custom__") {
                                 setCreateForm((prev) => ({ ...prev, service_type: "" }))
@@ -2139,7 +2330,7 @@ export default function JobsPage() {
                                 type="text"
                                 className="cal-form-control"
                                 placeholder="Type service name..."
-                                autoFocus
+                                autoFocus={!isPreviewing}
                                 value={createForm.service_type}
                                 onChange={(e) =>
                                   setCreateForm((prev) => ({ ...prev, service_type: e.target.value }))
@@ -2169,7 +2360,7 @@ export default function JobsPage() {
                     <label className="cal-form-label">Customer Name</label>
                     <input
                       type="text"
-                      className="cal-form-control"
+                      className={`cal-form-control${previewClass("customer_name")}`}
                       placeholder="John Smith"
                       value={createForm.customer_name}
                       onChange={(e) =>
@@ -2181,7 +2372,7 @@ export default function JobsPage() {
                     <label className="cal-form-label">Email</label>
                     <input
                       type="email"
-                      className="cal-form-control"
+                      className={`cal-form-control${previewClass("email")}`}
                       placeholder="john@example.com"
                       value={createForm.email}
                       onChange={(e) =>
@@ -2196,7 +2387,7 @@ export default function JobsPage() {
                   <label className="cal-form-label">Address</label>
                   <input
                     type="text"
-                    className="cal-form-control"
+                    className={`cal-form-control${previewClass("address")}`}
                     placeholder="123 Main St, City, State"
                     value={createForm.address}
                     onChange={(e) => {
@@ -2533,7 +2724,7 @@ export default function JobsPage() {
               {/* ── RIGHT COLUMN ── */}
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 {/* Window Tier — WinBros window cleaning only */}
-                {!isHouseCleaning && createForm.service_type.toLowerCase().includes("window") && (
+                {!isHouseCleaning && (createForm.service_type || "").toLowerCase().includes("window") && (
                   <div>
                     <label className="cal-form-label">Window Tier *</label>
                     <select
@@ -2607,93 +2798,87 @@ export default function JobsPage() {
                   </div>
                 )}
 
-                {/* Price Summary — WinBros only */}
-                {!isHouseCleaning && (
-                  <div style={{
-                    background: "rgba(39, 39, 42, 0.3)",
-                    borderRadius: 8,
-                    border: "1px solid rgba(63, 63, 70, 0.4)",
-                    padding: "0.75rem",
-                    height: 150,
-                    overflowY: "auto",
-                  }}>
-                    <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#e4e4e7", marginBottom: "0.5rem" }}>
-                      Price Summary
-                    </div>
-                    {(() => {
-                      const tierIdx = createForm.selected_tier_index === "" ? -1 : Number(createForm.selected_tier_index)
-                      const tier = tierIdx >= 0 && tierIdx < windowTiers.length ? windowTiers[tierIdx] : null
-                      const isWindow = createForm.service_type.toLowerCase().includes("window")
-
-                      if (isWindow && !tier) {
-                        return <p style={{ color: "#71717a", fontSize: "0.8rem", fontStyle: "italic", margin: 0 }}>Select a tier to see pricing</p>
-                      }
-
-                      const items: { label: string; price: number }[] = []
-
-                      if (isWindow && tier) {
-                        items.push({ label: "Exterior Window Cleaning", price: tier.exterior })
-                      } else if (basePrice > 0) {
-                        items.push({ label: createForm.service_type || "Base Service", price: basePrice })
-                      }
-
-                      // Selected add-ons
-                      for (const key of createForm.selected_addons) {
-                        const addon = derivedAddonsList.find((a) => a.addon_key === key)
-                        if (addon) {
-                          items.push({ label: addon.label, price: addon.flat_price || 0 })
-                        }
-                      }
-
-                      // Membership discount
-                      let discount = 0
-                      if (createForm.membership_id) {
-                        if (createForm.membership_id.startsWith("membership:")) {
-                          const mem = customerMemberships.find((m) => m.id === createForm.membership_id.replace("membership:", ""))
-                          discount = mem?.service_plans?.discount_per_visit || 0
-                        } else if (createForm.membership_id.startsWith("plan:")) {
-                          const plan = servicePlans.find((p) => p.slug === createForm.membership_id.replace("plan:", ""))
-                          discount = plan?.discount_per_visit || 0
-                        }
-                      }
-
-                      const subtotal = items.reduce((sum, i) => sum + i.price, 0)
-                      const total = Math.max(0, subtotal - discount)
-
-                      if (items.length === 0) {
-                        return <p style={{ color: "#71717a", fontSize: "0.8rem", fontStyle: "italic", margin: 0 }}>No items yet</p>
-                      }
-
-                      return (
-                        <div style={{ fontSize: "0.8rem" }}>
-                          {items.map((item, i) => (
-                            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: item.price > 0 ? "#e4e4e7" : "#4ade80" }}>
-                              <span>{item.label}</span>
-                              <span>{item.price > 0 ? `$${item.price}` : "FREE"}</span>
-                            </div>
-                          ))}
-                          {discount > 0 && (
-                            <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#4ade80" }}>
-                              <span>Membership Discount</span>
-                              <span>-${discount}</span>
-                            </div>
-                          )}
-                          <div style={{ display: "flex", justifyContent: "space-between", padding: "0.4rem 0 0", marginTop: "0.3rem", borderTop: "1px solid rgba(63, 63, 70, 0.4)", fontWeight: 700, color: "#e4e4e7" }}>
-                            <span>Total</span>
-                            <span>${total}</span>
-                          </div>
-                        </div>
-                      )
-                    })()}
+                {/* Price Summary */}
+                <div style={{
+                  background: "rgba(39, 39, 42, 0.3)",
+                  borderRadius: 8,
+                  border: "1px solid rgba(63, 63, 70, 0.4)",
+                  padding: "0.75rem",
+                  height: 150,
+                  overflowY: "auto",
+                }}>
+                  <div style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: "#e4e4e7", marginBottom: "0.5rem" }}>
+                    Price Summary
                   </div>
-                )}
+                  {(() => {
+                    const tierIdx = createForm.selected_tier_index === "" ? -1 : Number(createForm.selected_tier_index)
+                    const tier = tierIdx >= 0 && tierIdx < windowTiers.length ? windowTiers[tierIdx] : null
+                    const isWindow = !isHouseCleaning && (createForm.service_type || "").toLowerCase().includes("window")
+
+                    const items: { label: string; price: number }[] = []
+
+                    if (isWindow && tier) {
+                      items.push({ label: "Exterior Window Cleaning", price: tier.exterior })
+                    } else if (basePrice > 0) {
+                      items.push({ label: createForm.service_type || "Base Service", price: basePrice })
+                    }
+
+                    // Selected add-ons
+                    for (const key of createForm.selected_addons) {
+                      const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                      if (addon) {
+                        items.push({ label: addon.label, price: addon.flat_price || 0 })
+                      }
+                    }
+
+                    // Membership discount
+                    let discount = 0
+                    if (createForm.membership_id) {
+                      if (createForm.membership_id.startsWith("membership:")) {
+                        const mem = customerMemberships.find((m) => m.id === createForm.membership_id.replace("membership:", ""))
+                        discount = mem?.service_plans?.discount_per_visit || 0
+                      } else if (createForm.membership_id.startsWith("plan:")) {
+                        const plan = servicePlans.find((p) => p.slug === createForm.membership_id.replace("plan:", ""))
+                        discount = plan?.discount_per_visit || 0
+                      }
+                    }
+
+                    const subtotal = items.reduce((sum, i) => sum + i.price, 0)
+                    const total = Math.max(0, subtotal - discount)
+
+                    if (items.length === 0) {
+                      return <p style={{ color: "#71717a", fontSize: "0.8rem", fontStyle: "italic", margin: 0 }}>No items yet</p>
+                    }
+
+                    return (
+                      <div style={{ fontSize: "0.8rem" }}>
+                        {items.map((item, i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: item.price > 0 ? "#e4e4e7" : "#4ade80" }}>
+                            <span>{item.label}</span>
+                            <span>{item.price > 0 ? `$${item.price}` : "FREE"}</span>
+                          </div>
+                        ))}
+                        {discount > 0 && (
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#4ade80" }}>
+                            <span>Membership Discount</span>
+                            <span>-${discount}</span>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "0.4rem 0 0", marginTop: "0.3rem", borderTop: "1px solid rgba(63, 63, 70, 0.4)", fontWeight: 700, color: "#e4e4e7" }}>
+                          <span>Total</span>
+                          <span>${total}</span>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                </div>
 
                 {/* Override Price */}
                 <div>
                   <label className="cal-form-label">Override Price</label>
                   <input
                     type="number"
-                    className="cal-form-control"
+                    className={`cal-form-control${previewClass("price")}`}
                     placeholder="0.00"
                     min="0"
                     step="0.01"

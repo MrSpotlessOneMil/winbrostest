@@ -28,23 +28,47 @@ export async function GET(request: NextRequest) {
     if (phone) {
       // Strip non-digits for matching
       const digits = phone.replace(/\D/g, "")
-      if (digits.length < 7) {
+      if (digits.length < 3) {
         return NextResponse.json({ success: true, data: [] })
       }
 
-      // Match by last 10 digits (handles +1 prefix variations)
-      const last10 = digits.slice(-10)
+      // Match by trailing digits (handles +1 prefix variations)
+      const matchDigits = digits.length >= 10 ? digits.slice(-10) : digits
       const { data, error } = await client
         .from("customers")
         .select("id, first_name, last_name, email, phone_number, address, bedrooms, bathrooms, sqft, notes")
-        .like("phone_number", `%${last10}`)
-        .limit(5)
+        .like("phone_number", `%${matchDigits}%`)
+        .limit(4)
 
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
       }
 
-      return NextResponse.json({ success: true, data: data || [] })
+      // Fetch last job for each matched customer
+      // Over-fetch to ensure coverage across all customers (Map dedup picks first per customer)
+      const customers = data || []
+      if (customers.length > 0) {
+        const customerIds = customers.map((c: { id: string }) => c.id)
+        const { data: lastJobs } = await client
+          .from("jobs")
+          .select("customer_id, service_type, addons, price")
+          .in("customer_id", customerIds)
+          .in("status", ["completed", "scheduled", "in_progress"])
+          .order("scheduled_at", { ascending: false })
+          .limit(20)
+
+        const jobByCustomer = new Map<string, any>()
+        for (const job of lastJobs || []) {
+          if (!jobByCustomer.has(job.customer_id)) {
+            jobByCustomer.set(job.customer_id, job)
+          }
+        }
+        for (const c of customers as (typeof customers[0] & { last_job?: unknown })[]) {
+          c.last_job = jobByCustomer.get(c.id) || null
+        }
+      }
+
+      return NextResponse.json({ success: true, data: customers })
     }
 
     if (q && q.length >= 2) {

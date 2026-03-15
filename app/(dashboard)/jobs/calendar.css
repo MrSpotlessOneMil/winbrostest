@@ -6,6 +6,10 @@
   overflow: hidden;
 }
 
+.calendar-shell > * {
+  min-height: 0;
+}
+
 .calendar-card {
   background: transparent;
   border-radius: 12px;
@@ -202,6 +206,7 @@
 .fc .fc-scrollgrid-sync-table tbody tr {
   height: 95px !important;
 }
+
 
 .fc .fc-day-other .fc-daygrid-day-number {
   color: #3f3f46;
@@ -409,6 +414,11 @@ select.cal-form-control {
   font-weight: 500;
   color: #71717a;
   margin-bottom: 0.25rem;
+}
+
+.cal-form-control.previewing {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.08);
 }
 
 /* Rainy Day Reschedule */
