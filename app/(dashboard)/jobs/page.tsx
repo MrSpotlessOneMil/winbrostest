@@ -1073,13 +1073,16 @@ export default function JobsPage() {
         })
         const data = await res.json()
         if (!res.ok) {
-          console.error("Delete future failed:", data.error)
+          alert(data.error || "Failed to delete recurring jobs")
           return
         }
       } else {
         const res = await fetch(`/api/jobs?id=${selectedEvent.jobId}`, { method: "DELETE" })
         const data = await res.json()
-        if (!data.success) return
+        if (!data.success) {
+          alert(data.error || "Failed to delete job")
+          return
+        }
       }
 
       setSelectedEvent(null)
