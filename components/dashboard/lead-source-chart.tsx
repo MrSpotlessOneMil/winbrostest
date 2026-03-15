@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Phone, Instagram, Globe, MessageSquare, ArrowLeft, Radar } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
+import { SOURCE_CONFIG, SOURCE_ICONS, getSourceConfig } from "@/lib/constants/lead-sources"
 
 type SourceData = { source: string; leads: number; jobs: number }
 type LeadData = {
@@ -21,33 +22,6 @@ type LeadData = {
   converted_to_job_id: string | null
 }
 type Slice = { name: string; label: string; value: number; jobs: number; fill: string }
-
-const SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
-  phone: { label: "Phone Calls", color: "#5b8def" },
-  vapi: { label: "Phone (Vapi)", color: "#7ca3f0" },
-  meta: { label: "Meta Ads", color: "#4ade80" },
-  website: { label: "Website", color: "#facc15" },
-  sms: { label: "SMS", color: "#f472b6" },
-  housecall_pro: { label: "HousecallPro", color: "#a78bfa" },
-  ghl: { label: "GoHighLevel", color: "#fb923c" },
-  manual: { label: "Manual", color: "#94a3b8" },
-  sam: { label: "SAM", color: "#f97316" },
-}
-
-const DEFAULT_COLOR = "#6b7280"
-
-function getSourceConfig(source: string) {
-  return SOURCE_CONFIG[source] || { label: source, color: DEFAULT_COLOR }
-}
-
-const SOURCE_ICONS: Record<string, typeof Phone | null> = {
-  phone: Phone,
-  vapi: Phone,
-  meta: Instagram,
-  website: Globe,
-  sms: MessageSquare,
-  sam: Radar,
-}
 
 const STATUS_COLORS: Record<string, string> = {
   new: "bg-blue-500/20 text-blue-400",
