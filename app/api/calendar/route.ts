@@ -26,6 +26,9 @@ export async function GET(request: NextRequest) {
       query.eq("tenant_id", tenant.id)
     }
 
+    // Never show cancelled jobs on the calendar
+    query.neq("status", "cancelled")
+
     const { data, error } = await query
       .order("created_at", { ascending: false })
       .limit(2000)

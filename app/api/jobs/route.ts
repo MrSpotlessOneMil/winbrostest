@@ -381,12 +381,17 @@ export async function DELETE(request: NextRequest) {
     await svc.from("leads").update({ converted_to_job_id: null }).eq("converted_to_job_id", Number(id))
 
     // Delete the job — DB cascade handles cleaner_assignments, reviews, tips, upsells
-    const client = tenant ? await getTenantScopedClient(tenant.id) : svc
-    let deleteQuery = client.from("jobs").delete().eq("id", Number(id))
+    // Use service client (auth already verified above) with tenant_id filter for safety
+    let deleteQuery = svc.from("jobs").delete().eq("id", Number(id))
     if (tenant) deleteQuery = deleteQuery.eq("tenant_id", tenant.id)
 
-    const { error } = await deleteQuery
+    const { data: deleted, error } = await deleteQuery.select("id")
     if (error) throw error
+
+    // If tenant mismatch or already deleted, report failure
+    if (!deleted || deleted.length === 0) {
+      return NextResponse.json({ success: false, error: "Job not found or already deleted" }, { status: 404 })
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

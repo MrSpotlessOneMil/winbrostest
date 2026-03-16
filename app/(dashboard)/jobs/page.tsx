@@ -349,8 +349,15 @@ function toLocalInput(date: Date | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function eventClassForStatus(_status?: string) {
-  return "event-scheduled"
+function eventClassForStatus(status?: string) {
+  switch (status) {
+    case "completed": return "event-completed"
+    case "cancelled": return "event-cancelled"
+    case "in_progress": return "event-in-progress"
+    case "rescheduled": return "event-rescheduled"
+    case "pending": return "event-pending"
+    default: return "event-scheduled"
+  }
 }
 
 const STORAGE_KEY_VIEW = "calendar-view"
