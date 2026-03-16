@@ -225,6 +225,18 @@ export async function GET(request: NextRequest) {
   const reviews = reviewsData ?? []
 
   // -----------------------------------------------------------------------
+  // 7b. Reviews (previous period)
+  // -----------------------------------------------------------------------
+  const { data: prevReviewsData } = await supabase
+    .from("reviews")
+    .select("team_id, rating")
+    .eq("tenant_id", tenant.id)
+    .gte("created_at", prevStart)
+    .lte("created_at", prevEnd)
+
+  const prevReviews = prevReviewsData ?? []
+
+  // -----------------------------------------------------------------------
   // 8. Cleaner assignments (current period)
   // -----------------------------------------------------------------------
   const { data: assignmentsData } = await supabase
@@ -253,6 +265,7 @@ export async function GET(request: NextRequest) {
     const prevTeamJobs = prevJobs.filter((j) => j.team_id === team.id)
     const teamTips = tips.filter((t) => t.team_id === team.id)
     const teamReviews = reviews.filter((r) => r.team_id === team.id)
+    const teamPrevReviews = prevReviews.filter((r) => r.team_id === team.id)
 
     const jobsCompleted = teamJobs.length
     const previousJobs = prevTeamJobs.length
@@ -264,6 +277,10 @@ export async function GET(request: NextRequest) {
     const ratingSum = teamReviews.reduce((sum, r) => sum + (r.rating || 0), 0)
     const reviewCount = teamReviews.length
     const avgRating = reviewCount > 0 ? Math.round((ratingSum / reviewCount) * 10) / 10 : 0
+
+    const prevRatingSum = teamPrevReviews.reduce((sum, r) => sum + (r.rating || 0), 0)
+    const prevReviewCount = teamPrevReviews.length
+    const previousAvgRating = prevReviewCount > 0 ? Math.round((prevRatingSum / prevReviewCount) * 10) / 10 : 0
 
     // Upsell rate: jobs with at least one upsell / total completed jobs
     const upsellJobSet = upsellJobsByTeam.get(team.id) ?? new Set()
@@ -284,6 +301,8 @@ export async function GET(request: NextRequest) {
       previousRevenue,
       avgRating,
       reviewCount,
+      previousAvgRating,
+      previousReviewCount: prevReviewCount,
       tipsTotal,
       upsellRate,
       upsellRevenue,

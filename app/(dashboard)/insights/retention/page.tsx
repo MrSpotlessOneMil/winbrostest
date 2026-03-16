@@ -49,7 +49,7 @@ interface RetentionData {
     }
     conversionRate: number
   }
-  repeatRate: { current: number }
+  repeatRate: { current: number; previous: number }
   healthScore: number
   atRiskCustomers: Array<{
     id: string
@@ -202,6 +202,7 @@ export default function RetentionPage() {
         <MetricCard
           label="Repeat Rate"
           value={data.repeatRate.current}
+          previousValue={data.repeatRate.previous}
           suffix="%"
           format="percent"
           icon={Repeat}

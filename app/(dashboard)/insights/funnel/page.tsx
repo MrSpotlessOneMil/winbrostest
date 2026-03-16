@@ -49,6 +49,7 @@ interface FunnelData {
   stages: FunnelStage[]
   staleLeads: { count: number; leads: StaleLead[] }
   avgTimeToContact: number
+  previousAvgTimeToContact: number
   avgTimeToBook: number
   bottleneck: string
   conversionTrend: ConversionTrendPoint[]
@@ -203,7 +204,7 @@ export default function FunnelPage() {
     )
   }
 
-  const { stages, staleLeads, avgTimeToContact, avgTimeToBook, bottleneck, conversionTrend, sparklines } = data
+  const { stages, staleLeads, avgTimeToContact, previousAvgTimeToContact, avgTimeToBook, bottleneck, conversionTrend, sparklines } = data
 
   // Overall conversion rate: completed / total leads
   const totalLeads = stages[0]?.count || 0
@@ -270,6 +271,7 @@ export default function FunnelPage() {
         <MetricCard
           label="Avg Time to First Contact"
           value={avgTimeToContact}
+          previousValue={previousAvgTimeToContact}
           suffix="m"
           icon={Clock}
           sparklineColor="#a78bfa"

@@ -271,6 +271,22 @@ export async function GET(request: NextRequest) {
 
   const avgTimeToContact = responseCount > 0 ? Math.round(responseMinutesSum / responseCount) : 0
 
+  // Previous period avg time to first contact
+  let prevResponseMinutesSum = 0
+  let prevResponseCount = 0
+
+  for (const l of prevLeads) {
+    if (l.last_contact_at) {
+      const diff = new Date(l.last_contact_at).getTime() - new Date(l.created_at).getTime()
+      if (diff >= 0) {
+        prevResponseMinutesSum += diff / 60000
+        prevResponseCount++
+      }
+    }
+  }
+
+  const previousAvgTimeToContact = prevResponseCount > 0 ? Math.round(prevResponseMinutesSum / prevResponseCount) : 0
+
   // Avg time to book: lead created_at → job date for booked/converted leads
   const bookedLeadsWithJobs = leads.filter((l) => l.converted_to_job_id)
   let bookingHoursSum = 0
@@ -395,6 +411,7 @@ export async function GET(request: NextRequest) {
     stages,
     staleLeads,
     avgTimeToContact,
+    previousAvgTimeToContact,
     avgTimeToBook,
     bottleneck,
     conversionTrend,

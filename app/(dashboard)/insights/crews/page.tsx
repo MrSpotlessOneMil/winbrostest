@@ -34,6 +34,8 @@ interface TeamRow {
   previousRevenue: number
   avgRating: number
   reviewCount: number
+  previousAvgRating: number
+  previousReviewCount: number
   tipsTotal: number
   upsellRate: number
   upsellRevenue: number
@@ -215,6 +217,10 @@ export default function CrewsPage() {
   const totalReviewCount = teams.reduce((sum, t) => sum + t.reviewCount, 0)
   const avgRating = totalReviewCount > 0 ? Math.round((weightedRatingSum / totalReviewCount) * 10) / 10 : 0
 
+  const prevWeightedRatingSum = teams.reduce((sum, t) => sum + t.previousAvgRating * t.previousReviewCount, 0)
+  const prevTotalReviewCount = teams.reduce((sum, t) => sum + t.previousReviewCount, 0)
+  const previousAvgRating = prevTotalReviewCount > 0 ? Math.round((prevWeightedRatingSum / prevTotalReviewCount) * 10) / 10 : 0
+
   const bestTeam = [...teams].sort((a, b) => b.revenue - a.revenue)[0]
 
   // Sorted teams for leaderboard
@@ -302,6 +308,7 @@ export default function CrewsPage() {
         <MetricCard
           label="Avg Rating"
           value={avgRating}
+          previousValue={previousAvgRating}
           format="number"
           icon={Star}
           sparklineColor="#4ade80"

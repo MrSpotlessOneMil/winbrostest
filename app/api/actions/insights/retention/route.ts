@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
   const toParam = url.searchParams.get("to")
 
   const tz = tenant.timezone || "America/Chicago"
-  const { start, end } = computeDateRange(range, fromParam, toParam, tz)
+  const { start, end, prevStart, prevEnd } = computeDateRange(range, fromParam, toParam, tz)
 
   // -------------------------------------------------------------------------
   // 1. Lifecycle distribution (snapshot — NOT date-filtered)
@@ -204,6 +204,24 @@ export async function GET(request: NextRequest) {
   const customersWithMultipleJobs = Object.values(jobCountByCustomer).filter((c) => c >= 2).length
   const repeatRate = customersWithJobs > 0
     ? Math.round((customersWithMultipleJobs / customersWithJobs) * 1000) / 10
+    : 0
+
+  // Previous period repeat rate: count jobs completed in previous period per customer
+  const prevPeriodJobs = jobs.filter((j) => {
+    const jobDate = j.completed_at || j.date || j.created_at
+    return jobDate && jobDate >= prevStart && jobDate <= prevEnd
+  })
+
+  const prevJobCountByCustomer: Record<string, number> = {}
+  for (const j of prevPeriodJobs) {
+    if (!j.customer_id) continue
+    prevJobCountByCustomer[j.customer_id] = (prevJobCountByCustomer[j.customer_id] || 0) + 1
+  }
+
+  const prevCustomersWithJobs = Object.keys(prevJobCountByCustomer).length
+  const prevCustomersWithMultipleJobs = Object.values(prevJobCountByCustomer).filter((c) => c >= 2).length
+  const previousRepeatRate = prevCustomersWithJobs > 0
+    ? Math.round((prevCustomersWithMultipleJobs / prevCustomersWithJobs) * 1000) / 10
     : 0
 
   // -------------------------------------------------------------------------
@@ -405,7 +423,7 @@ export async function GET(request: NextRequest) {
       },
       conversionRate,
     },
-    repeatRate: { current: repeatRate },
+    repeatRate: { current: repeatRate, previous: previousRepeatRate },
     healthScore,
     atRiskCustomers,
     satisfaction: { positive, negative, noResponse },
