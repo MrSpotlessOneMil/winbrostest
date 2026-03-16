@@ -29,7 +29,7 @@ export async function sendSMS(
   tenant: Tenant,
   to: string,
   message: string,
-  options?: { skipThrottle?: boolean }
+  options?: { skipThrottle?: boolean; skipDedup?: boolean }
 ): Promise<SendSMSResponse> {
 
   if (!tenant) {
@@ -84,9 +84,9 @@ export async function sendSMS(
     console.error(`[${tenant.slug}] SMS opt-out check failed:`, optOutErr)
   }
 
-  // ── Content dedup (ALWAYS runs, even for cleaner messages) ──
+  // ── Content dedup (skip when caller pre-inserted the DB record) ──
   // Prevents the same message from being sent twice within 5 minutes
-  try {
+  if (!options?.skipDedup) try {
     const dedupClient = getSupabaseServiceClient()
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const contentPrefix = message.slice(0, 100)

@@ -49,10 +49,11 @@ async function sendMultiPartSMS(
       metadata: { ...metadata, part: i + 1, total_parts: parts.length },
     })
 
-    const result = await sendSMS(tenant, phone, part)
+    const result = await sendSMS(tenant, phone, part, { skipDedup: true })
     if (result.success) {
       messageIds.push(result.messageId || '')
     } else {
+      console.error(`[${tenant.slug}] Auto-response SMS failed for ${phone}: ${result.error}`)
       allSuccess = false
     }
 
@@ -169,20 +170,36 @@ export async function POST(request: NextRequest) {
         .eq("tenant_id", tenant?.id)
         .maybeSingle()
 
-      // Dedup: check if this outbound message was already stored by our system
-      // (e.g., VAPI confirmation, auto-response, deposit flow, card-on-file, cleaner SMS, etc.)
-      // 5-minute window to handle slow webhook delivery from OpenPhone
-      const outboundDedupCutoff = new Date(Date.now() - 300000).toISOString()
-      const { data: existingOutbound } = await client
-        .from("messages")
-        .select("id")
-        .eq("phone_number", toE164)
-        .eq("tenant_id", tenant?.id)
-        .eq("role", "assistant")
-        .eq("content", extracted.content || "")
-        .gte("timestamp", outboundDedupCutoff)
-        .limit(1)
-        .maybeSingle()
+      // Extract OpenPhone message ID for outbound dedup
+      const outboundOpMsgId: string | undefined =
+        payload?.data?.object?.id || payload?.data?.id || payload?.id || undefined
+
+      // Dedup: first check by OpenPhone message ID (reliable), then fallback to content match
+      let existingOutbound = null
+      if (outboundOpMsgId) {
+        const { data } = await client
+          .from("messages")
+          .select("id")
+          .eq("tenant_id", tenant?.id)
+          .eq("external_message_id", outboundOpMsgId)
+          .maybeSingle()
+        existingOutbound = data
+      }
+      if (!existingOutbound) {
+        // Fallback: content-based dedup for pre-inserted auto-responses (which don't have external_message_id)
+        const outboundDedupCutoff = new Date(Date.now() - 300000).toISOString()
+        const { data } = await client
+          .from("messages")
+          .select("id")
+          .eq("phone_number", toE164)
+          .eq("tenant_id", tenant?.id)
+          .eq("role", "assistant")
+          .eq("content", extracted.content || "")
+          .gte("timestamp", outboundDedupCutoff)
+          .limit(1)
+          .maybeSingle()
+        existingOutbound = data
+      }
 
       if (existingOutbound) {
         console.log(`[OpenPhone] Outbound message already stored for ${maskPhone(toPhone)}, skipping duplicate`)
@@ -199,6 +216,7 @@ export async function POST(request: NextRequest) {
           ai_generated: false,
           timestamp: extracted.createdAt || new Date().toISOString(),
           source: "openphone_app",
+          external_message_id: outboundOpMsgId || null,
           metadata: payload,
         })
 
