@@ -296,10 +296,22 @@ async function getWindowCleaningPricing(squareFootage?: number | null, tenantId?
     best: computeTierPrice('best', squareFootage, windowTiers),
   }
 
+  // Set actual sqft-based prices on interior/track_detailing add-ons
+  // (they show $0 in the static list because their price depends on sqft)
+  const betterBreakdown = tierPrices.better.breakdown
+  const interiorPrice = betterBreakdown.find(b => b.service === 'Interior Window Cleaning')?.price || 0
+  const trackPrice = betterBreakdown.find(b => b.service === 'Track Detailing')?.price || 0
+
+  const addonsWithPrices = (QUOTE_ADDONS as AddonDefinition[]).map(addon => {
+    if (addon.key === 'interior' && interiorPrice > 0) return { ...addon, price: interiorPrice }
+    if (addon.key === 'track_detailing' && trackPrice > 0) return { ...addon, price: trackPrice }
+    return addon
+  })
+
   return {
     tiers: QUOTE_TIERS as TierDefinition[],
     tierPrices,
-    addons: QUOTE_ADDONS as AddonDefinition[],
+    addons: addonsWithPrices,
     serviceType: 'window_cleaning',
   }
 }

@@ -2098,6 +2098,9 @@ export async function POST(request: NextRequest) {
             reason: "post_booking_assigned",
           })
 
+          // Sync customer name to DB + OpenPhone as soon as we have it
+          await syncCustomerNameIfAvailable(client, tenant, customer, conversationHistory)
+
           if (sendResult.success) {
             // Schedule mid-convo nudge (5 min)
             await client.from("customers").update({ awaiting_reply_since: new Date().toISOString() }).eq("id", customer.id)
@@ -2401,6 +2404,9 @@ export async function POST(request: NextRequest) {
               reason: autoResponse.reason,
               combined_message: combinedMessage,
             })
+
+            // Sync customer name to DB + OpenPhone as soon as we have it
+            if (tenant) await syncCustomerNameIfAvailable(client, tenant, customer, conversationHistory)
 
             if (!sendResult.success) {
               console.error(`[OpenPhone] Failed to send auto-response to existing lead`)
@@ -3055,6 +3061,9 @@ export async function POST(request: NextRequest) {
             combined_message: combinedMessage,
           })
 
+          // Sync customer name to DB + OpenPhone as soon as we have it
+          if (tenant) await syncCustomerNameIfAvailable(client, tenant, customer, conversationHistory)
+
           await logSystemEvent({
             tenant_id: tenant?.id,
             source: "openphone",
@@ -3292,7 +3301,7 @@ export async function POST(request: NextRequest) {
 
 /**
  * Try to extract a customer name from the conversation history.
- * Looks for the customer's response after a "full name" question from the assistant.
+ * Looks for the customer's response after a name question from the assistant.
  */
 function extractNameFromConversation(
   conversationHistory: Array<{ role: string; content: string }>
@@ -3300,19 +3309,64 @@ function extractNameFromConversation(
   for (let i = 0; i < conversationHistory.length - 1; i++) {
     if (
       conversationHistory[i].role === 'assistant' &&
-      /full name/i.test(conversationHistory[i].content)
+      /(full name|what's your name|what is your name|your name)/i.test(conversationHistory[i].content)
     ) {
       const nextClient = conversationHistory.slice(i + 1).find(m => m.role === 'client')
       if (nextClient) {
         const name = nextClient.content.trim()
-        // Sanity check: should look like a name (not an email, URL, or long message)
-        if (name.length > 0 && name.length < 60 && !name.includes('@') && !name.includes('http')) {
+        // Sanity check: should look like a name (1-4 words, not email/URL/long message)
+        if (name.length > 0 && name.length < 60 && !name.includes('@') && !name.includes('http') && name.split(/\s+/).length <= 4) {
           return name
         }
       }
     }
   }
   return null
+}
+
+/**
+ * After an auto-response, check if we now know the customer's name and sync it.
+ * Updates: customers table + OpenPhone contact (so name shows instead of phone #).
+ */
+async function syncCustomerNameIfAvailable(
+  client: any,
+  tenant: any,
+  customer: { id: number; first_name?: string | null; last_name?: string | null; phone_number: string },
+  conversationHistory: Array<{ role: string; content: string }>
+): Promise<void> {
+  // Skip if customer already has a name
+  if (customer.first_name && customer.first_name.length > 1) return
+
+  const fullName = extractNameFromConversation(conversationHistory)
+  if (!fullName) return
+
+  const parts = fullName.split(/\s+/)
+  const firstName = parts[0] || null
+  const lastName = parts.slice(1).join(' ') || null
+  if (!firstName) return
+
+  try {
+    // Update customers table
+    const updates: Record<string, string | null> = { first_name: firstName }
+    if (lastName) updates.last_name = lastName
+    await client.from('customers').update(updates).eq('id', customer.id)
+    console.log(`[OpenPhone] Updated customer ${customer.id} name: ${firstName} ${lastName || ''}`)
+
+    // Sync to OpenPhone so name shows in the app
+    const { syncContactToOpenPhone } = await import('@/lib/openphone')
+    await syncContactToOpenPhone(tenant, {
+      id: customer.id,
+      first_name: firstName,
+      last_name: lastName,
+      phone_number: customer.phone_number,
+    })
+
+    // Update the in-memory customer object so subsequent code uses the name
+    customer.first_name = firstName
+    if (lastName) customer.last_name = lastName
+  } catch (err) {
+    console.error(`[OpenPhone] Failed to sync customer name:`, err)
+  }
 }
 
 /**
