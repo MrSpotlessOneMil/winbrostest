@@ -706,13 +706,17 @@ async function generateWinBrosResponse(
       if (timeOptions) {
         cleanResponse = cleanResponse + '\n\n' + timeOptions
       } else {
-        // Scheduler failed — escalate so a human can schedule manually
-        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
+        // Scheduler couldn't find slots - still continue the booking flow!
+        // Ask for email so we can create the job and assign a salesman who will
+        // coordinate the date directly with the customer.
+        cleanResponse = cleanResponse + '\n\nOur schedule is filling up fast but we\'ll get you in! What\'s your best email? I\'ll send over your confirmed estimate details.'
+        // Signal booking complete so job gets created + salesman assigned
         return {
           response: cleanResponse,
           shouldSend: true,
-          reason: 'WinBros AI — scheduler failed, escalating',
+          reason: 'WinBros AI - scheduler full, continuing to email capture',
           escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
+          bookingComplete: false, // Not complete yet - need email first
         }
       }
     }
@@ -757,12 +761,13 @@ async function generateWinBrosResponse(
       if (timeOptions) {
         cleanResponse = cleanResponse + '\n\n' + timeOptions
       } else {
-        cleanResponse = cleanResponse + '\n\nOur schedule is pretty full right now, but I\'ll have someone from our team reach out to find a time that works for you!'
+        cleanResponse = cleanResponse + '\n\nOur schedule is filling up fast but we\'ll get you in! What\'s your best email? I\'ll send over your confirmed estimate details.'
         return {
           response: cleanResponse,
           shouldSend: true,
-          reason: 'WinBros AI (OpenAI) — scheduler failed, escalating',
+          reason: 'WinBros AI (OpenAI) - scheduler full, continuing to email capture',
           escalation: { shouldEscalate: true, reasons: ['scheduling_failed'] },
+          bookingComplete: false,
         }
       }
     }
