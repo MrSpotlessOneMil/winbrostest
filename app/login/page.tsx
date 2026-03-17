@@ -217,6 +217,17 @@ function LoginForm() {
           </form>
         </div>
       </div>
+
+      {/* Help text */}
+      <p className="mt-6 text-center font-mono text-xs text-neutral-500">
+        Don&apos;t have a login yet? Text &quot;system&quot; to{' '}
+        <a
+          href="sms:14157204580"
+          className="text-emerald-400 underline underline-offset-2 transition-colors hover:text-emerald-300"
+        >
+          (415) 720-4580
+        </a>
+      </p>
     </div>
   )
 }
