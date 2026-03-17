@@ -221,18 +221,27 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     await client.from('jobs').update(updates).eq('id', parseInt(jobId))
 
-    // Notify customer
+    // Notify customer (OMW / HERE only - DONE has its own flow below)
     const customer = (job as any).customers
     const customerPhone = customer?.phone_number || job.phone_number
-    if (customerPhone) {
-      const statusMap = { omw: 'omw', here: 'arrived', done: 'done' } as const
+    if (customerPhone && body.status !== 'done') {
+      const statusMap = { omw: 'omw', here: 'arrived' } as const
       await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap])
     }
 
-    // On DONE: auto-charge card + send review link
+    // On DONE: auto-charge card + single satisfaction check
     if (body.status === 'done') {
       const businessName = tenant.business_name_short || tenant.name
       const custName = customer?.first_name || 'there'
+
+      // Set post_job_stage FIRST (before any SMS) to prevent race condition
+      // where customer replies before stage is set
+      if (customer?.id) {
+        await client.from('customers').update({
+          post_job_stage: 'satisfaction_sent',
+          post_job_stage_updated_at: new Date().toISOString(),
+        }).eq('id', customer.id)
+      }
 
       // 1. Auto-charge card if customer has card on file
       try {
@@ -270,20 +279,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         console.error(`[crew/job] Auto-charge error for job ${jobId}:`, chargeErr)
       }
 
-      // 2. Send satisfaction check (review link comes after positive reply)
+      // 2. Send ONE satisfaction check (replaces the generic "all done" notification)
       if (customerPhone) {
         try {
           await sendSMS(
             tenant,
             customerPhone,
-            `Hey ${custName}, how was your ${businessName} cleaning today?`
+            `Hey ${custName}, your ${businessName} cleaning is all done! How did everything turn out?`
           )
-
-          await client.from('customers').update({
-            post_job_stage: 'satisfaction_sent',
-            post_job_stage_updated_at: new Date().toISOString(),
-          }).eq('id', customer?.id || 0)
-
           console.log(`[crew/job] Satisfaction check sent for job ${jobId}`)
         } catch (satErr) {
           console.error(`[crew/job] Failed to send satisfaction check for job ${jobId}:`, satErr)
