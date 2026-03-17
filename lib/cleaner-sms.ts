@@ -406,7 +406,7 @@ export async function notifyCustomerStatus(
   const messages: Record<string, string> = {
     omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
     arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
-    done: `Your cleaning is all done! We hope you love it. We'll follow up shortly.`,
+    done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
   }
 
   return await sendSMS(tenant, customerPhone, messages[status])

@@ -270,25 +270,23 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         console.error(`[crew/job] Auto-charge error for job ${jobId}:`, chargeErr)
       }
 
-      // 2. Send review link immediately
+      // 2. Send satisfaction check (review link comes after positive reply)
       if (customerPhone) {
         try {
-          const reviewLink = tenant.google_review_link || 'https://g.page/review'
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
           await sendSMS(
             tenant,
             customerPhone,
-            `Hey ${custName}, thank you for choosing ${businessName}! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings. You'd get ${recurringDiscount} off every visit. Would that be something you're interested in?`
+            `Hey ${custName}, how was your ${businessName} cleaning today?`
           )
 
-          await client.from('jobs').update({
-            review_sent_at: new Date().toISOString(),
-            recurring_offered_at: new Date().toISOString(),
-          }).eq('id', parseInt(jobId))
+          await client.from('customers').update({
+            post_job_stage: 'satisfaction_sent',
+            post_job_stage_updated_at: new Date().toISOString(),
+          }).eq('id', customer?.id || 0)
 
-          console.log(`[crew/job] Review link + recurring offer sent for job ${jobId}`)
-        } catch (reviewErr) {
-          console.error(`[crew/job] Failed to send review link for job ${jobId}:`, reviewErr)
+          console.log(`[crew/job] Satisfaction check sent for job ${jobId}`)
+        } catch (satErr) {
+          console.error(`[crew/job] Failed to send satisfaction check for job ${jobId}:`, satErr)
         }
       }
     }
