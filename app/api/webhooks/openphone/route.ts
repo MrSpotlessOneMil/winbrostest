@@ -1445,7 +1445,8 @@ export async function POST(request: NextRequest) {
           })
         }
 
-        // Route optimize and assign salesman
+        // Route optimize and assign salesman (with fallback)
+        let salesmanAssigned = false
         try {
           if (job.date) {
             const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
@@ -1460,7 +1461,6 @@ export async function POST(request: NextRequest) {
                 sendOwnerSummary: false,
               })
 
-              // Notify assigned salesman via SMS
               if (assignedLeadId) {
                 const { data: salesman } = await client
                   .from('cleaners')
@@ -1469,17 +1469,55 @@ export async function POST(request: NextRequest) {
                   .maybeSingle()
                 if (salesman?.phone) {
                   const custName = customer?.first_name || 'Customer'
-                  const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\n\nPlease visit the customer to provide an on-site quote.`
+                  const { getClientConfig } = await import("@/lib/client-config")
+                  const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                  const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
                   await sendSMS(tenant, salesman.phone, salesmanMsg)
-                  console.log(`[OpenPhone] SMS sent to salesman for estimate job ${jobId}`)
+                  salesmanAssigned = true
+                  console.log(`[OpenPhone] SMS sent to salesman ${salesman.name} for estimate job ${jobId}`)
                 }
               }
-            } else {
-              console.warn(`[OpenPhone] No salesman available for estimate job ${jobId} on ${job.date}`)
             }
           }
         } catch (estimateErr) {
-          console.error("[OpenPhone] Failed to assign salesman for estimate:", estimateErr)
+          console.error("[OpenPhone] Route optimizer failed for estimate:", estimateErr)
+        }
+
+        // Fallback: direct assign if optimizer didn't work
+        if (!salesmanAssigned) {
+          try {
+            const { data: availableSalesmen } = await client
+              .from('cleaners')
+              .select('id, phone, name, portal_token')
+              .eq('tenant_id', tenant.id)
+              .eq('employee_type', 'salesman')
+              .eq('active', true)
+              .is('deleted_at', null)
+              .not('phone', 'is', null)
+              .limit(3)
+
+            if (availableSalesmen && availableSalesmen.length > 0) {
+              const salesman = availableSalesmen[0]
+              await client.from('cleaner_assignments').insert({
+                job_id: Number(jobId),
+                cleaner_id: salesman.id,
+                tenant_id: tenant.id,
+                status: 'pending',
+              })
+              const custName = customer?.first_name || 'Customer'
+              const { getClientConfig } = await import("@/lib/client-config")
+              const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+              const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
+              await sendSMS(tenant, salesman.phone, salesmanMsg)
+              console.log(`[OpenPhone] Fallback: assigned salesman ${salesman.name} to estimate job ${jobId}`)
+            } else if (tenant.owner_phone) {
+              await sendSMS(tenant, tenant.owner_phone, `New estimate booked but NO salesman available!\n\nCustomer: ${customer?.first_name || 'Customer'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\n\nPlease assign manually.`)
+            }
+          } catch (fallbackErr) {
+            console.error("[OpenPhone] Fallback salesman assignment failed:", fallbackErr)
+          }
         }
 
         // Move lead out of "booked" so subsequent messages don't re-trigger this flow
@@ -2802,42 +2840,87 @@ export async function POST(request: NextRequest) {
                 })
               }
 
-              // WinBros: Estimate flow — assign salesman via route optimization (NO payment link)
+              // WinBros: Estimate flow — assign salesman + send portal link
               try {
                 const customerName = [bookingData.firstName || customer.first_name, bookingData.lastName || customer.last_name].filter(Boolean).join(' ') || 'Customer'
                 const jobAddress = bookingData.address || customer.address || 'Address TBD'
                 const estimateDate = jobDate || 'TBD'
+                const timeStr = bookingData.preferredTime || 'Time TBD'
+                let salesmanAssigned = false
 
-                // Route optimize for salesmen and dispatch
+                // Try route optimization first
                 if (tenant && jobDate) {
-                  const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
-                  const { dispatchRoutes } = await import("@/lib/dispatch")
-                  const { optimization, assignedTeamId, assignedLeadId } =
-                    await optimizeRoutesIncremental(Number(newJob.id), jobDate, tenant.id, 'salesman')
+                  try {
+                    const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
+                    const { dispatchRoutes } = await import("@/lib/dispatch")
+                    const { optimization, assignedTeamId, assignedLeadId } =
+                      await optimizeRoutesIncremental(Number(newJob.id), jobDate, tenant.id, 'salesman')
 
-                  if (assignedTeamId) {
-                    await dispatchRoutes(optimization, tenant.id, {
-                      sendTelegramToTeams: false,
-                      sendSmsToCustomers: false,
-                      sendOwnerSummary: false,
-                    })
+                    if (assignedTeamId) {
+                      await dispatchRoutes(optimization, tenant.id, {
+                        sendTelegramToTeams: false,
+                        sendSmsToCustomers: false,
+                        sendOwnerSummary: false,
+                      })
 
-                    // Send immediate SMS to assigned salesman WITH address
-                    if (assignedLeadId) {
-                      const { data: salesman } = await client
-                        .from('cleaners')
-                        .select('phone, name')
-                        .eq('id', assignedLeadId)
-                        .maybeSingle()
-                      if (salesman?.phone) {
-                        const timeStr = bookingData.preferredTime || 'Time TBD'
-                        const salesmanMsg = `New Estimate Assigned - WinBros\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}\n\nPlease visit the customer to provide an on-site quote.`
-                        await sendSMS(tenant, salesman.phone, salesmanMsg)
-                        console.log(`[OpenPhone] SMS sent to salesman (team ${assignedTeamId}) for estimate job ${newJob.id}`)
+                      if (assignedLeadId) {
+                        const { data: salesman } = await client
+                          .from('cleaners')
+                          .select('phone, name, portal_token')
+                          .eq('id', assignedLeadId)
+                          .maybeSingle()
+                        if (salesman?.phone) {
+                          const { getClientConfig } = await import("@/lib/client-config")
+                          const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                          const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                          const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
+                          await sendSMS(tenant, salesman.phone, salesmanMsg)
+                          salesmanAssigned = true
+                          console.log(`[OpenPhone] SMS sent to salesman ${salesman.name} for estimate job ${newJob.id}`)
+                        }
                       }
                     }
+                  } catch (routeErr) {
+                    console.error(`[OpenPhone] Route optimizer failed for job ${newJob.id}:`, routeErr)
+                  }
+                }
+
+                // Fallback: if route optimizer didn't assign anyone, grab the first available salesman
+                if (!salesmanAssigned && tenant) {
+                  console.log(`[OpenPhone] Route optimizer didn't assign — falling back to direct salesman assignment`)
+                  const { data: availableSalesmen } = await client
+                    .from('cleaners')
+                    .select('id, phone, name, portal_token')
+                    .eq('tenant_id', tenant.id)
+                    .eq('employee_type', 'salesman')
+                    .eq('active', true)
+                    .is('deleted_at', null)
+                    .not('phone', 'is', null)
+                    .limit(3)
+
+                  if (availableSalesmen && availableSalesmen.length > 0) {
+                    // Assign the first available salesman
+                    const salesman = availableSalesmen[0]
+                    await client.from('cleaner_assignments').insert({
+                      job_id: newJob.id,
+                      cleaner_id: salesman.id,
+                      tenant_id: tenant.id,
+                      status: 'pending',
+                    })
+
+                    const { getClientConfig } = await import("@/lib/client-config")
+                    const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                    const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                    const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
+                    await sendSMS(tenant, salesman.phone, salesmanMsg)
+                    salesmanAssigned = true
+                    console.log(`[OpenPhone] Fallback: assigned salesman ${salesman.name} (${salesman.id}) to job ${newJob.id}`)
                   } else {
-                    console.warn(`[OpenPhone] No salesman team available for estimate job ${newJob.id} on ${jobDate}`)
+                    console.error(`[OpenPhone] No active salesmen found for tenant ${tenant.slug}`)
+                    // Notify owner as last resort
+                    if (tenant.owner_phone) {
+                      await sendSMS(tenant, tenant.owner_phone, `New estimate booked but NO salesman available to assign!\n\nCustomer: ${customerName}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}\n\nPlease assign manually.`)
+                    }
                   }
                 }
 
