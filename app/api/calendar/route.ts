@@ -40,6 +40,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ jobs: data || [] })
   } catch (error) {
     console.error("Failed to load calendar jobs:", error)
-    return NextResponse.json({ jobs: [], error: String(error) }, { status: 500 })
+    return NextResponse.json({ jobs: [], error: error instanceof Error ? error.message : JSON.stringify(error) }, { status: 500 })
   }
 }
