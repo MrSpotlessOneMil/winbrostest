@@ -106,8 +106,13 @@ export default function TipPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-neutral-950 to-neutral-900 flex items-center justify-center px-4 py-12">
-      <div className="max-w-md w-full">
+    <div className="min-h-screen relative flex items-center justify-center px-4 py-12">
+      {/* Background image with overlay */}
+      <div className="absolute inset-0 z-0">
+        <img src="/winbros-team.jpg" alt="" className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" />
+      </div>
+      <div className="max-w-md w-full relative z-10">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 mb-4">
