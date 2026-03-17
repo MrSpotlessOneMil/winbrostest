@@ -369,7 +369,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Send confirmation SMS with date + payment link
     if (customerPhone) {
       const businessName = tenant.business_name_short || tenant.name
-      const domain = (tenant as any).website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app'
+      const { getClientConfig } = await import("@/lib/client-config")
+      const domain = getClientConfig().domain.replace(/\/+$/, '')
       const quoteLink = `${domain}/quote/${quote.token}`
       const dateStr = new Date(serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
       const timeStr = serviceTime ? ` at ${serviceTime}` : ''
@@ -388,7 +389,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Send quote → customer gets link to review/approve later
     if (customerPhone) {
       const businessName = tenant.business_name_short || tenant.name
-      const domain = (tenant as any).website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app'
+      const { getClientConfig } = await import("@/lib/client-config")
+      const domain = getClientConfig().domain.replace(/\/+$/, '')
       const quoteLink = `${domain}/quote/${quote.token}`
       const message = `Hey ${customer?.first_name || 'there'}! Here's your custom quote from ${businessName}. Review and book when you're ready: ${quoteLink}`
       await sendSMS(tenant, customerPhone, message)
