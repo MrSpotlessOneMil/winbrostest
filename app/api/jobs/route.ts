@@ -394,9 +394,10 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true })
-  } catch (error) {
+  } catch (error: any) {
+    const msg = error instanceof Error ? error.message : (error?.message || error?.code || JSON.stringify(error) || "Failed to delete job")
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : "Failed to delete job" },
+      { success: false, error: msg },
       { status: 400 }
     )
   }
