@@ -20,6 +20,8 @@ import {
   Minus,
   Send,
   DollarSign,
+  Circle,
+  ClipboardCheck,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -28,12 +30,22 @@ interface QuoteTier { key: string; name: string; tagline: string; badge?: string
 interface QuoteAddon { key: string; name: string; description: string; priceType: "flat" | "per_unit"; price: number; unit?: string }
 interface TierPrice { price: number; breakdown: { service: string; price: number }[]; tier: string }
 
+interface ChecklistItem {
+  id: number
+  text: string
+  order: number
+  required: boolean
+  completed: boolean
+  completed_at: string | null
+}
+
 interface EstimateData {
   job: { id: number; date: string; scheduled_at: string | null; address: string | null; service_type: string | null; job_type: string | null; sqft: number | null; notes: string | null }
   customer: { id: number | null; first_name: string | null; last_name: string | null; phone: string | null; email: string | null; address: string | null }
   pricing: { tiers: QuoteTier[]; tierPrices: Record<string, TierPrice>; addons: QuoteAddon[]; serviceType: string }
   tenant: { name: string; slug: string }
   availability: Record<string, number>
+  checklist: ChecklistItem[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -89,6 +101,7 @@ export default function EstimatePage() {
   const [serviceTime, setServiceTime] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [completed, setCompleted] = useState<{ action: string; total: number; date?: string } | null>(null)
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([])
 
   // ── Fetch ──────────────────────────────────────────────────────────
 
@@ -117,10 +130,28 @@ export default function EstimatePage() {
         d.pricing.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") q[a.key] = 1 })
         setAddonQuantities(q)
         if (d.job.notes) setNotes(d.job.notes)
+        if (d.checklist) setChecklist(d.checklist)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [token, jobId])
+
+  // ── Checklist toggle ───────────────────────────────────────────────
+
+  async function toggleChecklistItem(itemId: number, completed: boolean) {
+    setChecklist((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, completed, completed_at: completed ? new Date().toISOString() : null }
+          : item
+      )
+    )
+    await fetch(`/api/crew/${token}/estimate/${jobId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ checklist_item_id: itemId, completed }),
+    })
+  }
 
   // ── Tier change handler ────────────────────────────────────────────
 
@@ -183,6 +214,10 @@ export default function EstimatePage() {
     if (action === "accepted" && !serviceDate) {
       setError("Pick a service date before booking")
       return
+    }
+    const uncheckedRequired = checklist.filter((i) => i.required && !i.completed)
+    if (uncheckedRequired.length > 0) {
+      if (!confirm(`${uncheckedRequired.length} required walkthrough items are not checked. Continue anyway?`)) return
     }
     setSubmitting(true)
     setError(null)
@@ -319,6 +354,42 @@ export default function EstimatePage() {
           <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
             <AlertCircle className="size-4 text-red-500 shrink-0" />
             <p className="text-red-600 text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* Walkthrough Checklist */}
+        {checklist.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <ClipboardCheck className="size-5 text-blue-600" />
+                <h2 className="font-bold text-slate-800">Walkthrough Checklist</h2>
+              </div>
+              <span className="text-xs font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
+                {checklist.filter((i) => i.completed).length}/{checklist.length}
+              </span>
+            </div>
+            <div className="space-y-1">
+              {checklist.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => toggleChecklistItem(item.id, !item.completed)}
+                  className="flex items-center gap-3 w-full text-left py-1.5 px-1 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  {item.completed ? (
+                    <CheckCircle className="size-5 text-green-500 shrink-0" />
+                  ) : (
+                    <Circle className={`size-5 shrink-0 ${item.required ? "text-amber-400" : "text-slate-300"}`} />
+                  )}
+                  <span className={`text-sm ${item.completed ? "text-slate-400 line-through" : "text-slate-700"}`}>
+                    {item.text}
+                    {item.required && !item.completed && (
+                      <span className="text-[10px] ml-1.5 text-amber-500 font-semibold uppercase">Required</span>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

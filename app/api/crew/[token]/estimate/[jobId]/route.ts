@@ -100,6 +100,32 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // Get walkthrough checklist items
+  const { data: checklistItems } = await client
+    .from('cleaning_checklists')
+    .select('id, item_text, item_order, required')
+    .eq('tenant_id', tenant.id)
+    .eq('service_category', 'estimate_walkthrough')
+    .order('item_order', { ascending: true })
+
+  const { data: completedItems } = await client
+    .from('job_checklist_items')
+    .select('checklist_item_id, completed, completed_at')
+    .eq('job_id', parseInt(jobId))
+
+  const completedMap = new Map(
+    (completedItems || []).map((i: any) => [i.checklist_item_id, i])
+  )
+
+  const checklist = (checklistItems || []).map((item: any) => ({
+    id: item.id,
+    text: item.item_text,
+    order: item.item_order,
+    required: item.required,
+    completed: completedMap.get(item.id)?.completed || false,
+    completed_at: completedMap.get(item.id)?.completed_at || null,
+  }))
+
   return NextResponse.json({
     job: {
       id: job.id,
@@ -130,7 +156,43 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       slug: tenant.slug,
     },
     availability,
+    checklist,
   })
+}
+
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const { token, jobId } = await params
+  const ctx = await resolveEstimateContext(token, jobId)
+  if (!ctx) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  const { cleaner, client } = ctx
+  const checklistItemId = body.checklist_item_id as number | undefined
+  const completed = body.completed as boolean | undefined
+
+  if (checklistItemId == null || completed == null) {
+    return NextResponse.json({ error: 'checklist_item_id and completed are required' }, { status: 400 })
+  }
+
+  await client
+    .from('job_checklist_items')
+    .upsert({
+      job_id: parseInt(jobId),
+      checklist_item_id: checklistItemId,
+      completed,
+      completed_at: completed ? new Date().toISOString() : null,
+      completed_by: cleaner.id,
+    }, { onConflict: 'job_id,checklist_item_id' })
+
+  return NextResponse.json({ success: true })
 }
 
 export async function POST(request: NextRequest, { params }: RouteParams) {
@@ -217,6 +279,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const customerEmail = customer?.email || null
   const customerAddress = customer?.address || job.address || null
 
+  // Build walkthrough summary from completed checklist items
+  const { data: walkthroughItems } = await client
+    .from('job_checklist_items')
+    .select('checklist_item_id, completed, cleaning_checklists!inner(item_text)')
+    .eq('job_id', parseInt(jobId))
+    .eq('completed', true)
+
+  const walkthroughSummary = walkthroughItems && walkthroughItems.length > 0
+    ? 'WALKTHROUGH: ' + walkthroughItems.map((i: any) => i.cleaning_checklists?.item_text).filter(Boolean).join(' | ')
+    : null
+
   // Normalize addons with quantities for storage
   const normalizedAddons = selectedAddons.map(key => ({
     key,
@@ -233,7 +306,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     customer_address: customerAddress,
     square_footage: job.sqft || null,
     service_category: 'standard',
-    notes: notes || job.notes || null,
+    notes: [walkthroughSummary, notes || job.notes].filter(Boolean).join('\n') || null,
     selected_tier: customPrice != null ? 'custom' : selectedTier,
     selected_addons: normalizedAddons,
     custom_base_price: customPrice != null ? customPrice : null,
@@ -283,7 +356,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         scheduled_at: serviceTime || null,
         sqft: job.sqft,
         price: total,
-        notes: notes || job.notes || null,
+        notes: [walkthroughSummary, notes || job.notes].filter(Boolean).join('\n') || null,
         source: 'estimate_conversion',
       })
       .select('id')
