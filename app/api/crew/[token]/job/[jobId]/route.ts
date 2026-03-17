@@ -229,8 +229,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap])
     }
 
-    // Auto-charge card on DONE if customer has card on file
-    if (body.status === 'done' && tenant.workflow_config?.use_card_on_file === true) {
+    // On DONE: auto-charge card + send review link
+    if (body.status === 'done') {
+      const businessName = tenant.business_name_short || tenant.name
+      const custName = customer?.first_name || 'there'
+
+      // 1. Auto-charge card if customer has card on file
       try {
         const stripeCustomerId = (customer as any)?.stripe_customer_id as string | null
         const jobPrice = job.price ? parseFloat(String(job.price)) : 0
@@ -251,16 +255,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
               paid: true,
             }).eq('id', parseInt(jobId))
 
-            // Send receipt SMS
             if (customerPhone) {
-              const businessName = tenant.business_name_short || tenant.name
-              const custName = customer?.first_name || 'there'
               await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged $${(chargeCents / 100).toFixed(2)}. Thank you for choosing ${businessName}!`)
             }
             console.log(`[crew/job] Auto-charged $${(chargeCents / 100).toFixed(2)} for job ${jobId}`)
           } else {
             console.error(`[crew/job] Auto-charge failed for job ${jobId}: ${chargeResult.error}`)
-            // Notify owner about failed charge
             if (tenant.owner_phone) {
               await sendSMS(tenant, tenant.owner_phone, `Auto-charge FAILED for job ${jobId}. Error: ${chargeResult.error}. Will retry via cron.`)
             }
@@ -268,6 +268,28 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
       } catch (chargeErr) {
         console.error(`[crew/job] Auto-charge error for job ${jobId}:`, chargeErr)
+      }
+
+      // 2. Send review link immediately
+      if (customerPhone) {
+        try {
+          const reviewLink = tenant.google_review_link || 'https://g.page/review'
+          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+          await sendSMS(
+            tenant,
+            customerPhone,
+            `Hey ${custName}, thank you for choosing ${businessName}! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings. You'd get ${recurringDiscount} off every visit. Would that be something you're interested in?`
+          )
+
+          await client.from('jobs').update({
+            review_sent_at: new Date().toISOString(),
+            recurring_offered_at: new Date().toISOString(),
+          }).eq('id', parseInt(jobId))
+
+          console.log(`[crew/job] Review link + recurring offer sent for job ${jobId}`)
+        } catch (reviewErr) {
+          console.error(`[crew/job] Failed to send review link for job ${jobId}:`, reviewErr)
+        }
       }
     }
 
