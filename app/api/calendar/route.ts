@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
 
     const query = client
       .from("jobs")
-      .select("*, customers (*), cleaners (*), cleaner_assignments ( cleaner_id, status, cleaners ( id, name ) ), teams ( id, name ), leads!converted_to_job_id ( source )")
+      .select("*, customers (*), cleaners!jobs_cleaner_id_fkey (*), cleaner_assignments ( cleaner_id, status, cleaners ( id, name ) ), teams ( id, name ), leads!converted_to_job_id ( source )")
 
     if (tenant) {
       query.eq("tenant_id", tenant.id)
@@ -40,6 +40,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ jobs: data || [] })
   } catch (error) {
     console.error("Failed to load calendar jobs:", error)
-    return NextResponse.json({ jobs: [], error: error instanceof Error ? error.message : JSON.stringify(error) }, { status: 500 })
+    return NextResponse.json({ jobs: [] }, { status: 500 })
   }
 }

@@ -281,7 +281,7 @@ export async function PATCH(request: NextRequest) {
     if (tenant) updateQuery = updateQuery.eq("tenant_id", tenant.id)
 
     const { data, error } = await updateQuery
-      .select("*, customers (*), cleaners (*)")
+      .select("*, customers (*), cleaners!jobs_cleaner_id_fkey (*)")
       .single()
 
     if (error) throw error
