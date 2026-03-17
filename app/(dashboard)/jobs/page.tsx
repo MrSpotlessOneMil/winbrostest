@@ -110,6 +110,7 @@ type CreateForm = {
   membership_id: string
   selected_tier_index: string
   lead_source: string
+  credited_salesman_id: string
 }
 
 type CustomerMembership = {
@@ -407,6 +408,7 @@ export default function JobsPage() {
     membership_id: "",
     selected_tier_index: "",
     lead_source: "",
+    credited_salesman_id: "",
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -1442,6 +1444,7 @@ export default function JobsPage() {
           assignment_mode: createForm.assignment_mode,
           status: createForm.is_quote ? "quoted" : "scheduled",
           lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
+          credited_salesman_id: createForm.credited_salesman_id ? Number(createForm.credited_salesman_id) : undefined,
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
             const addon = derivedAddonsList.find((a) => a.addon_key === key)
             return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
@@ -2659,6 +2662,23 @@ export default function JobsPage() {
                     )
                   })()}
                 </div>
+
+                {/* Row 5b: Credited Salesman (optional) */}
+                {!isHouseCleaning && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <label className="cal-form-label">Credited Salesman</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.credited_salesman_id}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, credited_salesman_id: e.target.value }))}
+                    >
+                      <option value="">None</option>
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 {/* Row 6: Date, Time, Duration */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>

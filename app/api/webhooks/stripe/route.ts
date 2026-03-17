@@ -527,6 +527,23 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
         } else {
           const nextVisit = addMonths(new Date(), plan.interval_months)
 
+          // Find salesman who sold this (from the estimate job assignment)
+          let soldById: number | null = null
+          if (quote.customer_id) {
+            const { data: estJob } = await serviceClient
+              .from('jobs')
+              .select('cleaner_assignments(cleaner_id)')
+              .eq('tenant_id', quote.tenant_id)
+              .eq('customer_id', quote.customer_id)
+              .eq('job_type', 'estimate')
+              .eq('status', 'completed')
+              .order('completed_at', { ascending: false })
+              .limit(1)
+              .maybeSingle()
+            const assignments = (estJob as any)?.cleaner_assignments
+            if (assignments?.length > 0) soldById = assignments[0].cleaner_id
+          }
+
           const { data: membership } = await serviceClient.from('customer_memberships').insert({
             tenant_id: quote.tenant_id,
             customer_id: quote.customer_id,
@@ -535,6 +552,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
             started_at: new Date().toISOString(),
             next_visit_at: nextVisit.toISOString(),
             visits_completed: 0,
+            ...(soldById ? { sold_by_id: soldById } : {}),
           }).select('id').single()
 
           membershipId = membership?.id || null

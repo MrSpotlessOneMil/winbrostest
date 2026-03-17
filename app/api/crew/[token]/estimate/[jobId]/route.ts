@@ -392,8 +392,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         sqft: job.sqft,
         price: finalTotal,
         notes: [walkthroughSummary, notes || job.notes].filter(Boolean).join('\n') || null,
-        source: 'estimate_conversion',
         quote_id: quote.id,
+        estimate_salesman_id: cleaner.id,
+        credited_salesman_id: cleaner.id,
       })
       .select('id')
       .single()

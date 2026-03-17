@@ -508,6 +508,7 @@ export async function POST(request: NextRequest) {
         sqft: body.sqft != null ? Number(body.sqft) : undefined,
         frequency: body.frequency || "one-time",
         membership_id: validatedMembershipId,
+        credited_salesman_id: body.credited_salesman_id ? Number(body.credited_salesman_id) : undefined,
       })
       .select("*, customers (*)")
       .single()
