@@ -375,6 +375,14 @@ export async function DELETE(request: NextRequest) {
   try {
     const svc = getSupabaseServiceClient()
 
+    // Clean up related records before deleting
+    // pending_sms_assignments references cleaner_assignments (no CASCADE), so delete first
+    const { data: assignments } = await svc.from("cleaner_assignments").select("id").eq("job_id", Number(id))
+    if (assignments && assignments.length > 0) {
+      const assignmentIds = assignments.map((a: any) => a.id)
+      await svc.from("pending_sms_assignments").delete().in("assignment_id", assignmentIds)
+    }
+
     // Null out job references in tables that use SET NULL (messages, calls, leads)
     await svc.from("messages").update({ job_id: null }).eq("job_id", Number(id))
     await svc.from("calls").update({ job_id: null }).eq("job_id", Number(id))
@@ -395,9 +403,9 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error: any) {
-    const msg = error instanceof Error ? error.message : (error?.message || error?.code || JSON.stringify(error) || "Failed to delete job")
+    console.error("Failed to delete job:", error)
     return NextResponse.json(
-      { success: false, error: msg },
+      { success: false, error: error?.message || "Failed to delete job" },
       { status: 400 }
     )
   }
