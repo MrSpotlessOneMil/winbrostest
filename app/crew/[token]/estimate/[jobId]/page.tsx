@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
+import { loadStripe } from "@stripe/stripe-js"
 import {
   ArrowLeft,
   Check,
@@ -22,6 +23,9 @@ import {
   DollarSign,
   Circle,
   ClipboardCheck,
+  CreditCard,
+  Link2,
+  Tag,
 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -39,13 +43,23 @@ interface ChecklistItem {
   completed_at: string | null
 }
 
+interface ServicePlan {
+  id: string
+  slug: string
+  name: string
+  interval_months: number
+  discount_amount: number
+  description: string | null
+}
+
 interface EstimateData {
   job: { id: number; date: string; scheduled_at: string | null; address: string | null; service_type: string | null; job_type: string | null; sqft: number | null; notes: string | null }
   customer: { id: number | null; first_name: string | null; last_name: string | null; phone: string | null; email: string | null; address: string | null }
   pricing: { tiers: QuoteTier[]; tierPrices: Record<string, TierPrice>; addons: QuoteAddon[]; serviceType: string }
-  tenant: { name: string; slug: string }
+  tenant: { name: string; slug: string; stripe_publishable_key?: string }
   availability: Record<string, number>
   checklist: ChecklistItem[]
+  servicePlans?: ServicePlan[]
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -102,6 +116,9 @@ export default function EstimatePage() {
   const [submitting, setSubmitting] = useState(false)
   const [completed, setCompleted] = useState<{ action: string; total: number; date?: string } | null>(null)
   const [checklist, setChecklist] = useState<ChecklistItem[]>([])
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
+  const [cardCaptureMode, setCardCaptureMode] = useState<'idle' | 'loading' | 'form' | 'success' | 'error'>('idle')
+  const [cardError, setCardError] = useState<string | null>(null)
 
   // ── Fetch ──────────────────────────────────────────────────────────
 
@@ -210,8 +227,8 @@ export default function EstimatePage() {
 
   // ── Submit ─────────────────────────────────────────────────────────
 
-  async function handleSubmit(action: "accepted" | "send_quote") {
-    if (action === "accepted" && !serviceDate) {
+  async function handleSubmit(action: "accepted" | "send_quote" | "collect_card" | "send_payment_link") {
+    if ((action === "accepted" || action === "collect_card") && !serviceDate) {
       setError("Pick a service date before booking")
       return
     }
@@ -223,11 +240,14 @@ export default function EstimatePage() {
     setError(null)
     try {
       const activeAddonKeys = Object.entries(selectedAddons).filter(([, v]) => v).map(([k]) => k)
+
+      // Step 1: Create the quote via the existing POST
+      const baseAction = (action === "collect_card" || action === "send_payment_link") ? "accepted" : action
       const res = await fetch(`/api/crew/${token}/estimate/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action,
+          action: baseAction,
           selected_tier: useCustomPrice ? null : selectedTierKey,
           selected_addons: activeAddonKeys,
           addon_quantities: addonQuantities,
@@ -235,13 +255,97 @@ export default function EstimatePage() {
           notes: notes || null,
           service_date: serviceDate || null,
           service_time: serviceTime || null,
+          membership_plan: selectedPlan || null,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || "Failed to complete estimate")
+
+      // Step 2: Handle card capture
+      if (action === "collect_card") {
+        setCardCaptureMode('loading')
+        const cardRes = await fetch(`/api/crew/${token}/estimate/${jobId}/card`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "setup_intent" }),
+        })
+        const cardJson = await cardRes.json()
+        if (!cardRes.ok) throw new Error(cardJson.error || "Failed to start card capture")
+
+        // Load Stripe.js and mount Elements
+        const stripeJs = await loadStripe(cardJson.publishable_key)
+        if (!stripeJs) throw new Error("Failed to load Stripe")
+
+        const elements = stripeJs.elements({ clientSecret: cardJson.client_secret })
+        const cardEl = elements.create('payment')
+
+        setCardCaptureMode('form')
+        // Wait for the modal container to be in the DOM
+        await new Promise(r => setTimeout(r, 100))
+        const mountTarget = document.getElementById('stripe-card-element')
+        if (mountTarget) {
+          cardEl.mount('#stripe-card-element')
+          // Store references for confirm
+          ;(window as any).__stripeInstance = stripeJs
+          ;(window as any).__stripeElements = elements
+          ;(window as any).__stripeClientSecret = cardJson.client_secret
+          ;(window as any).__completedData = { action: json.action, total: json.total, date: serviceDate || undefined }
+        } else {
+          throw new Error("Card form container not found")
+        }
+        setSubmitting(false)
+        return
+      } else if (action === "send_payment_link" && json.quote_token) {
+        // Send the payment link via SMS
+        await fetch(`/api/crew/${token}/estimate/${jobId}/card`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "send_link", quote_token: json.quote_token }),
+        })
+      }
+
       setCompleted({ action: json.action, total: json.total, date: serviceDate || undefined })
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Something went wrong")
+      setCardCaptureMode('idle')
+      setSubmitting(false)
+    }
+  }
+
+  async function confirmCardCapture() {
+    setCardError(null)
+    setSubmitting(true)
+    try {
+      const stripeJs = (window as any).__stripeInstance
+      const elements = (window as any).__stripeElements
+      const clientSecret = (window as any).__stripeClientSecret
+      const completedData = (window as any).__completedData
+
+      if (!stripeJs || !elements || !clientSecret) throw new Error("Card form not ready")
+
+      const { error: stripeError } = await stripeJs.confirmSetup({
+        elements,
+        confirmParams: { return_url: window.location.href },
+        redirect: 'if_required',
+      })
+
+      if (stripeError) {
+        setCardError(stripeError.message || "Card declined")
+        setSubmitting(false)
+        return
+      }
+
+      // Card saved successfully
+      setCardCaptureMode('success')
+      setCompleted(completedData || { action: 'accepted', total: 0 })
+
+      // Cleanup
+      delete (window as any).__stripeInstance
+      delete (window as any).__stripeElements
+      delete (window as any).__stripeClientSecret
+      delete (window as any).__completedData
+    } catch (err: unknown) {
+      setCardError(err instanceof Error ? err.message : "Card save failed")
       setSubmitting(false)
     }
   }
@@ -619,6 +723,47 @@ export default function EstimatePage() {
           </div>
         </div>
 
+        {/* Service Plans */}
+        {data.servicePlans && data.servicePlans.length > 0 && (
+          <div>
+            <h2 className="font-bold text-slate-800 mb-1">Offer a Service Plan?</h2>
+            <p className="text-xs text-slate-400 mb-3">Recurring plans give the customer a discount on every visit.</p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedPlan(null)}
+                className={`p-3 rounded-xl border-2 text-left transition-all ${
+                  !selectedPlan ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"
+                }`}
+              >
+                <span className="text-sm font-semibold text-slate-700">No plan (one-time service)</span>
+              </button>
+              {data.servicePlans.map((plan) => (
+                <button
+                  key={plan.slug}
+                  type="button"
+                  onClick={() => setSelectedPlan(selectedPlan === plan.slug ? null : plan.slug)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    selectedPlan === plan.slug ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:border-emerald-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Tag className="size-4 text-emerald-500" />
+                      <span className="text-sm font-semibold text-slate-700">{plan.name}</span>
+                    </div>
+                    <span className="text-sm font-bold text-emerald-600">{fmt(plan.discount_amount)} off</span>
+                  </div>
+                  {plan.description && (
+                    <p className="text-xs text-slate-500 mt-1 ml-6">{plan.description}</p>
+                  )}
+                  <p className="text-xs text-slate-400 mt-0.5 ml-6">Every {plan.interval_months} month{plan.interval_months > 1 ? 's' : ''}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Notes */}
         <div>
           <h2 className="font-bold text-slate-800 mb-2">Notes</h2>
@@ -631,6 +776,26 @@ export default function EstimatePage() {
           />
         </div>
       </div>
+
+      {/* Card Capture Modal */}
+      {cardCaptureMode === 'form' && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-end justify-center" onClick={() => { setCardCaptureMode('idle'); setSubmitting(false) }}>
+          <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Collect Card</h3>
+            <p className="text-xs text-slate-500 mb-4">Enter the customer's card details below. Card will be saved for later charge.</p>
+            <div id="stripe-card-element" className="border border-slate-200 rounded-xl p-4 min-h-[60px] mb-3" />
+            {cardError && <p className="text-sm text-red-500 mb-3">{cardError}</p>}
+            <button
+              onClick={confirmCardCapture}
+              disabled={submitting}
+              className="w-full h-12 bg-emerald-600 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-emerald-700 active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+              Save Card
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Sticky Bottom Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t-2 border-slate-200 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-50">
@@ -657,34 +822,53 @@ export default function EstimatePage() {
             </div>
           )}
 
-          {/* Two CTAs */}
-          <div className="flex gap-2">
-            <button
-              disabled={submitting || total <= 0}
-              onClick={() => handleSubmit("send_quote")}
-              className={`flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
-                submitting || total <= 0
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                  : "bg-white border-2 border-blue-500 text-blue-600 hover:bg-blue-50"
-              }`}
-            >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-              Send Quote
-            </button>
-            <button
-              disabled={submitting || total <= 0}
-              onClick={() => handleSubmit("accepted")}
-              className={`flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
-                submitting || total <= 0
-                  ? "bg-slate-300 text-slate-500 cursor-not-allowed"
-                  : !serviceDate
-                    ? "bg-blue-400 text-white hover:bg-blue-500 shadow-md"
+          {/* CTAs */}
+          <div className="flex flex-col gap-2">
+            {/* Primary row: Collect Card + Send Payment Link */}
+            <div className="flex gap-2">
+              <button
+                disabled={submitting || total <= 0 || !serviceDate}
+                onClick={() => handleSubmit("collect_card")}
+                className={`flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+                  submitting || total <= 0 || !serviceDate
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700 shadow-md"
+                }`}
+              >
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+                Collect Card
+              </button>
+              <button
+                disabled={submitting || total <= 0 || !serviceDate}
+                onClick={() => handleSubmit("send_payment_link")}
+                className={`flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+                  submitting || total <= 0 || !serviceDate
+                    ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                     : "bg-blue-600 text-white hover:bg-blue-700 shadow-md"
-              }`}
-            >
-              {submitting ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle className="size-4" />}
-              {!serviceDate ? "Pick Date First" : "Customer Accepted"}
-            </button>
+                }`}
+              >
+                {submitting ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                Send Link
+              </button>
+            </div>
+            {/* Secondary row: Send Quote (no date required) */}
+            <div className="flex gap-2">
+              <button
+                disabled={submitting || total <= 0}
+                onClick={() => handleSubmit("send_quote")}
+                className={`flex-1 h-10 rounded-xl font-medium text-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
+                  submitting || total <= 0
+                    ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                    : "bg-white border-2 border-slate-300 text-slate-600 hover:border-blue-400 hover:text-blue-600"
+                }`}
+              >
+                {submitting ? <Loader2 className="size-3 animate-spin" /> : <Send className="size-3" />}
+                Send Quote (customer decides later)
+              </button>
+            </div>
+            {!serviceDate && total > 0 && (
+              <p className="text-[10px] text-amber-500 text-center">Pick a service date above to enable card capture</p>
+            )}
           </div>
         </div>
       </div>

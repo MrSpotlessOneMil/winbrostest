@@ -96,6 +96,31 @@ export default function QuotePage() {
         // Custom-priced quote (salesman-set price): use 'custom' tier, skip tier selection
         if (json.custom_base_price != null) {
           setSelectedTierKey('custom')
+        } else if (json.quote.selected_tier && (json.tiers as QuoteTier[]).some((t) => t.key === json.quote.selected_tier)) {
+          // Salesman pre-selected a tier - use it as default (customer can still change)
+          const preselectedTier = json.quote.selected_tier as string
+          setSelectedTierKey(preselectedTier)
+
+          // Pre-toggle salesman's selected addons if available, otherwise use tier included
+          const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number }> | null
+          if (savedAddons && savedAddons.length > 0) {
+            const inc: Record<string, boolean> = {}
+            const qty: Record<string, number> = {}
+            for (const addon of savedAddons) {
+              const key = typeof addon === 'string' ? addon : addon.key
+              inc[key] = true
+              if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
+            }
+            setSelectedAddons(inc)
+            if (Object.keys(qty).length > 0) setAddonQuantities(prev => ({ ...prev, ...qty }))
+          } else {
+            const tierDef = (json.tiers as QuoteTier[]).find((t) => t.key === preselectedTier)
+            if (tierDef) {
+              const inc: Record<string, boolean> = {}
+              tierDef.included.forEach((k) => { inc[k] = true })
+              setSelectedAddons(inc)
+            }
+          }
         } else {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
           const middleIndex = Math.min(1, tierKeys.length - 1)

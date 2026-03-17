@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
+import { sendSMS } from '@/lib/openphone'
 import { getEstimateFromNotes } from '@/lib/pricing-config'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
@@ -226,6 +227,48 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (customerPhone) {
       const statusMap = { omw: 'omw', here: 'arrived', done: 'done' } as const
       await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap])
+    }
+
+    // Auto-charge card on DONE if customer has card on file
+    if (body.status === 'done' && tenant.workflow_config?.use_card_on_file === true) {
+      try {
+        const stripeCustomerId = (customer as any)?.stripe_customer_id as string | null
+        const jobPrice = job.price ? parseFloat(String(job.price)) : 0
+
+        if (stripeCustomerId && jobPrice > 0 && tenant.stripe_secret_key) {
+          const { chargeCardOnFile } = await import('@/lib/stripe-client')
+          const chargeCents = Math.round(jobPrice * 1.03 * 100) // price + 3% processing
+          const chargeResult = await chargeCardOnFile(
+            tenant.stripe_secret_key,
+            stripeCustomerId,
+            chargeCents,
+            { job_id: jobId, phone_number: customerPhone || '', payment_type: 'AUTO_CHARGE_ON_DONE' }
+          )
+
+          if (chargeResult.success) {
+            await client.from('jobs').update({
+              payment_status: 'fully_paid',
+              paid: true,
+            }).eq('id', parseInt(jobId))
+
+            // Send receipt SMS
+            if (customerPhone) {
+              const businessName = tenant.business_name_short || tenant.name
+              const custName = customer?.first_name || 'there'
+              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged $${(chargeCents / 100).toFixed(2)}. Thank you for choosing ${businessName}!`)
+            }
+            console.log(`[crew/job] Auto-charged $${(chargeCents / 100).toFixed(2)} for job ${jobId}`)
+          } else {
+            console.error(`[crew/job] Auto-charge failed for job ${jobId}: ${chargeResult.error}`)
+            // Notify owner about failed charge
+            if (tenant.owner_phone) {
+              await sendSMS(tenant, tenant.owner_phone, `Auto-charge FAILED for job ${jobId}. Error: ${chargeResult.error}. Will retry via cron.`)
+            }
+          }
+        }
+      } catch (chargeErr) {
+        console.error(`[crew/job] Auto-charge error for job ${jobId}:`, chargeErr)
+      }
     }
 
     return NextResponse.json({ success: true, status: body.status })

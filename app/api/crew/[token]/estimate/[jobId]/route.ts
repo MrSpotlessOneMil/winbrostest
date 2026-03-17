@@ -100,6 +100,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // Get active service plans for this tenant
+  const { data: servicePlans } = await client
+    .from('service_plans')
+    .select('id, slug, name, interval_months, discount_amount, description')
+    .eq('tenant_id', tenant.id)
+    .eq('active', true)
+    .order('interval_months', { ascending: false })
+
   // Get walkthrough checklist items
   const { data: checklistItems } = await client
     .from('cleaning_checklists')
@@ -154,9 +162,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     tenant: {
       name: tenant.business_name_short || tenant.name,
       slug: tenant.slug,
+      stripe_publishable_key: tenant.stripe_publishable_key || null,
     },
     availability,
     checklist,
+    servicePlans: (servicePlans || []).map(p => ({
+      id: p.id,
+      slug: p.slug,
+      name: p.name,
+      interval_months: p.interval_months,
+      discount_amount: p.discount_amount || 0,
+      description: p.description,
+    })),
   })
 }
 
@@ -224,6 +241,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   const notes = body.notes as string | null
   const serviceDate = body.service_date as string | null
   const serviceTime = body.service_time as string | null
+  const membershipPlan = body.membership_plan as string | null
 
   // Service date required for accepted jobs
   if (action === 'accepted' && !serviceDate) {
@@ -296,6 +314,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     quantity: addonQuantities[key] || 1,
   }))
 
+  // Apply membership plan discount if selected
+  let planDiscount = 0
+  if (membershipPlan) {
+    const { data: plan } = await client
+      .from('service_plans')
+      .select('discount_amount')
+      .eq('slug', membershipPlan)
+      .eq('tenant_id', tenant.id)
+      .eq('active', true)
+      .maybeSingle()
+    if (plan?.discount_amount) {
+      planDiscount = plan.discount_amount
+    }
+  }
+  const finalTotal = Math.max(0, total - planDiscount)
+
   // Create quote record
   const quoteInsert: Record<string, unknown> = {
     tenant_id: tenant.id,
@@ -311,7 +345,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     selected_addons: normalizedAddons,
     custom_base_price: customPrice != null ? customPrice : null,
     subtotal: total,
-    total,
+    total: finalTotal,
+    membership_plan: membershipPlan || null,
     status: action === 'accepted' ? 'approved' : 'pending',
     approved_at: action === 'accepted' ? new Date().toISOString() : null,
     valid_until: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -334,13 +369,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     .update({
       status: 'completed',
       completed_at: new Date().toISOString(),
-      price: total,
+      price: finalTotal,
       updated_at: new Date().toISOString(),
     })
     .eq('id', parseInt(jobId))
 
   if (action === 'accepted') {
-    // Customer accepted on the spot → create cleaning job with scheduled date
+    // Customer accepted on the spot -> create cleaning job with scheduled date
     const { data: cleaningJob, error: jobError } = await client
       .from('jobs')
       .insert({
@@ -355,9 +390,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         date: serviceDate,
         scheduled_at: serviceTime || null,
         sqft: job.sqft,
-        price: total,
+        price: finalTotal,
         notes: [walkthroughSummary, notes || job.notes].filter(Boolean).join('\n') || null,
         source: 'estimate_conversion',
+        quote_id: quote.id,
       })
       .select('id')
       .single()
@@ -374,7 +410,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       const quoteLink = `${domain}/quote/${quote.token}`
       const dateStr = new Date(serviceDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
       const timeStr = serviceTime ? ` at ${serviceTime}` : ''
-      const message = `Great news, ${customer?.first_name || 'there'}! Your ${job.service_type || 'service'} with ${businessName} is booked for ${dateStr}${timeStr} — $${total.toFixed(0)}. Save your card to lock in your spot: ${quoteLink}`
+      const message = `Great news, ${customer?.first_name || 'there'}! Your ${job.service_type || 'service'} with ${businessName} is booked for ${dateStr}${timeStr} - $${finalTotal.toFixed(0)}. Save your card to lock in your spot: ${quoteLink}`
       await sendSMS(tenant, customerPhone, message)
     }
 
@@ -382,8 +418,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       success: true,
       action: 'accepted',
       quote_id: quote.id,
+      quote_token: quote.token,
       job_id: cleaningJob?.id || null,
-      total,
+      total: finalTotal,
     })
   } else {
     // Send quote → customer gets link to review/approve later
@@ -428,7 +465,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       action: 'send_quote',
       quote_id: quote.id,
       quote_token: quote.token,
-      total,
+      total: finalTotal,
     })
   }
 }

@@ -49,31 +49,48 @@ export async function POST(request: NextRequest) {
     // 2. Fetch all active team leads with a phone number
     const { data: teamLeads, error: leadErr } = await client
       .from('cleaners')
-      .select('id, name, phone, team_id, tenant_id')
-      .eq('is_team_lead', true)
+      .select('id, name, phone, team_id, tenant_id, portal_token, is_team_lead, employee_type')
       .eq('active', true)
       .not('phone', 'is', null)
 
     if (leadErr || !teamLeads?.length) {
-      console.log('[crew-briefing] No active team leads with phone numbers found')
+      console.log('[crew-briefing] No active cleaners/technicians with phone numbers found')
       return NextResponse.json({ success: true, results })
     }
 
-    // 3. For each team lead, build and send the briefing
+    // Group by tenant to check if tenant has team leads. If not, send to all active workers.
+    const tenantHasLeads: Record<string, boolean> = {}
     for (const lead of teamLeads) {
+      if (lead.is_team_lead && lead.tenant_id) {
+        tenantHasLeads[lead.tenant_id] = true
+      }
+    }
+
+    // Filter: team leads always get briefing. Non-leads only if their tenant has no leads.
+    const briefingRecipients = teamLeads.filter(lead => {
+      if (lead.is_team_lead) return true
+      // Include all active workers for tenants without team structure
+      return lead.tenant_id && !tenantHasLeads[lead.tenant_id]
+    })
+
+    // 3. For each recipient, build and send the briefing
+    for (const lead of briefingRecipients) {
       try {
         // Resolve tenant for this cleaner (used for SMS + query scoping)
         const leadTenantId = lead.tenant_id
         const tenant = leadTenantId ? await getTenantById(leadTenantId) : null
 
-        // Today's jobs for this team (scoped by tenant)
+        // Today's jobs for this team/worker (scoped by tenant)
         let todaysJobsQuery = client
           .from('jobs')
-          .select('id, scheduled_at, address, status')
+          .select('id, scheduled_at, address, status, service_type')
           .eq('date', today)
-          .eq('team_id', lead.team_id)
           .order('scheduled_at')
         if (leadTenantId) todaysJobsQuery = todaysJobsQuery.eq('tenant_id', leadTenantId)
+        // Scope by team if team lead; otherwise show all tenant jobs
+        if (lead.team_id && lead.is_team_lead) {
+          todaysJobsQuery = todaysJobsQuery.eq('team_id', lead.team_id)
+        }
         const { data: todaysJobs } = await todaysJobsQuery
 
         // Jobs needing crew assignment (scoped by tenant)
@@ -108,10 +125,12 @@ export async function POST(request: NextRequest) {
         const jobCount = todaysJobs?.length || 0
         msg += `Today's Jobs: ${jobCount}\n`
         if (todaysJobs && todaysJobs.length > 0) {
+          const appDomain = (process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app').replace(/\/+$/, '')
           for (const job of todaysJobs) {
             const time = job.scheduled_at || 'TBD'
             const address = job.address || 'No address'
-            msg += `- ${time} - ${address}\n`
+            const portalLink = lead.portal_token ? ` ${appDomain}/crew/${lead.portal_token}/job/${job.id}` : ''
+            msg += `- ${time} - ${address}${portalLink}\n`
           }
         } else {
           msg += `No jobs scheduled today.\n`

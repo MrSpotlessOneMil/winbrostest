@@ -187,6 +187,15 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processManualCall(payload, tenant, tenant_id)
       break
 
+    case 'send_sms':
+    case 'post_job_tip':
+      // Generic SMS task: payload contains { phone, message }
+      if (tenant && payload.phone && payload.message) {
+        await sendSMS(tenant, payload.phone as string, payload.message as string)
+        console.log(`[process-scheduled-tasks] Sent ${task_type} SMS to ${payload.phone}`)
+      }
+      break
+
     default:
       console.warn(`[process-scheduled-tasks] Unknown task type: ${task_type}`)
   }

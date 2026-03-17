@@ -631,8 +631,50 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     console.error('[Stripe Webhook] Failed to cancel quote follow-up tasks:', err)
   }
 
-  // Trigger cleaner assignment if job was created
-  if (newJob?.id) {
+  // Trigger technician assignment if job was created with a service date
+  if (newJob?.id && hasServiceDate && tenant) {
+    try {
+      const useRouteOpt = tenant.workflow_config?.use_route_optimization === true
+      let techAssigned = false
+
+      if (useRouteOpt) {
+        const { optimization, assignedTeamId, assignedLeadId } =
+          await optimizeRoutesIncremental(newJob.id, quote.service_date, quote.tenant_id, 'technician')
+
+        if (assignedTeamId && assignedLeadId) {
+          await dispatchRoutes(optimization, quote.tenant_id, {
+            sendTelegramToTeams: false,
+            sendSmsToCustomers: false,
+            sendOwnerSummary: false,
+          })
+
+          const { data: tech } = await serviceClient
+            .from('cleaners')
+            .select('phone, name, portal_token')
+            .eq('id', assignedLeadId)
+            .maybeSingle()
+          if (tech?.phone) {
+            const { getClientConfig } = await import('@/lib/client-config')
+            const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+            const portalLink = tech.portal_token ? `\nDetails: ${appDomain}/crew/${tech.portal_token}/job/${newJob.id}` : ''
+            const custName = quote.customer_name?.split(' ')[0] || 'Customer'
+            const dateStr = new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+            const techMsg = `New Job Assigned!\n\nCustomer: ${custName}\nAddress: ${quote.customer_address || 'See portal'}\nDate: ${dateStr}\nService: ${serviceName}${portalLink}\n\nReply YES to accept or NO to decline.`
+            await sendSMS(tenant, tech.phone, techMsg)
+            techAssigned = true
+            console.log(`[Stripe Webhook] Technician ${tech.name} notified for quote-approved job ${newJob.id}`)
+          }
+        }
+      }
+
+      if (!techAssigned) {
+        await triggerCleanerAssignment(String(newJob.id))
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Technician assignment from quote failed:', err)
+      try { await triggerCleanerAssignment(String(newJob.id)) } catch { /* swallow */ }
+    }
+  } else if (newJob?.id) {
     try {
       await triggerCleanerAssignment(String(newJob.id))
     } catch (err) {

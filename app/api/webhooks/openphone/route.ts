@@ -654,8 +654,32 @@ export async function POST(request: NextRequest) {
             recurring_offered_at: new Date().toISOString(),
           }).eq("id", recentJob.id)
 
-          // Cancel 24hr timeout (no need for delayed recurring — already offered)
+          // Cancel 24hr timeout (no need for delayed recurring - already offered)
           await cancelTask(`post-job-review-${recentJob.id}`)
+
+          // Schedule tip SMS 30 min later (don't overwhelm customer with too many messages at once)
+          try {
+            const { scheduleTask } = await import("@/lib/scheduler")
+            const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app'
+            const tipLink = `${domain}/tip/${recentJob.id}`
+            const businessName = tenant.business_name_short || tenant.name
+            const custFirst = customer.first_name || 'there'
+
+            await scheduleTask({
+              tenantId: tenant.id,
+              taskType: 'post_job_tip',
+              taskKey: `post-job-tip-${recentJob.id}`,
+              scheduledFor: new Date(Date.now() + 30 * 60 * 1000),
+              payload: {
+                phone,
+                message: `By the way, ${custFirst}, if you'd like to leave a tip for your ${businessName} crew, here's a quick link: ${tipLink}`,
+                source: 'post_job_tip',
+              },
+            })
+            console.log(`[OpenPhone] Scheduled tip SMS for job ${recentJob.id} in 30min`)
+          } catch (tipErr) {
+            console.error(`[OpenPhone] Failed to schedule tip SMS:`, tipErr)
+          }
 
           await recordMessageSent(tenant.id, customer.id, phone, "post_job_satisfaction_positive", "post_job")
 
@@ -1471,7 +1495,7 @@ export async function POST(request: NextRequest) {
                   const custName = customer?.first_name || 'Customer'
                   const { getClientConfig } = await import("@/lib/client-config")
                   const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${jobId}` : ''
                   const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
                   await sendSMS(tenant, salesman.phone, salesmanMsg)
                   salesmanAssigned = true
@@ -1508,7 +1532,7 @@ export async function POST(request: NextRequest) {
               const custName = customer?.first_name || 'Customer'
               const { getClientConfig } = await import("@/lib/client-config")
               const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${jobId}` : ''
               const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${custName}\nService: ${job.service_type || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`
               await sendSMS(tenant, salesman.phone, salesmanMsg)
               console.log(`[OpenPhone] Fallback: assigned salesman ${salesman.name} to estimate job ${jobId}`)
@@ -2872,7 +2896,7 @@ export async function POST(request: NextRequest) {
                         if (salesman?.phone) {
                           const { getClientConfig } = await import("@/lib/client-config")
                           const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                          const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                          const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${newJob.id}` : ''
                           const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
                           await sendSMS(tenant, salesman.phone, salesmanMsg)
                           salesmanAssigned = true
@@ -2887,7 +2911,7 @@ export async function POST(request: NextRequest) {
 
                 // Fallback: if route optimizer didn't assign anyone, grab the first available salesman
                 if (!salesmanAssigned && tenant) {
-                  console.log(`[OpenPhone] Route optimizer didn't assign — falling back to direct salesman assignment`)
+                  console.log(`[OpenPhone] Route optimizer didn't assign -- falling back to direct salesman assignment`)
                   const { data: availableSalesmen } = await client
                     .from('cleaners')
                     .select('id, phone, name, portal_token')
@@ -2910,7 +2934,7 @@ export async function POST(request: NextRequest) {
 
                     const { getClientConfig } = await import("@/lib/client-config")
                     const appDomain = getClientConfig().domain.replace(/\/+$/, '')
-                    const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}` : ''
+                    const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${newJob.id}` : ''
                     const salesmanMsg = `New Estimate Assigned - ${tenant.name || 'WinBros'}\n\nCustomer: ${customerName}\nService: ${bookingData.serviceType?.replace(/_/g, ' ') || 'Window Cleaning'}\nAddress: ${jobAddress}\nDate: ${estimateDate} at ${timeStr}${portalLink}`
                     await sendSMS(tenant, salesman.phone, salesmanMsg)
                     salesmanAssigned = true
