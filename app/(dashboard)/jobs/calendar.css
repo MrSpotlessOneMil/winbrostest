@@ -182,10 +182,9 @@
   border-color: rgba(63, 63, 70, 0.3);
 }
 
-/* Limit month-view day cells to ~3 events, scroll for more */
+/* Month-view day cells: fill available space, scroll when overflowing */
 .fc .fc-daygrid-day-frame {
   min-height: 0 !important;
-  max-height: 95px;
   overflow-y: hidden;
 }
 
@@ -198,17 +197,9 @@
   gap: 1px;
 }
 
-.fc .fc-daygrid-body-unbalanced .fc-daygrid-day {
-  height: 95px !important;
-  overflow: hidden;
-}
-
+/* Let the table fill the calendar height so rows stretch evenly */
 .fc .fc-scrollgrid-sync-table {
-  height: auto !important;
-}
-
-.fc .fc-scrollgrid-sync-table tbody tr {
-  height: 95px !important;
+  height: 100% !important;
 }
 
 
