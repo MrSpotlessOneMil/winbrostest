@@ -182,7 +182,7 @@
   border-color: rgba(63, 63, 70, 0.3);
 }
 
-/* Month-view day cells: fill available space, scroll when overflowing */
+/* Month-view day cells: fill available space, scroll events on hover */
 .fc .fc-daygrid-day-frame {
   min-height: 0 !important;
   overflow-y: hidden;
@@ -197,9 +197,14 @@
   gap: 1px;
 }
 
-/* Let the table fill the calendar height so rows stretch evenly */
+/* Force the daygrid body scroller to expand and fill the calendar height */
+.fc .fc-scroller {
+  overflow: auto !important;
+}
+
+.fc .fc-daygrid-body,
 .fc .fc-scrollgrid-sync-table {
-  height: 100% !important;
+  min-height: 100% !important;
 }
 
 
