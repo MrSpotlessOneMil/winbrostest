@@ -102,12 +102,23 @@ export interface QuoteAddon {
 }
 
 export const QUOTE_ADDONS: QuoteAddon[] = [
+  // Window cleaning add-ons
   { key: 'interior', name: 'Interior Window Cleaning', description: 'Streak-free interior glass cleaning with non-toxic solutions', priceType: 'flat', price: 0 }, // price from tier
-  { key: 'track_detailing', name: 'Track Detailing', description: 'Deep clean window tracks — remove dirt, debris, and mildew', priceType: 'flat', price: 0 },
+  { key: 'track_detailing', name: 'Track Detailing', description: 'Deep clean window tracks - remove dirt, debris, and mildew', priceType: 'flat', price: 0 },
   { key: 'solar_panel', name: 'Solar Panel Cleaning', description: 'Maximize energy output by removing dirt and debris from panels', priceType: 'per_unit', price: 7, unit: 'panel' },
   { key: 'hard_water_treatment', name: 'Hard Water Stain Treatment', description: 'Specialized treatment to restore glass clarity', priceType: 'per_unit', price: 12, unit: 'pane' },
-  { key: 'rain_repellent', name: 'Rain Repellent', description: 'Hydrophobic coating that repels water and keeps windows cleaner longer', priceType: 'flat', price: 0 }, // FREE
-  { key: 'rain_guarantee', name: '7-Day Rain Guarantee', description: 'Free re-clean if it rains within 7 days of service', priceType: 'flat', price: 0 }, // FREE
+  { key: 'rain_repellent', name: 'Rain Repellent', description: 'Hydrophobic coating that repels water and keeps windows cleaner longer', priceType: 'flat', price: 0 },
+  { key: 'rain_guarantee', name: '7-Day Rain Guarantee', description: 'Free re-clean if it rains within 7 days of service', priceType: 'flat', price: 0 },
+  // Pressure washing add-ons
+  { key: 'house_wash', name: 'House Washing / Soft Wash', description: 'Full exterior house wash with safe soft-wash technique', priceType: 'flat', price: 300 },
+  { key: 'driveway', name: 'Driveway Cleaning', description: 'High-pressure driveway cleaning to remove oil, dirt, and stains', priceType: 'flat', price: 250 },
+  { key: 'patio', name: 'Patio Cleaning', description: 'Restore your patio surface to like-new condition', priceType: 'flat', price: 150 },
+  { key: 'sidewalk', name: 'Sidewalk Cleaning', description: 'Remove grime and algae from walkways', priceType: 'flat', price: 100 },
+  { key: 'deck', name: 'Deck Washing', description: 'Gentle pressure wash to clean and brighten your deck', priceType: 'flat', price: 175 },
+  { key: 'fence', name: 'Fence Cleaning', description: 'Pressure wash fencing to remove dirt and mildew', priceType: 'flat', price: 250 },
+  { key: 'pool_deck', name: 'Pool Deck Cleaning', description: 'Clean and sanitize pool deck surfaces', priceType: 'flat', price: 250 },
+  // Gutter cleaning
+  { key: 'gutter_cleaning', name: 'Gutter Cleaning', description: 'Full gutter cleanout with debris removal and downspout flush', priceType: 'flat', price: 250 },
 ]
 
 /**

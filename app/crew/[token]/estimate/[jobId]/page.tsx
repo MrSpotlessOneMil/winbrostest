@@ -228,7 +228,7 @@ export default function EstimatePage() {
   // ── Submit ─────────────────────────────────────────────────────────
 
   async function handleSubmit(action: "accepted" | "send_quote" | "collect_card" | "send_payment_link") {
-    if ((action === "accepted" || action === "collect_card") && !serviceDate) {
+    if (action === "collect_card" && !serviceDate) {
       setError("Pick a service date before booking")
       return
     }
@@ -242,7 +242,9 @@ export default function EstimatePage() {
       const activeAddonKeys = Object.entries(selectedAddons).filter(([, v]) => v).map(([k]) => k)
 
       // Step 1: Create the quote via the existing POST
-      const baseAction = (action === "collect_card" || action === "send_payment_link") ? "accepted" : action
+      // "collect_card" = accepted (job created now, card collected inline)
+      // "send_payment_link" = send_quote (quote stays pending, customer opens link to save card)
+      const baseAction = action === "collect_card" ? "accepted" : action === "send_payment_link" ? "send_quote" : action
       const res = await fetch(`/api/crew/${token}/estimate/${jobId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -302,6 +304,8 @@ export default function EstimatePage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "send_link", quote_token: json.quote_token }),
         })
+        setCompleted({ action: 'payment_link_sent', total: json.total, date: serviceDate || undefined })
+        return
       }
 
       setCompleted({ action: json.action, total: json.total, date: serviceDate || undefined })
@@ -384,11 +388,13 @@ export default function EstimatePage() {
             <CheckCircle className="size-8 text-emerald-500" />
           </div>
           <h2 className="text-xl font-bold text-slate-800 mb-2">
-            {completed.action === "accepted" ? "Job Booked!" : "Quote Sent!"}
+            {completed.action === "accepted" ? "Card Saved & Job Booked!" : completed.action === "payment_link_sent" ? "Payment Link Sent!" : "Quote Sent!"}
           </h2>
           <p className="text-slate-500 text-sm mb-1">
             {completed.action === "accepted"
               ? `Customer confirmed at ${fmt(completed.total)}${completed.date ? ` for ${formatDate(completed.date)}` : ""}. Cleaning job created.`
+              : completed.action === "payment_link_sent"
+              ? `Payment link for ${fmt(completed.total)} sent to customer. They'll save their card and the job will be created automatically.`
               : `Quote for ${fmt(completed.total)} sent to customer. They'll get a link to review and book.`}
           </p>
           <p className="text-slate-400 text-xs mb-5">The customer has been notified via SMS.</p>
@@ -839,10 +845,10 @@ export default function EstimatePage() {
                 Collect Card
               </button>
               <button
-                disabled={submitting || total <= 0 || !serviceDate}
+                disabled={submitting || total <= 0}
                 onClick={() => handleSubmit("send_payment_link")}
                 className={`flex-1 h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] ${
-                  submitting || total <= 0 || !serviceDate
+                  submitting || total <= 0
                     ? "bg-slate-300 text-slate-500 cursor-not-allowed"
                     : "bg-blue-600 text-white hover:bg-blue-700 shadow-md"
                 }`}

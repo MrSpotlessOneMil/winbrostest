@@ -103,7 +103,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Get active service plans for this tenant
   const { data: servicePlans } = await client
     .from('service_plans')
-    .select('id, slug, name, interval_months, discount_amount, description')
+    .select('id, slug, name, interval_months, discount_per_visit, agreement_text, active')
     .eq('tenant_id', tenant.id)
     .eq('active', true)
     .order('interval_months', { ascending: false })
@@ -171,8 +171,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       slug: p.slug,
       name: p.name,
       interval_months: p.interval_months,
-      discount_amount: p.discount_amount || 0,
-      description: p.description,
+      discount_amount: p.discount_per_visit || 0,
+      description: p.agreement_text || null,
     })),
   })
 }
@@ -319,13 +319,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (membershipPlan) {
     const { data: plan } = await client
       .from('service_plans')
-      .select('discount_amount')
+      .select('discount_per_visit')
       .eq('slug', membershipPlan)
       .eq('tenant_id', tenant.id)
       .eq('active', true)
       .maybeSingle()
-    if (plan?.discount_amount) {
-      planDiscount = plan.discount_amount
+    if (plan?.discount_per_visit) {
+      planDiscount = Number(plan.discount_per_visit)
     }
   }
   const finalTotal = Math.max(0, total - planDiscount)
