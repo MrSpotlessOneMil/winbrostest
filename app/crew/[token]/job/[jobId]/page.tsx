@@ -643,7 +643,7 @@ export default function JobDetailPage() {
                         }`}
                       >
                         <div
-                          className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
+                          className={`max-w-[80%] px-3 py-2 rounded-lg text-[15px] leading-relaxed ${
                             msg.direction === "outbound"
                               ? msg.is_mine
                                 ? "bg-blue-500 text-white"
@@ -679,7 +679,7 @@ export default function JobDetailPage() {
                     onChange={(e) => setMessageText(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendMessage()}
                     placeholder="Type a message..."
-                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-400"
                     maxLength={1000}
                   />
                   <button
