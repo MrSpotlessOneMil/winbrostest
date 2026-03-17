@@ -33,25 +33,25 @@ async function sendMultiPartSMS(
   for (let i = 0; i < parts.length; i++) {
     const part = parts[i]
 
-    // Insert DB record BEFORE sending so the outbound webhook dedup check
-    // always finds it (fixes race condition that caused double messages)
-    await client.from("messages").insert({
-      tenant_id: tenant.id,
-      customer_id: customerId,
-      phone_number: phone,
-      role: "assistant",
-      content: part,
-      direction: "outbound",
-      message_type: "sms",
-      ai_generated: true,
-      timestamp: new Date(Date.now() + i).toISOString(), // offset by 1ms for ordering
-      source: "openphone",
-      metadata: { ...metadata, part: i + 1, total_parts: parts.length },
-    })
-
+    // Send via OpenPhone API first, then insert DB record only on success
+    // This prevents ghost messages (stored in DB but never actually sent)
     const result = await sendSMS(tenant, phone, part, { skipDedup: true })
     if (result.success) {
       messageIds.push(result.messageId || '')
+      // Only insert DB record after confirmed send
+      await client.from("messages").insert({
+        tenant_id: tenant.id,
+        customer_id: customerId,
+        phone_number: phone,
+        role: "assistant",
+        content: part,
+        direction: "outbound",
+        message_type: "sms",
+        ai_generated: true,
+        timestamp: new Date(Date.now() + i).toISOString(), // offset by 1ms for ordering
+        source: "openphone",
+        metadata: { ...metadata, part: i + 1, total_parts: parts.length, openphone_message_id: result.messageId || null },
+      })
     } else {
       console.error(`[${tenant.slug}] Auto-response SMS failed for ${phone}: ${result.error}`)
       allSuccess = false
@@ -624,22 +624,24 @@ export async function POST(request: NextRequest) {
           const reviewLink = tenant.google_review_link || "https://g.page/review"
 
           const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review — it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings — you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
-          await sendSMS(tenant, phone, replyMsg)
+          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+          const replyResult = await sendSMS(tenant, phone, replyMsg)
 
-          // Save outbound message
-          await client.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "assistant",
-            content: replyMsg,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            timestamp: new Date().toISOString(),
-            source: "post_job_satisfaction_positive",
-          })
+          // Only save outbound message if SMS was actually sent (prevents ghost messages)
+          if (replyResult.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: replyMsg,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              timestamp: new Date().toISOString(),
+              source: "post_job_satisfaction_positive",
+            })
+          }
 
           await client.from("customers").update({
             post_job_stage: "recurring_offered",
@@ -659,21 +661,23 @@ export async function POST(request: NextRequest) {
 
         } else if (sentiment === "negative") {
           // Apology — NO review link
-          const apologyMsg = `We're really sorry to hear that. We want to make it right — someone from our team will reach out to you personally. Thank you for letting us know.`
-          await sendSMS(tenant, phone, apologyMsg)
+          const apologyMsg = `We're really sorry to hear that. We want to make it right - someone from our team will reach out to you personally. Thank you for letting us know.`
+          const apologyResult = await sendSMS(tenant, phone, apologyMsg)
 
-          await client.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "assistant",
-            content: apologyMsg,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            timestamp: new Date().toISOString(),
-            source: "post_job_satisfaction_negative",
-          })
+          if (apologyResult.success) {
+            await client.from("messages").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              role: "assistant",
+              content: apologyMsg,
+              direction: "outbound",
+              message_type: "sms",
+              ai_generated: false,
+              timestamp: new Date().toISOString(),
+              source: "post_job_satisfaction_negative",
+            })
+          }
 
           await client.from("customers").update({
             post_job_stage: "negative_reply",
@@ -760,20 +764,22 @@ export async function POST(request: NextRequest) {
       } else if (isAccept) {
         const customerFirstName = customer.first_name || 'there'
         const confirmMsg = `That's great ${customerFirstName}! Our team will get your next cleaning on the books. They'll text you shortly to get it scheduled!`
-        await sendSMS(tenant, phone, confirmMsg)
+        const recurringResult = await sendSMS(tenant, phone, confirmMsg)
 
-        await client.from("messages").insert({
-          tenant_id: tenant.id,
-          customer_id: customer.id,
-          phone_number: phone,
-          role: "assistant",
-          content: confirmMsg,
-          direction: "outbound",
-          message_type: "sms",
-          ai_generated: false,
-          timestamp: new Date().toISOString(),
-          source: "recurring_accepted",
-        })
+        if (recurringResult.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: confirmMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "recurring_accepted",
+          })
+        }
 
         await client.from("customers").update({
           post_job_stage: "recurring_accepted",
@@ -834,24 +840,63 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Per-customer auto-response kill switch
+  // Per-customer auto-response kill switch (with auto-unpause after 2 hours of no manual activity)
   if (customer?.auto_response_paused === true) {
-    console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — storing message, skipping AI`)
-    await client.from("messages").insert({
-      tenant_id: tenant?.id,
-      customer_id: customer.id,
-      phone_number: phone,
-      role: "client",
-      content: extracted.content,
-      direction: extracted.direction || "inbound",
-      message_type: "sms",
-      ai_generated: false,
-      timestamp: new Date().toISOString(),
-      source: "openphone",
-      external_message_id: opMessageId || null,
-      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "customer_paused" },
-    })
-    return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
+    // Check if the last manual outbound was more than 2 hours ago - if so, auto-unpause
+    // This prevents customers from being permanently stuck in paused state
+    const AUTO_UNPAUSE_MS = 2 * 60 * 60 * 1000 // 2 hours
+    const unpauseCutoff = new Date(Date.now() - AUTO_UNPAUSE_MS).toISOString()
+    const { data: recentManualOutbound } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .eq("source", "openphone_app")
+      .eq("direction", "outbound")
+      .gte("created_at", unpauseCutoff)
+      .limit(1)
+      .maybeSingle()
+
+    if (recentManualOutbound) {
+      // Staff was recently texting this customer - keep paused, just store the message
+      console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — recent manual activity, storing message, skipping AI`)
+      await client.from("messages").insert({
+        tenant_id: tenant?.id,
+        customer_id: customer.id,
+        phone_number: phone,
+        role: "client",
+        content: extracted.content,
+        direction: extracted.direction || "inbound",
+        message_type: "sms",
+        ai_generated: false,
+        timestamp: new Date().toISOString(),
+        source: "openphone",
+        external_message_id: opMessageId || null,
+        metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "customer_paused" },
+      })
+      return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
+    } else {
+      // No recent manual activity - auto-unpause and let AI handle it
+      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 2h`)
+      await client.from("customers").update({ auto_response_paused: false }).eq("id", customer.id)
+      // Also unpause the lead if one exists
+      const { data: pausedLead } = await client
+        .from("leads")
+        .select("id")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (pausedLead) {
+        const { data: leadData } = await client.from("leads").select("form_data").eq("id", pausedLead.id).single()
+        if (leadData) {
+          const fd = typeof leadData.form_data === 'object' && leadData.form_data ? leadData.form_data : {}
+          await client.from("leads").update({ form_data: { ...fd, followup_paused: false } }).eq("id", pausedLead.id)
+        }
+      }
+      // Fall through to normal processing - customer will get an AI response
+    }
   }
 
   // Dedup: prefer message ID match, fall back to content match with extended window
@@ -1295,7 +1340,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("phone_number", phone)
       .eq("tenant_id", tenant?.id)
-      .in("source", ["card_on_file", "deposit", "invoice"])
+      .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked", "vapi_booking_confirmation"])
       .limit(1)
       .maybeSingle()
 
@@ -1608,13 +1653,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, flow: "phone_call_email_capture", leadId: bookedLead.id })
 
     } else {
-      // Check if payment/invoice links were already sent for this booking
+      // Check if payment/invoice/quote links were already sent for this booking
       const { data: existingPayment } = await client
         .from("messages")
         .select("id")
         .eq("phone_number", phone)
         .eq("tenant_id", tenant?.id)
-        .in("source", ["card_on_file", "deposit", "invoice"])
+        .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked", "vapi_booking_confirmation"])
         .limit(1)
         .maybeSingle()
 
