@@ -234,14 +234,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       const businessName = tenant.business_name_short || tenant.name
       const custName = customer?.first_name || 'there'
 
-      // Set post_job_stage FIRST (before any SMS) to prevent race condition
-      // where customer replies before stage is set
+      // Set post_job_stage + satisfaction_sent_at FIRST (before any SMS)
+      // Both are needed: post_job_stage for routing, satisfaction_sent_at for job lookup
       if (customer?.id) {
         await client.from('customers').update({
           post_job_stage: 'satisfaction_sent',
           post_job_stage_updated_at: new Date().toISOString(),
         }).eq('id', customer.id)
       }
+      await client.from('jobs').update({
+        satisfaction_sent_at: new Date().toISOString(),
+      }).eq('id', parseInt(jobId))
 
       // 1. Auto-charge card if customer has card on file
       try {

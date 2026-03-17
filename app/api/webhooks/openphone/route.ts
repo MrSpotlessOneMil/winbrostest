@@ -711,12 +711,26 @@ export async function POST(request: NextRequest) {
           await recordMessageSent(tenant.id, customer.id, phone, "post_job_satisfaction_negative", "post_job")
 
         } else {
-          // Neutral — don't intercept, let normal flow handle it
-          // The 24hr timeout will send the review link
+          // Neutral — treat as positive (any reply to "how was your cleaning" is engagement)
+          const reviewLink = tenant.google_review_link || "https://g.page/review"
+          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
+          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
+          await sendSMS(tenant, phone, neutralMsg)
+
+          await client.from("customers").update({
+            post_job_stage: "recurring_offered",
+            post_job_stage_updated_at: new Date().toISOString(),
+          }).eq("id", customer.id)
+
+          await client.from("jobs").update({
+            satisfaction_response: "neutral",
+            review_sent_at: new Date().toISOString(),
+            recurring_offered_at: new Date().toISOString(),
+          }).eq("id", recentJob.id)
         }
 
-        // For positive/negative, store the inbound message and return early
-        if (sentiment !== "neutral") {
+        // ALL sentiments: store the inbound message and return early (never fall through to AI)
+        {
           // Store inbound message (it hasn't been stored yet at this point)
           const opMessageId = payload?.data?.object?.id || payload?.data?.id || payload?.id || null
           await client.from("messages").insert({
@@ -736,7 +750,7 @@ export async function POST(request: NextRequest) {
           await logSystemEvent({
             tenant_id: tenant.id,
             source: "openphone",
-            event_type: sentiment === "positive" ? "POST_JOB_SATISFACTION_POSITIVE" : "POST_JOB_SATISFACTION_NEGATIVE",
+            event_type: sentiment === "negative" ? "POST_JOB_SATISFACTION_NEGATIVE" : "POST_JOB_SATISFACTION_POSITIVE",
             message: `Customer ${customer.id} replied ${sentiment} to satisfaction check`,
             phone_number: phone,
             metadata: { job_id: recentJob.id, sentiment, reply: inboundContent.slice(0, 200) },
