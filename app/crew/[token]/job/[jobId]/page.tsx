@@ -425,10 +425,10 @@ export default function JobDetailPage() {
           )}
         </div>
 
-        {/* Accept/Decline (pending assignments) — after details so cleaner sees everything first */}
+        {/* Accept/Decline (pending assignments) */}
         {isPending && (
           <div className="bg-white border border-slate-200 rounded-lg p-4">
-            <h3 className="font-semibold text-slate-800 mb-3">Accept this job?</h3>
+            <h3 className="font-semibold text-slate-800 mb-3">New Job Assignment</h3>
             <div className="flex gap-3">
               <button
                 onClick={() => handleAcceptDecline("accept")}

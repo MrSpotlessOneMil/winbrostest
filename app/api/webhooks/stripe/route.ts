@@ -677,7 +677,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
             const portalLink = tech.portal_token ? `\nDetails: ${appDomain}/crew/${tech.portal_token}/job/${newJob.id}` : ''
             const custName = quote.customer_name?.split(' ')[0] || 'Customer'
             const dateStr = new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-            const techMsg = `New Job Assigned!\n\nCustomer: ${custName}\nAddress: ${quote.customer_address || 'See portal'}\nDate: ${dateStr}\nService: ${serviceName}${portalLink}\n\nReply YES to accept or NO to decline.`
+            const techMsg = `New Job Assigned!\n\nCustomer: ${custName}\nAddress: ${quote.customer_address || 'See portal'}\nDate: ${dateStr}\nService: ${serviceName}${portalLink}\n\nReply ACCEPT or DECLINE.`
             await sendSMS(tenant, tech.phone, techMsg)
             techAssigned = true
             console.log(`[Stripe Webhook] Technician ${tech.name} notified for quote-approved job ${newJob.id}`)

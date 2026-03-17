@@ -120,7 +120,7 @@ export async function notifyCleanerAssignment(
     link = `\nDetails: ${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `New job: ${date} ${time} at ${address}. ${service}.${link}\nReply YES to accept or NO to decline.`
+  const message = `New job: ${date} ${time} at ${address}. ${service}.${link}\nReply ACCEPT or DECLINE.`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 
