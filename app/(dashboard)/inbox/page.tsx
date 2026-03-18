@@ -36,6 +36,11 @@ interface Conversation {
   minutesSinceLastInbound: number
   messagesCount: number
   optedOut: boolean
+  leadScore: number | null
+  segment: string | null
+  bestContactHour: number | null
+  churnRisk: number | null
+  responseLikelihood: number | null
 }
 
 interface ThreadMessage {
@@ -324,13 +329,24 @@ function ConversationRow({
           )}
         </div>
 
-        {/* Right side: time + context */}
-        <div className="shrink-0 text-right min-w-[70px]">
+        {/* Right side: score + time + context */}
+        <div className="shrink-0 text-right min-w-[80px]">
+          {convo.leadScore !== null && (
+            <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold mb-1 ${
+              convo.leadScore >= 70 ? 'bg-emerald-500/15 text-emerald-400'
+              : convo.leadScore >= 40 ? 'bg-amber-500/15 text-amber-400'
+              : 'bg-zinc-500/15 text-zinc-400'
+            }`}>
+              {convo.leadScore}
+            </div>
+          )}
           <div className="text-xs text-zinc-500">
             {convo.lastInbound ? timeAgo(convo.lastInbound.timestamp) : "-"}
           </div>
-          <div className="text-[10px] text-zinc-600 mt-1">{convo.context}</div>
-          <div className="text-[10px] text-zinc-600">{convo.messagesCount} msgs</div>
+          <div className="text-[10px] text-zinc-600 mt-0.5">{convo.context}</div>
+          {convo.segment && (
+            <div className="text-[10px] text-zinc-600">{convo.segment}</div>
+          )}
         </div>
       </button>
 
@@ -374,6 +390,46 @@ function ConversationRow({
               Resolve
             </Button>
           </div>
+
+          {/* Brain scores */}
+          {convo.leadScore !== null && (
+            <div className="px-4 py-2 flex gap-4 text-[11px] border-b border-zinc-800/40 bg-zinc-900/20">
+              <div>
+                <span className="text-zinc-500">Score:</span>{" "}
+                <span className={`font-semibold ${
+                  convo.leadScore >= 70 ? 'text-emerald-400' : convo.leadScore >= 40 ? 'text-amber-400' : 'text-zinc-400'
+                }`}>{convo.leadScore}/100</span>
+              </div>
+              {convo.segment && (
+                <div>
+                  <span className="text-zinc-500">Segment:</span>{" "}
+                  <span className="text-zinc-300">{convo.segment}</span>
+                </div>
+              )}
+              {convo.responseLikelihood !== null && (
+                <div>
+                  <span className="text-zinc-500">Reply rate:</span>{" "}
+                  <span className="text-zinc-300">{Math.round(convo.responseLikelihood * 100)}%</span>
+                </div>
+              )}
+              {convo.bestContactHour !== null && (
+                <div>
+                  <span className="text-zinc-500">Best hour:</span>{" "}
+                  <span className="text-zinc-300">
+                    {convo.bestContactHour === 0 ? '12am'
+                      : convo.bestContactHour <= 12 ? `${convo.bestContactHour}${convo.bestContactHour < 12 ? 'am' : 'pm'}`
+                      : `${convo.bestContactHour - 12}pm`}
+                  </span>
+                </div>
+              )}
+              {convo.churnRisk !== null && convo.churnRisk > 0.5 && (
+                <div>
+                  <span className="text-zinc-500">Churn risk:</span>{" "}
+                  <span className="text-red-400 font-semibold">{Math.round(convo.churnRisk * 100)}%</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Message thread */}
           <div className="px-4 py-3 max-h-96 overflow-y-auto space-y-2.5">

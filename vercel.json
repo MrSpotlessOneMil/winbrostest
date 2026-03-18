@@ -55,6 +55,10 @@
     {
       "path": "/api/cron/sync-openphone-contacts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/osiris-learn",
+      "schedule": "0 8 * * *"
     }
   ]
 }

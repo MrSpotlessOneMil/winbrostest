@@ -71,6 +71,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ conversations: [] })
   }
 
+  // Get ML scores for these customers
+  const { data: scores } = await client
+    .from('customer_scores')
+    .select('customer_id, lead_score, segment, best_contact_hour, churn_risk, response_likelihood')
+    .in('customer_id', customerIds)
+    .eq('tenant_id', tenant.id)
+
+  const scoreMap = new Map(
+    (scores || []).map((s: any) => [s.customer_id, s])
+  )
+
   // Get recent messages for all these customers (batch)
   const { data: messages } = await client
     .from('messages')
@@ -158,10 +169,16 @@ export async function GET(request: NextRequest) {
       minutesSinceLastInbound,
       messagesCount: msgs.length,
       optedOut: !!c.sms_opt_out,
+      // ML scores from Osiris Brain
+      leadScore: scoreMap.get(c.id)?.lead_score ?? null,
+      segment: scoreMap.get(c.id)?.segment ?? null,
+      bestContactHour: scoreMap.get(c.id)?.best_contact_hour ?? null,
+      churnRisk: scoreMap.get(c.id)?.churn_risk ?? null,
+      responseLikelihood: scoreMap.get(c.id)?.response_likelihood ?? null,
     }
   })
 
-  // Sort by priority then recency
+  // Sort by priority first, then by lead_score within same priority
   const priorityOrder: Record<Priority, number> = {
     hot_lead: 0,
     needs_attention: 1,
@@ -174,6 +191,10 @@ export async function GET(request: NextRequest) {
     const pa = priorityOrder[a.priority as Priority] ?? 99
     const pb = priorityOrder[b.priority as Priority] ?? 99
     if (pa !== pb) return pa - pb
+    // Within same priority, higher lead score first
+    const sa = a.leadScore ?? 0
+    const sb = b.leadScore ?? 0
+    if (sa !== sb) return sb - sa
     return a.minutesSinceLastInbound - b.minutesSinceLastInbound
   })
 
