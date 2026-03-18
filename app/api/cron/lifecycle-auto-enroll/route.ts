@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
+import { sendSMS } from '@/lib/openphone'
 import { scheduleRetargetingSequence, type RetargetingSequenceType } from '@/lib/scheduler'
 
 /**
@@ -10,8 +11,12 @@ import { scheduleRetargetingSequence, type RetargetingSequenceType } from '@/lib
  * Refreshes customer lifecycle stages and auto-enrolls unenrolled customers
  * in matching retargeting sequences.
  *
+ * Also handles:
+ * - Auto-marking stale leads as "lost" (30+ days in new/contacted with no activity)
+ * - Auto-expiring quotes past valid_until and notifying customers
+ *
  * Targets: unresponsive, quoted_not_booked, one_time, lapsed
- * Cap: 20 enrollments per tenant per run
+ * Cap: 50 enrollments per tenant per run
  *
  * Schedule: 0 15 * * * (3pm UTC daily)
  */
@@ -25,7 +30,7 @@ const ENROLLABLE_STAGES: RetargetingSequenceType[] = [
   'lost',
 ]
 
-const MAX_ENROLLMENTS_PER_TENANT = 50
+const MAX_ENROLLMENTS_PER_TENANT = 200
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -67,7 +72,7 @@ export async function GET(request: NextRequest) {
         .in('lifecycle_stage', ENROLLABLE_STAGES)
         .not('phone_number', 'is', null)
         .order('updated_at', { ascending: true })
-        .limit(100) // fetch more than cap to account for filtering
+        .limit(300) // fetch more than cap to account for filtering
 
       if (queryError) {
         console.error(`[Lifecycle Auto-Enroll] Query error for ${tenant.slug}:`, queryError.message)
@@ -145,8 +150,67 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const totalEnrolled = summary.reduce((sum, s) => sum + s.enrolled, 0)
-  console.log(`[Lifecycle Auto-Enroll] Done. Total enrolled: ${totalEnrolled}`)
+  // ── Phase 2: Stale lead cleanup & quote expiry (all tenants) ──
+  let staleLeadsMarked = 0
+  let quotesExpired = 0
 
-  return NextResponse.json({ success: true, summary, totalEnrolled })
+  for (const tenant of tenants) {
+    try {
+      // Auto-mark stale leads as lost: new/contacted for 30+ days with no activity
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+      const { data: staleLeads, error: staleErr } = await client
+        .from('leads')
+        .update({ status: 'lost' })
+        .eq('tenant_id', tenant.id)
+        .in('status', ['new', 'contacted'])
+        .lt('created_at', thirtyDaysAgo)
+        .select('id')
+
+      if (staleErr) {
+        console.error(`[Lifecycle Auto-Enroll] Stale lead cleanup error for ${tenant.slug}:`, staleErr.message)
+      } else if (staleLeads && staleLeads.length > 0) {
+        staleLeadsMarked += staleLeads.length
+        console.log(`[Lifecycle Auto-Enroll] Marked ${staleLeads.length} stale leads as lost for ${tenant.slug}`)
+      }
+
+      // Auto-expire quotes past valid_until
+      const { data: expiredQuotes, error: expireErr } = await client
+        .from('quotes')
+        .update({ status: 'expired' })
+        .eq('tenant_id', tenant.id)
+        .eq('status', 'pending')
+        .lt('valid_until', new Date().toISOString())
+        .select('id, token, customer_id, customers(first_name, phone_number)')
+
+      if (expireErr) {
+        console.error(`[Lifecycle Auto-Enroll] Quote expiry error for ${tenant.slug}:`, expireErr.message)
+      } else if (expiredQuotes && expiredQuotes.length > 0) {
+        quotesExpired += expiredQuotes.length
+        console.log(`[Lifecycle Auto-Enroll] Expired ${expiredQuotes.length} quotes for ${tenant.slug}`)
+
+        // Send "quote expired" SMS for each (best-effort, don't block on failures)
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://spotless-scrubbers-api.vercel.app')
+
+        for (const q of expiredQuotes) {
+          const cust = q.customers as any
+          if (!cust?.phone_number) continue
+          const name = cust.first_name || 'there'
+          const msg = `Hey ${name}, your quote from ${tenant.business_name_short || tenant.name} has expired. If you're still interested, we'd love to send you an updated one - just reply and we'll get it over to you!`
+          try {
+            await sendSMS(tenant, cust.phone_number, msg)
+          } catch (smsErr) {
+            console.error(`[Lifecycle Auto-Enroll] Failed to send quote expiry SMS for quote ${q.id}:`, smsErr)
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[Lifecycle Auto-Enroll] Phase 2 error for ${tenant.slug}:`, err)
+    }
+  }
+
+  const totalEnrolled = summary.reduce((sum, s) => sum + s.enrolled, 0)
+  console.log(`[Lifecycle Auto-Enroll] Done. Enrolled: ${totalEnrolled}, stale leads marked lost: ${staleLeadsMarked}, quotes expired: ${quotesExpired}`)
+
+  return NextResponse.json({ success: true, summary, totalEnrolled, staleLeadsMarked, quotesExpired })
 }
