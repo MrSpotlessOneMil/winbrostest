@@ -1,19 +1,13 @@
 "use client"
 
-import { StatsCards } from "@/components/dashboard/stats-cards"
-import { RevenueChart } from "@/components/dashboard/revenue-chart"
-import { LeadSourceChart } from "@/components/dashboard/lead-source-chart"
 import { TodaysJobs } from "@/components/dashboard/todays-jobs"
 import { RecentLeads } from "@/components/dashboard/recent-leads"
-import { TeamStatus } from "@/components/dashboard/team-status"
 import { ExceptionsList } from "@/components/dashboard/exceptions-list"
 import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
-import { FunnelSummary } from "@/components/dashboard/funnel-summary"
-import { EarningsSummary } from "@/components/dashboard/earnings-summary"
-import { TopPerformer } from "@/components/dashboard/top-performer"
 import { AttentionNeeded } from "@/components/dashboard/attention-needed"
 import { RightNow } from "@/components/dashboard/right-now"
+import { StatsCards } from "@/components/dashboard/stats-cards"
 
 export default function DashboardPage() {
   return (
@@ -35,10 +29,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Attention Needed (conditionally shown) */}
+      {/* Fires first */}
       <AttentionNeeded />
 
-      {/* Right Now + Stats Cards */}
+      {/* Live pulse + today's scorecard */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-1">
           <RightNow />
@@ -48,36 +42,18 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Call Checklist + Today's Jobs + Team Status */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-4">
+      {/* Today's Jobs + Call Checklist */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-4">
         <div className="md:col-span-2 lg:col-span-2">
           <TodaysJobs />
         </div>
-        <div className="space-y-4">
+        <div>
           <CallChecklist />
-          <TeamStatus />
         </div>
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <div className="md:col-span-2 lg:col-span-2">
-          <RevenueChart />
-        </div>
-        <div className="md:col-span-2 lg:col-span-2 min-h-0">
-          <LeadSourceChart />
-        </div>
-      </div>
-
-      {/* Funnel, Earnings, Top Performer */}
-      <div className="grid gap-4 md:gap-6 sm:grid-cols-2 lg:grid-cols-3 stagger-5">
-        <FunnelSummary />
-        <EarningsSummary />
-        <TopPerformer />
       </div>
 
       {/* Recent Leads + Activity Feed + Exceptions */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-5">
         <RecentLeads />
         <ActivityFeed />
         <ExceptionsList />

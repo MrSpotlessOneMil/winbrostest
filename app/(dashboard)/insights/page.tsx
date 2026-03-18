@@ -30,6 +30,12 @@ import {
   User,
 } from "lucide-react"
 import Link from "next/link"
+import { RevenueChart } from "@/components/dashboard/revenue-chart"
+import { LeadSourceChart } from "@/components/dashboard/lead-source-chart"
+import { FunnelSummary } from "@/components/dashboard/funnel-summary"
+import { EarningsSummary } from "@/components/dashboard/earnings-summary"
+import { TopPerformer } from "@/components/dashboard/top-performer"
+import { TeamStatus } from "@/components/dashboard/team-status"
 
 interface PipelineStage {
   total: number
@@ -387,6 +393,21 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Revenue & Lead Source Charts */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <RevenueChart />
+        <LeadSourceChart />
+      </div>
+
+      {/* Funnel, Earnings, Top Performer, Team */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <FunnelSummary />
+        <EarningsSummary />
+        <TopPerformer />
+      </div>
+
+      <TeamStatus />
 
       {/* Retargeting Performance + Pipeline Health */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
