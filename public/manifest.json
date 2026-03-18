@@ -4,8 +4,8 @@
   "description": "Jobs, dispatch, and operations for your cleaning business",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fafc",
-  "theme_color": "#2563eb",
+  "background_color": "#0a0a0a",
+  "theme_color": "#a855f7",
   "orientation": "portrait-primary",
   "icons": [
     {

@@ -145,15 +145,14 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
-          <Link href="/overview" className="font-semibold text-zinc-100 tracking-tight hover:text-purple-300 transition-colors text-sm">
-            CLEAN MACHINE
+          <Link href="/overview" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+            <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
+            <span className="font-semibold text-zinc-100 tracking-tight text-sm">CLEAN MACHINE</span>
           </Link>
         )}
         {collapsed && (
           <Link href="/overview" className="w-full flex justify-center">
-            <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300 logo-glow">
-              CM
-            </div>
+            <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
           </Link>
         )}
       </div>
