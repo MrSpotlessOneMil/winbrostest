@@ -30,7 +30,7 @@ const ENROLLABLE_STAGES: RetargetingSequenceType[] = [
   'lost',
 ]
 
-const MAX_ENROLLMENTS_PER_TENANT = 200
+const MAX_ENROLLMENTS_PER_TENANT = 400
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
         .in('lifecycle_stage', ENROLLABLE_STAGES)
         .not('phone_number', 'is', null)
         .order('updated_at', { ascending: true })
-        .limit(300) // fetch more than cap to account for filtering
+        .limit(600) // fetch more than cap to account for filtering
 
       if (queryError) {
         console.error(`[Lifecycle Auto-Enroll] Query error for ${tenant.slug}:`, queryError.message)
