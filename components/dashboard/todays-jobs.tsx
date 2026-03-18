@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { MapPin, Clock, DollarSign, ChevronRight, User, CalendarCheck } from "lucide-react"
+import { MapPin, Clock, DollarSign, ChevronRight, User, CalendarCheck, Phone, Navigation } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Link from "next/link"
 import type { Job as ApiJob, PaginatedResponse } from "@/lib/types"
 
 type UiJob = {
   id: string
   customer: string
+  customerPhone: string | null
   address: string
   time: string
   value: number
@@ -52,6 +54,7 @@ function mapJob(row: ApiJob): UiJob {
   return {
     id: `JOB-${row.id}`,
     customer: row.customer_name || "Unknown",
+    customerPhone: row.customer_phone || null,
     address: row.address || "—",
     time: end ? `${start} - ${end}` : start,
     value: Number(row.estimated_value || 0),
@@ -62,10 +65,13 @@ function mapJob(row: ApiJob): UiJob {
   }
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; className: string }> = {
   completed: { label: "Completed", className: "bg-success/10 text-success border-success/20" },
   "in-progress": { label: "In Progress", className: "bg-primary/10 text-primary border-primary/20" },
   scheduled: { label: "Scheduled", className: "bg-muted text-muted-foreground border-border" },
+  confirmed: { label: "Confirmed", className: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
+  quoted: { label: "Quoted", className: "bg-amber-500/10 text-amber-400 border-amber-500/20" },
+  rescheduled: { label: "Rescheduled", className: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
   cancelled: { label: "Cancelled", className: "bg-destructive/10 text-destructive border-destructive/20" },
 }
 
@@ -107,10 +113,12 @@ export function TodaysJobs() {
             {jobs.length} jobs scheduled • ${projectedRevenue.toLocaleString()} projected revenue
           </CardDescription>
         </div>
-        <Button variant="outline" size="sm">
-          View All
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </Button>
+        <Link href="/jobs">
+          <Button variant="outline" size="sm">
+            View All
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </Link>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
@@ -151,8 +159,8 @@ export function TodaysJobs() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-foreground">{job.customer}</span>
-                    <Badge variant="outline" className={statusConfig[job.status as keyof typeof statusConfig].className}>
-                      {statusConfig[job.status as keyof typeof statusConfig].label}
+                    <Badge variant="outline" className={(statusConfig[job.status] || statusConfig.scheduled).className}>
+                      {(statusConfig[job.status] || statusConfig.scheduled).label}
                     </Badge>
                   </div>
                   <span className="text-xs font-mono text-zinc-600">{job.id}</span>
@@ -181,6 +189,30 @@ export function TodaysJobs() {
                   <div className="text-xs text-success font-medium">
                     + {job.upsell}
                   </div>
+                )}
+              </div>
+
+              {/* Quick actions */}
+              <div className="flex flex-col gap-1.5 shrink-0">
+                {job.customerPhone && (
+                  <a
+                    href={`tel:${job.customerPhone}`}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-colors"
+                    title="Call customer"
+                  >
+                    <Phone className="h-3.5 w-3.5" />
+                  </a>
+                )}
+                {job.address && job.address !== "—" && (
+                  <a
+                    href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                    title="Navigate"
+                  >
+                    <Navigation className="h-3.5 w-3.5" />
+                  </a>
                 )}
               </div>
             </div>

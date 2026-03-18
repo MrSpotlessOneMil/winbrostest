@@ -70,6 +70,7 @@ interface InsightsData {
   pipelineTotal: number
   metrics: DailyMetrics | null
   weekMetrics: DailyMetrics[]
+  prevWeekMetrics: DailyMetrics[]
   cleanerPerformance: CleanerPerf[]
   messageAnalytics: MessageAnalytics | null
   leadsBySource: Record<string, { total: number; booked: number }>
@@ -91,24 +92,36 @@ export default function InsightsPage() {
   async function fetchInsights() {
     setLoading(true)
     try {
-      const [pipelineRes, todayRes, weekRes, insightsRes] = await Promise.all([
+      // Compute last week's end date (7 days ago) for week-over-week comparison
+      const lastWeekDate = new Date()
+      lastWeekDate.setDate(lastWeekDate.getDate() - 7)
+      const lastWeekDateStr = lastWeekDate.toISOString().slice(0, 10)
+
+      const [pipelineRes, todayRes, weekRes, prevWeekRes, insightsRes] = await Promise.all([
         fetch("/api/actions/retargeting-pipeline"),
         fetch("/api/metrics?range=today"),
         fetch("/api/metrics?range=week"),
+        fetch(`/api/metrics?range=week&date=${lastWeekDateStr}`),
         fetch("/api/actions/insights-data"),
       ])
-      const [pipelineJson, todayJson, weekJson, insightsJson] = await Promise.all([
+      const [pipelineJson, todayJson, weekJson, prevWeekJson, insightsJson] = await Promise.all([
         pipelineRes.json(),
         todayRes.json(),
         weekRes.json(),
+        prevWeekRes.json(),
         insightsRes.json(),
       ])
+
+      // Support both .metrics and .data response shapes
+      const weekData = weekJson.metrics || weekJson.data
+      const prevWeekData = prevWeekJson.metrics || prevWeekJson.data
 
       setData({
         pipeline: pipelineJson.stages || {},
         pipelineTotal: pipelineJson.total || 0,
         metrics: todayJson.metrics || null,
-        weekMetrics: Array.isArray(weekJson.metrics) ? weekJson.metrics : [],
+        weekMetrics: Array.isArray(weekData) ? weekData : [],
+        prevWeekMetrics: Array.isArray(prevWeekData) ? prevWeekData : [],
         cleanerPerformance: insightsJson.cleanerPerformance || [],
         messageAnalytics: insightsJson.messageAnalytics || null,
         leadsBySource: insightsJson.leadsBySource || {},
@@ -157,6 +170,26 @@ export default function InsightsPage() {
   const weekLeads = weekMetrics.reduce((sum, d) => sum + (d.leads_in || 0), 0)
   const weekBooked = weekMetrics.reduce((sum, d) => sum + (d.leads_booked || 0), 0)
   const weekCloseRate = weekLeads > 0 ? Math.round((weekBooked / weekLeads) * 100) : 0
+
+  // Previous week metrics for week-over-week comparison
+  const prevWeekMetrics = data?.prevWeekMetrics || []
+  const prevWeekRevenue = prevWeekMetrics.reduce((sum, d) => sum + (d.total_revenue || 0), 0)
+  const prevWeekJobs = prevWeekMetrics.reduce((sum, d) => sum + (d.jobs_completed || 0), 0)
+  const prevWeekLeads = prevWeekMetrics.reduce((sum, d) => sum + (d.leads_in || 0), 0)
+  const prevWeekBooked = prevWeekMetrics.reduce((sum, d) => sum + (d.leads_booked || 0), 0)
+  const prevWeekCloseRate = prevWeekLeads > 0 ? Math.round((prevWeekBooked / prevWeekLeads) * 100) : 0
+
+  // Compute percentage deltas (null if no previous data to compare)
+  function computeDelta(current: number, previous: number): number | null {
+    if (previous === 0 && current === 0) return 0
+    if (previous === 0) return current > 0 ? 100 : null
+    return Math.round(((current - previous) / previous) * 100)
+  }
+
+  const revenueDelta = prevWeekMetrics.length > 0 ? computeDelta(weekRevenue, prevWeekRevenue) : null
+  const jobsDelta = prevWeekMetrics.length > 0 ? computeDelta(weekJobs, prevWeekJobs) : null
+  const leadsDelta = prevWeekMetrics.length > 0 ? computeDelta(weekLeads, prevWeekLeads) : null
+  const closeRateDelta = prevWeekMetrics.length > 0 ? computeDelta(weekCloseRate, prevWeekCloseRate) : null
 
   // Generate smart recommendations
   const recommendations: { priority: "high" | "medium" | "low"; title: string; description: string; action?: string; link?: string }[] = []
@@ -227,6 +260,41 @@ export default function InsightsPage() {
     })
   }
 
+  // Brain-powered recommendations using week-over-week data
+  if (weekRevenue > 0 && revenueDelta !== null && revenueDelta < 0) {
+    recommendations.push({
+      priority: "high",
+      title: `Revenue dropped ${Math.abs(revenueDelta)}% this week`,
+      description: `Revenue dropped ${Math.abs(revenueDelta)}% this week. Check if lead volume or close rate is the bottleneck.`,
+      action: "View Leads",
+      link: "/leads",
+    })
+  }
+
+  const aiAutomationRate = data?.messageAnalytics && data.messageAnalytics.totalOutbound > 0
+    ? Math.round((data.messageAnalytics.aiMessages / data.messageAnalytics.totalOutbound) * 100)
+    : null
+  if (aiAutomationRate !== null && aiAutomationRate < 50) {
+    recommendations.push({
+      priority: "medium",
+      title: `AI automation rate is only ${aiAutomationRate}%`,
+      description: `Your AI is handling only ${aiAutomationRate}% of messages. Review the inbox for patterns the AI could handle.`,
+      action: "View Inbox",
+      link: "/inbox",
+    })
+  }
+
+  const idleCleaners = (data?.cleanerPerformance || []).filter(c => c.jobsCompleted === 0)
+  if (idleCleaners.length > 0) {
+    recommendations.push({
+      priority: "medium",
+      title: `${idleCleaners.length} crew member${idleCleaners.length > 1 ? 's have' : ' has'} no completed jobs`,
+      description: `${idleCleaners.length} crew member${idleCleaners.length > 1 ? 's have' : ' has'} no completed jobs. Consider reassigning or checking availability.`,
+      action: "View Crew",
+      link: "/cleaners",
+    })
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
@@ -254,6 +322,11 @@ export default function InsightsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">${weekRevenue.toLocaleString()}</p>
+                {revenueDelta !== null && (
+                  <p className={`text-xs font-medium ${revenueDelta > 0 ? 'text-green-400' : revenueDelta < 0 ? 'text-red-400' : 'text-zinc-400'}`}>
+                    {revenueDelta > 0 ? '↑' : revenueDelta < 0 ? '↓' : '—'} {revenueDelta === 0 ? 'Same' : `${Math.abs(revenueDelta)}%`} vs last week
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">Revenue this week</p>
               </div>
             </div>
@@ -267,6 +340,11 @@ export default function InsightsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{weekJobs}</p>
+                {jobsDelta !== null && (
+                  <p className={`text-xs font-medium ${jobsDelta > 0 ? 'text-green-400' : jobsDelta < 0 ? 'text-red-400' : 'text-zinc-400'}`}>
+                    {jobsDelta > 0 ? '↑' : jobsDelta < 0 ? '↓' : '—'} {jobsDelta === 0 ? 'Same' : `${Math.abs(jobsDelta)}%`} vs last week
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">Jobs completed this week</p>
               </div>
             </div>
@@ -280,6 +358,11 @@ export default function InsightsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{weekLeads}</p>
+                {leadsDelta !== null && (
+                  <p className={`text-xs font-medium ${leadsDelta > 0 ? 'text-green-400' : leadsDelta < 0 ? 'text-red-400' : 'text-zinc-400'}`}>
+                    {leadsDelta > 0 ? '↑' : leadsDelta < 0 ? '↓' : '—'} {leadsDelta === 0 ? 'Same' : `${Math.abs(leadsDelta)}%`} vs last week
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">Leads this week</p>
               </div>
             </div>
@@ -293,6 +376,11 @@ export default function InsightsPage() {
               </div>
               <div>
                 <p className="text-2xl font-bold">{weekCloseRate}%</p>
+                {closeRateDelta !== null && (
+                  <p className={`text-xs font-medium ${closeRateDelta > 0 ? 'text-green-400' : closeRateDelta < 0 ? 'text-red-400' : 'text-zinc-400'}`}>
+                    {closeRateDelta > 0 ? '↑' : closeRateDelta < 0 ? '↓' : '—'} {closeRateDelta === 0 ? 'Same' : `${Math.abs(closeRateDelta)}%`} vs last week
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground">Close rate this week</p>
               </div>
             </div>

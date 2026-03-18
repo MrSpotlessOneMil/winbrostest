@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Phone, MessageSquare, Globe, Instagram, ChevronRight } from "lucide-react"
+import { Phone, PhoneOutgoing, MessageSquare, Globe, Instagram, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
+import Link from "next/link"
 import type { Lead as ApiLead, PaginatedResponse } from "@/lib/types"
 
 type UiLead = {
   id: string
   name: string
+  phone: string | null
   source: "phone" | "meta" | "website" | "sms"
   time: string
   status: "new" | "contacted" | "booked" | "nurturing" | "lost"
@@ -45,6 +47,7 @@ function mapLead(l: ApiLead): UiLead {
   return {
     id: `LEAD-${l.id}`,
     name: l.name || "Unknown",
+    phone: l.phone || null,
     source,
     time: timeAgo(l.created_at),
     status,
@@ -100,10 +103,12 @@ export function RecentLeads() {
           <CardTitle>Recent Leads</CardTitle>
           <CardDescription>Latest incoming inquiries</CardDescription>
         </div>
-        <Button variant="outline" size="sm">
-          View All
-          <ChevronRight className="ml-1 h-4 w-4" />
-        </Button>
+        <Link href="/leads">
+          <Button variant="outline" size="sm">
+            View All
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </Link>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
@@ -144,7 +149,14 @@ export function RecentLeads() {
 
                 <div className="flex-1 space-y-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-foreground truncate">{lead.name}</span>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-medium text-foreground truncate">{lead.name}</span>
+                      {lead.phone && (
+                        <a href={`tel:${lead.phone}`} className="shrink-0 p-1 rounded hover:bg-zinc-800 transition-colors" onClick={(e) => e.stopPropagation()}>
+                          <PhoneOutgoing className="h-3.5 w-3.5 text-violet-400" />
+                        </a>
+                      )}
+                    </div>
                     <Badge
                       variant="outline"
                       className={statusConfig[lead.status as keyof typeof statusConfig].className}

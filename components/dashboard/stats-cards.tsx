@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Clock, Phone } from "lucide-react"
+import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Users, Phone } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useEffect, useMemo, useState } from "react"
 import type { ApiResponse, DailyMetrics } from "@/lib/types"
@@ -12,17 +12,44 @@ function pct(n: number, d: number): number {
   return Math.round((n / d) * 100)
 }
 
+function computeChange(today: number, yesterday: number): { change: string; trend: "up" | "down" | "neutral" } {
+  if (yesterday === 0 && today === 0) return { change: "No change", trend: "neutral" }
+  if (yesterday === 0) return { change: "New", trend: "up" }
+  const pctChange = Math.round(((today - yesterday) / yesterday) * 100)
+  if (pctChange === 0) return { change: "0% vs yesterday", trend: "neutral" }
+  if (pctChange > 0) return { change: `+${pctChange}% vs yesterday`, trend: "up" }
+  return { change: `${pctChange}% vs yesterday`, trend: "down" }
+}
+
 export function StatsCards() {
   const [metrics, setMetrics] = useState<DailyMetrics | null>(null)
+  const [prevMetrics, setPrevMetrics] = useState<DailyMetrics | null>(null)
+
   useEffect(() => {
     let cancelled = false
     async function load() {
       try {
-        const mRes = await fetch("/api/metrics?range=today", { cache: "no-store" })
+        const yesterday = new Date()
+        yesterday.setDate(yesterday.getDate() - 1)
+        const yesterdayISO = yesterday.toISOString().split("T")[0]
+
+        const [mRes, pRes] = await Promise.all([
+          fetch("/api/metrics?range=today", { cache: "no-store" }),
+          fetch(`/api/metrics?date=${yesterdayISO}&range=specific`, { cache: "no-store" }),
+        ])
+
         const mJson = (await mRes.json()) as ApiResponse<DailyMetrics>
-        if (!cancelled) setMetrics((mJson as any).data || null)
+        const pJson = (await pRes.json()) as ApiResponse<DailyMetrics>
+
+        if (!cancelled) {
+          setMetrics((mJson as any).data || null)
+          setPrevMetrics((pJson as any).data || null)
+        }
       } catch {
-        if (!cancelled) setMetrics(null)
+        if (!cancelled) {
+          setMetrics(null)
+          setPrevMetrics(null)
+        }
       }
     }
     load()
@@ -51,6 +78,17 @@ export function StatsCards() {
     const jobsCompleted = Number(metrics?.jobs_completed || 0)
     const jobsScheduled = Number(metrics?.jobs_scheduled || 0)
     const callsHandled = Number(metrics?.calls_handled || 0)
+    const leadsIn = Number(metrics?.leads_in || 0)
+
+    const prevRevenue = Number(prevMetrics?.total_revenue || 0)
+    const prevJobsCompleted = Number(prevMetrics?.jobs_completed || 0)
+    const prevCallsHandled = Number(prevMetrics?.calls_handled || 0)
+    const prevLeadsIn = Number(prevMetrics?.leads_in || 0)
+
+    const revenueChange = computeChange(revenue, prevRevenue)
+    const jobsChange = computeChange(jobsCompleted, prevJobsCompleted)
+    const leadsChange = computeChange(leadsIn, prevLeadsIn)
+    const callsChange = computeChange(callsHandled, prevCallsHandled)
 
     return [
       {
@@ -59,8 +97,8 @@ export function StatsCards() {
         numericTarget: targetRevenue,
         prefix: "$",
         useCommas: true,
-        change: "—",
-        trend: revenue >= targetRevenue && targetRevenue > 0 ? "up" : "neutral",
+        change: revenueChange.change,
+        trend: revenueChange.trend,
         icon: DollarSign,
         progress: pct(revenue, targetRevenue),
       },
@@ -68,32 +106,31 @@ export function StatsCards() {
         name: "Jobs Completed",
         numericValue: jobsCompleted,
         numericTarget: jobsScheduled || 0,
-        change: "—",
-        trend: jobsCompleted > 0 ? "up" : "neutral",
+        change: jobsChange.change,
+        trend: jobsChange.trend,
         icon: CalendarCheck,
         progress: pct(jobsCompleted, jobsScheduled || 0),
       },
       {
-        name: "Time Saved",
-        numericValue: parseFloat((jobsCompleted * 0.75).toFixed(1)),
-        numericTarget: parseFloat((jobsScheduled * 0.75).toFixed(1)),
-        suffix: "h",
-        change: "—",
-        trend: jobsCompleted > 0 ? "up" : "neutral",
-        icon: Clock,
-        progress: pct(jobsCompleted, jobsScheduled || 0),
+        name: "New Leads",
+        numericValue: leadsIn,
+        numericTarget: prevLeadsIn || leadsIn,
+        change: leadsChange.change,
+        trend: leadsChange.trend,
+        icon: Users,
+        progress: prevLeadsIn > 0 ? pct(leadsIn, prevLeadsIn) : (leadsIn > 0 ? 100 : 0),
       },
       {
         name: "Calls Handled",
         numericValue: callsHandled,
         numericTarget: callsHandled,
-        change: "—",
-        trend: callsHandled > 0 ? "up" : "neutral",
+        change: callsChange.change,
+        trend: callsChange.trend,
         icon: Phone,
         progress: callsHandled ? 100 : 0,
       },
     ]
-  }, [metrics])
+  }, [metrics, prevMetrics])
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -140,7 +177,7 @@ export function StatsCards() {
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/60">
                 <div
                   className="h-full rounded-full progress-bar-glow transition-all duration-700 ease-out"
-                  style={{ width: `${stat.progress}%` }}
+                  style={{ width: `${Math.min(stat.progress, 100)}%` }}
                 />
               </div>
             </div>
