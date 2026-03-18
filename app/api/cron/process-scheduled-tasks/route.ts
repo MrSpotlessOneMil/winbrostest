@@ -20,7 +20,7 @@ import {
   type ScheduledTask,
   type RetargetingSequenceType,
 } from '@/lib/scheduler'
-import { getTenantById, getTenantServiceDescription, tenantUsesFeature } from '@/lib/tenant'
+import { getTenantById, getTenantServiceDescription, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { processFollowUp, getPendingFollowups } from '@/integrations/ghl/follow-up-scheduler'
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { sendSMS } from '@/lib/openphone'
@@ -664,10 +664,24 @@ async function processRetargeting(
     return
   }
 
+  // Skip if this phone belongs to a cleaner (never retarget cleaners)
+  if (tenantId) {
+    const cleanerPhones = await getCleanerPhoneSet(tenantId)
+    if (isCleanerPhone(customerPhone, cleanerPhones)) {
+      console.log(`[retargeting] Customer ${customerId} is a cleaner — cancelling sequence`)
+      await supabase
+        .from('scheduled_tasks')
+        .update({ status: 'cancelled' })
+        .like('task_key', `retarget-${customerId}-${sequence}-%`)
+        .eq('status', 'pending')
+      return
+    }
+  }
+
   // Manual call step — create a call_tasks checklist item instead of sending SMS
   if (template === 'manual_call') {
     await processManualCall(
-      { customerId, customerPhone, customerName, source: 'quoted_not_booked', step, sequence },
+      { customerId, customerPhone, customerName, source: `retargeting_${sequence}`, step, sequence },
       tenant,
       tenantId,
     )

@@ -11,6 +11,8 @@ import { CallChecklist } from "@/components/dashboard/call-checklist"
 import { FunnelSummary } from "@/components/dashboard/funnel-summary"
 import { EarningsSummary } from "@/components/dashboard/earnings-summary"
 import { TopPerformer } from "@/components/dashboard/top-performer"
+import { AttentionNeeded } from "@/components/dashboard/attention-needed"
+import { RightNow } from "@/components/dashboard/right-now"
 
 export default function DashboardPage() {
   return (
@@ -32,8 +34,29 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <StatsCards />
+      {/* Attention Needed (conditionally shown) */}
+      <AttentionNeeded />
+
+      {/* Right Now + Stats Cards */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-1">
+          <RightNow />
+        </div>
+        <div className="lg:col-span-2">
+          <StatsCards />
+        </div>
+      </div>
+
+      {/* Call Checklist + Today's Jobs + Team Status */}
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-4">
+        <div className="md:col-span-2 lg:col-span-2">
+          <TodaysJobs />
+        </div>
+        <div className="space-y-4">
+          <CallChecklist />
+          <TeamStatus />
+        </div>
+      </div>
 
       {/* Charts Row */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -45,14 +68,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Today's Jobs + Team Status */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-4">
-        <div className="md:col-span-2 lg:col-span-2">
-          <TodaysJobs />
-        </div>
-        <TeamStatus />
-      </div>
-
       {/* Funnel, Earnings, Top Performer */}
       <div className="grid gap-4 md:gap-6 sm:grid-cols-2 lg:grid-cols-3 stagger-5">
         <FunnelSummary />
@@ -60,10 +75,9 @@ export default function DashboardPage() {
         <TopPerformer />
       </div>
 
-      {/* Recent Leads + Call Checklist + Exceptions */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-6">
+      {/* Recent Leads + Exceptions */}
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 stagger-6">
         <RecentLeads />
-        <CallChecklist />
         <ExceptionsList />
       </div>
     </div>

@@ -3,7 +3,7 @@ import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
+import { getAllActiveTenants, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { scheduleTask } from '@/lib/scheduler'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 
@@ -53,6 +53,9 @@ export async function GET(request: NextRequest) {
 
     console.log(`[Post-Job Followup] Claimed ${jobs.length} jobs for ${tenant.slug}`)
 
+    // Build cleaner phone set to skip cleaner records
+    const cleanerPhones = await getCleanerPhoneSet(tenant.id)
+
     let processed = 0
     let errors = 0
 
@@ -63,6 +66,12 @@ export async function GET(request: NextRequest) {
 
         if (!phone) {
           console.warn(`[Post-Job Followup] No phone for job ${job.job_id}, skipping`)
+          continue
+        }
+
+        // Skip if phone belongs to a cleaner
+        if (isCleanerPhone(phone, cleanerPhones)) {
+          console.log(`[Post-Job Followup] Phone ${phone.slice(-4)} is a cleaner, skipping job ${job.job_id}`)
           continue
         }
 

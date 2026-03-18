@@ -183,6 +183,34 @@ interface TimelineItem {
   data: Message | Call
 }
 
+// Lifecycle stage badge config
+const LIFECYCLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  new: { label: "New", color: "text-blue-300", bg: "bg-blue-500/15" },
+  new_lead: { label: "New Lead", color: "text-blue-300", bg: "bg-blue-500/15" },
+  contacted: { label: "Following Up", color: "text-yellow-300", bg: "bg-yellow-500/15" },
+  qualified: { label: "Qualified", color: "text-cyan-300", bg: "bg-cyan-500/15" },
+  quoted_not_booked: { label: "Quoted", color: "text-orange-300", bg: "bg-orange-500/15" },
+  booked: { label: "Booked", color: "text-green-300", bg: "bg-green-500/15" },
+  active: { label: "Active", color: "text-emerald-300", bg: "bg-emerald-500/15" },
+  repeat: { label: "Repeat", color: "text-emerald-300", bg: "bg-emerald-500/15" },
+  completed: { label: "Completed", color: "text-emerald-300", bg: "bg-emerald-500/15" },
+  one_time: { label: "One-Time", color: "text-yellow-300", bg: "bg-yellow-500/15" },
+  unresponsive: { label: "Unresponsive", color: "text-red-300", bg: "bg-red-500/15" },
+  lapsed: { label: "Lapsed", color: "text-amber-300", bg: "bg-amber-500/15" },
+  recurring_accepted: { label: "Recurring", color: "text-purple-300", bg: "bg-purple-500/15" },
+  satisfaction_sent: { label: "Follow Up", color: "text-amber-300", bg: "bg-amber-500/15" },
+  recurring_offered: { label: "Offered Recurring", color: "text-indigo-300", bg: "bg-indigo-500/15" },
+  lost: { label: "Lost", color: "text-red-300", bg: "bg-red-500/15" },
+  opted_out: { label: "Opted Out", color: "text-zinc-400", bg: "bg-zinc-500/15" },
+}
+
+function getLifecycleBadge(customer: Customer) {
+  if (customer.sms_opt_out) return LIFECYCLE_BADGE.opted_out
+  const stage = customer.lifecycle_stage
+  if (!stage) return null
+  return LIFECYCLE_BADGE[stage] || null
+}
+
 const LEAD_SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
   phone: { label: "Phone", color: "#5b8def" },
   vapi: { label: "Vapi", color: "#7ca3f0" },
@@ -1489,9 +1517,19 @@ export default function CustomersPage() {
                             )}
                           </div>
                           <div className="flex-1 min-w-0">
-                            {/* Top row: name + timestamp */}
+                            {/* Top row: name + badges + timestamp */}
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
+                                {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
+                                  <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
+                                ) : (() => {
+                                  const badge = getLifecycleBadge(customer)
+                                  return badge ? (
+                                    <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${badge.bg} ${badge.color} leading-none`}>{badge.label}</span>
+                                  ) : null
+                                })()}
+                              </div>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
                                   {formatThreadTimestamp(lastMessage.timestamp)}
@@ -1549,6 +1587,14 @@ export default function CustomersPage() {
 
                 {/* Customer Info + Tabs */}
                 <div className="border border-zinc-800 rounded-xl bg-zinc-900/50 flex flex-col flex-1 min-h-0">
+                  {/* Cleaner banner */}
+                  {cleanerPhones.includes(normalizePhone(selectedCustomer.phone_number)) && (
+                    <div className="mx-3 mt-3 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs text-orange-300 flex items-center gap-2">
+                      <Crown className="w-3.5 h-3.5 flex-shrink-0" />
+                      This person is also a crew member. Auto-retargeting is suppressed.
+                    </div>
+                  )}
+
                   {/* Customer header */}
                   <div className="px-5 pt-4 pb-0">
                     <div className="flex items-center gap-3 mb-3">

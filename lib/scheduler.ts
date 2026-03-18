@@ -403,7 +403,8 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
   unresponsive: [
     { step: 1, delay_days: 0, template: '9_word' },
     { step: 2, delay_days: 3, template: 'value_nudge' },
-    { step: 3, delay_days: 7, template: 'closing_file' },
+    { step: 3, delay_days: 5, template: 'manual_call' },
+    { step: 4, delay_days: 7, template: 'closing_file' },
   ],
   quoted_not_booked: [
     { step: 1, delay_days: 1, template: 'quote_followup' },
@@ -414,13 +415,15 @@ export const RETARGETING_SEQUENCES: Record<RetargetingSequenceType, RetargetingS
   ],
   one_time: [
     { step: 1, delay_days: 0, template: 'we_miss_you' },
-    { step: 2, delay_days: 7, template: 'seasonal_nudge' },
-    { step: 3, delay_days: 14, template: 'closing_file' },
+    { step: 2, delay_days: 3, template: 'manual_call' },
+    { step: 3, delay_days: 7, template: 'seasonal_nudge' },
+    { step: 4, delay_days: 14, template: 'closing_file' },
   ],
   lapsed: [
     { step: 1, delay_days: 0, template: 'feedback_ask' },
-    { step: 2, delay_days: 5, template: 'incentive_offer' },
-    { step: 3, delay_days: 10, template: 'closing_file' },
+    { step: 2, delay_days: 3, template: 'manual_call' },
+    { step: 3, delay_days: 5, template: 'incentive_offer' },
+    { step: 4, delay_days: 10, template: 'closing_file' },
   ],
   new_lead: [
     { step: 1, delay_days: 0, template: '9_word' },

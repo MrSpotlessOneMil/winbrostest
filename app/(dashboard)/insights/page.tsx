@@ -24,6 +24,10 @@ import {
   UserCheck,
   TimerOff,
   Zap,
+  MessageSquare,
+  HardHat,
+  Bot,
+  User,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -45,11 +49,30 @@ interface DailyMetrics {
   close_rate: number
 }
 
+interface CleanerPerf {
+  id: string
+  name: string
+  jobsCompleted: number
+  revenue: number
+}
+
+interface MessageAnalytics {
+  totalInbound: number
+  totalOutbound: number
+  aiMessages: number
+  manualMessages: number
+  uniqueConversations: number
+  period: string
+}
+
 interface InsightsData {
   pipeline: Record<string, PipelineStage>
   pipelineTotal: number
   metrics: DailyMetrics | null
   weekMetrics: DailyMetrics[]
+  cleanerPerformance: CleanerPerf[]
+  messageAnalytics: MessageAnalytics | null
+  leadsBySource: Record<string, { total: number; booked: number }>
 }
 
 const STAGE_META: Record<string, { label: string; icon: typeof Users; color: string }> = {
@@ -68,15 +91,17 @@ export default function InsightsPage() {
   async function fetchInsights() {
     setLoading(true)
     try {
-      const [pipelineRes, todayRes, weekRes] = await Promise.all([
+      const [pipelineRes, todayRes, weekRes, insightsRes] = await Promise.all([
         fetch("/api/actions/retargeting-pipeline"),
         fetch("/api/metrics?range=today"),
         fetch("/api/metrics?range=week"),
+        fetch("/api/actions/insights-data"),
       ])
-      const [pipelineJson, todayJson, weekJson] = await Promise.all([
+      const [pipelineJson, todayJson, weekJson, insightsJson] = await Promise.all([
         pipelineRes.json(),
         todayRes.json(),
         weekRes.json(),
+        insightsRes.json(),
       ])
 
       setData({
@@ -84,9 +109,12 @@ export default function InsightsPage() {
         pipelineTotal: pipelineJson.total || 0,
         metrics: todayJson.metrics || null,
         weekMetrics: Array.isArray(weekJson.metrics) ? weekJson.metrics : [],
+        cleanerPerformance: insightsJson.cleanerPerformance || [],
+        messageAnalytics: insightsJson.messageAnalytics || null,
+        leadsBySource: insightsJson.leadsBySource || {},
       })
     } catch {
-      // Silently fail — data will show as empty
+      // Silently fail -- data will show as empty
     } finally {
       setLoading(false)
     }
@@ -424,6 +452,156 @@ export default function InsightsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Cleaner Performance + Message Analytics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Cleaner Performance */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <HardHat className="h-5 w-5 text-teal-400" />
+              Crew Performance
+            </CardTitle>
+            <CardDescription>Last 90 days - jobs completed and revenue per crew member</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {(data?.cleanerPerformance || []).length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No crew data available</p>
+            ) : (
+              <div className="space-y-3">
+                {(data?.cleanerPerformance || []).map((cleaner, i) => {
+                  const maxJobs = Math.max(...(data?.cleanerPerformance || []).map(c => c.jobsCompleted), 1)
+                  return (
+                    <div key={cleaner.id} className="flex items-center gap-3">
+                      <div className="w-6 text-center">
+                        <span className={`text-xs font-bold ${i === 0 ? "text-amber-400" : "text-zinc-500"}`}>#{i + 1}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium truncate">{cleaner.name}</span>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <span>{cleaner.jobsCompleted} jobs</span>
+                            <span className="text-green-400 font-medium">${cleaner.revenue.toLocaleString()}</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-zinc-800">
+                          <div
+                            className="h-full rounded-full bg-teal-500/60 transition-all"
+                            style={{ width: `${(cleaner.jobsCompleted / maxJobs) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Message Analytics */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="h-5 w-5 text-blue-400" />
+              Message Analytics
+            </CardTitle>
+            <CardDescription>Last 30 days - SMS volume and AI automation</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {data?.messageAnalytics ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                    <p className="text-2xl font-bold text-blue-400">{data.messageAnalytics.totalInbound}</p>
+                    <p className="text-xs text-muted-foreground">Inbound</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    <p className="text-2xl font-bold text-purple-400">{data.messageAnalytics.totalOutbound}</p>
+                    <p className="text-xs text-muted-foreground">Outbound</p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-3.5 w-3.5 text-violet-400" />
+                      <span>AI-generated</span>
+                    </div>
+                    <span className="font-medium text-violet-400">{data.messageAnalytics.aiMessages}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <User className="h-3.5 w-3.5 text-zinc-400" />
+                      <span>Manual / scheduled</span>
+                    </div>
+                    <span className="font-medium">{data.messageAnalytics.manualMessages}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-3.5 w-3.5 text-emerald-400" />
+                      <span>Unique conversations</span>
+                    </div>
+                    <span className="font-medium text-emerald-400">{data.messageAnalytics.uniqueConversations}</span>
+                  </div>
+                </div>
+                {data.messageAnalytics.totalOutbound > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-muted-foreground">AI Automation Rate</span>
+                      <span className="text-sm font-bold text-violet-400">
+                        {Math.round((data.messageAnalytics.aiMessages / data.messageAnalytics.totalOutbound) * 100)}%
+                      </span>
+                    </div>
+                    <Progress value={(data.messageAnalytics.aiMessages / data.messageAnalytics.totalOutbound) * 100} className="h-2" />
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground py-4 text-center">No message data available</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Lead Source ROI */}
+      {Object.keys(data?.leadsBySource || {}).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-5 w-5 text-cyan-400" />
+              Lead Source Performance
+            </CardTitle>
+            <CardDescription>Last 30 days - which sources convert best</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {Object.entries(data?.leadsBySource || {})
+                .sort(([, a], [, b]) => b.total - a.total)
+                .map(([source, stats]) => {
+                  const convRate = stats.total > 0 ? Math.round((stats.booked / stats.total) * 100) : 0
+                  const sourceLabels: Record<string, string> = {
+                    phone: "Phone / VAPI", vapi: "VAPI", meta: "Meta Ads", website: "Website",
+                    sms: "SMS", ghl: "GoHighLevel", manual: "Manual", housecall_pro: "HouseCall Pro",
+                  }
+                  return (
+                    <div key={source} className="flex items-center justify-between p-2 rounded-lg border border-zinc-800">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{sourceLabels[source] || source}</span>
+                        <Badge variant="outline" className="text-xs">{stats.total} leads</Badge>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-muted-foreground">{stats.booked} booked</span>
+                        <Badge className={`text-xs ${convRate >= 30 ? "bg-green-500/20 text-green-400" : convRate >= 15 ? "bg-amber-500/20 text-amber-400" : "bg-zinc-500/20 text-zinc-400"}`}>
+                          {convRate}%
+                        </Badge>
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Smart Recommendations */}
       {recommendations.length > 0 && (

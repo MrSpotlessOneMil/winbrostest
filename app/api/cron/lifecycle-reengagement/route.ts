@@ -3,7 +3,7 @@ import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getAllActiveTenants, getTenantServiceDescription, tenantUsesFeature } from '@/lib/tenant'
+import { getAllActiveTenants, getTenantServiceDescription, tenantUsesFeature, getCleanerPhoneSet, isCleanerPhone } from '@/lib/tenant'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
 
 /**
@@ -150,9 +150,13 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${eligibleCustomers.length} eligible customers (incl. never-booked)`)
+      // Filter out cleaner phone numbers so cleaners never get customer retargeting
+      const cleanerPhones = await getCleanerPhoneSet(tenant.id)
+      const filteredCustomers = eligibleCustomers.filter(c => !isCleanerPhone(c.phone_number, cleanerPhones))
 
-      for (const cust of eligibleCustomers) {
+      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${filteredCustomers.length} eligible customers (${eligibleCustomers.length - filteredCustomers.length} cleaners excluded)`)
+
+      for (const cust of filteredCustomers) {
         try {
           // Check cooldown (30 days = 720 hours)
           const canSend = await canSendToCustomer(cust.id, 'reengagement', 720, tenant.id)

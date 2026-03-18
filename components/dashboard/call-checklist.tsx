@@ -17,6 +17,10 @@ type CallTask = {
 const sourceLabels: Record<string, string> = {
   lead_followup: "Lead follow-up",
   quoted_not_booked: "Quote follow-up",
+  retargeting_unresponsive: "Unresponsive reactivation",
+  retargeting_one_time: "Win-back",
+  retargeting_lapsed: "Lapsed re-engagement",
+  retargeting_quoted_not_booked: "Quote follow-up",
 }
 
 export function CallChecklist() {

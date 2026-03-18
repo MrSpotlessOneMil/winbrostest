@@ -16,6 +16,7 @@ export type SystemEventSource =
   | 'scheduler'
   | 'lead_actions'
   | 'email_cron'
+  | 'website'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -132,6 +133,8 @@ export type SystemEventType =
   | 'POST_JOB_SATISFACTION_SENT'
   | 'POST_JOB_SATISFACTION_POSITIVE'
   | 'POST_JOB_SATISFACTION_NEGATIVE'
+  // Website Lead Events
+  | 'WEBSITE_LEAD_RECEIVED'
 
 export interface SystemEventInput {
   tenant_id?: string

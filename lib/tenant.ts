@@ -502,6 +502,44 @@ export function isSmsAutoResponseEnabled(tenant: Tenant): boolean {
 }
 
 // ============================================================================
+// CLEANER PHONE HELPERS
+// ============================================================================
+
+/**
+ * Get a Set of normalized (10-digit) cleaner phone numbers for a tenant.
+ * Used to filter cleaners out of retargeting / follow-up crons so they
+ * never receive customer-facing automated messages.
+ */
+export async function getCleanerPhoneSet(tenantId: string): Promise<Set<string>> {
+  const client = getAdminClient()
+  const { data: cleaners } = await client
+    .from("cleaners")
+    .select("phone")
+    .eq("tenant_id", tenantId)
+    .not("phone", "is", null)
+
+  const phoneSet = new Set<string>()
+  if (cleaners) {
+    for (const c of cleaners) {
+      let digits = (c.phone || "").replace(/\D/g, "")
+      if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
+      if (digits.length === 10) phoneSet.add(digits)
+    }
+  }
+  return phoneSet
+}
+
+/**
+ * Check if a phone number belongs to a cleaner for this tenant.
+ * Phone is normalized to 10 digits before comparison.
+ */
+export function isCleanerPhone(phone: string, cleanerPhones: Set<string>): boolean {
+  let digits = (phone || "").replace(/\D/g, "")
+  if (digits.length === 11 && digits.startsWith("1")) digits = digits.slice(1)
+  return cleanerPhones.has(digits)
+}
+
+// ============================================================================
 // TENANT UPDATE FUNCTIONS
 // ============================================================================
 
