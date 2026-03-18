@@ -29,7 +29,7 @@ const navigation = [
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
-  { name: "Retargeting", href: "/campaigns", icon: Target, adminOnly: false },
+  { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
