@@ -20,11 +20,13 @@ import {
   Target,
   Lightbulb,
   Settings,
+  Inbox,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
 
 const navigation = [
   { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
+  { name: "Inbox", href: "/inbox", icon: Inbox, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
