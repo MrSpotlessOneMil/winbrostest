@@ -706,9 +706,27 @@ async function processRetargeting(
   const firstName = customerName.split(' ')[0] || customerName
   const templateObj = RETARGETING_TEMPLATES[template] || RETARGETING_TEMPLATES['9_word']
   const messageTemplate = templateObj[variant] || templateObj.a
-  const message = messageTemplate
+  let message = messageTemplate
     .replace('{name}', firstName)
     .replace('{service}', serviceDesc)
+
+  // For quoted_not_booked step 1 (quote_followup), append the quote link
+  if (sequence === 'quoted_not_booked' && template === 'quote_followup') {
+    const { data: recentQuote } = await supabase
+      .from('quotes')
+      .select('token, status')
+      .eq('customer_id', customerId)
+      .in('status', ['pending', 'sent'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (recentQuote?.token) {
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://spotless-scrubbers-api.vercel.app')
+      message += `\n\nHere's your quote: ${baseUrl}/quote/${recentQuote.token}`
+    }
+  }
 
   console.log(`[retargeting] Sending ${sequence} step ${step} to ${customerPhone.slice(-4)} (${tenant.slug})`)
 
