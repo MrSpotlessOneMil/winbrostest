@@ -8,6 +8,7 @@
 
 import { getSupabaseServiceClient } from './supabase'
 import { analyzeSimpleSentiment } from './lifecycle-engine'
+import { analyzeSentiment, extractEntities, isNlpAvailable } from './google-nlp'
 
 // ---- Types ----
 
@@ -124,20 +125,30 @@ export async function scoreAllCustomers(tenantId: string): Promise<number> {
     const leadSrcMap = new Map((leads || []).map((l: any) => [l.phone_number, l.source]))
 
     // 6. Score each customer
-    for (const cust of chunk) {
-      const msgs = (msgMap[cust.id] || []) as RawMessage[]
-      const custJobs = (jobMap[cust.id] || []) as RawJob[]
-      const custQuotes = (quoteMap[cust.id] || []) as RawQuote[]
-      const leadSource = leadSrcMap.get(cust.phone_number || '') || null
+    // Run NLP in batches of 10 to avoid rate limits
+    const useNlp = isNlpAvailable()
+    if (useNlp) console.log(`[osiris-brain] Google NLP enabled for tenant ${tenantId}`)
 
-      const score = computeCustomerScore(cust, msgs, custJobs, custQuotes, leadSource)
+    for (let ci = 0; ci < chunk.length; ci += 10) {
+      const microBatch = chunk.slice(ci, ci + 10)
+      const scorePromises = microBatch.map(async (cust) => {
+        const msgs = (msgMap[cust.id] || []) as RawMessage[]
+        const custJobs = (jobMap[cust.id] || []) as RawJob[]
+        const custQuotes = (quoteMap[cust.id] || []) as RawQuote[]
+        const leadSource = leadSrcMap.get(cust.phone_number || '') || null
 
-      allScores.push({
-        tenant_id: tenantId,
-        customer_id: cust.id,
-        ...score,
-        scored_at: new Date().toISOString(),
+        const score = await computeCustomerScore(cust, msgs, custJobs, custQuotes, leadSource, useNlp)
+
+        return {
+          tenant_id: tenantId,
+          customer_id: cust.id,
+          ...score,
+          scored_at: new Date().toISOString(),
+        }
       })
+
+      const batchScores = await Promise.all(scorePromises)
+      allScores.push(...batchScores)
     }
   }
 
@@ -159,17 +170,41 @@ export async function scoreAllCustomers(tenantId: string): Promise<number> {
 
 // ---- Scoring functions ----
 
-function computeCustomerScore(
+async function computeCustomerScore(
   cust: CustomerRow,
   msgs: RawMessage[],
   jobs: RawJob[],
   quotes: RawQuote[],
   leadSource: string | null,
-): Omit<CustomerScore, 'tenant_id' | 'customer_id' | 'scored_at'> {
+  useNlp: boolean = false,
+): Promise<Omit<CustomerScore, 'tenant_id' | 'customer_id' | 'scored_at'>> {
   const factors: Record<string, any> = {}
 
+  // Run NLP sentiment on inbound messages (if available)
+  let nlpSentiment: { score: number; magnitude: number; label: string } | null = null
+  let nlpEntities: Array<{ name: string; type: string; salience: number }> | null = null
+
+  if (useNlp) {
+    const inboundText = msgs
+      .filter(m => m.direction === 'inbound' && m.role === 'client' && m.content)
+      .slice(0, 10) // last 10 inbound messages
+      .map(m => m.content!)
+      .join('\n')
+
+    if (inboundText.length >= 10) {
+      const [sentiment, entities] = await Promise.all([
+        analyzeSentiment(inboundText),
+        extractEntities(inboundText),
+      ])
+      nlpSentiment = sentiment
+      nlpEntities = entities
+      if (sentiment) factors.nlp_sentiment = sentiment
+      if (entities?.length) factors.nlp_entities = entities.slice(0, 10) // top 10 entities
+    }
+  }
+
   // Lead score
-  const lead_score = computeLeadScore(cust, msgs, jobs, quotes, leadSource, factors)
+  const lead_score = computeLeadScore(cust, msgs, jobs, quotes, leadSource, factors, nlpSentiment)
 
   // Best contact hour
   const best_contact_hour = computeBestContactHour(msgs, factors)
@@ -209,6 +244,7 @@ function computeLeadScore(
   quotes: RawQuote[],
   leadSource: string | null,
   factors: Record<string, any>,
+  nlpSentiment: { score: number; magnitude: number; label: string } | null = null,
 ): number {
   let score = 10 // base
 
@@ -264,16 +300,36 @@ function computeLeadScore(
   if (hasBuyingSignals) score += 15
   factors.buying_signals = hasBuyingSignals
 
-  // Sentiment analysis
-  const sentiments = inbound
-    .filter(m => m.content)
-    .map(m => analyzeSimpleSentiment(m.content!))
-  const posCount = sentiments.filter(s => s === 'positive').length
-  const negCount = sentiments.filter(s => s === 'negative').length
-  const total = Math.max(sentiments.length, 1)
-  const sentimentBonus = Math.round((posCount / total) * 10) - Math.round((negCount / total) * 15)
+  // Sentiment analysis - use Google NLP if available, fallback to regex
+  let sentimentBonus = 0
+  if (nlpSentiment) {
+    // Google NLP: score is -1 to 1, map to bonus range
+    sentimentBonus = Math.round(nlpSentiment.score * 12) // -12 to +12
+    factors.sentiment = {
+      source: 'google_nlp',
+      score: nlpSentiment.score,
+      magnitude: nlpSentiment.magnitude,
+      label: nlpSentiment.label,
+      bonus: sentimentBonus,
+    }
+  } else {
+    // Regex fallback
+    const sentiments = inbound
+      .filter(m => m.content)
+      .map(m => analyzeSimpleSentiment(m.content!))
+    const posCount = sentiments.filter(s => s === 'positive').length
+    const negCount = sentiments.filter(s => s === 'negative').length
+    const total = Math.max(sentiments.length, 1)
+    sentimentBonus = Math.round((posCount / total) * 10) - Math.round((negCount / total) * 15)
+    factors.sentiment = {
+      source: 'regex',
+      positive: posCount,
+      negative: negCount,
+      neutral: sentiments.length - posCount - negCount,
+      bonus: sentimentBonus,
+    }
+  }
   score += sentimentBonus
-  factors.sentiment = { positive: posCount, negative: negCount, neutral: sentiments.length - posCount - negCount, bonus: sentimentBonus }
 
   // Active job or approved quote
   const hasActiveJob = jobs.some(j => ['pending', 'scheduled', 'in_progress'].includes(j.status))
