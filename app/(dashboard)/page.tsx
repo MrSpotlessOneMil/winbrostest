@@ -7,6 +7,7 @@ import { TodaysJobs } from "@/components/dashboard/todays-jobs"
 import { RecentLeads } from "@/components/dashboard/recent-leads"
 import { TeamStatus } from "@/components/dashboard/team-status"
 import { ExceptionsList } from "@/components/dashboard/exceptions-list"
+import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
 import { FunnelSummary } from "@/components/dashboard/funnel-summary"
 import { EarningsSummary } from "@/components/dashboard/earnings-summary"
@@ -75,9 +76,10 @@ export default function DashboardPage() {
         <TopPerformer />
       </div>
 
-      {/* Recent Leads + Exceptions */}
-      <div className="grid gap-4 md:gap-6 md:grid-cols-2 stagger-6">
+      {/* Recent Leads + Activity Feed + Exceptions */}
+      <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3 stagger-6">
         <RecentLeads />
+        <ActivityFeed />
         <ExceptionsList />
       </div>
     </div>
