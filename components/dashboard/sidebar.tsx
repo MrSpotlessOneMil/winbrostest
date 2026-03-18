@@ -25,7 +25,7 @@ import {
 import { useState, useRef, useEffect } from "react"
 
 const navigation = [
-  { name: "Overview", href: "/", icon: LayoutDashboard, adminOnly: false },
+  { name: "Overview", href: "/overview", icon: LayoutDashboard, adminOnly: false },
   { name: "Inbox", href: "/inbox", icon: Inbox, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
@@ -145,12 +145,12 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
-          <Link href="/" className="font-semibold text-zinc-100 tracking-tight hover:text-purple-300 transition-colors text-sm">
+          <Link href="/overview" className="font-semibold text-zinc-100 tracking-tight hover:text-purple-300 transition-colors text-sm">
             CLEAN MACHINE
           </Link>
         )}
         {collapsed && (
-          <Link href="/" className="w-full flex justify-center">
+          <Link href="/overview" className="w-full flex justify-center">
             <div className="w-7 h-7 rounded-md bg-purple-500/20 flex items-center justify-center text-xs font-bold text-purple-300 logo-glow">
               CM
             </div>

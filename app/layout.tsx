@@ -11,11 +11,18 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
+  themeColor: '#2563eb',
 }
 
 export const metadata: Metadata = {
   title: 'Clean Machine',
-  description: 'Operations dashboard - Lead tracking, team dispatch, and business intelligence',
+  description: 'Jobs, dispatch, and operations for your cleaning business',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Clean Machine',
+  },
   icons: {
     icon: [
       {
@@ -37,6 +44,11 @@ export default function RootLayout({
       <body className={`font-sans antialiased tracking-tight`}>
         {children}
         <Analytics />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}`,
+          }}
+        />
       </body>
     </html>
   )
