@@ -187,6 +187,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processManualCall(payload, tenant, tenant_id)
       break
 
+    case 'hot_lead_followup':
+      await processHotLeadFollowup(payload, tenant, tenant_id || null)
+      break
+
     case 'send_sms':
     case 'post_job_tip':
       // Generic SMS task: payload contains { phone, message }
@@ -618,7 +622,7 @@ async function processRetargeting(
   // Auto-stop check: if customer has booked a job since enrollment, stop the sequence
   const { data: customer } = await supabase
     .from('customers')
-    .select('retargeting_enrolled_at, sms_opt_out')
+    .select('retargeting_enrolled_at, sms_opt_out, retargeting_replied_at, manual_takeover_at')
     .eq('id', customerId)
     .single()
 
@@ -651,6 +655,46 @@ async function processRetargeting(
 
       return
     }
+  }
+
+  // Auto-stop: customer replied to retargeting -- stop sending automated sequence
+  if (customer?.retargeting_replied_at) {
+    console.log(`[retargeting] Customer ${customerId} replied -- stopping sequence`)
+    await supabase
+      .from('customers')
+      .update({
+        retargeting_completed_at: new Date().toISOString(),
+        retargeting_stopped_reason: 'replied',
+      })
+      .eq('id', customerId)
+
+    await supabase
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .like('task_key', `retarget-${customerId}-${sequence}-%`)
+      .eq('status', 'pending')
+
+    return
+  }
+
+  // Auto-stop: staff manually took over this customer's conversation
+  if (customer?.manual_takeover_at) {
+    console.log(`[retargeting] Customer ${customerId} has manual takeover -- stopping sequence`)
+    await supabase
+      .from('customers')
+      .update({
+        retargeting_completed_at: new Date().toISOString(),
+        retargeting_stopped_reason: 'manual_takeover',
+      })
+      .eq('id', customerId)
+
+    await supabase
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .like('task_key', `retarget-${customerId}-${sequence}-%`)
+      .eq('status', 'pending')
+
+    return
   }
 
   // Recheck opt-out before sending (customer may have opted out since task was scheduled)
@@ -752,6 +796,93 @@ async function processRetargeting(
   } else {
     console.error(`[retargeting] SMS failed for customer ${customerId}: ${result.error}`)
   }
+}
+
+/**
+ * Hot lead follow-up -- fires 30 min after a retargeting reply that shows buying intent.
+ * If the customer hasn't booked yet and AI isn't actively working, alert the owner.
+ */
+async function processHotLeadFollowup(
+  payload: Record<string, unknown>,
+  tenant: any,
+  tenantId: string | null,
+) {
+  const customerId = payload.customerId as number
+  const customerPhone = String(payload.customerPhone || '')
+  const customerName = String(payload.customerName || '')
+  const lastMessage = String(payload.lastMessage || '')
+
+  if (!customerId || !tenant) {
+    console.warn('[hot-lead-followup] Missing required payload fields')
+    return
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  // Check if customer has booked since the reply -- skip if converted
+  const { data: recentJob } = await supabase
+    .from('jobs')
+    .select('id')
+    .eq('customer_id', customerId)
+    .in('status', ['pending', 'scheduled', 'in_progress', 'completed'])
+    .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString()) // last hour
+    .limit(1)
+    .maybeSingle()
+
+  if (recentJob) {
+    console.log(`[hot-lead-followup] Customer ${customerId} already booked (job ${recentJob.id}), skipping alert`)
+    return
+  }
+
+  // Check if AI is still actively working (recent outbound in last 10 min)
+  const recentCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+  const { data: recentOutbound } = await supabase
+    .from('messages')
+    .select('id')
+    .eq('phone_number', customerPhone)
+    .eq('tenant_id', tenant.id)
+    .eq('role', 'assistant')
+    .eq('direction', 'outbound')
+    .gte('timestamp', recentCutoff)
+    .limit(1)
+    .maybeSingle()
+
+  if (recentOutbound) {
+    // AI still active -- reschedule for another 30 min
+    console.log(`[hot-lead-followup] AI still active for customer ${customerId}, rescheduling`)
+    await scheduleTask({
+      tenantId: tenant.id,
+      taskType: 'hot_lead_followup',
+      taskKey: `hot-lead-${customerId}-retry`,
+      scheduledFor: new Date(Date.now() + 30 * 60 * 1000),
+      payload: { customerId, customerPhone, customerName, lastMessage },
+    })
+    return
+  }
+
+  // Nobody closed the deal -- alert owner
+  const ownerPhone = tenant.owner_phone || process.env.OWNER_PHONE
+  if (!ownerPhone) {
+    console.warn(`[hot-lead-followup] No owner phone for tenant ${tenant.slug}`)
+    return
+  }
+
+  const firstName = customerName.split(' ')[0] || customerName || 'Unknown'
+  const preview = lastMessage.length > 100 ? lastMessage.slice(0, 100) + '...' : lastMessage
+  const alertMessage = `Hot lead! ${firstName} replied to retargeting and seems interested but hasn't booked yet. Last message: "${preview}". Phone: ${customerPhone}`
+
+  await sendSMS(tenant, ownerPhone, alertMessage)
+
+  await logSystemEvent({
+    source: 'scheduler',
+    event_type: 'HOT_LEAD_ALERT_SENT',
+    message: `Owner alerted about hot lead ${customerId} (${firstName})`,
+    tenant_id: tenant.id,
+    phone_number: customerPhone,
+    metadata: { customerId, customerName, lastMessage: preview },
+  })
+
+  console.log(`[hot-lead-followup] Owner alert sent for customer ${customerId} (${firstName})`)
 }
 
 /**

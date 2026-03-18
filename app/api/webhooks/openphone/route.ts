@@ -165,7 +165,7 @@ export async function POST(request: NextRequest) {
       // Find customer
       const { data: customer } = await client
         .from("customers")
-        .select("id")
+        .select("id, retargeting_sequence, retargeting_completed_at")
         .eq("phone_number", toE164)
         .eq("tenant_id", tenant?.id)
         .maybeSingle()
@@ -224,6 +224,64 @@ export async function POST(request: NextRequest) {
           console.error("[OpenPhone] Failed to save outbound message:", msgErr)
         } else {
           console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${maskPhone(toPhone)}`)
+        }
+
+        // Manual takeover: pause AI, cancel retargeting, record timestamp
+        if (customer?.id && tenant) {
+          await client
+            .from("customers")
+            .update({
+              auto_response_paused: true,
+              manual_takeover_at: new Date().toISOString(),
+            })
+            .eq("id", customer.id)
+
+          // Cancel pending retargeting tasks if sequence is active
+          if (customer.retargeting_sequence && !customer.retargeting_completed_at) {
+            await client
+              .from("scheduled_tasks")
+              .update({ status: "cancelled" })
+              .like("task_key", `retarget-${customer.id}-%`)
+              .eq("status", "pending")
+              .eq("tenant_id", tenant.id)
+
+            await client
+              .from("customers")
+              .update({
+                retargeting_completed_at: new Date().toISOString(),
+                retargeting_stopped_reason: 'manual_takeover',
+              })
+              .eq("id", customer.id)
+
+            console.log(`[OpenPhone] Cancelled retargeting for customer ${customer.id} due to manual takeover`)
+          }
+
+          // Also pause lead follow-ups
+          const { data: activeLead } = await client
+            .from("leads")
+            .select("id, form_data")
+            .eq("phone_number", toE164)
+            .eq("tenant_id", tenant.id)
+            .in("status", ["new", "contacted", "qualified"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          if (activeLead) {
+            const fd = typeof activeLead.form_data === 'object' && activeLead.form_data ? activeLead.form_data : {}
+            await client.from("leads").update({ form_data: { ...fd, followup_paused: true } }).eq("id", activeLead.id)
+          }
+
+          await logSystemEvent({
+            source: "openphone",
+            event_type: "MANUAL_TAKEOVER",
+            message: `Staff sent manual message to ${maskPhone(toPhone)} -- AI paused, retargeting cancelled`,
+            tenant_id: tenant.id,
+            phone_number: toE164,
+            metadata: { customerId: customer.id },
+          })
+
+          console.log(`[OpenPhone] Manual takeover: customer ${customer.id}, AI paused + retargeting stopped`)
         }
       }
     }
@@ -452,6 +510,38 @@ export async function POST(request: NextRequest) {
       .eq("id", customer.id)
       .is("retargeting_replied_at", null)
     console.log(`[OpenPhone] Marked retargeting reply for customer ${customer.id}`)
+
+    // Analyze reply intent -- schedule hot lead alert if positive/buying intent
+    const inboundContent = extracted.content || ""
+    const sentiment = analyzeSimpleSentiment(inboundContent)
+    const isHotLead = sentiment === 'positive' || /\b(yes|yeah|interested|how much|price|quote|schedule|book|available|clean|monthly|weekly|biweekly)\b/i.test(inboundContent)
+
+    if (isHotLead && tenant) {
+      // Schedule hot_lead_followup for 30 min from now -- gives AI time to qualify first
+      await scheduleTask({
+        tenantId: tenant.id,
+        taskType: 'hot_lead_followup',
+        taskKey: `hot-lead-${customer.id}`,
+        scheduledFor: new Date(Date.now() + 30 * 60 * 1000),
+        payload: {
+          customerId: customer.id,
+          customerPhone: phone,
+          customerName: customer.first_name ? `${customer.first_name} ${customer.last_name || ''}`.trim() : '',
+          lastMessage: inboundContent.slice(0, 200),
+        },
+      })
+
+      await logSystemEvent({
+        source: "openphone",
+        event_type: "HOT_LEAD_FROM_RETARGETING",
+        message: `Hot lead detected from retargeting reply: "${inboundContent.slice(0, 80)}" (sentiment: ${sentiment})`,
+        tenant_id: tenant.id,
+        phone_number: phone,
+        metadata: { customerId: customer.id, sentiment, inboundContent: inboundContent.slice(0, 200) },
+      })
+
+      console.log(`[OpenPhone] Hot lead from retargeting: customer ${customer.id}, scheduling 30-min followup`)
+    }
   }
 
   // ============================================
@@ -892,9 +982,9 @@ export async function POST(request: NextRequest) {
       })
       return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
     } else {
-      // No recent manual activity - auto-unpause and let AI handle it
+      // No recent manual activity - auto-unpause and clear manual takeover
       console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 2h`)
-      await client.from("customers").update({ auto_response_paused: false }).eq("id", customer.id)
+      await client.from("customers").update({ auto_response_paused: false, manual_takeover_at: null }).eq("id", customer.id)
       // Also unpause the lead if one exists
       const { data: pausedLead } = await client
         .from("leads")
