@@ -26,7 +26,7 @@ import { useState, useRef, useEffect } from "react"
 
 const navigation = [
   { name: "Overview", href: "/overview", icon: LayoutDashboard, adminOnly: false },
-  { name: "Inbox", href: "/inbox", icon: Inbox, adminOnly: false },
+  // { name: "Inbox", href: "/inbox", icon: Inbox, adminOnly: false }, // Hidden - revisit when message volume warrants a triage queue
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
