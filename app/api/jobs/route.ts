@@ -377,7 +377,7 @@ export async function DELETE(request: NextRequest) {
 
     // Clean up related records before deleting
     // pending_sms_assignments references cleaner_assignments (no CASCADE), so delete first
-    const { data: assignments } = await svc.from("cleaner_assignments").select("id").eq("job_id", Number(id))
+    const { data: assignments } = await svc.from("cleaner_assignments").select("id").eq("job_id", Number(id)).eq("tenant_id", tenant.id)
     if (assignments && assignments.length > 0) {
       const assignmentIds = assignments.map((a: any) => a.id)
       await svc.from("pending_sms_assignments").delete().in("assignment_id", assignmentIds)

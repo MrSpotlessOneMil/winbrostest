@@ -559,6 +559,7 @@ export async function scheduleRetargetingSequence(
       retargeting_replied_at: null,
     })
     .eq('id', customerId)
+    .eq('tenant_id', tenantId)
 
   return { success: true, taskIds }
 }
