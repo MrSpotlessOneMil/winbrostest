@@ -128,7 +128,7 @@ export async function POST(
       first_name: firstName || null,
       last_name: lastName || null,
       email: email || null,
-      source: "website", // Use "website" since it's a valid source enum value
+      source: "sam",
       status: "new",
       form_data: {
         sam_handoff: true,

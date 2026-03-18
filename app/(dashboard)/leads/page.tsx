@@ -42,6 +42,7 @@ import {
   X,
   ThumbsUp,
   MapPin,
+  Radar,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -68,16 +69,18 @@ type UiLead = {
   id: string
   name: string
   phone: string
-  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google"
+  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google" | "sam"
   status: "new" | "contacted" | "qualified" | "booked" | "nurturing" | "lost"
   service: string
   estimatedValue: number
   createdAt: string
+  isSam: boolean
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google"]
+  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google", "sam"]
   const source = (knownSources.includes(l.source as any) ? l.source : "phone") as UiLead["source"]
+  const isSam = l.source === "sam" || (l as any).form_data?.sam_handoff === true
   const status =
     (l.status === "new" ||
     l.status === "contacted" ||
@@ -97,6 +100,7 @@ function mapLead(l: ApiLead): UiLead {
     service: l.service_interest || "Service inquiry",
     estimatedValue: l.estimated_value != null ? Number(l.estimated_value) : 0,
     createdAt: timeAgo(l.created_at),
+    isSam,
   }
 }
 
@@ -107,6 +111,7 @@ const sourceIcons = {
   sms: MessageSquare,
   thumbtack: ThumbsUp,
   google: MapPin,
+  sam: Radar,
 }
 
 const statusConfig = {
@@ -128,6 +133,7 @@ export default function LeadsPage() {
   const [rawLeads, setRawLeads] = useState<ApiLead[]>([])
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [sourceFilter, setSourceFilter] = useState<string>("all")
   const [selectedLead, setSelectedLead] = useState<ApiLead | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -158,9 +164,17 @@ export default function LeadsPage() {
   }, [])
 
   const filteredLeads = useMemo(() => {
-    if (statusFilter === "all") return leads
-    return leads.filter((l) => l.status === statusFilter)
-  }, [leads, statusFilter])
+    let result = leads
+    if (statusFilter !== "all") result = result.filter((l) => l.status === statusFilter)
+    if (sourceFilter !== "all") {
+      if (sourceFilter === "sam") {
+        result = result.filter((l) => l.isSam)
+      } else {
+        result = result.filter((l) => l.source === sourceFilter)
+      }
+    }
+    return result
+  }, [leads, statusFilter, sourceFilter])
 
   const funnel = useMemo(() => {
     const total = leads.length
@@ -176,7 +190,7 @@ export default function LeadsPage() {
   }, [leads])
 
   const sourceData = useMemo(() => {
-    const sources: Array<UiLead["source"]> = ["phone", "meta", "website", "sms"]
+    const sources: Array<UiLead["source"]> = ["phone", "meta", "website", "sms", "sam"]
     return sources.map((s) => {
       const items = leads.filter((l) => l.source === s)
       const booked = items.filter((l) => l.status === "booked").length
@@ -360,6 +374,20 @@ export default function LeadsPage() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Search leads..." className="w-full sm:w-64 pl-10" />
             </div>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger className="w-32">
+                <Radar className="mr-2 h-4 w-4" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                <SelectItem value="sam">SAM</SelectItem>
+                <SelectItem value="phone">Phone</SelectItem>
+                <SelectItem value="meta">Meta</SelectItem>
+                <SelectItem value="website">Website</SelectItem>
+                <SelectItem value="sms">SMS</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32">
                 <Filter className="mr-2 h-4 w-4" />
@@ -391,7 +419,8 @@ export default function LeadsPage() {
                       lead.source === "phone" && "bg-primary/10",
                       lead.source === "meta" && "bg-pink-500/10",
                       lead.source === "website" && "bg-success/10",
-                      lead.source === "sms" && "bg-accent/10"
+                      lead.source === "sms" && "bg-accent/10",
+                      lead.source === "sam" && "bg-orange-500/10"
                     )}
                   >
                     <SourceIcon
@@ -400,7 +429,8 @@ export default function LeadsPage() {
                         lead.source === "phone" && "text-primary",
                         lead.source === "meta" && "text-pink-500",
                         lead.source === "website" && "text-success",
-                        lead.source === "sms" && "text-accent"
+                        lead.source === "sms" && "text-accent",
+                        lead.source === "sam" && "text-orange-500"
                       )}
                     />
                   </div>
@@ -414,6 +444,11 @@ export default function LeadsPage() {
                       >
                         {statusConfig[lead.status as keyof typeof statusConfig].label}
                       </Badge>
+                      {lead.isSam && (
+                        <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px]">
+                          SAM
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">{lead.service}</p>
                   </div>
@@ -470,7 +505,14 @@ export default function LeadsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Source</p>
-                  <p className="font-medium">{titleSource(selectedLead.source || "")}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{titleSource(selectedLead.source || "")}</p>
+                    {(selectedLead.source === "sam" || (selectedLead as any).form_data?.sam_handoff) && (
+                      <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px]">
+                        SAM
+                      </Badge>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Phone</p>
@@ -489,7 +531,39 @@ export default function LeadsPage() {
                   <p className="font-medium">${selectedLead.estimated_value || 0}</p>
                 </div>
               </div>
-              {(selectedLead as any).form_data && (
+              {(selectedLead as any).form_data?.sam_handoff && (
+                <div className="rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Radar className="h-4 w-4 text-orange-500" />
+                    <p className="text-sm font-medium text-orange-500">SAM Prospect Data</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <p className="text-muted-foreground text-xs">SAM Score</p>
+                      <p className="font-medium">{(selectedLead as any).form_data.sam_score || 0}/100</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Vertical</p>
+                      <p className="font-medium capitalize">{((selectedLead as any).form_data.sam_vertical || "unknown").replace(/_/g, " ")}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Lead Type</p>
+                      <p className="font-medium capitalize">{((selectedLead as any).form_data.sam_lead_type || "unknown").replace(/_/g, " ")}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">Emails Sent</p>
+                      <p className="font-medium">{(selectedLead as any).form_data.sam_outreach_count || 0}</p>
+                    </div>
+                    {(selectedLead as any).form_data.company_name && (
+                      <div className="col-span-2">
+                        <p className="text-muted-foreground text-xs">Company</p>
+                        <p className="font-medium">{(selectedLead as any).form_data.company_name}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {(selectedLead as any).form_data && !(selectedLead as any).form_data.sam_handoff && (
                 <div>
                   <p className="text-sm text-muted-foreground mb-2">Additional Details</p>
                   <pre className="text-xs bg-muted p-3 rounded-lg overflow-auto max-h-48">

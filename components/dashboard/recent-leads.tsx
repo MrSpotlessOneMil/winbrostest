@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Phone, PhoneOutgoing, MessageSquare, Globe, Instagram, ChevronRight } from "lucide-react"
+import { Phone, PhoneOutgoing, MessageSquare, Globe, Instagram, ChevronRight, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import type { Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -13,7 +13,7 @@ type UiLead = {
   id: string
   name: string
   phone: string | null
-  source: "phone" | "meta" | "website" | "sms"
+  source: "phone" | "meta" | "website" | "sms" | "sam"
   time: string
   status: "new" | "contacted" | "booked" | "nurturing" | "lost"
   service: string
@@ -34,7 +34,7 @@ function timeAgo(iso: string): string {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" ? l.source : "phone") as UiLead["source"]
+  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" || l.source === "sam" ? l.source : "phone") as UiLead["source"]
   const status =
     (l.status === "new" || l.status === "contacted" || l.status === "booked" || l.status === "nurturing" || l.status === "lost"
       ? l.status
@@ -61,6 +61,7 @@ const sourceIcons = {
   meta: Instagram,
   website: Globe,
   sms: MessageSquare,
+  sam: Radar,
 }
 
 const statusConfig = {
@@ -141,7 +142,8 @@ export function RecentLeads() {
                     lead.source === "phone" && "bg-primary/15 text-primary",
                     lead.source === "meta" && "bg-pink-500/15 text-pink-500",
                     lead.source === "website" && "bg-success/15 text-success",
-                    lead.source === "sms" && "bg-accent/15 text-accent"
+                    lead.source === "sms" && "bg-accent/15 text-accent",
+                    lead.source === "sam" && "bg-orange-500/15 text-orange-500"
                   )}
                 >
                   <SourceIcon className="h-5 w-5" />

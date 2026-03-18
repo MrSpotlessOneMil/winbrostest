@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Phone, Instagram, Globe, MessageSquare, ArrowLeft } from "lucide-react"
+import { Phone, Instagram, Globe, MessageSquare, ArrowLeft, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
 
@@ -31,6 +31,7 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
   housecall_pro: { label: "HousecallPro", color: "#a78bfa" },
   ghl: { label: "GoHighLevel", color: "#fb923c" },
   manual: { label: "Manual", color: "#94a3b8" },
+  sam: { label: "SAM", color: "#f97316" },
 }
 
 const DEFAULT_COLOR = "#6b7280"
@@ -45,6 +46,7 @@ const SOURCE_ICONS: Record<string, typeof Phone | null> = {
   meta: Instagram,
   website: Globe,
   sms: MessageSquare,
+  sam: Radar,
 }
 
 const STATUS_COLORS: Record<string, string> = {

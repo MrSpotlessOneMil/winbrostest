@@ -1,7 +1,7 @@
 // OSIRIS × WinBros Type Definitions
 
 // ==================== LEADS ====================
-export type LeadSource = "phone" | "sms" | "meta" | "website" | "vapi" | "thumbtack" | "google" | "manual" | "email" | "housecall_pro" | "ghl" | "seasonal_reminder"
+export type LeadSource = "phone" | "sms" | "meta" | "website" | "vapi" | "thumbtack" | "google" | "manual" | "email" | "housecall_pro" | "ghl" | "seasonal_reminder" | "sam"
 export type LeadStatus = "new" | "contacted" | "qualified" | "booked" | "assigned" | "nurturing" | "escalated" | "lost"
 
 export interface Lead {
