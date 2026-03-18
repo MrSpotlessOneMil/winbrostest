@@ -5,7 +5,237 @@ import {
   UserCheck,
   TimerOff,
   Ban,
+  UserPlus,
+  MessageCircle,
+  FileText,
+  CreditCard,
+  CalendarCheck,
+  CircleCheck,
+  RotateCcw,
 } from "lucide-react"
+
+// ---------------------------------------------------------------------------
+// Pipeline Item (returned by /api/actions/pipeline)
+// ---------------------------------------------------------------------------
+
+export interface PipelineItem {
+  id: string
+  name: string
+  phone: string
+  value: number
+  status: string
+  substatus: string
+  time: string
+  source_table: 'lead' | 'quote' | 'job' | 'customer'
+  source?: string | null
+  followup_stage?: number | null
+  quote_token?: string | null
+  cleaner_id?: number | null
+  satisfaction_response?: string | null
+  review_sent_at?: string | null
+  retargeting_sequence?: string | null
+  retargeting_step?: number | null
+  lifecycle_stage?: string | null
+  job_date?: string | null
+  customer_id?: number | null
+}
+
+export interface PipelineStageData {
+  count: number
+  value: number
+  items: PipelineItem[]
+}
+
+// ---------------------------------------------------------------------------
+// Journey Pipeline Stages (7 stages, left to right)
+// ---------------------------------------------------------------------------
+
+export type PipelineStageKey =
+  | "new_lead"
+  | "engaged"
+  | "quoted"
+  | "paid"
+  | "booked"
+  | "completed"
+  | "win_back"
+
+export const PIPELINE_JOURNEY_STAGES: {
+  key: PipelineStageKey
+  label: string
+  description: string
+  icon: typeof UserPlus
+  color: string
+  bg: string
+  border: string
+  gradient: string
+}[] = [
+  {
+    key: "new_lead",
+    label: "New Lead",
+    description: "First contact, not yet engaged",
+    icon: UserPlus,
+    color: "text-blue-400",
+    bg: "bg-blue-500/10",
+    border: "border-blue-500/30",
+    gradient: "from-blue-500/20 to-blue-500/5",
+  },
+  {
+    key: "engaged",
+    label: "Engaged",
+    description: "In conversation, being qualified",
+    icon: MessageCircle,
+    color: "text-cyan-400",
+    bg: "bg-cyan-500/10",
+    border: "border-cyan-500/30",
+    gradient: "from-cyan-500/20 to-cyan-500/5",
+  },
+  {
+    key: "quoted",
+    label: "Quoted",
+    description: "Quote sent, waiting for decision",
+    icon: FileText,
+    color: "text-amber-400",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/30",
+    gradient: "from-amber-500/20 to-amber-500/5",
+  },
+  {
+    key: "paid",
+    label: "Paid",
+    description: "Deposit received, needs scheduling",
+    icon: CreditCard,
+    color: "text-green-400",
+    bg: "bg-green-500/10",
+    border: "border-green-500/30",
+    gradient: "from-green-500/20 to-green-500/5",
+  },
+  {
+    key: "booked",
+    label: "Booked",
+    description: "Scheduled and on the calendar",
+    icon: CalendarCheck,
+    color: "text-violet-400",
+    bg: "bg-violet-500/10",
+    border: "border-violet-500/30",
+    gradient: "from-violet-500/20 to-violet-500/5",
+  },
+  {
+    key: "completed",
+    label: "Completed",
+    description: "Job done in the last 30 days",
+    icon: CircleCheck,
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/10",
+    border: "border-emerald-500/30",
+    gradient: "from-emerald-500/20 to-emerald-500/5",
+  },
+  {
+    key: "win_back",
+    label: "Win Back",
+    description: "Retargeting or re-engagement eligible",
+    icon: RotateCcw,
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500/30",
+    gradient: "from-orange-500/20 to-orange-500/5",
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Sequence Previews - synced with lib/scheduler.ts RETARGETING_SEQUENCES
+// ---------------------------------------------------------------------------
+
+export const SEQUENCE_PREVIEWS: Record<string, {
+  steps: { step: number; delay: string; type: 'sms' | 'call'; template: string }[]
+  summary: string
+}> = {
+  unresponsive: {
+    summary: "4 steps, 7 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Opener" },
+      { step: 2, delay: "Day 3", type: 'sms', template: "Value Nudge" },
+      { step: 3, delay: "Day 5", type: 'call', template: "Call" },
+      { step: 4, delay: "Day 7", type: 'sms', template: "Closing" },
+    ],
+  },
+  quoted_not_booked: {
+    summary: "5 steps, 21 days",
+    steps: [
+      { step: 1, delay: "Day 1", type: 'sms', template: "Quote Follow-up" },
+      { step: 2, delay: "Day 3", type: 'sms', template: "Question-Based" },
+      { step: 3, delay: "Day 7", type: 'call', template: "Call" },
+      { step: 4, delay: "Day 14", type: 'sms', template: "Social Proof" },
+      { step: 5, delay: "Day 21", type: 'sms', template: "Closing" },
+    ],
+  },
+  one_time: {
+    summary: "4 steps, 14 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Miss You" },
+      { step: 2, delay: "Day 3", type: 'call', template: "Call" },
+      { step: 3, delay: "Day 7", type: 'sms', template: "Seasonal Nudge" },
+      { step: 4, delay: "Day 14", type: 'sms', template: "Closing" },
+    ],
+  },
+  lapsed: {
+    summary: "4 steps, 10 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Feedback Ask" },
+      { step: 2, delay: "Day 3", type: 'call', template: "Call" },
+      { step: 3, delay: "Day 5", type: 'sms', template: "Incentive Offer" },
+      { step: 4, delay: "Day 10", type: 'sms', template: "Closing" },
+    ],
+  },
+  new_lead: {
+    summary: "3 steps, 5 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Opener" },
+      { step: 2, delay: "Day 2", type: 'sms', template: "Value Nudge" },
+      { step: 3, delay: "Day 5", type: 'sms', template: "Closing" },
+    ],
+  },
+  lost: {
+    summary: "3 steps, 10 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Feedback Ask" },
+      { step: 2, delay: "Day 5", type: 'sms', template: "Incentive Offer" },
+      { step: 3, delay: "Day 10", type: 'sms', template: "Closing" },
+    ],
+  },
+  repeat: {
+    summary: "2 steps, 7 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Seasonal Nudge" },
+      { step: 2, delay: "Day 7", type: 'sms', template: "Incentive Offer" },
+    ],
+  },
+  active: {
+    summary: "2 steps, 7 days",
+    steps: [
+      { step: 1, delay: "Day 0", type: 'sms', template: "Seasonal Nudge" },
+      { step: 2, delay: "Day 7", type: 'sms', template: "Value Nudge" },
+    ],
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Source labels for leads
+// ---------------------------------------------------------------------------
+
+export const SOURCE_LABELS: Record<string, string> = {
+  vapi: "VAPI",
+  meta: "Meta",
+  website: "Website",
+  sms: "SMS",
+  phone: "Phone",
+  housecall_pro: "HCP",
+  ghl: "GHL",
+  manual: "Manual",
+}
+
+// ---------------------------------------------------------------------------
+// Legacy types/exports (used by v1/v2 pages)
+// ---------------------------------------------------------------------------
 
 export interface PipelineStage {
   total: number
@@ -57,59 +287,9 @@ export const PIPELINE_GROUPS = [
   { key: "last_chance", label: "Last Chance", description: "Re-engage or close the file" },
 ]
 
-export const SEQUENCE_PREVIEWS: Record<string, { steps: { step: number; delay: string; template: string }[]; summary: string }> = {
-  unresponsive: {
-    summary: "3 steps, 7 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Opener" },
-      { step: 2, delay: "Day 3", template: "Value Nudge" },
-      { step: 3, delay: "Day 7", template: "Last Check" },
-    ],
-  },
-  quoted_not_booked: {
-    summary: "6 steps, 14 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Quote Follow-up" },
-      { step: 2, delay: "Day 2", template: "Question-Based" },
-      { step: 3, delay: "Day 4", template: "Limited Time" },
-      { step: 4, delay: "Day 7", template: "Check-In" },
-      { step: 5, delay: "Day 10", template: "Social Proof" },
-      { step: 6, delay: "Day 14", template: "Last Check" },
-    ],
-  },
-  one_time: {
-    summary: "3 steps, 14 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Check-In" },
-      { step: 2, delay: "Day 7", template: "Seasonal Nudge" },
-      { step: 3, delay: "Day 14", template: "Last Check" },
-    ],
-  },
-  lapsed: {
-    summary: "3 steps, 10 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask" },
-      { step: 2, delay: "Day 5", template: "Priority Offer" },
-      { step: 3, delay: "Day 10", template: "Last Check" },
-    ],
-  },
-  new_lead: {
-    summary: "3 steps, 5 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Opener" },
-      { step: 2, delay: "Day 2", template: "Value Nudge" },
-      { step: 3, delay: "Day 5", template: "Last Check" },
-    ],
-  },
-  lost: {
-    summary: "3 steps, 10 days",
-    steps: [
-      { step: 1, delay: "Immediately", template: "Feedback Ask" },
-      { step: 2, delay: "Day 5", template: "Priority Offer" },
-      { step: 3, delay: "Day 10", template: "Last Check" },
-    ],
-  },
-}
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 export function getCustomerStatus(c: PipelineCustomer): "eligible" | "active" | "completed" | "converted" | "stopped" {
   if (c.retargeting_stopped_reason === "converted") return "converted"
@@ -133,12 +313,26 @@ export function getCustomerStatusLabel(c: PipelineCustomer): string {
 }
 
 export function timeAgo(dateStr: string): string {
+  if (!dateStr) return '-'
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
+  if (mins < 0) return 'upcoming'
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
   return `${Math.floor(days / 7)}w ago`
+}
+
+export function formatCurrency(n: number): string {
+  if (n === 0) return '-'
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`
+  return `$${n.toLocaleString()}`
+}
+
+export function formatPhone(phone: string): string {
+  if (!phone) return '-'
+  if (phone.length >= 4) return `***-${phone.slice(-4)}`
+  return phone
 }
