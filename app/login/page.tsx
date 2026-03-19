@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import NeuralBackground from '@/components/neural-background'
 import { DotLoader } from '@/components/dot-loader'
@@ -44,6 +44,29 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  // Check for existing employee session on mount — redirect to portal if found
+  useEffect(() => {
+    async function checkExistingSession() {
+      try {
+        const res = await fetch('/api/auth/session')
+        const json = await res.json()
+        if (json.success && json.data?.type === 'employee' && json.data?.portalToken) {
+          router.replace(`/crew/${json.data.portalToken}`)
+          return
+        }
+        if (json.success && json.data?.type === 'owner') {
+          router.replace(redirect)
+          return
+        }
+      } catch {
+        // No session — show login form
+      }
+      setCheckingSession(false)
+    }
+    checkExistingSession()
+  }, [router, redirect])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -71,15 +94,23 @@ function LoginForm() {
       setSuccess(true)
       setIsLoading(false)
 
-      // Redirect after brief delay to show success
+      // Redirect based on user type
+      const dest = data.data?.type === 'employee' && data.data?.portalToken
+        ? `/crew/${data.data.portalToken}`
+        : redirect
+
       setTimeout(() => {
-        router.push(redirect)
+        router.push(dest)
         router.refresh()
       }, 1000)
     } catch (err) {
       setError('Connection error. Please try again.')
       setIsLoading(false)
     }
+  }
+
+  if (checkingSession) {
+    return <LoginFormFallback />
   }
 
   if (success) {
@@ -179,10 +210,22 @@ function LoginForm() {
 
             {/* Error Message */}
             {error && (
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
-                <p className="font-mono text-sm text-red-400">
-                  <span className="text-red-500">[ERROR]</span> {error}
-                </p>
+              <div className="space-y-2">
+                <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+                  <p className="font-mono text-sm text-red-400">
+                    <span className="text-red-500">[ERROR]</span> {error}
+                  </p>
+                </div>
+
+                {/* Employee help hint — shows on any auth failure */}
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+                  <p className="text-xs text-amber-300/90 leading-relaxed">
+                    <span className="font-semibold">Employee?</span> Your default username is your full name (e.g. &quot;Bob Jones&quot;). Your password is a 4-digit PIN &mdash; ask your manager if you don&apos;t have it.
+                  </p>
+                  <p className="mt-1.5 text-xs text-amber-300/70 leading-relaxed">
+                    <span className="font-semibold">Empleado?</span> Tu nombre de usuario predeterminado es tu nombre completo (ej. &quot;Bob Jones&quot;). Tu contrase&ntilde;a es un PIN de 4 d&iacute;gitos &mdash; preg&uacute;ntale a tu gerente si no lo tienes.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -226,6 +269,16 @@ function LoginForm() {
           className="text-emerald-400 underline underline-offset-2 transition-colors hover:text-emerald-300"
         >
           (415) 720-4580
+        </a>
+      </p>
+      <p className="mt-3 text-center font-mono text-xs">
+        <a
+          href="https://osiris-code.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-purple-400 underline underline-offset-2 transition-colors hover:text-purple-300"
+        >
+          New to Osiris? Book a call to sign up!
         </a>
       </p>
     </div>
