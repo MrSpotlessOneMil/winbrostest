@@ -5,7 +5,7 @@ import { getUserApiKeys, type UserApiKeys } from './user-api-keys'
 import { getTenantById, getTenantBySlug, type Tenant } from './tenant'
 
 export const SESSION_COOKIE_NAME = 'winbros_session'
-const SESSION_DURATION_DAYS = 30
+const SESSION_DURATION_DAYS = 365
 
 export interface AuthUser {
   id: number
@@ -16,9 +16,19 @@ export interface AuthUser {
   is_active: boolean
 }
 
+export interface AuthCleaner {
+  id: number
+  username: string
+  name: string
+  phone: string | null
+  portal_token: string | null
+  tenant_id: string
+}
+
 export interface Session {
   id: string
-  user_id: number
+  user_id: number | null
+  cleaner_id: number | null
   token: string
   expires_at: string
   created_at: string
@@ -87,9 +97,61 @@ export async function createSession(userId: number): Promise<string> {
   return token
 }
 
+export async function createEmployeeSession(cleanerId: number): Promise<string> {
+  const client = getSupabaseServiceClient()
+  const token = generateToken()
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + SESSION_DURATION_DAYS)
+
+  const { error } = await client.from('sessions').insert({
+    user_id: null,
+    cleaner_id: cleanerId,
+    token,
+    expires_at: expiresAt.toISOString(),
+  })
+
+  if (error) {
+    console.error('Error creating employee session:', error)
+    throw new Error('Failed to create employee session')
+  }
+
+  return token
+}
+
+/**
+ * Verify a cleaner's username + PIN.
+ * Returns the cleaner record if valid, null otherwise.
+ */
+export async function verifyEmployeePassword(
+  username: string,
+  password: string
+): Promise<AuthCleaner | null> {
+  const client = getSupabaseServiceClient()
+
+  const { data: cleaner, error } = await client
+    .from('cleaners')
+    .select('id, username, name, phone, portal_token, tenant_id, pin, active')
+    .eq('username', username)
+    .eq('active', true)
+    .is('deleted_at', null)
+    .single()
+
+  if (error || !cleaner) return null
+  if (!cleaner.pin || cleaner.pin !== password) return null
+
+  return {
+    id: cleaner.id,
+    username: cleaner.username,
+    name: cleaner.name,
+    phone: cleaner.phone,
+    portal_token: cleaner.portal_token,
+    tenant_id: cleaner.tenant_id,
+  }
+}
+
 export async function getSession(
   token: string
-): Promise<{ session: Session; user: AuthUser } | null> {
+): Promise<{ session: Session; user: AuthUser; cleaner?: AuthCleaner } | null> {
   const client = getSupabaseServiceClient()
 
   const { data: session, error } = await client
@@ -109,7 +171,44 @@ export async function getSession(
     return null
   }
 
-  // Get user
+  // Employee session (cleaner_id set, user_id null)
+  if (session.cleaner_id && !session.user_id) {
+    const { data: cleaner, error: cleanerError } = await client
+      .from('cleaners')
+      .select('id, username, name, phone, portal_token, tenant_id, active')
+      .eq('id', session.cleaner_id)
+      .eq('active', true)
+      .is('deleted_at', null)
+      .single()
+
+    if (cleanerError || !cleaner) return null
+
+    // Return a synthetic AuthUser so existing middleware doesn't break,
+    // plus the cleaner object for employee-specific logic
+    return {
+      session,
+      user: {
+        id: -cleaner.id, // negative to distinguish from real users
+        username: cleaner.username || cleaner.name,
+        display_name: cleaner.name,
+        email: null,
+        tenant_id: cleaner.tenant_id,
+        is_active: true,
+      },
+      cleaner: {
+        id: cleaner.id,
+        username: cleaner.username || cleaner.name,
+        name: cleaner.name,
+        phone: cleaner.phone,
+        portal_token: cleaner.portal_token,
+        tenant_id: cleaner.tenant_id,
+      },
+    }
+  }
+
+  // Owner/manager session (user_id set)
+  if (!session.user_id) return null
+
   const { data: user, error: userError } = await client
     .from('users')
     .select('id, username, display_name, email, tenant_id, is_active')
@@ -149,6 +248,18 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
 
   const result = await getSession(token)
   return result?.user || null
+}
+
+/**
+ * Check if the current session is an employee (cleaner) session.
+ * Returns the AuthCleaner if so, null otherwise.
+ */
+export async function getAuthCleaner(request: NextRequest): Promise<AuthCleaner | null> {
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  if (!token) return null
+
+  const result = await getSession(token)
+  return result?.cleaner || null
 }
 
 export async function requireAuth(
@@ -304,10 +415,11 @@ export async function requireAdmin(request: NextRequest): Promise<boolean> {
     .from('sessions')
     .select('user_id, users!inner(username)')
     .eq('token', token)
+    .not('user_id', 'is', null)
     .gt('expires_at', new Date().toISOString())
     .single()
 
   if (!session) return false
-  const user = session.users as { username: string }
+  const user = session.users as unknown as { username: string }
   return user.username === 'admin'
 }

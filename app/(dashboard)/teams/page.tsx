@@ -60,6 +60,8 @@ type CleanerDetail = {
   employee_type: EmployeeType
   is_active: boolean
   team_name?: string
+  username?: string
+  pin?: string
 }
 
 interface ChatMessage {
@@ -108,7 +110,8 @@ export default function TeamsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [editingMember, setEditingMember] = useState<{
-    id: string; name: string; phone: string; email: string; is_team_lead: boolean; employee_type: EmployeeType
+    id: string; name: string; phone: string; email: string; is_team_lead: boolean; employee_type: EmployeeType;
+    username: string; pin: string
   } | null>(null)
   const [editSaving, setEditSaving] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -129,6 +132,10 @@ export default function TeamsPage() {
     } catch { return null }
   })
   const [activeTab, setActiveTab] = useState<ActiveTab>("sms")
+
+  // Credential sending state
+  const [sendingCredentials, setSendingCredentials] = useState(false)
+  const [credentialsSent, setCredentialsSent] = useState(false)
 
   // Overview tab state
   const [earningsPeriod, setEarningsPeriod] = useState<EarningsPeriod>("week")
@@ -187,6 +194,8 @@ export default function TeamsPage() {
             employee_type: (m.employee_type || "technician") as EmployeeType,
             is_active: Boolean(m.is_active),
             team_name: String(team.name || ""),
+            username: m.username || undefined,
+            pin: m.pin || undefined,
           })
         }
       }
@@ -204,6 +213,8 @@ export default function TeamsPage() {
           role: c.role || "technician",
           employee_type: (c.employee_type || "technician") as EmployeeType,
           is_active: Boolean(c.is_active),
+          username: (c as any).username || undefined,
+          pin: (c as any).pin || undefined,
         })
       }
 
@@ -333,7 +344,7 @@ export default function TeamsPage() {
     if (!editingMember) return
     setEditSaving(true)
     try {
-      await fetch("/api/manage-teams", {
+      const res = await fetch("/api/manage-teams", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -344,8 +355,15 @@ export default function TeamsPage() {
           email: editingMember.email,
           is_team_lead: editingMember.is_team_lead,
           employee_type: editingMember.employee_type,
+          username: editingMember.username,
+          pin: editingMember.pin,
         }),
       })
+      const json = await res.json()
+      // If credentials were changed, the API auto-sends them
+      if (json.credentials_sent) {
+        setCredentialsSent(true)
+      }
       setEditingMember(null)
       await loadTeams()
     } catch {
@@ -374,6 +392,29 @@ export default function TeamsPage() {
       setLoadError(err?.message || "Delete failed")
     } finally {
       setDeleteTarget(null)
+    }
+  }
+
+  async function handleSendCredentials() {
+    if (!selectedCleaner || sendingCredentials) return
+    setSendingCredentials(true)
+    setCredentialsSent(false)
+    try {
+      const res = await fetch("/api/actions/send-employee-credentials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cleaner_id: Number(selectedCleaner.id) }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setCredentialsSent(true)
+      } else {
+        setLoadError(json.error || "Failed to send credentials")
+      }
+    } catch {
+      setLoadError("Failed to send credentials")
+    } finally {
+      setSendingCredentials(false)
     }
   }
 
@@ -421,6 +462,7 @@ export default function TeamsPage() {
   function selectCleaner(c: CleanerDetail) {
     setSelectedCleaner(c)
     setActiveTab("sms")
+    setCredentialsSent(false)
   }
 
   async function toggleCleanerActive(cleanerId: string, active: boolean) {
@@ -571,6 +613,8 @@ export default function TeamsPage() {
                             id: c.id, name: c.name, phone: c.phone, email: "",
                             is_team_lead: c.role === "lead",
                             employee_type: c.employee_type || "technician",
+                            username: (c as any).username || c.name,
+                            pin: (c as any).pin || "",
                           })
                         }}
                       >
@@ -641,6 +685,8 @@ export default function TeamsPage() {
                         phone: selectedCleaner.phone, email: "",
                         is_team_lead: selectedCleaner.role === "lead",
                         employee_type: selectedCleaner.employee_type || "technician",
+                        username: (selectedCleaner as any).username || selectedCleaner.name,
+                        pin: (selectedCleaner as any).pin || "",
                       })}
                     >
                       <Pencil className="h-3.5 w-3.5 mr-1" /> Edit
@@ -782,6 +828,44 @@ export default function TeamsPage() {
                           </Card>
                         ))}
                       </div>
+                    </div>
+
+                    {/* Portal Login Credentials */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-1.5">
+                        <Phone className="h-4 w-4 text-emerald-500" />
+                        Portal Login
+                      </h3>
+                      <Card>
+                        <CardContent className="p-4 space-y-3">
+                          <p className="text-xs text-muted-foreground">
+                            Text this employee their portal login credentials (username &amp; PIN) so they can access their portal at theosirisai.com.
+                          </p>
+                          <Button
+                            onClick={handleSendCredentials}
+                            disabled={sendingCredentials || !selectedCleaner?.phone}
+                            className="w-full"
+                            variant={credentialsSent ? "outline" : "default"}
+                          >
+                            {sendingCredentials ? (
+                              "Sending..."
+                            ) : credentialsSent ? (
+                              <span className="flex items-center gap-2">
+                                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                Sent a text containing the login username and password
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-2">
+                                <Send className="h-4 w-4" />
+                                Send Login Instructions as Text
+                              </span>
+                            )}
+                          </Button>
+                          {!selectedCleaner?.phone && (
+                            <p className="text-xs text-amber-500">No phone number on file — add one to send credentials.</p>
+                          )}
+                        </CardContent>
+                      </Card>
                     </div>
                   </div>
                 )}
@@ -968,6 +1052,44 @@ export default function TeamsPage() {
                   value={editingMember.email}
                   onChange={(e) => setEditingMember({ ...editingMember, email: e.target.value })}
                 />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Portal Username</label>
+                  <Input
+                    value={editingMember.username}
+                    onChange={(e) => setEditingMember({ ...editingMember, username: e.target.value })}
+                    placeholder="Full name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Portal PIN</label>
+                  <div className="flex gap-1.5">
+                    <Input
+                      value={editingMember.pin}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, "").slice(0, 4)
+                        setEditingMember({ ...editingMember, pin: val })
+                      }}
+                      placeholder="4 digits"
+                      maxLength={4}
+                      inputMode="numeric"
+                      className="font-mono tracking-widest"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 text-xs"
+                      onClick={() => {
+                        const newPin = String(Math.floor(Math.random() * 10000)).padStart(4, "0")
+                        setEditingMember({ ...editingMember, pin: newPin })
+                      }}
+                    >
+                      New
+                    </Button>
+                  </div>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <input

@@ -412,6 +412,30 @@ export async function notifyCustomerStatus(
   return await sendSMS(tenant, customerPhone, messages[status])
 }
 
+/**
+ * Send a cleaner their portal login credentials via SMS.
+ */
+export async function sendLoginCredentials(
+  tenant: Tenant,
+  cleanerId: string | number
+): Promise<SendResult> {
+  const client = getSupabaseServiceClient()
+  const { data: cleaner } = await client
+    .from('cleaners')
+    .select('phone, username, pin, portal_token')
+    .eq('id', Number(cleanerId))
+    .single()
+
+  if (!cleaner?.phone || !cleaner.username || !cleaner.pin) {
+    return { success: false, error: 'Cleaner has no credentials or phone' }
+  }
+
+  const portalLink = `${getBaseUrl()}/crew/${cleaner.portal_token}`
+  const message = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
+
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}
+
 // ── SMS Inbound Handlers ──
 
 /** Regex patterns for cleaner SMS commands */
@@ -421,16 +445,17 @@ export const CLEANER_SMS_PATTERNS = {
   done: /^(done|finished|complete|all done)\b/i,
   accept: /^(yes|yeah|yep|yup|y|sure|accept|ok|okay|1)\b/i,
   decline: /^(no|nah|n|decline|pass|can'?t|2)\b/i,
+  login: /\b(login|log in|password|pin|username|sign in|my credentials|how do i log in|my login)\b/i,
 }
 
 /**
  * Parse a cleaner's inbound SMS to determine intent.
  */
-export function parseCleanerSMS(content: string): 'omw' | 'here' | 'done' | 'accept' | 'decline' | null {
+export function parseCleanerSMS(content: string): 'omw' | 'here' | 'done' | 'accept' | 'decline' | 'login' | null {
   const trimmed = content.trim()
   for (const [key, pattern] of Object.entries(CLEANER_SMS_PATTERNS)) {
     if (pattern.test(trimmed)) {
-      return key as 'omw' | 'here' | 'done' | 'accept' | 'decline'
+      return key as 'omw' | 'here' | 'done' | 'accept' | 'decline' | 'login'
     }
   }
   return null

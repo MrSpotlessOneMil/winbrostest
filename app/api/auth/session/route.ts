@@ -1,11 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthUser } from '@/lib/auth'
+import { getAuthUser, getAuthCleaner, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-
-const SESSION_COOKIE_NAME = 'winbros_session'
 
 export async function GET(request: NextRequest) {
   try {
+    // Check for employee session first
+    const cleaner = await getAuthCleaner(request)
+    if (cleaner) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          type: 'employee',
+          user: {
+            id: -cleaner.id,
+            username: cleaner.username,
+            display_name: cleaner.name,
+            email: null,
+          },
+          portalToken: cleaner.portal_token,
+          sessionToken: request.cookies.get(SESSION_COOKIE_NAME)?.value,
+        },
+      })
+    }
+
     const user = await getAuthUser(request)
 
     if (!user) {
@@ -43,6 +60,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
+        type: 'owner',
         user: {
           id: user.id,
           username: user.username,

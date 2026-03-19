@@ -13,6 +13,7 @@ import {
   Briefcase,
   History,
   PlusCircle,
+  LogOut,
 } from "lucide-react"
 
 interface JobCard {
@@ -95,6 +96,16 @@ export default function CrewPortalPage() {
       .finally(() => setLoading(false))
   }, [token])
 
+  // Silently set an employee session cookie when visiting via token link
+  useEffect(() => {
+    fetch(`/api/crew/${token}/auto-session`, { method: 'POST' }).catch(() => {})
+  }, [token])
+
+  async function handleLogout() {
+    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+    router.push('/login')
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -121,8 +132,20 @@ export default function CrewPortalPage() {
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <div className="bg-blue-600 text-white px-4 py-5">
-        <p className="text-blue-200 text-sm">{tenant.name}</p>
-        <h1 className="text-xl font-bold mt-0.5">Hey, {cleaner.name}!</h1>
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-blue-200 text-sm">{tenant.name}</p>
+            <h1 className="text-xl font-bold mt-0.5">Hey, {cleaner.name}!</h1>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-1.5 text-blue-200 hover:text-white text-xs mt-1 transition-colors"
+            title="Log out"
+          >
+            <LogOut className="size-3.5" />
+            Log out
+          </button>
+        </div>
       </div>
 
       <div className="max-w-lg mx-auto px-4 py-4 space-y-6">

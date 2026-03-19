@@ -452,14 +452,17 @@ export async function POST(request: NextRequest) {
       metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "cleaner_phone", cleaner_id: matchedCleaner.id },
     })
 
-    // Parse cleaner intent — only YES/NO for assignment replies
+    // Parse cleaner intent — YES/NO for assignment replies, login for credentials
     // Status updates (OMW/HERE/DONE) are portal-only
-    const { parseCleanerSMS, processCleanerAssignmentReply } = await import("@/lib/cleaner-sms")
+    const { parseCleanerSMS, processCleanerAssignmentReply, sendLoginCredentials } = await import("@/lib/cleaner-sms")
     const intent = parseCleanerSMS(extracted.content || "")
 
     if (intent && tenant && (intent === "accept" || intent === "decline")) {
       const result = await processCleanerAssignmentReply(tenant, matchedCleaner.id, intent === "accept")
       console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} assignment reply: ${intent} — ${result.success ? "ok" : result.error}`)
+    } else if (intent === "login" && tenant) {
+      const result = await sendLoginCredentials(tenant, matchedCleaner.id)
+      console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} requested login info — ${result.success ? "sent" : result.error}`)
     } else {
       console.log(`[OpenPhone] Cleaner ${matchedCleaner.name} sent message — stored, forwarding to owner`)
       // Forward cleaner messages to owner
