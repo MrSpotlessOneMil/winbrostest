@@ -46,7 +46,7 @@ export async function generateMetadata({
 
   return {
     title: `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`,
-    description: `Professional ${service.title.toLowerCase()} in ${area.city}. Eco-friendly, insured, 5-star rated. Book online or call today.`,
+    description: `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`,
     alternates: {
       canonical: `${SPOTLESS_BUSINESS.url}/spotless/services/${slug}/${city}`,
     },
@@ -62,7 +62,7 @@ function getCityServiceFAQs(service: SpotlessService, area: SpotlessArea) {
     },
     {
       question: `What's included in ${service.title.toLowerCase()} in ${area.city}?`,
-      answer: `Our ${area.city} ${service.title.toLowerCase()} includes ${service.features.slice(0, 4).join(", ").toLowerCase()}, and more. Every cleaning is performed by insured, background-checked professionals using eco-friendly products.`,
+      answer: `Our ${area.city} ${service.title.toLowerCase()} includes ${service.features.slice(0, 4).join(", ").toLowerCase()}, and more. Every cleaning is performed by insured, background-checked professionals.`,
     },
     {
       question: `How do I book ${service.title.toLowerCase()} in ${area.city}?`,
@@ -86,7 +86,7 @@ function getCityServiceContent(service: SpotlessService, area: SpotlessArea) {
   const paragraph1 = `Looking for reliable ${service.title.toLowerCase()} in ${area.city}? Spotless Scrubbers has been serving homes and businesses across ${area.county} since ${SPOTLESS_BUSINESS.foundingYear}. Whether you are in ${neighborhoodMention}, or anywhere else in ${area.city}, our insured and vetted cleaning professionals bring the same 5-star service to every appointment.`
 
   const paragraph2Map: Record<string, string> = {
-    "standard-cleaning": `Keeping a home clean in ${area.city} can be tough with busy schedules. Our standard cleaning service gives ${area.city} residents a consistently fresh home without the hassle. We handle everything from dusting and vacuuming to kitchen and bathroom deep-sanitizing, using eco-friendly products that are safe for your family and pets. Many of our clients near ${landmarkMention} have been with us for years on weekly and biweekly plans.`,
+    "standard-cleaning": `Keeping a home clean in ${area.city} can be tough with busy schedules. Our standard cleaning service gives ${area.city} residents a consistently fresh home without the hassle. We handle everything from dusting and vacuuming to kitchen and bathroom deep-sanitizing, using products that are safe for your family and pets. Many of our clients near ${landmarkMention} have been with us for years on weekly and biweekly plans.`,
     "deep-cleaning": `${area.city} homes deserve a thorough refresh. Our deep cleaning goes far beyond a surface wipe-down - we scrub baseboards, detail grout, clean inside appliances, and reach every corner that regular cleaning misses. Whether your home near ${landmarkMention} needs a seasonal reset or a first-time deep clean, we will leave it feeling brand new.`,
     "move-in-out-cleaning": `Moving in or out of a place in ${area.city}? Our move-in/out cleaning is designed to help tenants get their deposits back and new homeowners start fresh. We clean inside every cabinet, every appliance, and every surface. Property managers near ${landmarkMention} rely on us for reliable turnovers between tenants.`,
     "post-construction-cleaning": `After a renovation or build in ${area.city}, the dust and debris can be overwhelming. Our post-construction cleaning team removes drywall dust, cleans windows, scrubs floors, and makes your newly remodeled space move-in ready. Contractors and homeowners near ${landmarkMention} trust us to handle the final detail work so the space shines.`,
@@ -96,9 +96,9 @@ function getCityServiceContent(service: SpotlessService, area: SpotlessArea) {
 
   const paragraph2 =
     paragraph2Map[service.slug] ||
-    `Our ${service.title.toLowerCase()} service in ${area.city} is trusted by hundreds of residents and businesses. We use eco-friendly products, maintain full insurance coverage, and back every job with a satisfaction guarantee. Clients near ${landmarkMention} count on us for consistent, professional results.`
+    `Our ${service.title.toLowerCase()} service in ${area.city} is trusted by hundreds of residents and businesses. We maintain full insurance coverage and back every job with a satisfaction guarantee. Clients near ${landmarkMention} count on us for consistent, professional results.`
 
-  const paragraph3 = `All of our ${area.city} cleaners are background-checked, insured, and trained to our standards. We use eco-friendly cleaning products and offer a satisfaction guarantee on every job. With a ${SPOTLESS_BUSINESS.rating}-star rating from ${SPOTLESS_BUSINESS.reviewCount}+ reviews, ${area.city} residents can book with confidence.`
+  const paragraph3 = `All of our ${area.city} cleaners are background-checked, insured, and trained to our standards. We offer a satisfaction guarantee on every job. With a ${SPOTLESS_BUSINESS.rating}-star rating on Google, ${area.city} residents can book with confidence.`
 
   return { paragraph1, paragraph2, paragraph3 }
 }
@@ -168,8 +168,8 @@ export default async function ServiceCityPage({
             </h1>
             <p className="text-lg text-slate-600 leading-relaxed max-w-3xl">
               Professional {service.title.toLowerCase()} in {area.city} and
-              surrounding neighborhoods. Eco-friendly, insured, and backed by{" "}
-              {SPOTLESS_BUSINESS.reviewCount}+ five-star reviews.
+              surrounding neighborhoods. Insured and backed by five-star
+              reviews on Google.
             </p>
 
             <div className="flex flex-wrap items-center gap-4 mt-6">
@@ -177,8 +177,7 @@ export default async function ServiceCityPage({
                 {service.priceRange}
               </span>
               <span className="text-sm text-slate-500">
-                {SPOTLESS_BUSINESS.rating} stars - {SPOTLESS_BUSINESS.reviewCount}{" "}
-                reviews
+                {SPOTLESS_BUSINESS.rating} stars on Google
               </span>
             </div>
           </div>
@@ -247,9 +246,9 @@ export default async function ServiceCityPage({
               </div>
               <div className="p-6 rounded-xl bg-white border border-[#a8e0ef]/50 shadow-sm">
                 <div className="text-3xl font-bold text-[#2195b4] mb-1">
-                  {SPOTLESS_BUSINESS.reviewCount}+
+                  5-Star
                 </div>
-                <div className="text-sm text-slate-500">Verified Reviews</div>
+                <div className="text-sm text-slate-500">Rated on Google</div>
               </div>
               <div className="p-6 rounded-xl bg-white border border-[#a8e0ef]/50 shadow-sm">
                 <div className="text-3xl font-bold text-[#2195b4] mb-1">

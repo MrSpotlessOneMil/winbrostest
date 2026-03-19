@@ -6,7 +6,7 @@ import { BreadcrumbJsonLd } from "@/components/marketing/json-ld"
 export const metadata: Metadata = {
   title: "About Us - Spotless Scrubbers",
   description:
-    "Learn about Spotless Scrubbers - Los Angeles County's trusted house cleaning service. Eco-friendly, insured, professionally trained cleaners since 2023.",
+    "Learn about Spotless Scrubbers - Los Angeles County's trusted house cleaning service. Insured, professionally trained cleaners since 2023.",
   alternates: {
     canonical: `${SPOTLESS_BUSINESS.url}/spotless/about`,
   },
@@ -28,7 +28,7 @@ const VALUES = [
   {
     title: "Safe Products",
     description:
-      "Everything we use is non-toxic and eco-friendly. I have a family too - I would never bring anything into your home that I would not want in mine.",
+      "We only use high-quality, safe products. I have a family too - I would never bring anything into your home that I would not want in mine.",
     icon: "\uD83C\uDF3F", // leaf
   },
   {
@@ -41,7 +41,7 @@ const VALUES = [
 
 const STATS = [
   { label: "Cities Served", value: "20+" },
-  { label: "5-Star Reviews", value: "29" },
+  { label: "Google Rating", value: "5.0" },
   { label: "Homes Cleaned", value: "2,500+" },
   { label: "Years in Business", value: String(new Date().getFullYear() - SPOTLESS_BUSINESS.foundingYear) },
 ]

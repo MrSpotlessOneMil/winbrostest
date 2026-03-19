@@ -26,7 +26,7 @@ export const BLOG_POSTS: BlogPost[] = [
     publishedAt: "2026-02-10",
     readingTime: 7,
     metaDescription:
-      "House cleaning costs in Los Angeles range from $120-$500+ depending on the service. Get an honest pricing breakdown from a local LA cleaning company owner.",
+      "House cleaning costs in Los Angeles start at $120 depending on the service. Get an honest pricing breakdown from a local LA cleaning company owner.",
     content: `
 <p>I get this question every single day. Someone calls, they want a cleaning, and the first thing out of their mouth is "how much?" Fair enough. I would ask the same thing.</p>
 
@@ -68,7 +68,7 @@ export const BLOG_POSTS: BlogPost[] = [
 
 <p>The cost of living in Los Angeles is high. That means higher wages, higher gas, higher insurance. A company charging $60 for a whole house clean? They are cutting corners somewhere. Probably uninsured, probably underpaying their people, probably not going to show up next time.</p>
 
-<p>At Spotless Scrubbers, our prices reflect the fact that our cleaners are paid fairly, we carry real insurance, and we use quality eco-friendly products. You get what you pay for.</p>
+<p>At Spotless Scrubbers, our prices reflect the fact that our cleaners are paid fairly, we carry real insurance, and we use quality products. You get what you pay for.</p>
 
 <h2>How to Get an Accurate Quote</h2>
 

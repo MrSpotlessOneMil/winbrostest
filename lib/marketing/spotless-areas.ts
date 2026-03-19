@@ -277,7 +277,7 @@ export const SPOTLESS_BUSINESS = {
   foundingYear: 2023,
   areaServed: "Los Angeles County, CA",
   description:
-    "Top-rated house cleaning service in Los Angeles County. Eco-friendly products, insured cleaners, satisfaction guaranteed.",
+    "Top-rated house cleaning service in Los Angeles County. Insured cleaners, satisfaction guaranteed.",
   rating: 5.0,
   reviewCount: 29,
   priceRange: "$$",

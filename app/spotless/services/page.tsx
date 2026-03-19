@@ -9,7 +9,7 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 export const metadata: Metadata = {
   title: "Our Cleaning Services | Spotless Scrubbers",
   description:
-    "Professional house cleaning, deep cleaning, move-in/out, post-construction, commercial, and Airbnb cleaning across Los Angeles County. Eco-friendly, insured, 5-star rated.",
+    "Professional house cleaning, deep cleaning, move-in/out, post-construction, commercial, and Airbnb cleaning across Los Angeles County. Insured, 5-star rated.",
   alternates: {
     canonical: `${SPOTLESS_BUSINESS.url}/spotless/services`,
   },
@@ -37,7 +37,7 @@ const SERVICE_FAQS = [
   {
     question: "What cleaning services do you offer in Los Angeles?",
     answer:
-      "We offer six professional cleaning services across LA County: standard house cleaning, deep cleaning, move-in/move-out cleaning, post-construction cleaning, commercial and office cleaning, and Airbnb/short-term rental cleaning. All services use eco-friendly products and are performed by insured, background-checked cleaners.",
+      "We offer six professional cleaning services across LA County: standard house cleaning, deep cleaning, move-in/move-out cleaning, post-construction cleaning, commercial and office cleaning, and Airbnb/short-term rental cleaning. All services are performed by insured, background-checked cleaners.",
   },
   {
     question: "Do you serve all of Los Angeles County?",
@@ -74,7 +74,7 @@ export default function ServicesPage() {
             </h1>
             <p className="text-lg sm:text-xl text-white/90 max-w-2xl mx-auto">
               Professional cleaning for every need across all of Los Angeles County.
-              Eco-friendly products, insured cleaners, and a 100% satisfaction guarantee.
+              Insured cleaners and a 100% satisfaction guarantee.
             </p>
           </div>
         </section>

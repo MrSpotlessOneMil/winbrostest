@@ -7,7 +7,7 @@ import { QuoteCalculator } from "@/components/marketing/quote-calculator"
 export const metadata: Metadata = {
   title: "Book a Cleaning - Contact Spotless Scrubbers",
   description:
-    "Book a professional house cleaning in Los Angeles County. Fill out our form or call us directly. Same-day bookings available. Eco-friendly, insured cleaners.",
+    "Book a professional house cleaning in Los Angeles County. Fill out our form or call us directly. Same-day bookings available. Insured, background-checked cleaners.",
   alternates: {
     canonical: `${SPOTLESS_BUSINESS.url}/spotless/contact`,
   },
@@ -88,7 +88,7 @@ export default function ContactPage() {
                   </svg>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">5.0 Stars - 29 Reviews</p>
+                  <p className="text-sm font-semibold text-slate-900">5.0 Stars on Google</p>
                   <p className="text-xs text-slate-500 mt-0.5">Trusted by LA homeowners.</p>
                 </div>
               </div>
