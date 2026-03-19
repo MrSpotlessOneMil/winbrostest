@@ -1,11 +1,12 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Users, Phone, ChevronDown, MapPin, Clock } from "lucide-react"
+import { TrendingUp, TrendingDown, DollarSign, CalendarCheck, Users, Phone, ChevronDown, MapPin, Clock, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useEffect, useMemo, useState } from "react"
 import type { ApiResponse, DailyMetrics } from "@/lib/types"
 import { SlidingNumber } from "@/components/ui/sliding-number"
+import { CustomerThreadDrawer } from "./customer-thread-drawer"
 
 function pct(n: number, d: number): number {
   if (!d) return 0
@@ -59,6 +60,18 @@ export function StatsCards() {
   const [prevMetrics, setPrevMetrics] = useState<DailyMetrics | null>(null)
   const [items, setItems] = useState<DetailItems | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [threadOpen, setThreadOpen] = useState(false)
+  const [threadPhone, setThreadPhone] = useState<string | null>(null)
+  const [threadName, setThreadName] = useState<string>("")
+  const [threadContext, setThreadContext] = useState<{ label: string; value: string }[]>([])
+
+  function openThread(phone: string | null, name: string, context: { label: string; value: string }[]) {
+    if (!phone) return
+    setThreadPhone(phone)
+    setThreadName(name)
+    setThreadContext(context)
+    setThreadOpen(true)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -176,6 +189,7 @@ export function StatsCards() {
   const toggle = (key: string) => setExpanded(prev => prev === key ? null : key)
 
   return (
+    <>
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {stats.map((stat, i) => {
         const isExpanded = expanded === stat.key
@@ -254,7 +268,15 @@ export function StatsCards() {
                     items.completed_jobs.length > 0 ? (
                       <div className="divide-y divide-zinc-800/30">
                         {items.completed_jobs.map((job: any, j: number) => (
-                          <div key={job.id || j} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <button
+                            key={job.id || j}
+                            onClick={(e) => { e.stopPropagation(); openThread(job.phone_number, job.service_type || "Cleaning", [
+                              ...(job.address ? [{ label: "Address", value: job.address }] : []),
+                              { label: "Price", value: `$${job.price || 0}` },
+                              { label: "Status", value: job.status || "completed" },
+                            ]) }}
+                            className="w-full px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-zinc-800/40 transition-colors text-left"
+                          >
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-zinc-200 truncate">{job.service_type || "Cleaning"}</p>
                               {job.address && (
@@ -264,8 +286,11 @@ export function StatsCards() {
                                 </p>
                               )}
                             </div>
-                            <span className="text-xs font-semibold text-emerald-400 flex-shrink-0">${job.price || 0}</span>
-                          </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-xs font-semibold text-emerald-400">${job.price || 0}</span>
+                              <MessageSquare className="h-3 w-3 text-zinc-600 group-hover:text-zinc-400" />
+                            </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -277,7 +302,15 @@ export function StatsCards() {
                     [...(items.completed_jobs || []), ...(items.scheduled_jobs || [])].length > 0 ? (
                       <div className="divide-y divide-zinc-800/30">
                         {[...(items.completed_jobs || []), ...(items.scheduled_jobs || [])].map((job: any, j: number) => (
-                          <div key={job.id || j} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <button
+                            key={job.id || j}
+                            onClick={(e) => { e.stopPropagation(); openThread(job.phone_number, job.service_type || "Cleaning", [
+                              ...(job.address ? [{ label: "Address", value: job.address }] : []),
+                              { label: "Price", value: `$${job.price || 0}` },
+                              { label: "Status", value: job.status || "scheduled" },
+                            ]) }}
+                            className="w-full px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-zinc-800/40 transition-colors text-left"
+                          >
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-zinc-200 truncate">{job.service_type || "Cleaning"}</p>
                               {job.address && (
@@ -297,8 +330,9 @@ export function StatsCards() {
                                 {job.status}
                               </span>
                               <span className="text-xs text-zinc-400">${job.price || 0}</span>
+                              <MessageSquare className="h-3 w-3 text-zinc-600" />
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -310,7 +344,14 @@ export function StatsCards() {
                     items.leads.length > 0 ? (
                       <div className="divide-y divide-zinc-800/30">
                         {items.leads.map((lead: any, j: number) => (
-                          <div key={lead.id || j} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <button
+                            key={lead.id || j}
+                            onClick={(e) => { e.stopPropagation(); openThread(lead.phone_number, getLeadName(lead), [
+                              ...(lead.source ? [{ label: "Source", value: lead.source }] : []),
+                              { label: "Status", value: lead.status || "new" },
+                            ]) }}
+                            className="w-full px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-zinc-800/40 transition-colors text-left"
+                          >
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-zinc-200 truncate">{getLeadName(lead)}</p>
                               {lead.phone_number && (
@@ -332,8 +373,9 @@ export function StatsCards() {
                               )}>
                                 {lead.status || "new"}
                               </span>
+                              <MessageSquare className="h-3 w-3 text-zinc-600" />
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -345,7 +387,14 @@ export function StatsCards() {
                     items.calls.length > 0 ? (
                       <div className="divide-y divide-zinc-800/30">
                         {items.calls.map((call: any, j: number) => (
-                          <div key={call.id || j} className="px-4 py-2.5 flex items-center justify-between gap-2">
+                          <button
+                            key={call.id || j}
+                            onClick={(e) => { e.stopPropagation(); openThread(call.phone_number, call.caller_name || (call.phone_number ? formatPhone(call.phone_number) : "Unknown"), [
+                              { label: "Direction", value: call.direction === "inbound" ? "Inbound" : "Outbound" },
+                              ...(call.duration_seconds != null ? [{ label: "Duration", value: formatDuration(call.duration_seconds) }] : []),
+                            ]) }}
+                            className="w-full px-4 py-2.5 flex items-center justify-between gap-2 hover:bg-zinc-800/40 transition-colors text-left"
+                          >
                             <div className="min-w-0">
                               <p className="text-xs font-medium text-zinc-200 truncate">
                                 {call.caller_name || (call.phone_number ? formatPhone(call.phone_number) : "Unknown")}
@@ -362,12 +411,15 @@ export function StatsCards() {
                                 )}
                               </div>
                             </div>
-                            <span className="text-[11px] text-zinc-600 flex-shrink-0">
-                              {call.created_at
-                                ? new Date(call.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-                                : ""}
-                            </span>
-                          </div>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <span className="text-[11px] text-zinc-600">
+                                {call.created_at
+                                  ? new Date(call.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                                  : ""}
+                              </span>
+                              <MessageSquare className="h-3 w-3 text-zinc-600" />
+                            </div>
+                          </button>
                         ))}
                       </div>
                     ) : (
@@ -381,5 +433,13 @@ export function StatsCards() {
         )
       })}
     </div>
+    <CustomerThreadDrawer
+      open={threadOpen}
+      onClose={() => setThreadOpen(false)}
+      phoneNumber={threadPhone}
+      displayName={threadName}
+      context={threadContext}
+    />
+    </>
   )
 }

@@ -21,22 +21,54 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams
   const threadCustomerId = searchParams.get('thread')
+  const threadPhone = searchParams.get('phone')
 
   const client = getSupabaseServiceClient()
 
-  // Thread view: return messages for a specific customer
-  if (threadCustomerId) {
+  // Thread view: return messages for a specific customer (by ID or phone)
+  if (threadCustomerId || threadPhone) {
+    let customerId: number | null = threadCustomerId ? Number(threadCustomerId) : null
+    let customerInfo: { id: number; first_name: string | null; last_name: string | null; phone_number: string | null } | null = null
+
+    if (threadPhone && !customerId) {
+      // Resolve customer by phone number
+      const normalized = threadPhone.replace(/\D/g, '')
+      const { data: matches } = await client
+        .from('customers')
+        .select('id, first_name, last_name, phone_number')
+        .eq('tenant_id', tenant.id)
+        .or(`phone_number.eq.${threadPhone},phone_number.eq.+1${normalized},phone_number.eq.+${normalized},phone_number.eq.${normalized}`)
+        .limit(1)
+
+      if (matches && matches.length > 0) {
+        customerId = matches[0].id
+        customerInfo = matches[0]
+      }
+    } else if (customerId) {
+      const { data: cust } = await client
+        .from('customers')
+        .select('id, first_name, last_name, phone_number')
+        .eq('id', customerId)
+        .eq('tenant_id', tenant.id)
+        .single()
+      customerInfo = cust
+    }
+
+    if (!customerId) {
+      return NextResponse.json({ messages: [], customer: null })
+    }
+
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
     const { data: messages } = await client
       .from('messages')
       .select('id, content, timestamp, direction, role, ai_generated, source')
-      .eq('customer_id', Number(threadCustomerId))
+      .eq('customer_id', customerId)
       .eq('tenant_id', tenant.id)
       .gte('timestamp', thirtyDaysAgo)
       .order('timestamp', { ascending: true })
       .limit(50)
 
-    return NextResponse.json({ messages: messages || [] })
+    return NextResponse.json({ messages: messages || [], customer: customerInfo })
   }
 
   // Inbox view: return active conversations
