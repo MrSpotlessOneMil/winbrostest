@@ -23,20 +23,20 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const SERVICE_IMAGES: Record<string, string> = {
   "standard-cleaning": "/images/marketing/clean-bedroom.jpg",
-  "deep-cleaning": "/images/marketing/deep-cleaning.jpg",
+  "deep-cleaning": "/images/marketing/clean-sink-result.jpg",
   "move-in-out-cleaning": "/images/marketing/move-cleaning.jpg",
   "post-construction-cleaning": "/images/marketing/team-post-construction.jpg",
-  "commercial-cleaning": "/images/marketing/commercial-cleaning.jpg",
-  "airbnb-cleaning": "/images/marketing/clean-bedroom-2.jpg",
+  "commercial-cleaning": "/images/marketing/commercial-after.jpg",
+  "airbnb-cleaning": "/images/marketing/airbnb-cleaning.jpg",
 }
 
 const SERVICE_ALTS: Record<string, string> = {
   "standard-cleaning": "Professional standard house cleaning result – spotless bedroom in Los Angeles home",
-  "deep-cleaning": "Deep cleaning result showing sparkling clean kitchen in LA County home",
+  "deep-cleaning": "Sparkling clean kitchen sink after professional deep cleaning in LA County",
   "move-in-out-cleaning": "Move-in ready apartment after professional cleaning in Los Angeles",
-  "post-construction-cleaning": "Post-construction cleanup – dust-free surfaces after LA home renovation",
-  "commercial-cleaning": "Professionally cleaned commercial office space in Los Angeles County",
-  "airbnb-cleaning": "Guest-ready Airbnb bedroom after turnover cleaning in Los Angeles",
+  "post-construction-cleaning": "Post-construction cleanup in progress – team clearing dust and debris from LA home renovation",
+  "commercial-cleaning": "Clean commercial hallway after professional janitorial service in Los Angeles County",
+  "airbnb-cleaning": "Modern styled living room ready for Airbnb guests after turnover cleaning in Los Angeles",
 }
 
 const SERVICE_PRICE_RANGES: Record<string, string> = {
@@ -223,8 +223,8 @@ export default function HomePage() {
       <section className="relative">
         <div className="absolute inset-0">
           <img
-            src="/images/marketing/hero-clean-home.jpg"
-            alt="Spotless clean living room in a Los Angeles home – Spotless Scrubbers professional house cleaning"
+            src="/images/marketing/team-bathroom-clean.jpg"
+            alt="Spotless Scrubbers team member cleaning a Los Angeles home bathroom – professional house cleaning service"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-black/65" />
@@ -444,10 +444,10 @@ export default function HomePage() {
             </h2>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <img src="/images/marketing/team-outdoor-sweep.jpg" alt="Team member sweeping exterior in Spotless Scrubbers shirt" className="w-full h-64 object-cover" />
+            <img src="/images/marketing/team-branded.jpg" alt="Spotless Scrubbers team member in branded shirt at Los Angeles property" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-kitchen-clean.jpg" alt="Team member cleaning kitchen in branded shirt" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-bathroom-clean.jpg" alt="Team member cleaning bathroom in Spotless Scrubbers shirt" className="w-full h-64 object-cover" />
-            <img src="/images/marketing/team-outdoor-sweep-2.jpg" alt="Team member working outside upscale property" className="w-full h-64 object-cover" />
+            <img src="/images/marketing/team-post-construction.jpg" alt="Post-construction cleanup in progress at LA home" className="w-full h-64 object-cover" />
           </div>
         </div>
       </section>
@@ -527,19 +527,19 @@ export default function HomePage() {
             </div>
             <div>
               <img
-                src="/images/marketing/clean-bedroom-2.jpg"
-                alt="Fresh guest bedroom ready for Airbnb check-in after turnover cleaning"
+                src="/images/marketing/airbnb-cleaning.jpg"
+                alt="Modern styled living room after professional Airbnb turnover cleaning in Los Angeles"
                 className="w-full h-64 object-cover"
               />
-              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Guest Room Turnover</p>
+              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Airbnb Turnover</p>
             </div>
             <div>
               <img
-                src="/images/marketing/vacuum-floor.jpg"
-                alt="Professional floor vacuuming during residential cleaning service in Los Angeles"
+                src="/images/marketing/commercial-after.jpg"
+                alt="Clean commercial hallway after professional janitorial service in LA County"
                 className="w-full h-64 object-cover"
               />
-              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Floor Detail Clean</p>
+              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Commercial Clean</p>
             </div>
           </div>
         </div>
