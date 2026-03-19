@@ -168,29 +168,6 @@ function DemoRequestForm() {
 export default function OsirisMarketingPage() {
   return (
     <>
-      {/* ── Top Nav ───────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur border-b border-gray-800">
-        <div className="max-w-5xl mx-auto px-6 flex items-center justify-between h-14">
-          <span className="text-white font-bold text-lg tracking-tight">Osiris</span>
-          <div className="flex items-center gap-6">
-            <a
-              href="#demo"
-              className="text-gray-400 hover:text-white text-sm transition-colors"
-            >
-              Book a Demo
-            </a>
-            <a
-              href="https://lead-magnet-site.vercel.app"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-[#2195b4] px-4 py-1.5 text-white text-sm font-medium hover:bg-[#1a7a94] transition-colors"
-            >
-              Access Email Template
-            </a>
-          </div>
-        </div>
-      </nav>
-
       {/* ── Hero ──────────────────────────────────────────────────────── */}
       <section className="bg-gray-950 py-32 sm:py-40">
         <div className="max-w-3xl mx-auto px-6 text-center">
@@ -205,6 +182,14 @@ export default function OsirisMarketingPage() {
             dispatch, and payments. All in one place.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <a
+              href="https://lead-magnet-site.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[#2195b4] hover:text-[#1a7a94] text-sm font-medium underline underline-offset-4 transition-colors"
+            >
+              Access free email guide
+            </a>
             <a
               href="#demo"
               className="inline-block bg-[#2195b4] px-8 py-3.5 text-white font-medium hover:bg-[#1a7a94] transition-colors text-sm"
