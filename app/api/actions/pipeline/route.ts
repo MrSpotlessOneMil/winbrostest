@@ -17,7 +17,14 @@ export async function GET(request: NextRequest) {
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
-  // Run all queries in parallel
+  // Win Back includes all lifecycle stages that need outreach:
+  // - Retargeting sequences in progress
+  // - one_time, lapsed, lost, unresponsive, quoted_not_booked (original)
+  // - new_lead, unknown (imported contacts needing engagement)
+  const winBackFilter = 'retargeting_sequence.not.is.null,lifecycle_stage.in.(one_time,lapsed,lost,unresponsive,quoted_not_booked,new_lead,unknown)'
+
+  // Run all queries in parallel — items capped at 200 per stage for performance,
+  // but we run separate count queries to show the real totals
   const [
     newLeadsRes,
     engagedRes,
@@ -27,6 +34,14 @@ export async function GET(request: NextRequest) {
     completedRes,
     winBackRes,
     avgPriceRes,
+    // Count queries (exact totals, not capped by limit)
+    newLeadsCount,
+    engagedCount,
+    quotesCount,
+    paidCount,
+    bookedCount,
+    completedCount,
+    winBackCount,
   ] = await Promise.all([
     // 1. New Lead: leads with status = 'new'
     supabase.from('leads')
@@ -78,11 +93,11 @@ export async function GET(request: NextRequest) {
       .order('completed_at', { ascending: false })
       .limit(200),
 
-    // 7. Win Back: active retargeting or eligible lifecycle stages
+    // 7. Win Back: active retargeting or eligible lifecycle stages (including new_lead imports)
     supabase.from('customers')
       .select('id, first_name, last_name, phone_number, lifecycle_stage, retargeting_sequence, retargeting_step, retargeting_enrolled_at, retargeting_completed_at, retargeting_stopped_reason, updated_at')
       .eq('tenant_id', tenant.id)
-      .or('retargeting_sequence.not.is.null,lifecycle_stage.in.(one_time,lapsed,lost,unresponsive,quoted_not_booked)')
+      .or(winBackFilter)
       .order('updated_at', { ascending: false })
       .limit(200),
 
@@ -93,6 +108,44 @@ export async function GET(request: NextRequest) {
       .eq('status', 'completed')
       .not('price', 'is', null)
       .limit(100),
+
+    // --- Exact count queries (head: true returns only count, no rows) ---
+    supabase.from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'new'),
+
+    supabase.from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .in('status', ['contacted', 'qualified', 'nurturing', 'escalated']),
+
+    supabase.from('quotes')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .in('status', ['pending', 'sent']),
+
+    supabase.from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('payment_status', 'deposit_paid')
+      .eq('status', 'pending'),
+
+    supabase.from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .in('status', ['scheduled', 'confirmed', 'in_progress']),
+
+    supabase.from('jobs')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'completed')
+      .gte('completed_at', thirtyDaysAgo),
+
+    supabase.from('customers')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', tenant.id)
+      .or(winBackFilter),
   ])
 
   // Customer name lookup for jobs
@@ -144,7 +197,7 @@ export async function GET(request: NextRequest) {
     return j.phone_number || 'Unknown'
   }
 
-  // Build stages
+  // Build stages — use exact counts from count queries, not .length (which is capped by limit)
   const newLeads = newLeadsRes.data || []
   const engaged = engagedRes.data || []
   const paid = paidRes.data || []
@@ -154,7 +207,7 @@ export async function GET(request: NextRequest) {
 
   const stages = {
     new_lead: {
-      count: newLeads.length,
+      count: newLeadsCount.count ?? newLeads.length,
       value: 0,
       items: newLeads.map(l => ({
         id: `lead-${l.id}`,
@@ -170,7 +223,7 @@ export async function GET(request: NextRequest) {
       })),
     },
     engaged: {
-      count: engaged.length,
+      count: engagedCount.count ?? engaged.length,
       value: 0,
       items: engaged.map(l => ({
         id: `lead-${l.id}`,
@@ -188,7 +241,7 @@ export async function GET(request: NextRequest) {
       })),
     },
     quoted: {
-      count: filteredQuotes.length,
+      count: quotesCount.count ?? filteredQuotes.length,
       value: filteredQuotes.reduce((sum, q) => sum + (Number(q.total) || 0), 0),
       items: filteredQuotes.map(q => ({
         id: `quote-${q.id}`,
@@ -204,7 +257,7 @@ export async function GET(request: NextRequest) {
       })),
     },
     paid: {
-      count: paid.length,
+      count: paidCount.count ?? paid.length,
       value: paid.reduce((sum, j) => sum + (Number(j.price) || 0), 0),
       items: paid.map(j => ({
         id: `job-${j.id}`,
@@ -219,7 +272,7 @@ export async function GET(request: NextRequest) {
       })),
     },
     booked: {
-      count: booked.length,
+      count: bookedCount.count ?? booked.length,
       value: booked.reduce((sum, j) => sum + (Number(j.price) || 0), 0),
       items: booked.map(j => ({
         id: `job-${j.id}`,
@@ -236,7 +289,7 @@ export async function GET(request: NextRequest) {
       })),
     },
     completed: {
-      count: completed.length,
+      count: completedCount.count ?? completed.length,
       value: completed.reduce((sum, j) => sum + (Number(j.price) || 0), 0),
       items: completed.map(j => ({
         id: `job-${j.id}`,
@@ -255,8 +308,8 @@ export async function GET(request: NextRequest) {
       })),
     },
     win_back: {
-      count: winBack.length,
-      value: winBack.length * avgJobPrice,
+      count: winBackCount.count ?? winBack.length,
+      value: (winBackCount.count ?? winBack.length) * avgJobPrice,
       items: winBack.map(c => ({
         id: `customer-${c.id}`,
         name: buildName(c.first_name, c.last_name),
