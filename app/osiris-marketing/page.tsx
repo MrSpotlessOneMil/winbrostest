@@ -207,7 +207,7 @@ export default function OsirisMarketingPage() {
           <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
             <iframe
               className="absolute inset-0 w-full h-full"
-              src="https://www.youtube.com/embed/9gVtLSjkXMM"
+              src="https://www.youtube.com/embed/xCxePRxd3JQ"
               title="How Osiris Works"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
