@@ -81,6 +81,7 @@ export interface WorkflowConfig {
   use_retargeting?: boolean          // Monthly re-engagement + frequency nudge campaigns
   use_payment_collection?: boolean   // Stripe deposit + full payment collection flow
   use_assistant_memory?: boolean     // OpenClaw-style memory system for dashboard assistant
+  use_blog_generation?: boolean      // Weekly AI-generated SEO blog posts
 
   // Card-on-file auto-charge (replaces deposit flow for cleaning tenants)
   use_card_on_file?: boolean         // Save card at booking, charge on completion (no upfront deposit)
@@ -417,6 +418,7 @@ export function tenantUsesFeature(
     | 'cleaner_assignment_auto'
     | 'require_deposit'
     | 'use_assistant_memory'
+    | 'use_blog_generation'
     | 'use_card_on_file'
   >
 ): boolean {
