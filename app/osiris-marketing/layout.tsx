@@ -42,12 +42,22 @@ export default function OsirisMarketingLayout({
             <a href="/osiris-marketing" className="text-white font-semibold tracking-tight">
               Osiris
             </a>
-            <a
-              href="#demo"
-              className="bg-[#2195b4] px-5 py-2 text-white text-sm font-medium hover:bg-[#1a7a94] transition-colors"
-            >
-              Book a Demo
-            </a>
+            <div className="flex items-center gap-6">
+              <a
+                href="https://lead-magnet-site.vercel.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#2195b4] hover:text-[#1a7a94] text-sm font-medium underline underline-offset-4 transition-colors"
+              >
+                Access free email guide
+              </a>
+              <a
+                href="#demo"
+                className="bg-[#2195b4] px-5 py-2 text-white text-sm font-medium hover:bg-[#1a7a94] transition-colors"
+              >
+                Book a Demo
+              </a>
+            </div>
           </div>
         </div>
       </header>
