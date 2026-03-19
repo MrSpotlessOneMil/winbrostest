@@ -168,6 +168,29 @@ function DemoRequestForm() {
 export default function OsirisMarketingPage() {
   return (
     <>
+      {/* ── Top Nav ───────────────────────────────────────────────────── */}
+      <nav className="sticky top-0 z-50 bg-gray-950/90 backdrop-blur border-b border-gray-800">
+        <div className="max-w-5xl mx-auto px-6 flex items-center justify-between h-14">
+          <span className="text-white font-bold text-lg tracking-tight">Osiris</span>
+          <div className="flex items-center gap-6">
+            <a
+              href="#demo"
+              className="text-gray-400 hover:text-white text-sm transition-colors"
+            >
+              Book a Demo
+            </a>
+            <a
+              href="https://lead-magnet-site.vercel.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-[#2195b4] px-4 py-1.5 text-white text-sm font-medium hover:bg-[#1a7a94] transition-colors"
+            >
+              Access Email Template
+            </a>
+          </div>
+        </div>
+      </nav>
+
       {/* ── Hero ──────────────────────────────────────────────────────── */}
       <section className="bg-gray-950 py-32 sm:py-40">
         <div className="max-w-3xl mx-auto px-6 text-center">
