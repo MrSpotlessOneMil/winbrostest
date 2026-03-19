@@ -44,7 +44,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       <div className="flex h-[100dvh] overflow-hidden bg-zinc-950">
         {/* Desktop sidebar */}
         <div className="hidden md:block">
-          <Sidebar collapsed={sidebarCollapsed} onOpenSettings={() => setSettingsOpen(true)} />
+          <Sidebar collapsed={sidebarCollapsed} onNavClick={() => setSettingsOpen(false)} onOpenSettings={() => setSettingsOpen(true)} />
         </div>
 
         {/* Mobile sidebar drawer */}
@@ -57,7 +57,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             />
             {/* Drawer */}
             <div className="absolute inset-y-0 left-0 w-64 animate-in slide-in-from-left duration-200">
-              <Sidebar collapsed={false} onNavClick={() => setMobileMenuOpen(false)} onOpenSettings={() => { setMobileMenuOpen(false); setSettingsOpen(true) }} />
+              <Sidebar collapsed={false} onNavClick={() => { setMobileMenuOpen(false); setSettingsOpen(false) }} onOpenSettings={() => { setMobileMenuOpen(false); setSettingsOpen(true) }} />
             </div>
           </div>
         )}
