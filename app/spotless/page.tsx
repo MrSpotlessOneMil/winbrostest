@@ -221,13 +221,14 @@ export default function HomePage() {
     <>
       {/* ---- 1. Hero Section ---- */}
       <section className="relative">
-        <div className="absolute inset-0">
-          <img
-            src="/images/marketing/team-kitchen-clean.jpg"
-            alt="Spotless Scrubbers team member cleaning a Los Angeles home kitchen in branded shirt"
-            className="w-full h-full object-cover"
+        <div className="absolute inset-0 bg-gradient-to-br from-[#0c2e3a] via-[#155f73] to-[#1a7a95]">
+          <div
+            className="absolute inset-0 opacity-[0.04]"
+            style={{
+              backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
+              backgroundSize: "32px 32px",
+            }}
           />
-          <div className="absolute inset-0 bg-black/65" />
         </div>
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-32">
