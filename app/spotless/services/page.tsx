@@ -19,7 +19,7 @@ const SERVICE_IMAGES: Record<string, string> = {
   "standard-cleaning": "/images/marketing/clean-bedroom.jpg",
   "deep-cleaning": "/images/marketing/clean-sink-result.jpg",
   "move-in-out-cleaning": "/images/marketing/move-cleaning.jpg",
-  "post-construction-cleaning": "/images/marketing/team-post-construction.jpg",
+  "post-construction-cleaning": "/images/marketing/post-construction-site.jpg",
   "commercial-cleaning": "/images/marketing/commercial-after.jpg",
   "airbnb-cleaning": "/images/marketing/airbnb-cleaning.jpg",
 }
