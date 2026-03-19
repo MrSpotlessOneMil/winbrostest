@@ -32,9 +32,9 @@ function safePct(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 100)
 }
 
-type DbJob = { date: string | null; status: string | null; price: number | null }
-type DbLead = { created_at: string; status: string | null }
-type DbCall = { created_at: string | null; date: string | null; started_at: string | null }
+type DbJob = { id?: number; date: string | null; status: string | null; price: number | null; service_type?: string | null; address?: string | null; phone_number?: string | null }
+type DbLead = { id?: number; created_at: string; status: string | null; source?: string | null; phone_number?: string | null; form_data?: any }
+type DbCall = { id?: number; created_at: string | null; date: string | null; started_at: string | null; phone_number?: string | null; caller_name?: string | null; direction?: string | null; duration_seconds?: number | null }
 
 function pickTimestamp(row: DbCall): string | null {
   return (row.date || row.started_at || row.created_at) ? String(row.date || row.started_at || row.created_at) : null
@@ -101,6 +101,7 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const range = searchParams.get("range") || "today"
   const date = searchParams.get("date")
+  const includeDetails = searchParams.get("details") === "true"
 
   let responseData: DailyMetrics | DailyMetrics[]
 
@@ -126,26 +127,29 @@ export async function GET(request: NextRequest) {
     endDate = today
   }
 
+  const jobFields = includeDetails ? "id,date,status,price,service_type,address,phone_number" : "date,status,price"
   let jobsQuery = client
     .from("jobs")
-    .select("date,status,price")
+    .select(jobFields)
     .gte("date", startDate)
     .lte("date", endDate)
     .neq("status", "cancelled")
   if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
   const jobsRes = await jobsQuery
 
+  const leadFields = includeDetails ? "id,created_at,status,source,phone_number,form_data" : "created_at,status"
   let leadsQuery = client
     .from("leads")
-    .select("created_at,status")
+    .select(leadFields)
     .gte("created_at", startOfDayUTC(startDate))
     .lte("created_at", endOfDayUTC(endDate))
   if (tenant) leadsQuery = leadsQuery.eq("tenant_id", tenant.id)
   const leadsRes = await leadsQuery
 
+  const callFields = includeDetails ? "id,created_at,date,started_at,phone_number,caller_name,direction,duration_seconds" : "created_at,date,started_at"
   let callsQuery = client
     .from("calls")
-    .select("created_at,date,started_at")
+    .select(callFields)
     .gte("created_at", startOfDayUTC(startDate))
     .lte("created_at", endOfDayUTC(endDate))
   if (tenant) callsQuery = callsQuery.eq("tenant_id", tenant.id)
@@ -164,9 +168,30 @@ export async function GET(request: NextRequest) {
     responseData = computeDayMetrics({ day, activeCrews, jobs, leads, calls })
   }
 
-  const response: ApiResponse<typeof responseData> = {
+  const response: Record<string, unknown> = {
     success: true,
     data: responseData,
+  }
+
+  // Include detail items for expandable stats cards
+  if (includeDetails && range !== "week") {
+    const day = range === "specific" && date ? date : isoDate(baseDate)
+    const dayJobs = jobs.filter((j) => String(j.date || "") === day)
+    const dayLeads = leads.filter((l) => bucketIso(l.created_at) === day)
+    const dayCalls = calls.filter((c) => {
+      const ts = pickTimestamp(c)
+      return ts ? bucketIso(ts) === day : false
+    })
+
+    response.items = {
+      completed_jobs: dayJobs.filter(j => String(j.status || "") === "completed"),
+      scheduled_jobs: dayJobs.filter(j => {
+        const s = String(j.status || "")
+        return s === "scheduled" || s === "in_progress"
+      }),
+      leads: dayLeads,
+      calls: dayCalls,
+    }
   }
 
   return NextResponse.json(response)
