@@ -3,6 +3,14 @@ import type { NextRequest } from 'next/server'
 
 const SESSION_COOKIE_NAME = 'winbros_session'
 
+// Domain-based routing for marketing sites
+const DOMAIN_MAP: Record<string, string> = {
+  'spotlessscrubbers.org': '/spotless',
+  'www.spotlessscrubbers.org': '/spotless',
+  'theosirisai.com': '/osiris-marketing',
+  'www.theosirisai.com': '/osiris-marketing',
+}
+
 // Public routes that don't require authentication
 const publicRoutes = [
   '/login',
@@ -15,6 +23,11 @@ const publicRoutes = [
   '/api/tip',
   '/crew',
   '/api/crew',
+  '/spotless',
+  '/spotless-v2',
+  '/spotless-v3',
+  '/spotless-v4',
+  '/osiris-marketing',
 ]
 
 // Webhook and cron routes (external callbacks and server-side jobs)
@@ -24,6 +37,7 @@ const externalRoutes = [
   '/api/vapi/',
   '/api/automation/',
   '/api/demo/seed',
+  '/api/marketing/',
 ]
 
 function isPublicRoute(pathname: string): boolean {
@@ -35,7 +49,34 @@ function isExternalRoute(pathname: string): boolean {
 }
 
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { hostname, pathname, searchParams } = request.nextUrl
+
+  // --- Domain-based routing for marketing sites ---
+  let routePrefix: string | undefined = DOMAIN_MAP[hostname]
+
+  // Dev override: ?site=spotless or ?site=osiris on localhost
+  if (!routePrefix && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+    const site = searchParams.get('site')
+    if (site === 'spotless') routePrefix = '/spotless'
+    if (site === 'osiris') routePrefix = '/osiris-marketing'
+  }
+
+  // If marketing domain, rewrite to the route group (skip auth entirely)
+  if (routePrefix) {
+    if (pathname.startsWith('/api/') || pathname.startsWith('/_next/')) {
+      return NextResponse.next()
+    }
+    if (pathname === '/sitemap.xml' || pathname === '/robots.txt') {
+      const url = request.nextUrl.clone()
+      url.pathname = `${routePrefix}${pathname}`
+      return NextResponse.rewrite(url)
+    }
+    const url = request.nextUrl.clone()
+    url.pathname = `${routePrefix}${pathname}`
+    return NextResponse.rewrite(url)
+  }
+
+  // --- Standard auth flow for dashboard ---
 
   // Allow public routes
   if (isPublicRoute(pathname)) {
