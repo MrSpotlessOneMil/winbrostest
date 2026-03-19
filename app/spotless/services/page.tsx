@@ -16,12 +16,12 @@ export const metadata: Metadata = {
 }
 
 const SERVICE_IMAGES: Record<string, string> = {
-  "standard-cleaning": "/images/marketing/clean-bedroom.jpg",
+  "standard-cleaning": "/images/marketing/standard-bathroom-result.webp",
   "deep-cleaning": "/images/marketing/clean-sink-result.jpg",
   "move-in-out-cleaning": "/images/marketing/move-cleaning.jpg",
   "post-construction-cleaning": "/images/marketing/post-construction-site.jpg",
   "commercial-cleaning": "/images/marketing/commercial-after.jpg",
-  "airbnb-cleaning": "/images/marketing/airbnb-cleaning.jpg",
+  "airbnb-cleaning": "/images/marketing/airbnb-bedroom-clean.jpg",
 }
 
 const SERVICE_STARTING_PRICES: Record<string, number> = {

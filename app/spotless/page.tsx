@@ -22,12 +22,12 @@ const SERVICE_ICONS: Record<string, string> = {
 }
 
 const SERVICE_IMAGES: Record<string, string> = {
-  "standard-cleaning": "/images/marketing/clean-bedroom.jpg",
+  "standard-cleaning": "/images/marketing/standard-bathroom-result.webp",
   "deep-cleaning": "/images/marketing/clean-sink-result.jpg",
   "move-in-out-cleaning": "/images/marketing/move-cleaning.jpg",
   "post-construction-cleaning": "/images/marketing/post-construction-site.jpg",
   "commercial-cleaning": "/images/marketing/commercial-after.jpg",
-  "airbnb-cleaning": "/images/marketing/airbnb-cleaning.jpg",
+  "airbnb-cleaning": "/images/marketing/airbnb-bedroom-clean.jpg",
 }
 
 const SERVICE_ALTS: Record<string, string> = {
@@ -223,8 +223,8 @@ export default function HomePage() {
       <section className="relative">
         <div className="absolute inset-0">
           <img
-            src="/images/marketing/hero-office-clean.jpg"
-            alt="Clean modern office space after professional cleaning by Spotless Scrubbers in Los Angeles"
+            src="/images/marketing/team-kitchen-clean.jpg"
+            alt="Spotless Scrubbers team member cleaning a Los Angeles home kitchen in branded shirt"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-black/65" />
