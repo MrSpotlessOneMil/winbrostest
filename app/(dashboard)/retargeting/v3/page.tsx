@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge"
 import {
   ChevronRight, Phone, ExternalLink, Calendar,
   X, Play, StopCircle, Ban, Loader2, RefreshCw,
-  PhoneCall, MessageSquare,
+  PhoneCall, MessageSquare, Upload,
 } from "lucide-react"
+import { ImportModal } from "@/components/pipeline/import-modal"
 import CubeLoader from "@/components/ui/cube-loader"
 import { usePipeline } from "../use-retargeting"
 import {
@@ -37,6 +38,7 @@ export default function PipelinePage() {
 
   const [expandedStage, setExpandedStage] = useState<PipelineStageKey | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showImportModal, setShowImportModal] = useState(false)
 
   // Compute conversion rates between adjacent stages
   const stageKeys = PIPELINE_JOURNEY_STAGES.map(s => s.key)
@@ -113,6 +115,15 @@ export default function PipelinePage() {
               <button onClick={clearError}><X className="h-3 w-3" /></button>
             </div>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowImportModal(true)}
+            className="border-zinc-700 text-zinc-400 hover:text-zinc-200"
+          >
+            <Upload className="h-3.5 w-3.5 mr-1.5" />
+            Import
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -275,6 +286,15 @@ export default function PipelinePage() {
           </div>
         </div>
       )}
+
+      <ImportModal
+        open={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onComplete={() => {
+          setShowImportModal(false)
+          fetchPipeline()
+        }}
+      />
     </div>
   )
 }

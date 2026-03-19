@@ -6,7 +6,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, ChevronUp, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown, ExternalLink } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import CubeLoader from "@/components/ui/cube-loader"
 
@@ -98,6 +98,9 @@ interface Job {
   parent_job_id?: number | null
   paused_at?: string | null
   last_generated_date?: string | null
+  quote_id?: number | null
+  stripe_invoice_id?: string | null
+  invoice_sent?: boolean
   created_at: string
 }
 
@@ -248,6 +251,10 @@ export default function CustomersPage() {
   const switchTab = (tab: TabType) => {
     setActiveTab(tab)
     localStorage.setItem("customers_active_tab", tab)
+    // Lazy-fetch invoice details when switching to invoices tab
+    if (tab === "invoices" && selectedCustomer) {
+      fetchInvoiceDetails(selectedCustomer.id)
+    }
   }
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -297,6 +304,14 @@ export default function CustomersPage() {
   const [createMembershipOpen, setCreateMembershipOpen] = useState(false)
   const [createMembershipPlanSlug, setCreateMembershipPlanSlug] = useState("")
   const [createMembershipSaving, setCreateMembershipSaving] = useState(false)
+
+  // Invoice details state (lazy-loaded when Invoices tab is opened)
+  const [invoiceDetails, setInvoiceDetails] = useState<Record<number, {
+    tier: string | null; addons: string[]; subtotal: number | null; total: number | null
+    discount: number | null; invoiceUrl: string | null; invoicePdfUrl: string | null; invoiceStatus: string
+  }>>({})
+  const [invoiceDetailsLoading, setInvoiceDetailsLoading] = useState(false)
+  const [expandedInvoiceJob, setExpandedInvoiceJob] = useState<number | null>(null)
   const [createMembershipError, setCreateMembershipError] = useState("")
 
   // Batch add state
@@ -454,6 +469,30 @@ export default function CustomersPage() {
       setCreateMembershipError("Connection error")
     } finally {
       setCreateMembershipSaving(false)
+    }
+  }
+
+  // Fetch invoice details for selected customer (lazy — only when Invoices tab is opened)
+  const fetchInvoiceDetails = async (custId: number) => {
+    setInvoiceDetailsLoading(true)
+    try {
+      const res = await fetch(`/api/actions/job-invoice-details?customerId=${custId}`)
+      const data = await res.json()
+      if (data.invoices) {
+        const detailsMap: typeof invoiceDetails = {}
+        for (const inv of data.invoices) {
+          detailsMap[inv.jobId] = {
+            tier: inv.tier, addons: inv.addons, subtotal: inv.subtotal,
+            total: inv.total, discount: inv.discount, invoiceUrl: inv.invoiceUrl,
+            invoicePdfUrl: inv.invoicePdfUrl, invoiceStatus: inv.invoiceStatus,
+          }
+        }
+        setInvoiceDetails(detailsMap)
+      }
+    } catch {
+      // silent
+    } finally {
+      setInvoiceDetailsLoading(false)
     }
   }
 
@@ -1281,6 +1320,11 @@ export default function CustomersPage() {
             getCustomerCalls(selectedCustomer.phone_number).length,
         },
         { id: "jobs", label: "Jobs", count: getCustomerJobs(selectedCustomer.phone_number).length },
+        {
+          id: "invoices" as TabType,
+          label: "Invoices",
+          count: getCustomerJobs(selectedCustomer.phone_number).filter(j => j.invoice_sent || j.stripe_invoice_id).length,
+        },
         ...(!isHouseCleaning ? [{
           id: "membership" as TabType,
           label: "Membership",
@@ -2153,6 +2197,119 @@ export default function CustomersPage() {
                         )}
                       </div>
                     )}
+
+                    {/* Invoices Tab */}
+                    {activeTab === "invoices" && (() => {
+                      const invoicedJobs = getCustomerJobs(selectedCustomer.phone_number).filter(
+                        j => j.invoice_sent || j.stripe_invoice_id
+                      )
+                      return (
+                        <div className="space-y-3">
+                          {invoiceDetailsLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+                            </div>
+                          ) : invoicedJobs.length === 0 ? (
+                            <div className="border border-dashed border-zinc-800 rounded-lg p-8 text-center text-sm text-zinc-600">
+                              No invoices found
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              {invoicedJobs.map((job) => {
+                                const details = invoiceDetails[job.id]
+                                const isExpanded = expandedInvoiceJob === job.id
+                                return (
+                                  <div key={job.id} className="border border-zinc-800 rounded-lg overflow-hidden">
+                                    {/* Invoice summary row */}
+                                    <button
+                                      onClick={() => setExpandedInvoiceJob(isExpanded ? null : job.id)}
+                                      className="w-full flex items-center justify-between p-3 hover:bg-zinc-800/50 transition-colors text-left"
+                                    >
+                                      <div className="flex items-center gap-3 min-w-0">
+                                        <FileText className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                                        <div className="min-w-0">
+                                          <div className="text-sm font-medium text-zinc-200 truncate">
+                                            {job.service_type || "Cleaning"}
+                                          </div>
+                                          <div className="text-xs text-zinc-500">
+                                            {job.date
+                                              ? new Date(job.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                                              : "No date"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-3 flex-shrink-0">
+                                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                          details?.invoiceStatus === "paid" ? "bg-emerald-400/10 text-emerald-400"
+                                            : "bg-blue-400/10 text-blue-400"
+                                        }`}>
+                                          {details?.invoiceStatus || "sent"}
+                                        </span>
+                                        <span className="text-sm font-semibold text-zinc-200">${job.price || 0}</span>
+                                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-zinc-500" /> : <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />}
+                                      </div>
+                                    </button>
+
+                                    {/* Expanded details */}
+                                    {isExpanded && details && (
+                                      <div className="border-t border-zinc-800 p-3 space-y-3 bg-zinc-900/50">
+                                        {details.tier && (
+                                          <div>
+                                            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Tier</span>
+                                            <p className="text-sm text-zinc-200 mt-0.5">{details.tier}</p>
+                                          </div>
+                                        )}
+                                        {details.addons.length > 0 && (
+                                          <div>
+                                            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">Add-ons</span>
+                                            <div className="flex flex-wrap gap-1.5 mt-1">
+                                              {details.addons.map((addon, i) => (
+                                                <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300">{addon}</span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+                                        <div className="grid grid-cols-3 gap-3 text-xs">
+                                          {details.subtotal != null && (
+                                            <div>
+                                              <span className="text-zinc-500">Subtotal</span>
+                                              <p className="text-zinc-200 font-medium">${details.subtotal}</p>
+                                            </div>
+                                          )}
+                                          {details.discount != null && details.discount > 0 && (
+                                            <div>
+                                              <span className="text-zinc-500">Discount</span>
+                                              <p className="text-emerald-400 font-medium">-${details.discount}</p>
+                                            </div>
+                                          )}
+                                          {details.total != null && (
+                                            <div>
+                                              <span className="text-zinc-500">Total</span>
+                                              <p className="text-zinc-200 font-semibold">${details.total}</p>
+                                            </div>
+                                          )}
+                                        </div>
+                                        {details.invoiceUrl && (
+                                          <a
+                                            href={details.invoiceUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                                          >
+                                            <ExternalLink className="w-3 h-3" />
+                                            View Invoice
+                                          </a>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
 
                     {/* Membership Tab (WinBros only) */}
                     {activeTab === "membership" && !isHouseCleaning && (() => {

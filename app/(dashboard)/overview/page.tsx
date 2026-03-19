@@ -2,10 +2,8 @@
 
 import { TodaysJobs } from "@/components/dashboard/todays-jobs"
 import { RecentLeads } from "@/components/dashboard/recent-leads"
-import { ExceptionsList } from "@/components/dashboard/exceptions-list"
 import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
-import { AttentionNeeded } from "@/components/dashboard/attention-needed"
 import { RightNow } from "@/components/dashboard/right-now"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 
@@ -29,9 +27,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Fires first */}
-      <AttentionNeeded />
-
       {/* Live pulse + today's scorecard */}
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-1">
@@ -52,11 +47,10 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Leads + Activity Feed + Exceptions */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-5">
+      {/* Recent Leads + Activity Feed */}
+      <div className="grid gap-4 md:grid-cols-2 stagger-5">
         <RecentLeads />
         <ActivityFeed />
-        <ExceptionsList />
       </div>
     </div>
   )

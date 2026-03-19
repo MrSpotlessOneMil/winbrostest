@@ -596,6 +596,18 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
   }
 
+  // Generate professional invoice email (non-blocking)
+  if (newJob?.id && tenant) {
+    try {
+      const { generateQuoteInvoice } = await import('@/lib/quote-invoice')
+      generateQuoteInvoice(newJob.id, quote, tenant).catch(err => {
+        console.error(`[Stripe Webhook] Quote invoice generation failed for job ${newJob.id}:`, err)
+      })
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to import quote-invoice module:', err)
+    }
+  }
+
   // Send confirmation SMS (with date if selected)
   const smsPhone = customerPhone
   if (smsPhone && tenant) {
