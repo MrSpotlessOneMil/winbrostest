@@ -23,10 +23,10 @@ const SERVICE_ICONS: Record<string, string> = {
 
 const SERVICE_IMAGES: Record<string, string> = {
   "standard-cleaning": "/images/marketing/standard-bathroom-result.webp",
-  "deep-cleaning": "/images/marketing/clean-sink-result.jpg",
+  "deep-cleaning": "/images/marketing/stock-deep-clean-kitchen.jpg",
   "move-in-out-cleaning": "/images/marketing/move-cleaning.jpg",
   "post-construction-cleaning": "/images/marketing/post-construction-site.jpg",
-  "commercial-cleaning": "/images/marketing/commercial-after.jpg",
+  "commercial-cleaning": "/images/marketing/stock-commercial-office.jpg",
   "airbnb-cleaning": "/images/marketing/airbnb-bedroom-clean.jpg",
 }
 
