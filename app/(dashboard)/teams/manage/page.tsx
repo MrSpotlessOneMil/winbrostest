@@ -242,7 +242,7 @@ export default function ManageTeamsPage() {
             <Users className="h-7 w-7" />
             Manage / Create Teams
           </h1>
-          <p className="text-sm text-muted-foreground">Drag & drop cleaners between teams (live Supabase updates)</p>
+          <p className="text-sm text-muted-foreground">Drag & drop cleaners between teams</p>
         </div>
         <Button asChild variant="outline" className="gap-2">
           <Link href="/teams">
