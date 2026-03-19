@@ -13,6 +13,10 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://spotlessscrubbers.org"),
+  icons: {
+    icon: "/images/marketing/spotless-logo.jpg",
+    apple: "/images/marketing/spotless-logo.jpg",
+  },
   title: {
     template: "%s | Spotless Scrubbers - LA House Cleaning",
     default: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
