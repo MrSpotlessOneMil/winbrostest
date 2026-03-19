@@ -838,9 +838,20 @@ export default function TeamsPage() {
                       </h3>
                       <Card>
                         <CardContent className="p-4 space-y-3">
-                          <p className="text-xs text-muted-foreground">
-                            Text this employee their portal login credentials (username &amp; PIN) so they can access their portal at theosirisai.com.
-                          </p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Username</p>
+                              <p className="text-sm font-medium text-foreground font-mono">
+                                {selectedCleaner?.username || selectedCleaner?.name || "—"}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">PIN</p>
+                              <p className="text-sm font-medium text-foreground font-mono tracking-widest">
+                                {selectedCleaner?.pin || "—"}
+                              </p>
+                            </div>
+                          </div>
                           <Button
                             onClick={handleSendCredentials}
                             disabled={sendingCredentials || !selectedCleaner?.phone}
