@@ -86,7 +86,7 @@ export function FounderJsonLd() {
       "House Cleaning",
       "Commercial Cleaning",
       "Post-Construction Cleaning",
-      "Eco-Friendly Cleaning Products",
+      "Professional Cleaning Standards",
       "Los Angeles County",
     ],
   }
@@ -98,10 +98,10 @@ export function FounderJsonLd() {
 export function ServiceJsonLd({ service, city }: { service: SpotlessService; city?: string }) {
   const locationSuffix = city ? ` in ${city}, CA` : " in Los Angeles"
 
-  // Parse price range like "$120 - $250" into numeric low/high
-  const priceMatch = service.priceRange.match(/\$(\d+)\s*-\s*\$(\d+)/)
-  const lowPrice = priceMatch ? priceMatch[1] : "100"
-  const highPrice = priceMatch ? priceMatch[2] : "500"
+  // Parse price from "Starting at $120" or "$120 - $250" format
+  const startingAtMatch = service.priceRange.match(/Starting at \$(\d+)/)
+  const rangeMatch = service.priceRange.match(/\$(\d+)\s*-\s*\$(\d+)/)
+  const price = startingAtMatch ? startingAtMatch[1] : rangeMatch ? rangeMatch[1] : "100"
 
   const data = {
     "@context": "https://schema.org",
@@ -119,11 +119,9 @@ export function ServiceJsonLd({ service, city }: { service: SpotlessService; cit
       name: city ? `${city}, CA` : "Los Angeles, CA",
     },
     offers: {
-      "@type": "AggregateOffer",
+      "@type": "Offer",
       priceCurrency: "USD",
-      lowPrice,
-      highPrice,
-      offerCount: "1",
+      price,
     },
     serviceType: service.title,
   }

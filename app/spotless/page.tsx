@@ -40,12 +40,12 @@ const SERVICE_ALTS: Record<string, string> = {
 }
 
 const SERVICE_PRICE_RANGES: Record<string, string> = {
-  "standard-cleaning": "$120 - $250",
-  "deep-cleaning": "$200 - $450",
-  "move-in-out-cleaning": "$250 - $500",
-  "post-construction-cleaning": "$300 - $800",
-  "commercial-cleaning": "$150 - $400",
-  "airbnb-cleaning": "$100 - $200",
+  "standard-cleaning": "Starting at $120",
+  "deep-cleaning": "Starting at $200",
+  "move-in-out-cleaning": "Starting at $250",
+  "post-construction-cleaning": "Starting at $300",
+  "commercial-cleaning": "Starting at $150",
+  "airbnb-cleaning": "Starting at $100",
 }
 
 const CREW_MEMBERS = [
@@ -68,7 +68,7 @@ const WHY_CHOOSE = [
   {
     title: "Safe for Your Family",
     description:
-      "We only use eco-friendly, non-toxic products. I have kids in my own family - I would never bring anything into your home that I would not use in mine.",
+      "We only use high-quality, safe products. I have kids in my own family - I would never bring anything into your home that I would not use in mine.",
   },
   {
     title: "We Actually Show Up",
@@ -166,7 +166,7 @@ const FAQS = [
   {
     question: "How much does a cleaning cost?",
     answer:
-      "It depends on your home size and what you need done. A standard cleaning usually runs $120-$250, deep cleans start around $200. Just call us or fill out the form and we will give you an honest quote - no surprises, no hidden fees.",
+      "It depends on your home size and what you need done. A standard cleaning starts at $120, deep cleans start at $200. Just call us or fill out the form and we will give you an honest quote - no surprises, no hidden fees.",
   },
   {
     question: "What do you actually clean?",
@@ -186,7 +186,7 @@ const FAQS = [
   {
     question: "Are your products safe for kids and pets?",
     answer:
-      "Yes - we use eco-friendly, non-toxic stuff across the board. If you have allergies or want us to use specific products, just tell us and we will make it work.",
+      "Yes - all our products are safe for kids and pets. If you have allergies or want us to use specific products, just tell us and we will make it work.",
   },
   {
     question: "How do I book?",
@@ -245,8 +245,8 @@ export default function HomePage() {
 
               <p className="text-lg text-white/80 mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
                 Hey, I&apos;m Dominic. My team and I have been cleaning homes and
-                businesses across LA County since 2023. We use eco-friendly products,
-                we are fully insured, and we do not cancel on you. Ever.
+                businesses across LA County since 2023. We are fully insured,
+                background-checked, and we do not cancel on you. Ever.
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
@@ -266,8 +266,8 @@ export default function HomePage() {
 
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-2 text-sm text-white/60">
                 <span>Insured & Bonded</span>
-                <span>Eco-Friendly Products</span>
-                <span>5.0 Stars (29 Reviews)</span>
+                <span>Background-Checked Team</span>
+                <span>5.0 Stars on Google</span>
               </div>
             </div>
 
@@ -365,12 +365,11 @@ export default function HomePage() {
               Real reviews from real clients
             </p>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-              29 Five-Star Reviews on Google
+              Five-Star Rated on Google
             </h2>
             <div className="flex items-center justify-center gap-2 text-lg">
-              <span className="font-bold text-slate-900">5.0</span>
               <span className="text-amber-400">&#9733;&#9733;&#9733;&#9733;&#9733;</span>
-              <span className="text-slate-500 text-sm">on Google</span>
+              <span className="text-slate-500 text-sm">5.0 Stars on Google</span>
             </div>
           </div>
 

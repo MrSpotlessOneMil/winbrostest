@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: CityPageProps): Promise<Metad
 
   return {
     title: `House Cleaning in ${area.city}, CA | Spotless Scrubbers`,
-    description: `Professional house cleaning in ${area.city}, CA. Serving ${area.neighborhoods.slice(0, 3).join(", ")} and more. Eco-friendly products, insured cleaners, satisfaction guaranteed.`,
+    description: `Professional house cleaning in ${area.city}, CA. Serving ${area.neighborhoods.slice(0, 3).join(", ")} and more. Insured cleaners, satisfaction guaranteed.`,
     alternates: {
       canonical: `${SPOTLESS_BUSINESS.url}/spotless/areas/${city}`,
     },
@@ -82,7 +82,7 @@ export default async function CityPage({ params }: CityPageProps) {
             Professional House Cleaning in {area.city}, CA
           </h1>
           <p className="text-lg sm:text-xl text-slate-600 max-w-3xl mx-auto">
-            Spotless Scrubbers brings top-rated, eco-friendly cleaning to homes and
+            Spotless Scrubbers brings top-rated, professional cleaning to homes and
             businesses across {area.city}. Our insured and background-checked cleaners
             serve neighborhoods like {area.neighborhoods.slice(0, 3).join(", ")}, and
             everywhere in between.
@@ -97,8 +97,8 @@ export default async function CityPage({ params }: CityPageProps) {
             {area.city} is one of our most popular service areas in {area.county}. Whether
             you live near {area.neighborhoods[0]} or on the other side of town in{" "}
             {area.neighborhoods[area.neighborhoods.length - 1]}, our team delivers
-            consistent, high-quality cleaning every visit. We use only eco-friendly,
-            non-toxic products that are safe for your family, pets, and the environment.
+            consistent, high-quality cleaning every visit. We use products that are
+            safe for your family and pets.
           </p>
           <p className="text-lg text-slate-700 leading-relaxed mt-4">
             From the busy streets near{" "}

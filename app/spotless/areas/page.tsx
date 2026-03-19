@@ -6,7 +6,7 @@ import { BreadcrumbJsonLd } from "@/components/marketing/json-ld"
 export const metadata: Metadata = {
   title: "Service Areas - Los Angeles County House Cleaning",
   description:
-    "Spotless Scrubbers serves 20+ cities across Los Angeles County. Find professional house cleaning in your neighborhood - eco-friendly, insured, 5-star rated.",
+    "Spotless Scrubbers serves 20+ cities across Los Angeles County. Find professional house cleaning in your neighborhood - insured, 5-star rated.",
   alternates: {
     canonical: `${SPOTLESS_BUSINESS.url}/spotless/areas`,
   },
@@ -31,7 +31,7 @@ export default function AreasPage() {
           <p className="text-lg sm:text-xl text-slate-600 max-w-3xl mx-auto">
             We proudly serve over 20 cities throughout Los Angeles County. From the beaches of
             Santa Monica to the hills of Pasadena, our insured and background-checked
-            cleaning teams bring eco-friendly service right to your door.
+            cleaning teams bring professional service right to your door.
           </p>
         </div>
       </section>

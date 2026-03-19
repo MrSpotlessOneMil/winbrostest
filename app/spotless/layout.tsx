@@ -22,11 +22,11 @@ export const metadata: Metadata = {
     default: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
   },
   description:
-    "Professional house cleaning in Los Angeles County. Eco-friendly, insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
+    "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
   openGraph: {
     title: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
     description:
-      "Professional house cleaning in Los Angeles County. Eco-friendly, insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
+      "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
     type: "website",
     siteName: "Spotless Scrubbers",
     images: [
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
     description:
-      "Professional house cleaning in LA County. Eco-friendly, insured, 5-star rated. Call (424) 677-1146 for a free quote.",
+      "Professional house cleaning in LA County. Insured, 5-star rated. Call (424) 677-1146 for a free quote.",
   },
 }
 

@@ -5,7 +5,7 @@ export function TrustBar() {
         <div className="flex items-center gap-2 justify-center">
           <span className="text-amber-400">&#9733;</span>
           <span className="text-sm font-medium text-gray-700">
-            5.0 Stars (29 Reviews)
+            5.0 Stars on Google
           </span>
         </div>
 
@@ -17,7 +17,7 @@ export function TrustBar() {
 
         <div className="flex items-center gap-2 justify-center">
           <span className="text-sm font-medium text-gray-700">
-            Eco-Friendly Products
+            Background-Checked Team
           </span>
         </div>
 

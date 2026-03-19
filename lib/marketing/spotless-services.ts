@@ -18,7 +18,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
     description:
       "Our regular house cleaning service keeps your home fresh and tidy week after week. We handle dusting, vacuuming, mopping, kitchen and bathroom sanitizing, and all the details that make your space shine.",
     metaDescription:
-      "Professional standard house cleaning in Los Angeles. Weekly, biweekly, or monthly plans. Eco-friendly products, insured cleaners, 5-star rated.",
+      "Professional standard house cleaning in Los Angeles. Weekly, biweekly, or monthly plans. Insured cleaners, 5-star rated.",
     features: [
       "Dusting all surfaces and fixtures",
       "Vacuuming carpets and rugs",
@@ -34,7 +34,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Families with children",
       "Recurring weekly or biweekly maintenance",
     ],
-    priceRange: "$120 - $250",
+    priceRange: "Starting at $120",
     icon: "Sparkles",
   },
   {
@@ -44,7 +44,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
     description:
       "A thorough, top-to-bottom deep clean that reaches every corner. We scrub baseboards, clean inside appliances, detail grout, wash windows, and tackle built-up grime that regular cleaning misses.",
     metaDescription:
-      "Professional deep cleaning in Los Angeles. Baseboards, inside appliances, grout, windows. Eco-friendly, insured, satisfaction guaranteed.",
+      "Professional deep cleaning in Los Angeles. Baseboards, inside appliances, grout, windows. Insured, satisfaction guaranteed.",
     features: [
       "Everything in standard cleaning, plus:",
       "Baseboard and door frame scrubbing",
@@ -61,7 +61,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Seasonal deep refreshes",
       "Homes that haven't been cleaned in a while",
     ],
-    priceRange: "$200 - $450",
+    priceRange: "Starting at $200",
     icon: "Search",
   },
   {
@@ -87,7 +87,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "New homeowners moving in",
       "Property managers between tenants",
     ],
-    priceRange: "$250 - $500",
+    priceRange: "Starting at $250",
     icon: "Home",
   },
   {
@@ -113,7 +113,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "New construction projects",
       "Commercial buildouts",
     ],
-    priceRange: "$300 - $700",
+    priceRange: "Starting at $300",
     icon: "HardHat",
   },
   {
@@ -123,7 +123,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
     description:
       "Keep your workplace professional and healthy. We clean offices, retail spaces, and commercial properties with flexible scheduling that works around your business hours.",
     metaDescription:
-      "Commercial and office cleaning in Los Angeles. Flexible scheduling, eco-friendly products. Offices, retail, medical. Insured and bonded.",
+      "Commercial and office cleaning in Los Angeles. Flexible scheduling, professional products. Offices, retail, medical. Insured and bonded.",
     features: [
       "Desk and workstation sanitizing",
       "Common area and breakroom cleaning",
@@ -139,7 +139,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Retail stores and showrooms",
       "Medical and dental offices",
     ],
-    priceRange: "$150 - $500",
+    priceRange: "Starting at $150",
     icon: "Building2",
   },
   {
@@ -165,7 +165,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Short-term rental property managers",
       "Vacation rental companies",
     ],
-    priceRange: "$100 - $300",
+    priceRange: "Starting at $100",
     icon: "Key",
   },
 ]
