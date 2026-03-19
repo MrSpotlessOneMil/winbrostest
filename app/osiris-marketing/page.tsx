@@ -206,6 +206,24 @@ export default function OsirisMarketingPage() {
         </div>
       </section>
 
+      {/* ── Explainer Video ─────────────────────────────────────────── */}
+      <section className="bg-gray-950 py-20 border-t border-gray-800">
+        <div className="max-w-3xl mx-auto px-6">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-8 text-center">
+            See how Osiris works
+          </h2>
+          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+            <iframe
+              className="absolute inset-0 w-full h-full"
+              src="https://www.youtube.com/embed/9gVtLSjkXMM"
+              title="How Osiris Works"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      </section>
+
       {/* ── Problem ───────────────────────────────────────────────────── */}
       <section className="bg-gray-900 py-24 border-t border-gray-800">
         <div className="max-w-3xl mx-auto px-6">
