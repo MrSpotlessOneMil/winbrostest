@@ -131,7 +131,7 @@ export async function verifyEmployeePassword(
   const { data: cleaner, error } = await client
     .from('cleaners')
     .select('id, username, name, phone, portal_token, tenant_id, pin, active')
-    .eq('username', username)
+    .ilike('username', username)
     .eq('active', true)
     .is('deleted_at', null)
     .single()
