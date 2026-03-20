@@ -131,7 +131,13 @@ export default function TeamsPage() {
       return saved ? JSON.parse(saved) : null
     } catch { return null }
   })
-  const [activeTab, setActiveTab] = useState<ActiveTab>("sms")
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window === "undefined") return "overview"
+    try {
+      const saved = localStorage.getItem("teams-active-tab")
+      return (saved as ActiveTab) || "overview"
+    } catch { return "overview" }
+  })
 
   // Credential sending state
   const [sendingCredentials, setSendingCredentials] = useState(false)
@@ -239,6 +245,10 @@ export default function TeamsPage() {
   useEffect(() => {
     localStorage.setItem("teams-employee-type-filter", employeeTypeFilter)
   }, [employeeTypeFilter])
+
+  useEffect(() => {
+    localStorage.setItem("teams-active-tab", activeTab)
+  }, [activeTab])
 
   useEffect(() => {
     if (selectedCleaner) localStorage.setItem("teams-selected-cleaner", JSON.stringify(selectedCleaner))
@@ -461,7 +471,6 @@ export default function TeamsPage() {
 
   function selectCleaner(c: CleanerDetail) {
     setSelectedCleaner(c)
-    setActiveTab("sms")
     setCredentialsSent(false)
   }
 
