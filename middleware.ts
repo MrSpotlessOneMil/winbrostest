@@ -48,7 +48,7 @@ function isExternalRoute(pathname: string): boolean {
   return externalRoutes.some(route => pathname.startsWith(route))
 }
 
-export function proxy(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const { hostname, pathname, searchParams } = request.nextUrl
 
   // --- Domain-based routing for marketing sites ---
