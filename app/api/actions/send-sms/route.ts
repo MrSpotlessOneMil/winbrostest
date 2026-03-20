@@ -91,7 +91,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Send the SMS (use tenant for proper OpenPhone routing)
-    const result = await sendSMS(authTenant, phoneNumber, message)
+    // skipDedup: the route pre-inserts the DB record above, so the dedup check
+    // inside sendSMS would find it and block the send as a false positive.
+    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true })
 
     if (!result.success) {
       // Clean up the pre-inserted record since send failed
