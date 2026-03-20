@@ -238,6 +238,13 @@ export default function TeamsPage() {
       })
 
       setCleaners(roster)
+
+      // Refresh selectedCleaner with fresh data from API (localStorage may be stale)
+      setSelectedCleaner((prev) => {
+        if (!prev) return null
+        const fresh = roster.find((c) => c.id === prev.id)
+        return fresh || prev
+      })
     } catch {
       setCleaners([])
     } finally {
