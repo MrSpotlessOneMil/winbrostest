@@ -422,9 +422,9 @@ export default function HomePage() {
               </p>
             </div>
             <div>
-              <div className="text-3xl font-bold mb-2">Always Reachable</div>
+              <div className="text-3xl font-bold mb-2">24/7</div>
               <p className="text-sm text-white/70">
-                Text, call, or message us anytime. Real responses, real accountability — 24/7.
+                Text, call, or message us anytime. Always reachable, always accountable.
               </p>
             </div>
           </div>
@@ -442,11 +442,10 @@ export default function HomePage() {
               Real Crew. Real Work. Real Results.
             </h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <img src="/images/marketing/team-branded.jpg" alt="Spotless Scrubbers team member in branded shirt at Los Angeles property" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-kitchen-clean.jpg" alt="Team member cleaning kitchen in branded shirt" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-bathroom-clean.jpg" alt="Team member cleaning bathroom in Spotless Scrubbers shirt" className="w-full h-64 object-cover" />
-            <img src="/images/marketing/team-post-construction.jpg" alt="Post-construction cleanup in progress at LA home" className="w-full h-64 object-cover" />
           </div>
         </div>
       </section>
