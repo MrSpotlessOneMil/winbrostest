@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   // Send SMS with login info
   const message = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
 
-  const result = await sendSMS(tenant, cleaner.phone, message)
+  const result = await sendSMS(tenant, cleaner.phone, message, { skipDedup: true })
 
   if (!result.success) {
     return NextResponse.json({ success: false, error: 'Failed to send text message' }, { status: 500 })
