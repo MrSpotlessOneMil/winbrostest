@@ -462,9 +462,8 @@ export default function HomePage() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             {[
-              { value: "9", label: "Professional Cleaners" },
               { value: "2,500+", label: "Homes Cleaned" },
               { value: "3+", label: "Years Serving LA" },
               { value: "100%", label: "Background-Checked" },
