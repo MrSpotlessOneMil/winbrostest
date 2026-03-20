@@ -104,6 +104,8 @@ export async function GET(request: NextRequest) {
           last_location_lng: c.last_location_lng ?? null,
           last_location_accuracy_meters: c.last_location_accuracy_meters ?? null,
           last_location_updated_at: c.last_location_updated_at ?? null,
+          username: c.username || undefined,
+          pin: c.pin || undefined,
         } as any
       })
       .filter(Boolean)
