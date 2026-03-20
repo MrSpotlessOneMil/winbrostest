@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clean-machine-v1'
+const CACHE_NAME = 'clean-machine-v2'
 
 // Pages/assets to pre-cache on install
 const PRECACHE_URLS = [
