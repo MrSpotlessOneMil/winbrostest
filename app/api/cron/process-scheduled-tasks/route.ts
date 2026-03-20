@@ -345,24 +345,51 @@ async function processLeadFollowup(
   // Current month for urgency messaging
   const currentMonth = new Date().toLocaleDateString('en-US', { month: 'long' })
 
+  // Check if this is a Spotless Scrubbers website lead — warmer, rapport-first messaging
+  const isSpotlessWebLead = tenant?.slug === 'spotless-scrubbers' && lead.source === 'website'
+  const serviceRequested = formData.service_type
+    ? String(formData.service_type).replace(/-/g, ' ')
+    : ''
+
   let message: string
 
-  switch (stage) {
-    case 1:
-      message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceType} needs. ${quoteQuestion}`
-      break
-    case 2:
-      message = `Just making sure you got our message — we have openings for ${serviceType} this week. ${detailsRequest}`
-      break
-    // Stage 3 is manual_call — handled above, never reaches here
-    case 4:
-      message = `Our schedule is filling up for ${currentMonth}! ${lastChanceDetails}`
-      break
-    case 5:
-      message = `Last check-in from me! Reply if you'd like to get on the schedule, otherwise no worries at all.`
-      break
-    default:
-      message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${serviceType} services. We're here to help!`
+  if (isSpotlessWebLead) {
+    switch (stage) {
+      case 1:
+        message = serviceRequested
+          ? `Hey ${leadName}! This is Dominic from Spotless Scrubbers. Thanks for reaching out about ${serviceRequested} — we'd love to take care of that for you. What does your schedule look like this week?`
+          : `Hey ${leadName}! This is Dominic from Spotless Scrubbers. Thanks for reaching out — we'd love to help you out. What kind of cleaning are you looking for?`
+        break
+      case 2:
+        message = `Hey ${leadName}, just wanted to make sure you saw my message! We've got openings this week and I'd love to get you on the schedule. Any questions I can answer?`
+        break
+      case 4:
+        message = `Hi ${leadName}! Dominic here from Spotless Scrubbers — our ${currentMonth} schedule is filling up. If you're still thinking about it, happy to chat and figure out what works best for you. No pressure at all!`
+        break
+      case 5:
+        message = `Last note from me ${leadName}! If you ever need a cleaning down the road, just text this number. We're always here. Have a great one!`
+        break
+      default:
+        message = `Hey ${leadName}, Dominic from Spotless Scrubbers checking in! Let me know if you have any questions — happy to help however I can.`
+    }
+  } else {
+    switch (stage) {
+      case 1:
+        message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceType} needs. ${quoteQuestion}`
+        break
+      case 2:
+        message = `Just making sure you got our message — we have openings for ${serviceType} this week. ${detailsRequest}`
+        break
+      // Stage 3 is manual_call — handled above, never reaches here
+      case 4:
+        message = `Our schedule is filling up for ${currentMonth}! ${lastChanceDetails}`
+        break
+      case 5:
+        message = `Last check-in from me! Reply if you'd like to get on the schedule, otherwise no worries at all.`
+        break
+      default:
+        message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${serviceType} services. We're here to help!`
+    }
   }
 
   // Insert DB record BEFORE sending so outbound webhook dedup finds it
@@ -574,6 +601,74 @@ async function processManualCall(
   const client = getSupabaseServiceClient()
   const today = new Date().toISOString().split('T')[0]
 
+  // Build call briefing: pull recent conversation + lead/customer info
+  let briefing = ''
+  try {
+    // Get recent messages for context
+    const { data: recentMessages } = await client
+      .from('messages')
+      .select('role, content, timestamp')
+      .eq('phone_number', phone)
+      .eq('tenant_id', tenantId)
+      .order('timestamp', { ascending: false })
+      .limit(10)
+
+    // Get lead info if available
+    const leadId = payload.leadId as string
+    let leadInfo: Record<string, unknown> | null = null
+    if (leadId) {
+      const { data } = await client
+        .from('leads')
+        .select('source, form_data, status, created_at')
+        .eq('id', leadId)
+        .single()
+      leadInfo = data
+    }
+
+    // Build the briefing
+    const parts: string[] = []
+    parts.push(`Name: ${name || 'Unknown'}`)
+    parts.push(`Phone: ${phone}`)
+
+    if (leadInfo) {
+      const formData = (leadInfo.form_data || {}) as Record<string, unknown>
+      if (leadInfo.source) parts.push(`Source: ${leadInfo.source}`)
+      if (formData.service_type) parts.push(`Service requested: ${String(formData.service_type).replace(/-/g, ' ')}`)
+      if (formData.message) parts.push(`Their message: "${formData.message}"`)
+      if (formData.address) parts.push(`Address: ${formData.address}`)
+    }
+
+    if (recentMessages && recentMessages.length > 0) {
+      parts.push('')
+      parts.push('--- Recent conversation ---')
+      // Show in chronological order
+      for (const msg of recentMessages.reverse()) {
+        const who = msg.role === 'assistant' ? 'Us' : 'Them'
+        parts.push(`${who}: ${msg.content}`)
+      }
+    } else {
+      parts.push('')
+      parts.push('No text conversation yet — this is a cold follow-up call.')
+    }
+
+    // Add goal based on source
+    parts.push('')
+    if (source === 'lead_followup') {
+      parts.push('GOAL: They reached out but haven\'t booked yet. Be friendly, ask how you can help, and try to get them scheduled.')
+    } else if (source.includes('quoted_not_booked')) {
+      parts.push('GOAL: They got a quote but didn\'t book. Check if they have questions, address concerns, and see if they\'re ready to get on the schedule.')
+    } else if (source.includes('retargeting')) {
+      parts.push('GOAL: Past customer who hasn\'t booked in a while. Check in, see if they need anything, and offer to schedule their next cleaning.')
+    } else {
+      parts.push('GOAL: Follow up and see if they\'re ready to book.')
+    }
+
+    briefing = parts.join('\n')
+  } catch (briefingErr) {
+    console.error('[manual-call] Error building briefing:', briefingErr)
+    briefing = `Name: ${name}\nPhone: ${phone}\nGOAL: Follow up and try to book.`
+  }
+
   const { error } = await client.from('call_tasks').insert({
     tenant_id: tenantId,
     phone_number: phone,
@@ -581,7 +676,7 @@ async function processManualCall(
     customer_id: (payload.customerId as number) || null,
     lead_id: (payload.leadId as string) || null,
     source,
-    source_context: payload,
+    source_context: { ...payload, briefing },
     scheduled_for: today,
     status: 'pending',
   })

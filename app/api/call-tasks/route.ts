@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await client
     .from('call_tasks')
-    .select('id, phone_number, customer_name, source, scheduled_for, created_at')
+    .select('id, phone_number, customer_name, source, source_context, scheduled_for, created_at')
     .eq('tenant_id', tenant.id)
     .eq('scheduled_for', today)
     .eq('status', 'pending')
