@@ -12,6 +12,7 @@ import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
 import { lookupPrice } from "@/lib/pricebook"
 import { getWindowTiersFromDB, getFlatServicesFromDB } from "@/lib/pricebook-db"
+import { createOffer, checkPendingOffer, redeemOffer, type Offer } from "@/lib/offers"
 
 /** Format raw appointment date/time into human-readable text for SMS */
 function formatDateTimeForSMS(date: string | null, time: string | null): string {
@@ -406,7 +407,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Cedar Rapids / others: mergeOverridesIntoNotes (bedrooms/bathrooms/sqft)
               // Do NOT use buildWinBrosJobNotes for house cleaning tenants.
               const isWinBros = tenantUsesFeature(tenant, 'use_hcp_mirror')
-              const jobNotes = isWinBros
+              let jobNotes = isWinBros
                 ? buildWinBrosJobNotes({
                     serviceType: bookingInfo.serviceType || safeString(structuredData.service_type) || null,
                     squareFootage: bookingInfo.squareFootage || null,
@@ -451,6 +452,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   }
                 } catch (e) {
                   console.error(`${tag} Failed to look up DB pricing:`, e)
+                }
+              }
+
+              // --- Offer: check for pending free_standard_cleaning to auto-apply ---
+              let offerToRedeem: Offer | null = null
+              let offerApplied = false
+              if (customerId) {
+                try {
+                  const pendingOffer = await checkPendingOffer(client, tenant.id, customerId, 'free_standard_cleaning')
+                  if (pendingOffer && /standard/i.test(serviceType)) {
+                    jobPrice = 0
+                    jobNotes = (jobNotes || '') + `\nFREE CLEANING — offer redeemed (earned ${new Date(pendingOffer.created_at).toLocaleDateString()})`
+                    offerToRedeem = pendingOffer
+                    offerApplied = true
+                    console.log(`${tag} Applying free cleaning offer ${pendingOffer.id}`)
+                  }
+                } catch (offerErr) {
+                  console.error(`${tag} Offer check error:`, offerErr)
                 }
               }
 
@@ -534,6 +553,34 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   },
                 })
 
+                // --- Offer: redeem applied offer ---
+                if (offerToRedeem) {
+                  await redeemOffer(client, offerToRedeem.id, job.id)
+                }
+
+                // --- Offer: create new VAPI booking offer ---
+                let offerEarned = false
+                if (customerId && tenant.workflow_config.vapi_booking_offer?.enabled) {
+                  try {
+                    const vapiOffer = tenant.workflow_config.vapi_booking_offer
+                    const newOffer = await createOffer(client, {
+                      tenantId: tenant.id,
+                      customerId,
+                      offerType: vapiOffer.offer_type,
+                      description: vapiOffer.description,
+                      source: 'vapi_booking',
+                      sourceJobId: job.id,
+                      expiresDays: vapiOffer.expires_days,
+                    })
+                    if (newOffer) {
+                      offerEarned = true
+                      console.log(`${tag} Created free-next-cleaning offer ${newOffer.id}`)
+                    }
+                  } catch (offerErr) {
+                    console.error(`${tag} Offer creation error:`, offerErr)
+                  }
+                }
+
                 // Only mark lead as booked and send confirmation if job was actually created
                 await client
                   .from("leads")
@@ -551,7 +598,9 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   serviceType,
                   dateTimeStr,
                   bookAddress || "your address",
-                  isWinBros
+                  isWinBros,
+                  offerEarned,
+                  offerApplied
                 )
 
                 // Insert DB record BEFORE sending so outbound webhook dedup finds it
@@ -626,7 +675,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
             // TENANT ISOLATION — see notes formatting comment above (new lead path)
             const isWinBrosExisting = tenantUsesFeature(tenant, 'use_hcp_mirror')
-            const existingLeadNotes = isWinBrosExisting
+            let existingLeadNotes = isWinBrosExisting
               ? buildWinBrosJobNotes({
                   serviceType: bookingInfo.serviceType || safeString(structuredData.service_type) || null,
                   squareFootage: bookingInfo.squareFootage || null,
@@ -673,6 +722,24 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               }
             }
 
+            // --- Offer: check for pending free_standard_cleaning to auto-apply (existing lead) ---
+            let existingOfferToRedeem: Offer | null = null
+            let existingOfferApplied = false
+            if (customerId) {
+              try {
+                const pendingOffer = await checkPendingOffer(client, tenant.id, customerId, 'free_standard_cleaning')
+                if (pendingOffer && /standard/i.test(serviceType)) {
+                  existingJobPrice = 0
+                  existingLeadNotes = (existingLeadNotes || '') + `\nFREE CLEANING — offer redeemed (earned ${new Date(pendingOffer.created_at).toLocaleDateString()})`
+                  existingOfferToRedeem = pendingOffer
+                  existingOfferApplied = true
+                  console.log(`${tag} Applying free cleaning offer ${pendingOffer.id} (existing lead)`)
+                }
+              } catch (offerErr) {
+                console.error(`${tag} Offer check error (existing lead):`, offerErr)
+              }
+            }
+
             const { data: job, error: jobErr } = await client.from("jobs").insert({
               tenant_id: tenant.id,
               customer_id: customerId,
@@ -711,6 +778,34 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Don't mark lead as booked or cancel follow-ups — let the follow-up sequence continue
             } else if (job?.id) {
               console.log(`${tag} Job created for existing lead: ${job.id}`)
+
+              // --- Offer: redeem applied offer (existing lead) ---
+              if (existingOfferToRedeem) {
+                await redeemOffer(client, existingOfferToRedeem.id, job.id)
+              }
+
+              // --- Offer: create new VAPI booking offer (existing lead) ---
+              let existingOfferEarned = false
+              if (customerId && tenant.workflow_config.vapi_booking_offer?.enabled) {
+                try {
+                  const vapiOffer = tenant.workflow_config.vapi_booking_offer
+                  const newOffer = await createOffer(client, {
+                    tenantId: tenant.id,
+                    customerId,
+                    offerType: vapiOffer.offer_type,
+                    description: vapiOffer.description,
+                    source: 'vapi_booking',
+                    sourceJobId: job.id,
+                    expiresDays: vapiOffer.expires_days,
+                  })
+                  if (newOffer) {
+                    existingOfferEarned = true
+                    console.log(`${tag} Created free-next-cleaning offer ${newOffer.id} (existing lead)`)
+                  }
+                } catch (offerErr) {
+                  console.error(`${tag} Offer creation error (existing lead):`, offerErr)
+                }
+              }
 
               // Sync to HouseCall Pro
               await syncNewJobToHCP({
@@ -761,7 +856,9 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 serviceType,
                 dateTimeStr,
                 bookAddress || "your address",
-                isWinBrosExisting
+                isWinBrosExisting,
+                existingOfferEarned,
+                existingOfferApplied
               )
 
               // Insert DB record BEFORE sending so outbound webhook dedup finds it
