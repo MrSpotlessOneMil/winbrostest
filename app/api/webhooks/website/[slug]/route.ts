@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { scheduleLeadFollowUp } from "@/lib/scheduler"
-import { logSystemEvent } from "@/lib/system-events"
+import { logSystemEvent, type SystemEventSource } from "@/lib/system-events"
 import { getTenantBySlug } from "@/lib/tenant"
 
 // CORS headers for embed-friendly response (any domain can POST)
@@ -103,18 +103,25 @@ export async function POST(
     .select("id")
     .single()
 
+  // Determine lead source — allow form to override (e.g. "meta" from ad landing pages)
+  const ALLOWED_SOURCES = ["website", "meta", "google", "referral", "thumbtack"] as const
+  const sourceOverride: SystemEventSource =
+    typeof body.source === "string" && (ALLOWED_SOURCES as readonly string[]).includes(body.source)
+      ? (body.source as SystemEventSource)
+      : "website"
+
   // Create lead
   const { data: lead, error: leadError } = await client
     .from("leads")
     .insert({
       tenant_id: tenant.id,
-      source_id: `website-${Date.now()}`,
+      source_id: `${sourceOverride}-${Date.now()}`,
       phone_number: phone,
       customer_id: customer?.id ?? null,
       first_name: firstName || null,
       last_name: lastName || null,
       email: email || null,
-      source: "website",
+      source: sourceOverride,
       status: "new",
       form_data: {
         ...body,
@@ -140,9 +147,9 @@ export async function POST(
   // Log system event
   await logSystemEvent({
     tenant_id: tenant.id,
-    source: "website",
+    source: sourceOverride,
     event_type: "WEBSITE_LEAD_RECEIVED",
-    message: `New website lead: ${firstName || "Unknown"} ${lastName || ""}`.trim(),
+    message: `New ${sourceOverride} lead: ${firstName || "Unknown"} ${lastName || ""}`.trim(),
     phone_number: phone,
     metadata: {
       lead_id: lead?.id,

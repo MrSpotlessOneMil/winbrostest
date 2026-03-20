@@ -17,6 +17,10 @@ export type SystemEventSource =
   | 'lead_actions'
   | 'email_cron'
   | 'website'
+  | 'meta'
+  | 'google'
+  | 'referral'
+  | 'thumbtack'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'

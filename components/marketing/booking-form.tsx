@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { trackLead, trackFormSubmit } from "@/lib/marketing/tracking"
 import { SPOTLESS_SERVICES } from "@/lib/marketing/spotless-services"
 
@@ -10,9 +10,25 @@ interface BookingFormProps {
   compact?: boolean
 }
 
+function getUtmParams(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  const params = new URLSearchParams(window.location.search)
+  const utms: Record<string, string> = {}
+  for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]) {
+    const val = params.get(key)
+    if (val) utms[key] = val
+  }
+  return utms
+}
+
 export function BookingForm({ preselectedService, source = "website", compact = false }: BookingFormProps) {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState("")
+  const [utmParams, setUtmParams] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    setUtmParams(getUtmParams())
+  }, [])
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -27,6 +43,8 @@ export function BookingForm({ preselectedService, source = "website", compact = 
       address: (form.elements.namedItem("address") as HTMLInputElement).value || undefined,
       service_type: (form.elements.namedItem("service_type") as HTMLSelectElement).value || undefined,
       message: (form.elements.namedItem("message") as HTMLTextAreaElement)?.value || undefined,
+      source,
+      ...utmParams,
     }
 
     try {

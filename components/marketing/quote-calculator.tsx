@@ -3,6 +3,17 @@
 import { useState, useEffect, useRef } from "react"
 import { trackLead, trackFormSubmit } from "@/lib/marketing/tracking"
 
+function getUtmParams(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  const params = new URLSearchParams(window.location.search)
+  const utms: Record<string, string> = {}
+  for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]) {
+    const val = params.get(key)
+    if (val) utms[key] = val
+  }
+  return utms
+}
+
 // ---------------------------------------------------------------------------
 // Pricing constants
 // ---------------------------------------------------------------------------
@@ -82,6 +93,10 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState("")
 
+  // UTM params
+  const [utmParams, setUtmParams] = useState<Record<string, string>>({})
+  useEffect(() => { setUtmParams(getUtmParams()) }, [])
+
   // Animated price counter
   const [displayedPrice, setDisplayedPrice] = useState(0)
   const animFrameRef = useRef<number | null>(null)
@@ -151,6 +166,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
       frequency,
       estimated_price: estimatedPrice,
       source: source === "homepage" ? "quote_calculator" : `quote_calculator_${source}`,
+      ...utmParams,
     }
 
     try {
