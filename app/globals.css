@@ -278,6 +278,25 @@
   animation: fadeInUp 0.3s ease-out;
 }
 
+/* Chat bubble pop-in */
+@keyframes bubbleIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.6) translateY(10px);
+  }
+  50% {
+    transform: scale(1.03) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.animate-bubble-in {
+  animation: bubbleIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
 /* Modal scale-in animation */
 @keyframes scaleIn {
   from {

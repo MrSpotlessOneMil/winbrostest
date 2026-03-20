@@ -5,16 +5,19 @@ interface MessageBubbleProps {
   content: string
   timestamp: string
   showTimestamp?: boolean
+  sending?: boolean
 }
 
-export function MessageBubble({ role, content, timestamp, showTimestamp = true }: MessageBubbleProps) {
+export function MessageBubble({ role, content, timestamp, showTimestamp = true, sending = false }: MessageBubbleProps) {
   const isClient = role === "client"
   const isSystem = role === "system"
 
   return (
-    <div className={`flex ${isClient ? "justify-start" : "justify-end"} mb-2`}>
+    <div className={`flex ${isClient ? "justify-start" : "justify-end"} mb-2 ${sending ? "animate-bubble-in" : ""}`}>
       <div
-        className={`max-w-[75%] px-4 py-3 ${
+        className={`max-w-[75%] px-4 py-3 transition-opacity duration-500 ${
+          sending ? "opacity-70" : "opacity-100"
+        } ${
           isClient
             ? "bg-zinc-700/80 text-zinc-100 rounded-2xl rounded-bl-md"
             : isSystem
@@ -46,8 +49,17 @@ export function MessageBubble({ role, content, timestamp, showTimestamp = true }
           )}
         </div>
 
-        {/* Timestamp */}
-        {showTimestamp && timestamp && (
+        {/* Timestamp / Sending indicator */}
+        {sending ? (
+          <div className="flex items-center gap-1.5 mt-1.5">
+            <div className="flex gap-0.5">
+              <span className="w-1 h-1 rounded-full bg-purple-200/70 animate-bounce [animation-delay:0ms]" />
+              <span className="w-1 h-1 rounded-full bg-purple-200/70 animate-bounce [animation-delay:150ms]" />
+              <span className="w-1 h-1 rounded-full bg-purple-200/70 animate-bounce [animation-delay:300ms]" />
+            </div>
+            <span className="text-[10px] text-purple-200/70">Sending</span>
+          </div>
+        ) : showTimestamp && timestamp ? (
           <div
             className={`text-[10px] mt-1.5 ${
               isClient
@@ -62,7 +74,7 @@ export function MessageBubble({ role, content, timestamp, showTimestamp = true }
               minute: "2-digit",
             })}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   )

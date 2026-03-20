@@ -439,7 +439,23 @@ export default function TeamsPage() {
   async function handleSendSMS() {
     if (!selectedCleaner?.phone || !sendText.trim() || sending) return
     const messageText = sendText.trim()
+    const tempId = `sending-${Date.now()}`
     setSending(true)
+    setSendText("")
+
+    // Optimistic: show the message immediately with sending state
+    setChatMessages((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        phone_number: selectedCleaner.phone,
+        direction: "outbound",
+        content: messageText,
+        timestamp: new Date().toISOString(),
+        status: "sending",
+      },
+    ])
+
     try {
       const res = await fetch("/api/actions/send-sms", {
         method: "POST",
@@ -447,22 +463,14 @@ export default function TeamsPage() {
         body: JSON.stringify({ to: selectedCleaner.phone, message: messageText }),
       })
       const json = await res.json()
-      if (json.success) {
-        setSendText("")
-        setChatMessages((prev) => [
-          ...prev,
-          {
-            id: `temp-${Date.now()}`,
-            phone_number: selectedCleaner.phone,
-            direction: "outbound",
-            content: messageText,
-            timestamp: new Date().toISOString(),
-            status: "sent",
-          },
-        ])
-      }
+      // Mark as sent or failed
+      setChatMessages((prev) =>
+        prev.map((m) => m.id === tempId ? { ...m, id: json.success ? `sent-${Date.now()}` : tempId, status: json.success ? "sent" : "failed" } : m)
+      )
     } catch {
-      // silently fail
+      setChatMessages((prev) =>
+        prev.map((m) => m.id === tempId ? { ...m, status: "failed" } : m)
+      )
     } finally {
       setSending(false)
     }
@@ -1020,6 +1028,7 @@ export default function TeamsPage() {
                           role={msg.direction === "inbound" ? "client" : "assistant"}
                           content={msg.content}
                           timestamp={msg.timestamp}
+                          sending={msg.status === "sending"}
                         />
                       ))}
                     </div>
