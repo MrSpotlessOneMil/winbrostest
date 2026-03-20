@@ -386,7 +386,7 @@ async function processLeadFollowup(
   // Send the SMS
   let smsResult
   if (tenant) {
-    smsResult = await sendSMS(tenant, leadPhone, message)
+    smsResult = await sendSMS(tenant, leadPhone, message, { skipDedup: true })
   } else {
     console.error(`[lead-followup] No tenant for lead ${leadId} -- skipping SMS`)
     smsResult = { success: false, error: 'No tenant' }
@@ -488,7 +488,7 @@ async function processDayBeforeReminder(
 
   let smsResult
   if (tenant) {
-    smsResult = await sendSMS(tenant, customerPhone, message)
+    smsResult = await sendSMS(tenant, customerPhone, message, { skipDedup: true })
   } else {
     console.error(`[day-before-reminder] No tenant for job ${jobId} -- skipping reminder SMS`)
     smsResult = { success: false, error: 'No tenant' }
@@ -767,7 +767,7 @@ async function processRetargeting(
 
     if (recentQuote?.token) {
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://spotless-scrubbers-api.vercel.app')
+        || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
       message += `\n\nHere's your quote: ${baseUrl}/quote/${recentQuote.token}`
     }
   }
@@ -1092,7 +1092,7 @@ async function processMidConvoNudge(
     source: 'mid_convo_nudge',
   }).select('id').single()
 
-  const result = await sendSMS(tenant, customerPhone, message)
+  const result = await sendSMS(tenant, customerPhone, message, { skipDedup: true })
 
   // Always clear awaiting_reply_since to prevent infinite nudge loop
   await client

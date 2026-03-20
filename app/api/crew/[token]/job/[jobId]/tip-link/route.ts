@@ -69,7 +69,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
   }
 
-  const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app'
+  const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
   const tipLink = `${domain}/tip/${job.id}`
   const businessName = tenant.business_name_short || tenant.name
   const customerName = customer?.first_name || 'there'

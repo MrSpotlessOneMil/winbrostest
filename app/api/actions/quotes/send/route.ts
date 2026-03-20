@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No phone number on this quote" }, { status: 400 })
   }
 
-  const baseUrl = getBaseUrl() || "https://spotless-scrubbers-api.vercel.app"
+  const baseUrl = getBaseUrl() || "https://cleanmachine.live"
   const quoteUrl = `${baseUrl}/quote/${quote.token}`
 
   const name = quote.customer_name?.split(" ")[0] || "there"

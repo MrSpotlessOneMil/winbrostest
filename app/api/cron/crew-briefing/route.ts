@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
         const jobCount = todaysJobs?.length || 0
         msg += `Today's Jobs: ${jobCount}\n`
         if (todaysJobs && todaysJobs.length > 0) {
-          const appDomain = (process.env.NEXT_PUBLIC_SITE_URL || 'https://spotless-scrubbers-api.vercel.app').replace(/\/+$/, '')
+          const appDomain = (process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live').replace(/\/+$/, '')
           for (const job of todaysJobs) {
             const time = job.scheduled_at || 'TBD'
             const address = job.address || 'No address'

@@ -190,7 +190,7 @@ export async function GET(request: NextRequest) {
 
         // Send "quote expired" SMS for each (best-effort, don't block on failures)
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://spotless-scrubbers-api.vercel.app')
+          || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
 
         for (const q of expiredQuotes) {
           const cust = q.customers as any

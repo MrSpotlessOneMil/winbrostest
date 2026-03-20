@@ -2603,7 +2603,7 @@ async function executeTool(
 
       if (quoteError || !quote) return `Failed to create quote: ${quoteError?.message}`
 
-      const domain = (tenant as any).website_url?.replace(/\/+$/, "") || process.env.NEXT_PUBLIC_SITE_URL || "https://spotless-scrubbers-api.vercel.app"
+      const domain = (tenant as any).website_url?.replace(/\/+$/, "") || process.env.NEXT_PUBLIC_SITE_URL || "https://cleanmachine.live"
       const quoteLink = `${domain}/quote/${quote.token}`
 
       // Send SMS if requested (default: true)
