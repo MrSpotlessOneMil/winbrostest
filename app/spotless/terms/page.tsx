@@ -190,7 +190,7 @@ export default function TermsPage() {
 
         <div className="mt-12 pt-8 border-t border-slate-200">
           <Link
-            href="/spotless"
+            href="/"
             className="text-sm text-[#2195b4] hover:text-[#155f73] transition-colors"
           >
             &larr; Back to Home

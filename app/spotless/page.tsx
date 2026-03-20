@@ -304,7 +304,7 @@ export default function HomePage() {
             {SPOTLESS_SERVICES.map((service) => (
               <Link
                 key={service.slug}
-                href={`/spotless/services/${service.slug}`}
+                href={`/services/${service.slug}`}
                 className="group cursor-pointer overflow-hidden bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.1)] transition-shadow duration-200"
               >
                 <div className="relative h-52 overflow-hidden">
@@ -549,7 +549,7 @@ export default function HomePage() {
             {SPOTLESS_AREAS.map((area) => (
               <Link
                 key={area.slug}
-                href={`/spotless/areas/${area.slug}`}
+                href={`/areas/${area.slug}`}
                 className="text-center px-3 py-3 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:border-[#2195b4] hover:text-[#2195b4] hover:shadow-sm transition-all"
               >
                 {area.city}

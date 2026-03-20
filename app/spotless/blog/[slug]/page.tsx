@@ -110,7 +110,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       siteName: "Spotless Scrubbers",
     },
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/blog/${post.slug}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/blog/${post.slug}`,
     },
   }
 }
@@ -132,7 +132,7 @@ export default async function BlogPostPage({ params }: PageProps) {
     notFound()
   }
 
-  const postUrl = `${SPOTLESS_BUSINESS.url}/spotless/blog/${post.slug}`
+  const postUrl = `${SPOTLESS_BUSINESS.url}/blog/${post.slug}`
 
   // Find previous and next posts for navigation (seed + DB)
   const allPosts = await getAllPosts()
@@ -173,7 +173,7 @@ export default async function BlogPostPage({ params }: PageProps) {
       <BreadcrumbJsonLd
         items={[
           { name: "Home", url: SPOTLESS_BUSINESS.url },
-          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/spotless/blog` },
+          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/blog` },
           { name: post.title, url: postUrl },
         ]}
       />
@@ -183,11 +183,11 @@ export default async function BlogPostPage({ params }: PageProps) {
       <div className="bg-slate-50 border-b border-slate-200">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <nav className="flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/spotless" className="hover:text-[#2195b4] transition-colors">
+            <Link href="/" className="hover:text-[#2195b4] transition-colors">
               Home
             </Link>
             <span>/</span>
-            <Link href="/spotless/blog" className="hover:text-[#2195b4] transition-colors">
+            <Link href="/blog" className="hover:text-[#2195b4] transition-colors">
               Blog
             </Link>
             <span>/</span>
@@ -276,7 +276,7 @@ export default async function BlogPostPage({ params }: PageProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               {prevPost ? (
                 <Link
-                  href={`/spotless/blog/${prevPost.slug}`}
+                  href={`/blog/${prevPost.slug}`}
                   className="group block"
                 >
                   <span className="text-xs text-slate-500 mb-1 block">
@@ -291,7 +291,7 @@ export default async function BlogPostPage({ params }: PageProps) {
               )}
               {nextPost ? (
                 <Link
-                  href={`/spotless/blog/${nextPost.slug}`}
+                  href={`/blog/${nextPost.slug}`}
                   className="group block text-right"
                 >
                   <span className="text-xs text-slate-500 mb-1 block">
@@ -310,7 +310,7 @@ export default async function BlogPostPage({ params }: PageProps) {
           {/* Back to blog */}
           <div className="mt-8 text-center">
             <Link
-              href="/spotless/blog"
+              href="/blog"
               className="text-sm font-medium text-[#2195b4] hover:underline"
             >
               &larr; Back to all posts

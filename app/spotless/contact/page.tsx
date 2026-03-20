@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description:
     "Book a professional house cleaning in Los Angeles County. Instant booking confirmation. Same-day available. Insured, background-checked cleaners.",
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/contact`,
+    canonical: `${SPOTLESS_BUSINESS.url}/contact`,
   },
 }
 

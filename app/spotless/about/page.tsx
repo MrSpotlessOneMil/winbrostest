@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description:
     "Learn about Spotless Scrubbers - Los Angeles County's trusted house cleaning service. Insured, professionally trained cleaners since 2023.",
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/about`,
+    canonical: `${SPOTLESS_BUSINESS.url}/about`,
   },
 }
 
@@ -216,7 +216,7 @@ export default function AboutPage() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link
-              href="/spotless/contact"
+              href="/contact"
               className="inline-block px-8 py-3 rounded-lg bg-white text-[#155f73] font-semibold hover:bg-[#a8e0ef] transition-colors"
             >
               Book a Cleaning

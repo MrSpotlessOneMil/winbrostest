@@ -48,7 +48,7 @@ export async function generateMetadata({
     title: `${service.shortTitle} in ${area.city}, CA | Spotless Scrubbers`,
     description: `Professional ${service.title.toLowerCase()} in ${area.city}. Insured, 5-star rated. Book online or call today.`,
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/services/${slug}/${city}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/services/${slug}/${city}`,
     },
   }
 }
@@ -149,12 +149,12 @@ export default async function ServiceCityPage({
         <section className="bg-gradient-to-b from-[#a8e0ef]/30 to-white py-16 sm:py-20">
           <div className="max-w-4xl mx-auto px-4 sm:px-6">
             <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 mb-6">
-              <Link href="/spotless/services" className="hover:text-[#2195b4]">
+              <Link href="/services" className="hover:text-[#2195b4]">
                 Services
               </Link>
               <span>/</span>
               <Link
-                href={`/spotless/services/${service.slug}`}
+                href={`/services/${service.slug}`}
                 className="hover:text-[#2195b4]"
               >
                 {service.shortTitle}
@@ -289,7 +289,7 @@ export default async function ServiceCityPage({
                 {siblingServices.map((s) => (
                   <Link
                     key={s.slug}
-                    href={`/spotless/services/${s.slug}/${area.slug}`}
+                    href={`/services/${s.slug}/${area.slug}`}
                     className="px-4 py-2 rounded-lg bg-white border border-slate-200 text-sm font-medium text-slate-700 hover:border-[#2195b4] hover:text-[#2195b4] transition-colors"
                   >
                     {s.shortTitle}
@@ -304,7 +304,7 @@ export default async function ServiceCityPage({
                 More About {area.city}
               </h2>
               <Link
-                href={`/spotless/areas/${area.slug}`}
+                href={`/areas/${area.slug}`}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-[#2195b4] text-white text-sm font-semibold hover:bg-[#155f73] transition-colors"
               >
                 Cleaning Services in {area.city} &rarr;
@@ -320,7 +320,7 @@ export default async function ServiceCityPage({
                 {otherCities.map((a) => (
                   <Link
                     key={a.slug}
-                    href={`/spotless/services/${service.slug}/${a.slug}`}
+                    href={`/services/${service.slug}/${a.slug}`}
                     className="px-4 py-2.5 rounded-lg bg-white border border-slate-200 text-sm font-medium text-slate-700 hover:border-[#2195b4] hover:text-[#2195b4] transition-colors text-center"
                   >
                     {a.city}

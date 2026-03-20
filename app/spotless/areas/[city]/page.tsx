@@ -32,7 +32,7 @@ export async function generateMetadata({ params }: CityPageProps): Promise<Metad
     title: `House Cleaning in ${area.city}, CA | Spotless Scrubbers`,
     description: `Professional house cleaning in ${area.city}, CA. Serving ${area.neighborhoods.slice(0, 3).join(", ")} and more. Insured cleaners, satisfaction guaranteed.`,
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/areas/${city}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/areas/${city}`,
     },
   }
 }
@@ -128,7 +128,7 @@ export default async function CityPage({ params }: CityPageProps) {
             {SPOTLESS_SERVICES.map((service) => (
               <Link
                 key={service.slug}
-                href={`/spotless/services/${service.slug}/${area.slug}`}
+                href={`/services/${service.slug}/${area.slug}`}
                 className="group rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5"
               >
                 <h3 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-[#2195b4] transition-colors">
@@ -224,7 +224,7 @@ export default async function CityPage({ params }: CityPageProps) {
           {nearbyCities.map((nearby) => (
             <Link
               key={nearby.slug}
-              href={`/spotless/areas/${nearby.slug}`}
+              href={`/areas/${nearby.slug}`}
               className="text-center px-4 py-3 rounded-lg border border-slate-200 bg-white text-sm font-medium text-[#2195b4] hover:bg-[#2195b4] hover:text-white transition-colors"
             >
               {nearby.city}
