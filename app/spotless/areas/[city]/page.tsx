@@ -55,7 +55,7 @@ export default async function CityPage({ params }: CityPageProps) {
     },
     {
       question: `How do I book a cleaning in ${area.city}?`,
-      answer: `Booking a cleaning in ${area.city} is simple. Fill out the form on this page, call us at ${SPOTLESS_BUSINESS.phone}, or email ${SPOTLESS_BUSINESS.email}. We will confirm your appointment within the hour and match you with the best local cleaner for your needs.`,
+      answer: `Booking a cleaning in ${area.city} is simple. Fill out the form on this page, call us at ${SPOTLESS_BUSINESS.phone}, or email ${SPOTLESS_BUSINESS.email}. We confirm your appointment instantly and match you with the best local cleaner for your needs.`,
     },
     {
       question: `Are your cleaners local to ${area.city}?`,
@@ -207,7 +207,7 @@ export default async function CityPage({ params }: CityPageProps) {
             Book a Cleaning in {area.city}
           </h2>
           <p className="text-slate-600 text-center mb-8">
-            Fill out the form below and we will confirm your appointment within the hour.
+            Fill out the form below for instant confirmation.
           </p>
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8">
             <BookingForm source={`area-${area.slug}`} />

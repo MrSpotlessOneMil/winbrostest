@@ -46,7 +46,7 @@ const SERVICE_FAQS = [
   {
     question: "How do I book a cleaning service?",
     answer:
-      "Booking is easy - fill out our online form on any service page, or call us directly. We will confirm your appointment within the hour and match you with the best cleaner for your needs. Same-day bookings are available for select services.",
+      "Booking is easy - fill out our online form on any service page, or call us directly. We confirm your appointment instantly and match you with the best cleaner for your needs. Same-day bookings are available for select services.",
   },
 ]
 

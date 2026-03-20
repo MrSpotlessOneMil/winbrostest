@@ -509,7 +509,7 @@ export const BLOG_POSTS: BlogPost[] = [
 
 <p>Can you actually talk to the owner or a manager? Or are you just interacting with a chat bot and an app? When issues come up (and they will eventually, we are all human), you want to be able to reach a real person who will make it right.</p>
 
-<p>At Spotless Scrubbers, if something is not right, you can call me directly. I am Dominic. I am not a call center. I am the guy who built this company and I take every client relationship personally.</p>
+<p>At Spotless Scrubbers, if something is not right, just let us know. We come back and fix it — no charge.</p>
 
 <h2>The Bottom Line</h2>
 

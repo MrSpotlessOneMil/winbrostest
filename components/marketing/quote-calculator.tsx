@@ -183,7 +183,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
       trackFormSubmit("quote_calculator")
     } catch {
       setStatus("error")
-      setErrorMsg("Something went wrong. Please call us at (319) 826-4311 or try again.")
+      setErrorMsg("Something went wrong. Please call us at (424) 677-1146 or try again.")
     }
   }
 
@@ -217,7 +217,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         </div>
         <h3 className="text-2xl font-bold text-slate-900 mb-2">You&apos;re All Set!</h3>
         <p className="text-slate-600 mb-1">
-          We&apos;ll call you within the hour to confirm your cleaning.
+          Your cleaning request is confirmed! We will reach out shortly to finalize the details.
         </p>
         <p className="text-sm text-slate-500">
           Your estimated price: <span className="font-semibold text-[#2195b4]">${estimatedPrice}</span>

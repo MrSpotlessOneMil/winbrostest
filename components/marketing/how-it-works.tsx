@@ -24,11 +24,11 @@ export function HowItWorks() {
           <div className="text-center">
             <div className="text-4xl font-bold text-[#2195b4] mb-3">02</div>
             <h3 className="text-lg font-semibold text-gray-900 mb-2">
-              We Lock In Your Date
+              Instantly Confirmed
             </h3>
             <p className="text-sm text-gray-600">
-              We confirm your appointment within the hour and match you with
-              the right crew. Same-day available when we can swing it.
+              Your appointment is confirmed right away. We match you with
+              the right crew and lock in your date — no waiting.
             </p>
           </div>
 

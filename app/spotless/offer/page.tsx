@@ -2,7 +2,6 @@ import type { Metadata } from "next"
 import { BookingForm } from "@/components/marketing/booking-form"
 import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
-import { StickyCTA } from "@/components/marketing/sticky-cta"
 
 export const metadata: Metadata = {
   title: "$99 First Deep Clean | Spotless Scrubbers",
@@ -45,9 +44,9 @@ const VALUE_CARDS = [
     description: "Most companies charge $50-100 extra for appliances. We include them.",
   },
   {
-    title: "Cancel Anytime",
-    subtitle: "no contracts",
-    description: "Love it? We come back biweekly. Don't? Cancel with zero fees or guilt.",
+    title: "Set It and Forget It",
+    subtitle: "autopilot cleaning",
+    description: "Love it? We set you up on a recurring schedule. Your cleaning just shows up — no reminders, no rebooking needed.",
   },
 ]
 
@@ -86,7 +85,7 @@ const FAQS = [
   {
     question: "How does recurring work?",
     answer:
-      "After your first clean, we can set you up on a biweekly schedule at our regular rate ($165/visit for most homes). You can cancel or skip anytime — no contracts, no cancellation fees.",
+      "After your first clean, we can set you up on autopilot — biweekly service at our regular rate ($165/visit for most homes). Your cleaning just shows up on schedule. You can cancel or skip anytime — no contracts, no cancellation fees.",
   },
   {
     question: "Is there a catch?",
@@ -166,7 +165,7 @@ export default function OfferPage() {
                   <span className="text-4xl font-bold text-[#2195b4]">$99</span>
                 </div>
               </div>
-              <BookingForm source="meta" preselectedService="deep-cleaning" />
+              <BookingForm source="meta" preselectedService="deep-cleaning" ctaLabel="Claim Your $99 Clean" />
             </div>
           </div>
         </div>
@@ -298,11 +297,11 @@ export default function OfferPage() {
             Ready for a spotless home?
           </h2>
           <p className="text-slate-300 mb-8">
-            Claim your $99 first deep clean. Available times in 60 seconds.
+            Claim your $99 first deep clean. Book in 60 seconds. Instant confirmation.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="deep-cleaning" />
+            <BookingForm source="meta" preselectedService="deep-cleaning" ctaLabel="Claim Your $99 Clean" />
           </div>
 
           <p className="text-xs text-slate-400 mt-6">
@@ -315,7 +314,22 @@ export default function OfferPage() {
       </section>
 
       {/* ---- Sticky CTA (mobile) ---- */}
-      <StickyCTA />
+      <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-amber-400 shadow-[0_-4px_12px_rgba(0,0,0,0.15)] pb-6 pt-3 px-4">
+        <div className="flex gap-3 max-w-lg mx-auto">
+          <a
+            href="tel:+14246771146"
+            className="flex-1 flex items-center justify-center gap-2 bg-white text-slate-900 font-semibold py-3 rounded-lg text-sm"
+          >
+            Call Now
+          </a>
+          <a
+            href="#claim-offer"
+            className="flex-1 flex items-center justify-center gap-2 bg-[#164E63] text-white font-semibold py-3 rounded-lg text-sm"
+          >
+            Claim $99 Clean
+          </a>
+        </div>
+      </div>
     </>
   )
 }

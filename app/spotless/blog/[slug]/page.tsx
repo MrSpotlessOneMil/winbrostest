@@ -106,7 +106,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description: post.metaDescription,
       type: "article",
       publishedTime: post.publishedAt,
-      authors: ["Dominic"],
+      authors: ["Spotless Scrubbers"],
       siteName: "Spotless Scrubbers",
     },
     alternates: {
@@ -151,14 +151,9 @@ export default async function BlogPostPage({ params }: PageProps) {
     description: post.metaDescription,
     datePublished: post.publishedAt,
     author: {
-      "@type": "Person",
-      name: "Dominic",
-      jobTitle: "Owner",
-      worksFor: {
-        "@type": "LocalBusiness",
-        name: SPOTLESS_BUSINESS.name,
-        url: SPOTLESS_BUSINESS.url,
-      },
+      "@type": "Organization",
+      name: SPOTLESS_BUSINESS.name,
+      url: SPOTLESS_BUSINESS.url,
     },
     publisher: {
       "@type": "Organization",
@@ -232,12 +227,12 @@ export default async function BlogPostPage({ params }: PageProps) {
             <div className="flex items-center justify-between border-t border-b border-slate-200 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#2195b4] flex items-center justify-center text-white font-bold text-sm">
-                  D
+                  SS
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-slate-900">Dominic</div>
+                  <div className="text-sm font-semibold text-slate-900">Spotless Scrubbers</div>
                   <div className="text-xs text-slate-500">
-                    Owner, {SPOTLESS_BUSINESS.name}
+                    {SPOTLESS_BUSINESS.name} Team
                   </div>
                 </div>
               </div>
@@ -259,8 +254,8 @@ export default async function BlogPostPage({ params }: PageProps) {
                 Need a Cleaning? Let Us Handle It.
               </h3>
               <p className="text-slate-600 mb-6">
-                Drop your info and Dominic will get back to you within the hour.
-                No pressure, no automated calls. Just an honest quote from a real person.
+                Drop your info and get a confirmed quote in minutes.
+                No pressure, no spam. Just fast, professional service.
               </p>
               <BookingForm source={`blog_${post.slug}`} />
             </div>

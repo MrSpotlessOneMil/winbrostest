@@ -8,6 +8,7 @@ interface BookingFormProps {
   preselectedService?: string
   source?: string
   compact?: boolean
+  ctaLabel?: string
 }
 
 function getUtmParams(): Record<string, string> {
@@ -21,7 +22,7 @@ function getUtmParams(): Record<string, string> {
   return utms
 }
 
-export function BookingForm({ preselectedService, source = "website", compact = false }: BookingFormProps) {
+export function BookingForm({ preselectedService, source = "website", compact = false, ctaLabel = "Get Your Free Quote" }: BookingFormProps) {
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState("")
   const [utmParams, setUtmParams] = useState<Record<string, string>>({})
@@ -72,7 +73,7 @@ export function BookingForm({ preselectedService, source = "website", compact = 
         <div className="text-3xl mb-2">&#10003;</div>
         <h3 className="text-lg font-semibold text-emerald-800 mb-1">Request Received!</h3>
         <p className="text-sm text-emerald-700">
-          We&apos;ll be in touch within the hour to confirm your appointment.
+          We are on it! Expect confirmation shortly.
         </p>
       </div>
     )
@@ -144,11 +145,11 @@ export function BookingForm({ preselectedService, source = "website", compact = 
         disabled={status === "submitting"}
         className="w-full px-6 py-3 bg-[#2195b4] text-white font-semibold hover:bg-[#155f73] transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm"
       >
-        {status === "submitting" ? "Sending..." : "Get Your Free Quote"}
+        {status === "submitting" ? "Sending..." : ctaLabel}
       </button>
 
       <p className="text-xs text-slate-500 text-center">
-        We will call you back within the hour. No spam, no pressure.
+        Instant confirmation. No spam, no pressure.
       </p>
     </form>
   )

@@ -66,7 +66,7 @@ function getCityServiceFAQs(service: SpotlessService, area: SpotlessArea) {
     },
     {
       question: `How do I book ${service.title.toLowerCase()} in ${area.city}?`,
-      answer: `Booking is simple - fill out the form on this page or call us at ${SPOTLESS_BUSINESS.phone}. We will confirm your appointment within the hour and match you with a cleaner familiar with the ${area.city} area.`,
+      answer: `Booking is simple - fill out the form on this page or call us at ${SPOTLESS_BUSINESS.phone}. We confirm your appointment instantly and match you with a cleaner familiar with the ${area.city} area.`,
     },
     {
       question: `Do you serve ${neighborhoodList}?`,
@@ -270,8 +270,7 @@ export default async function ServiceCityPage({
                 Book {service.shortTitle} in {area.city}
               </h2>
               <p className="text-slate-500 text-sm mb-6 text-center">
-                Fill out the form and we will confirm your appointment within
-                the hour.
+                Fill out the form and your appointment is confirmed instantly.
               </p>
               <BookingForm preselectedService={service.slug} />
             </div>

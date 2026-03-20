@@ -12,7 +12,7 @@ export const revalidate = 3600
 export const metadata: Metadata = {
   title: "Cleaning Tips & Guides | Spotless Scrubbers Blog",
   description:
-    "Cleaning tips, pricing guides, and home care advice from Spotless Scrubbers in Los Angeles. Written by Dominic, owner and operator.",
+    "Cleaning tips, pricing guides, and home care advice from Spotless Scrubbers in Los Angeles. Written by the Spotless Scrubbers team.",
   openGraph: {
     title: "Cleaning Tips & Guides | Spotless Scrubbers Blog",
     description:
@@ -181,8 +181,8 @@ export default async function BlogIndexPage() {
             Ready for a Spotless Home?
           </h2>
           <p className="text-white/80 mb-8">
-            Stop reading about cleaning and let us handle it. Call Dominic directly
-            or fill out the form for a free quote.
+            Stop reading about cleaning and let us handle it. Book in 60 seconds
+            or call us for a free quote.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a
