@@ -139,6 +139,14 @@ export default function TeamsPage() {
     } catch { return "overview" }
   })
 
+  // Copy-to-clipboard state
+  const [copiedField, setCopiedField] = useState<string | null>(null)
+  const copyToClipboard = useCallback((value: string, field: string) => {
+    navigator.clipboard.writeText(value)
+    setCopiedField(field)
+    setTimeout(() => setCopiedField(null), 1500)
+  }, [])
+
   // Credential sending state
   const [sendingCredentials, setSendingCredentials] = useState(false)
   const [credentialsSent, setCredentialsSent] = useState(false)
@@ -848,16 +856,30 @@ export default function TeamsPage() {
                       <Card>
                         <CardContent className="p-4 space-y-3">
                           <div className="grid grid-cols-2 gap-3">
-                            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                            <div
+                              className="rounded-lg border border-border bg-muted/30 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                              onClick={() => copyToClipboard(selectedCleaner?.username || selectedCleaner?.name || "", "username")}
+                            >
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">Username</p>
                               <p className="text-sm font-medium text-foreground font-mono">
-                                {selectedCleaner?.username || selectedCleaner?.name || "—"}
+                                {copiedField === "username" ? (
+                                  <span className="text-green-500">Copied!</span>
+                                ) : (
+                                  selectedCleaner?.username || selectedCleaner?.name || "—"
+                                )}
                               </p>
                             </div>
-                            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                            <div
+                              className="rounded-lg border border-border bg-muted/30 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                              onClick={() => copyToClipboard(selectedCleaner?.pin || "", "pin")}
+                            >
                               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-0.5">PIN</p>
                               <p className="text-sm font-medium text-foreground font-mono tracking-widest">
-                                {selectedCleaner?.pin || "—"}
+                                {copiedField === "pin" ? (
+                                  <span className="text-green-500 tracking-normal">Copied!</span>
+                                ) : (
+                                  selectedCleaner?.pin || "—"
+                                )}
                               </p>
                             </div>
                           </div>
