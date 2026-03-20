@@ -1573,6 +1573,12 @@ export default function CustomersPage() {
                                     <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${badge.bg} ${badge.color} leading-none`}>{badge.label}</span>
                                   ) : null
                                 })()}
+                                {customer.card_on_file_at && (
+                                  <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
+                                )}
+                                {getCustomerPaid(customer.phone_number) > 0 && (
+                                  <DollarSign className="flex-shrink-0 w-3 h-3 text-green-400" title={`Paid: $${getCustomerPaid(customer.phone_number).toFixed(0)}`} />
+                                )}
                               </div>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
