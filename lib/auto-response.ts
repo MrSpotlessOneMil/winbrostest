@@ -637,7 +637,7 @@ async function generateWinBrosResponse(
   const systemPrompt = buildWinBrosEstimatePrompt()
 
   const historyContext = conversationHistory?.length
-    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : 'Mary'}: ${m.content}`).join('\n')
+    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
 
   // Build known info context so the AI can confirm rather than re-ask
@@ -674,7 +674,7 @@ async function generateWinBrosResponse(
     timeZone: tenant.timezone || 'America/Chicago',
   })
 
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as Mary. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -786,7 +786,7 @@ async function generateWinBrosResponse(
   return {
     response: hasHistory
       ? `Thanks for your message! I'd love to get you set up with a free estimate. What's your full name?`
-      : `Hi! This is Mary from WinBros Window Cleaning. I'd love to get you set up with a free estimate. What's your full name?`,
+      : `Hi! This is ${sdrName} from ${businessName}. I'd love to get you set up with a free estimate. What's your full name?`,
     shouldSend: true,
     reason: 'WinBros template fallback',
   }
