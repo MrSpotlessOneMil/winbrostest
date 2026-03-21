@@ -57,8 +57,12 @@ vi.mock('@/lib/openphone', () => ({
   normalizePhoneNumber: (phone: string) => phone, // passthrough
   saveOutboundMessage: (...args: any[]) => mockSaveOutboundMessage(...args),
   SMS_TEMPLATES: {
-    vapiConfirmation: (name: string, st: string, dt: string, addr: string) =>
-      `Hi ${name}! Confirming: ${st} on ${dt} at ${addr}.`,
+    vapiConfirmation: (name: string, st: string, dt: string, addr: string, _isEst?: boolean, offerEarned?: boolean, offerApplied?: boolean) => {
+      let msg = `Hi ${name}! Confirming: ${st} on ${dt} at ${addr}.`
+      if (offerApplied) msg += `\n\n🎉 Your FREE standard cleaning has been applied to this booking!`
+      if (offerEarned) msg += `\n\n🎁 BONUS: You've earned a FREE standard cleaning on your next visit! Book again within 90 days and it's on us.`
+      return msg
+    },
     paymentConfirmation: (st: string, date: string) => `Payment confirmed for ${st} on ${date}.`,
     invoiceSent: (email: string) => `Invoice sent to ${email}.`,
     footer: '\n\nReply STOP to unsubscribe.',

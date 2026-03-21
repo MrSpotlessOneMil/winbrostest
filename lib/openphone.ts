@@ -226,7 +226,7 @@ export async function syncContactToOpenPhone(
  * SMS message templates (kept for backwards compatibility)
  */
 export const SMS_TEMPLATES = {
-  vapiConfirmation: (name: string, serviceType: string, dateTime: string, address: string, isEstimate?: boolean): string => {
+  vapiConfirmation: (name: string, serviceType: string, dateTime: string, address: string, isEstimate?: boolean, offerEarned?: boolean, offerApplied?: boolean): string => {
     // Avoid "Cleaning cleaning" — if serviceType already contains "cleaning", don't append it
     const humanType = serviceType.replace(/_/g, ' ')
     const serviceLabel = /cleaning/i.test(humanType) ? humanType : `${humanType} cleaning`
@@ -234,7 +234,14 @@ export const SMS_TEMPLATES = {
     const nextStep = isEstimate
       ? `send your best email and I'll get you confirmed`
       : `send your best email and I will send over a confirmed price`
-    return `Hi ${name}! Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, ${nextStep}.`
+    let msg = `Hi ${name}! Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If it is correct, ${nextStep}.`
+    if (offerApplied) {
+      msg += `\n\n🎉 Your FREE standard cleaning has been applied to this booking!`
+    }
+    if (offerEarned) {
+      msg += `\n\n🎁 BONUS: You've earned a FREE standard cleaning on your next visit! Book again within 90 days and it's on us.`
+    }
+    return msg
   },
   paymentConfirmation: (serviceType: string, date: string): string => {
     const humanType = serviceType.replace(/_/g, ' ')

@@ -580,6 +580,20 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   }
                 }
 
+                // Create "free second cleaning" offer if tenant has it enabled
+                try {
+                  const { createOfferFromBooking } = await import('@/lib/offers')
+                  const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
+                  if (offerResult.created) {
+                    console.log(`${tag} Free cleaning offer created for customer ${customerId} (offer ${offerResult.offer?.id})`)
+                    // Send offer bonus SMS
+                    const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
+                    await sendSMS(tenant, phone, offerMsg)
+                  }
+                } catch (offerErr) {
+                  console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
+                }
+
                 // Deposit link is NOT sent here - customer must reply with email first.
                 // OpenPhone webhook handles: email received -> deposit flow (invoice + Stripe link)
                 // Stripe webhook then triggers cleaner assignment after deposit payment.
@@ -787,6 +801,19 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 if (confirmMsgRecord2?.id) {
                   await client.from("messages").delete().eq("id", confirmMsgRecord2.id)
                 }
+              }
+
+              // Create "free second cleaning" offer if tenant has it enabled
+              try {
+                const { createOfferFromBooking } = await import('@/lib/offers')
+                const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
+                if (offerResult.created) {
+                  console.log(`${tag} Free cleaning offer created for existing-lead customer ${customerId} (offer ${offerResult.offer?.id})`)
+                  const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
+                  await sendSMS(tenant, phone, offerMsg)
+                }
+              } catch (offerErr) {
+                console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
               }
 
               // Deposit link sent later: customer replies with email -> OpenPhone handles deposit flow
