@@ -369,11 +369,61 @@ async function executeCheckTimeouts(request: NextRequest) {
       }
     }
 
+    // ── Auto-unpause stale manual takeovers ──
+    // Safety net: if a customer was paused 2+ hours ago and there's been no
+    // human outbound since, unpause them so AI can respond. This prevents
+    // customers being stuck in paused state forever if they never text back.
+    let unpaused = 0
+    try {
+      const unpauseCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+      const { data: stale } = await client
+        .from('customers')
+        .select('id, phone_number, tenant_id')
+        .eq('auto_response_paused', true)
+        .lt('manual_takeover_at', unpauseCutoff)
+        .limit(200)
+
+      if (stale?.length) {
+        // Batch check: any recent human outbound for these customers?
+        for (const cust of stale) {
+          const { data: recentHuman } = await client
+            .from('messages')
+            .select('id')
+            .eq('phone_number', cust.phone_number)
+            .eq('tenant_id', cust.tenant_id)
+            .eq('source', 'openphone_app')
+            .eq('direction', 'outbound')
+            .gte('timestamp', unpauseCutoff)
+            .limit(1)
+            .maybeSingle()
+
+          if (!recentHuman) {
+            await client
+              .from('customers')
+              .update({ auto_response_paused: false, manual_takeover_at: null })
+              .eq('id', cust.id)
+            unpaused++
+          }
+        }
+        if (unpaused > 0) {
+          console.log(`[check-timeouts] Auto-unpaused ${unpaused} stale manual takeovers`)
+        }
+      }
+    } catch (err) {
+      console.error('[check-timeouts] Auto-unpause error:', err)
+    }
+
+    // ── Clean expired agent outreach notices ──
+    try {
+      await client.from('agent_outreach_notices').delete().lt('expires_at', new Date().toISOString())
+    } catch { /* best-effort cleanup */ }
+
     return NextResponse.json({
       success: true,
       processed: processedJobs.size,
       urgentFollowUpsSent: urgentsSent,
       ownerAlerts,
+      unpaused,
       timestamp: new Date().toISOString(),
     })
   } catch (error) {
