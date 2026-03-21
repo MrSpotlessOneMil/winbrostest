@@ -226,8 +226,42 @@ export async function POST(request: NextRequest) {
           console.log(`[OpenPhone] Saved outbound message from OpenPhone app to ${maskPhone(toPhone)}`)
         }
 
-        // Manual takeover: pause AI, cancel retargeting, record timestamp
-        if (customer?.id && tenant) {
+        // Agent outreach check: if SAM/ANDREW pre-notified about this number, skip manual takeover
+        let isAgentOutreach = false
+        if (customer?.id && toE164) {
+          const { data: notice } = await client
+            .from("agent_outreach_notices")
+            .select("agent")
+            .eq("phone_number", toE164)
+            .gt("expires_at", new Date().toISOString())
+            .limit(1)
+            .maybeSingle()
+          if (notice) {
+            isAgentOutreach = true
+            console.log(`[OpenPhone] Agent outreach (${notice.agent}) detected for ${maskPhone(toPhone)} — skipping manual takeover`)
+          }
+        }
+
+        // Blast detection: if same content was sent to 5+ numbers in last 10 min, it's a broadcast — skip manual takeover
+        let isBroadcast = false
+        if (!isAgentOutreach && customer?.id && tenant && extracted.content) {
+          const blastCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
+          const { count } = await client
+            .from("messages")
+            .select("id", { count: "exact", head: true })
+            .eq("tenant_id", tenant.id)
+            .eq("direction", "outbound")
+            .eq("source", "openphone_app")
+            .eq("content", extracted.content)
+            .gte("timestamp", blastCutoff)
+          if ((count || 0) >= 5) {
+            isBroadcast = true
+            console.log(`[OpenPhone] Broadcast detected (${count} identical messages in 10min) — skipping manual takeover for ${maskPhone(toPhone)}`)
+          }
+        }
+
+        // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for agent outreach and broadcasts)
+        if (customer?.id && tenant && !isBroadcast && !isAgentOutreach) {
           await client
             .from("customers")
             .update({
