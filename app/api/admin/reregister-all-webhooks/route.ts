@@ -23,7 +23,15 @@ interface TenantResult {
   services: Record<string, ServiceResult>
 }
 
+export async function GET(request: NextRequest) {
+  return handleReregister(request)
+}
+
 export async function POST(request: NextRequest) {
+  return handleReregister(request)
+}
+
+async function handleReregister(request: NextRequest) {
   if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }

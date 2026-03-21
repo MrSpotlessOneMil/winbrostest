@@ -19,7 +19,15 @@ interface TenantVerification {
   services: Record<string, VerifyResult>
 }
 
+export async function GET(request: NextRequest) {
+  return handleVerify(request)
+}
+
 export async function POST(request: NextRequest) {
+  return handleVerify(request)
+}
+
+async function handleVerify(request: NextRequest) {
   if (!(await requireAdmin(request))) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
