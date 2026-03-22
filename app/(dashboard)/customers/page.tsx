@@ -62,6 +62,7 @@ interface Customer {
   preferred_day?: string | null
   recurring_notes?: string | null
   lifecycle_stage?: string | null
+  lead_source?: string | null
   sms_opt_out?: boolean
   created_at: string
   updated_at: string
@@ -619,11 +620,29 @@ export default function CustomersPage() {
     return () => clearInterval(pollInterval)
   }, [messages.length, currentUserId])
 
+  const sourceLabelsMap: Record<string, string> = {
+    phone: "Phone Lead",
+    meta: "Meta Lead",
+    website: "Website Lead",
+    sms: "SMS Lead",
+    sam: "SAM Lead",
+    google_lsa: "LSA Lead",
+    google: "Google Lead",
+    ghl: "GHL Lead",
+    thumbtack: "Thumbtack Lead",
+    angi: "Angi Lead",
+    vapi: "Call Lead",
+    manual: "Manual Lead",
+    email: "Email Lead",
+  }
+
   const getCustomerName = (customer: Customer) => {
     if (customer.first_name || customer.last_name) {
       return [customer.first_name, customer.last_name].filter(Boolean).join(" ")
     }
-    return formatPhone(customer.phone_number)
+    // No name — show source label + phone so it's never a raw number
+    const sourceLabel = customer.lead_source ? sourceLabelsMap[customer.lead_source] || "Lead" : "Lead"
+    return `${sourceLabel} · ${formatPhone(customer.phone_number)}`
   }
 
   const getCustomerMessages = (phoneNumber: string) => {
