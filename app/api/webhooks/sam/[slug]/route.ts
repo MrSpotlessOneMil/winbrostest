@@ -111,6 +111,7 @@ export async function POST(
         last_name: lastName || null,
         email: email || null,
         address: address || null,
+        lead_source: 'sam',
       },
       { onConflict: "tenant_id,phone_number" }
     )

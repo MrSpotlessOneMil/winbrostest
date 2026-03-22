@@ -181,7 +181,8 @@ export async function findOrCreateStripeCustomer(
 export async function createAndSendInvoice(
   job: Job,
   customer: Customer,
-  stripeSecretKey: string
+  stripeSecretKey: string,
+  membershipInfo?: { discount: number; planName: string }
 ): Promise<{ success: boolean; invoiceId?: string; invoiceUrl?: string; error?: string }> {
   if (!customer.email) {
     return { success: false, error: 'Customer email required for invoice' }
@@ -243,6 +244,17 @@ export async function createAndSendInvoice(
       currency: 'usd',
       description,
     })
+
+    // Add membership discount line item if applicable
+    if (membershipInfo && membershipInfo.discount > 0) {
+      await stripe.invoiceItems.create({
+        customer: stripeCustomer.id,
+        invoice: invoice.id,
+        amount: -Math.round(membershipInfo.discount * 100),
+        currency: 'usd',
+        description: `${membershipInfo.planName} member discount`,
+      })
+    }
 
     // Finalize the invoice to generate hosted page with details
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
@@ -734,6 +746,8 @@ export type JobPricingEstimate = {
   hoursPerCleaner: number
   cleanerPay: number
   addOns: AddOnKey[]
+  membershipDiscount?: number
+  membershipPlanName?: string
 }
 
 /**
@@ -849,7 +863,8 @@ export function calculateJobEstimate(
 export async function calculateJobEstimateAsync(
   job: Partial<Job>,
   customer?: { bedrooms?: number; bathrooms?: number; square_footage?: number },
-  tenantId?: string
+  tenantId?: string,
+  membershipId?: string
 ): Promise<JobPricingEstimate> {
   const basePrices: Record<string, number> = {
     'Standard cleaning': 150,
@@ -945,7 +960,38 @@ export async function calculateJobEstimateAsync(
   const config = getClientConfig()
   const pricingAdjustmentPct = resolvePricingAdjustmentPct(job, config)
   const pricingAdjustmentAmount = roundCurrency((basePrice + addOnPrice) * (pricingAdjustmentPct / 100))
-  const totalPrice = roundCurrency(basePrice + addOnPrice + pricingAdjustmentAmount)
+  const priceBeforeDiscount = roundCurrency(basePrice + addOnPrice + pricingAdjustmentAmount)
+
+  // Apply membership discount if applicable
+  let membershipDiscount = 0
+  let membershipPlanName: string | undefined
+  if (membershipId && tenantId) {
+    try {
+      const { getSupabaseServiceClient } = await import('./supabase')
+      const db = getSupabaseServiceClient()
+      const { data: membership } = await db
+        .from('customer_memberships')
+        .select('id, plan_id, service_plans!inner(name, discount_per_visit, discount_type)')
+        .eq('id', membershipId)
+        .eq('status', 'active')
+        .single()
+
+      if (membership) {
+        const plan = membership.service_plans as any
+        membershipPlanName = plan.name
+        const discountValue = Number(plan.discount_per_visit) || 0
+        if (plan.discount_type === 'percent') {
+          membershipDiscount = roundCurrency(priceBeforeDiscount * (discountValue / 100))
+        } else {
+          membershipDiscount = roundCurrency(Math.min(discountValue, priceBeforeDiscount))
+        }
+      }
+    } catch (err) {
+      console.error('[Pricing] Membership discount lookup failed:', err)
+    }
+  }
+
+  const totalPrice = roundCurrency(priceBeforeDiscount - membershipDiscount)
 
   return {
     basePrice: roundCurrency(basePrice),
@@ -960,6 +1006,8 @@ export async function calculateJobEstimateAsync(
     hoursPerCleaner: roundHours(hoursPerCleaner || baseHoursPerCleaner),
     cleanerPay: roundCurrency(totalHours * config.cleanerHourlyRate),
     addOns,
+    membershipDiscount: membershipDiscount > 0 ? membershipDiscount : undefined,
+    membershipPlanName,
   }
 }
 

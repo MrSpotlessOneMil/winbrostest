@@ -3,6 +3,11 @@
 # dependencies
 /node_modules
 
+# playwright
+.playwright-auth.json
+/test-results/
+/playwright-report/
+
 # next.js
 /.next/
 /out/

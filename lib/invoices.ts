@@ -34,7 +34,8 @@ const WAVE_API_URL = 'https://gql.waveapps.com/graphql/public'
 export async function createInvoice(
   job: Job,
   customer: Customer,
-  tenant?: { workflow_config?: any; stripe_secret_key?: string; wave_api_token?: string; wave_business_id?: string; wave_income_account_id?: string } | null
+  tenant?: { workflow_config?: any; stripe_secret_key?: string; wave_api_token?: string; wave_business_id?: string; wave_income_account_id?: string } | null,
+  membershipInfo?: { discount: number; planName: string }
 ): Promise<InvoiceResult> {
   const wc = tenant?.workflow_config
 
@@ -42,7 +43,7 @@ export async function createInvoice(
   if (wc?.use_stripe && !wc?.use_wave && tenant?.stripe_secret_key) {
     try {
       const { createAndSendInvoice } = await import('./stripe-client')
-      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key)
+      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key, membershipInfo)
       return {
         success: result.success,
         provider: 'stripe',

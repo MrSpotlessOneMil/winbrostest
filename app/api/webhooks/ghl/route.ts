@@ -7,6 +7,29 @@ import { scheduleLeadFollowUp } from "@/lib/scheduler"
 import { logSystemEvent } from "@/lib/system-events"
 import { getTenantBySlug } from "@/lib/tenant"
 
+// Map GHL-internal source values to valid leads.source CHECK constraint values
+function mapGhlSourceToLeadSource(payload: any): { source: string; ghl_source: string } {
+  const data = payload?.data || payload
+  const contact = data?.contact || data?.contactData || data
+  const rawSource = (contact?.source || data?.source || '').toLowerCase()
+  const campaign = (contact?.adCampaign || data?.adCampaign || contact?.ad_campaign || '').toLowerCase()
+
+  if (rawSource.includes('facebook') || rawSource.includes('meta') || rawSource.includes('fb') ||
+      campaign.includes('facebook') || campaign.includes('meta') || campaign.includes('fb')) {
+    return { source: 'meta', ghl_source: 'meta_ads' }
+  }
+  if (rawSource.includes('google') || campaign.includes('google') || campaign.includes('adwords')) {
+    return { source: 'google', ghl_source: 'google_ads' }
+  }
+  if (rawSource.includes('referral') || rawSource.includes('refer')) {
+    return { source: 'manual', ghl_source: 'referral' }
+  }
+  if (rawSource.includes('organic') || rawSource.includes('seo')) {
+    return { source: 'website', ghl_source: 'organic' }
+  }
+  return { source: 'ghl', ghl_source: rawSource || 'unknown' }
+}
+
 // Minimal GoHighLevel webhook handler:
 // stores incoming leads into `public.leads`.
 // Tenant is resolved from ?tenant= query param (slug).
@@ -115,10 +138,13 @@ export async function POST(request: NextRequest) {
 
   const client = getSupabaseClient()
 
+  // Detect lead source from GHL payload
+  const { source: leadSource, ghl_source: ghlSource } = mapGhlSourceToLeadSource(payload)
+
   // Upsert customer for linking later (composite unique: tenant_id, phone_number)
   const { data: customer } = await client
     .from("customers")
-    .upsert({ phone_number: phone, tenant_id: tenant.id, first_name: firstName || null, last_name: lastName || null, email: email || null }, { onConflict: "tenant_id,phone_number" })
+    .upsert({ phone_number: phone, tenant_id: tenant.id, first_name: firstName || null, last_name: lastName || null, email: email || null, lead_source: leadSource }, { onConflict: "tenant_id,phone_number" })
     .select("id")
     .single()
 
@@ -131,9 +157,9 @@ export async function POST(request: NextRequest) {
     first_name: firstName || null,
     last_name: lastName || null,
     email: email || null,
-    source: "meta",
+    source: leadSource,
     status: "new",
-    form_data: payload,
+    form_data: { ...payload, ghl_source: ghlSource },
     followup_stage: 0,
     followup_started_at: new Date().toISOString(),
   }).select("id").single()

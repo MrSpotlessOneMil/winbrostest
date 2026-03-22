@@ -10,7 +10,10 @@
     "setup-qstash": "tsx scripts/setup-qstash-schedule.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cedar": "vitest run tests/cedar-rapids --reporter=verbose"
+    "test:cedar": "vitest run tests/cedar-rapids --reporter=verbose",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
@@ -86,6 +89,7 @@
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.9",
     "@types/mailparser": "^3.4.6",
     "@types/node": "^22",

@@ -43,6 +43,9 @@ import {
   ThumbsUp,
   MapPin,
   Radar,
+  Building,
+  Star,
+  Wrench,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -60,16 +63,33 @@ function timeAgo(iso: string): string {
   return `${days}d ago`
 }
 
+const sourceLabels: Record<string, string> = {
+  phone: "Phone Call",
+  meta: "Meta Ads",
+  website: "Website",
+  sms: "SMS",
+  sam: "SAM",
+  google_lsa: "Google LSA",
+  google: "Google Ads",
+  ghl: "GoHighLevel",
+  thumbtack: "Thumbtack",
+  angi: "Angi",
+  housecall_pro: "HouseCall Pro",
+  manual: "Manual",
+  email: "Email",
+  vapi: "VAPI Call",
+}
+
 function titleSource(source: string): string {
   if (!source) return "Other"
-  return source.slice(0, 1).toUpperCase() + source.slice(1)
+  return sourceLabels[source] || source.slice(0, 1).toUpperCase() + source.slice(1)
 }
 
 type UiLead = {
   id: string
   name: string
   phone: string
-  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google" | "sam"
+  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google" | "sam" | "google_lsa" | "ghl" | "angi"
   status: "new" | "contacted" | "qualified" | "booked" | "nurturing" | "lost"
   service: string
   estimatedValue: number
@@ -78,7 +98,7 @@ type UiLead = {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google", "sam"]
+  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google", "sam", "google_lsa", "ghl", "angi"]
   const source = (knownSources.includes(l.source as any) ? l.source : "phone") as UiLead["source"]
   const isSam = l.source === "sam" || (l as any).form_data?.sam_handoff === true
   const status =
@@ -109,9 +129,25 @@ const sourceIcons = {
   meta: Instagram,
   website: Globe,
   sms: MessageSquare,
-  thumbtack: ThumbsUp,
+  thumbtack: Wrench,
   google: MapPin,
   sam: Radar,
+  google_lsa: MapPin,
+  ghl: Building,
+  angi: Star,
+}
+
+const sourceColors: Record<string, string> = {
+  phone: "bg-primary/15 text-primary",
+  meta: "bg-pink-500/15 text-pink-500",
+  website: "bg-emerald-500/15 text-emerald-400",
+  sms: "bg-accent/15 text-accent",
+  sam: "bg-orange-500/15 text-orange-500",
+  google_lsa: "bg-green-500/15 text-green-400",
+  google: "bg-blue-500/15 text-blue-400",
+  ghl: "bg-purple-500/15 text-purple-400",
+  thumbtack: "bg-yellow-500/15 text-yellow-400",
+  angi: "bg-red-500/15 text-red-400",
 }
 
 const statusConfig = {
@@ -190,7 +226,7 @@ export default function LeadsPage() {
   }, [leads])
 
   const sourceData = useMemo(() => {
-    const sources: Array<UiLead["source"]> = ["phone", "meta", "website", "sms", "sam"]
+    const sources: Array<UiLead["source"]> = ["phone", "meta", "website", "sms", "sam", "google_lsa", "thumbtack", "ghl"]
     return sources.map((s) => {
       const items = leads.filter((l) => l.source === s)
       const booked = items.filter((l) => l.status === "booked").length
@@ -381,11 +417,14 @@ export default function LeadsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Sources</SelectItem>
-                <SelectItem value="sam">SAM</SelectItem>
-                <SelectItem value="phone">Phone</SelectItem>
-                <SelectItem value="meta">Meta</SelectItem>
+                <SelectItem value="phone">Phone Call</SelectItem>
+                <SelectItem value="meta">Meta Ads</SelectItem>
+                <SelectItem value="google_lsa">Google LSA</SelectItem>
                 <SelectItem value="website">Website</SelectItem>
                 <SelectItem value="sms">SMS</SelectItem>
+                <SelectItem value="sam">SAM</SelectItem>
+                <SelectItem value="ghl">GoHighLevel</SelectItem>
+                <SelectItem value="thumbtack">Thumbtack</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -505,14 +544,19 @@ export default function LeadsPage() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Source</p>
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{titleSource(selectedLead.source || "")}</p>
-                    {(selectedLead.source === "sam" || (selectedLead as any).form_data?.sam_handoff) && (
-                      <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20 text-[10px]">
-                        SAM
-                      </Badge>
-                    )}
-                  </div>
+                  {(() => {
+                    const src = selectedLead.source || "phone"
+                    const SourceIcon = sourceIcons[src as keyof typeof sourceIcons] || Phone
+                    const colorClass = sourceColors[src] || "bg-muted text-muted-foreground"
+                    return (
+                      <div className="flex items-center gap-2">
+                        <div className={cn("flex h-6 w-6 items-center justify-center rounded-full", colorClass)}>
+                          <SourceIcon className="h-3.5 w-3.5" />
+                        </div>
+                        <p className="font-medium">{titleSource(src)}</p>
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Phone</p>

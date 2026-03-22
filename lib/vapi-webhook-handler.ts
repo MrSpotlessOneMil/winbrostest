@@ -116,7 +116,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   if (phone) {
     const { data: customer, error } = await client
       .from("customers")
-      .upsert({ phone_number: phone, tenant_id: tenant.id }, { onConflict: "tenant_id,phone_number" })
+      .upsert({ phone_number: phone, tenant_id: tenant.id, lead_source: 'phone' }, { onConflict: "tenant_id,phone_number" })
       .select("id")
       .single()
     if (error) {

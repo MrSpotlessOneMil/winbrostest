@@ -14,7 +14,7 @@ import {
   appendToTextingTranscript,
 } from '@/lib/supabase'
 import type { Job } from '@/lib/supabase'
-import { calculateJobEstimate } from '@/lib/stripe-client'
+import { calculateJobEstimate, calculateJobEstimateAsync } from '@/lib/stripe-client'
 import { createInvoice } from '@/lib/invoices'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { mergeEstimateIntoNotes } from '@/lib/pricing-config'
@@ -77,11 +77,15 @@ export async function POST(request: NextRequest) {
       customer = await upsertCustomer(job.phone_number, { email }) || customer
     }
 
-    // Calculate price if not set
+    // Calculate price if not set (use async version for membership discount support)
     let jobPrice = job.price
+    let membershipInfo: { discount: number; planName: string } | undefined
     if (!jobPrice || jobPrice <= 0 || !job.hours) {
-      const estimate = calculateJobEstimate(job, customer)
+      const estimate = await calculateJobEstimateAsync(job, customer, job.tenant_id || undefined, (job as any).membership_id || undefined)
       jobPrice = estimate.totalPrice
+      if (estimate.membershipDiscount && estimate.membershipPlanName) {
+        membershipInfo = { discount: estimate.membershipDiscount, planName: estimate.membershipPlanName }
+      }
 
       // Update job with calculated price and hours
       const nextNotes = mergeEstimateIntoNotes(job.notes, {
@@ -91,12 +95,19 @@ export async function POST(request: NextRequest) {
         cleanerPay: estimate.cleanerPay,
       })
       await updateJob(jobId, { price: jobPrice, hours: estimate.totalHours, cleaners: estimate.cleaners, notes: nextNotes })
+    } else if ((job as any).membership_id) {
+      // Price already set but job has a membership — still calculate discount for invoice display
+      const estimate = await calculateJobEstimateAsync(job, customer, job.tenant_id || undefined, (job as any).membership_id)
+      if (estimate.membershipDiscount && estimate.membershipPlanName) {
+        membershipInfo = { discount: estimate.membershipDiscount, planName: estimate.membershipPlanName }
+      }
     }
 
     const invoiceResult = await createInvoice(
       { ...job, price: jobPrice },
       { ...customer, email: customerEmail },
-      tenant
+      tenant,
+      membershipInfo
     )
 
     if (!invoiceResult.success) {
