@@ -354,13 +354,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               },
             })
 
-            // Treat as booked if outcome says so, OR if structuredData has appointment info
-            const isBooked =
-              data.outcome === "booked" ||
-              !!(structuredData.appointment_date && structuredData.appointment_time) ||
-              !!(structuredData.confirmed_datetime)
+            // Treat as booked ONLY if we have real booking evidence — not just AI saying "booked"
+            // The AI sometimes marks calls as "booked" when they aren't (e.g. caller barely spoke)
+            const hasAppointmentData = !!(structuredData.appointment_date && structuredData.appointment_time) ||
+              !!(structuredData.confirmed_datetime) ||
+              !!(structuredData.date && structuredData.time && structuredData.address)
+            const transcriptLooksBooked = data.transcript && data.transcript.length > 200 &&
+              hasAppointmentData
+            const isBooked = transcriptLooksBooked ||
+              (data.outcome === "booked" && hasAppointmentData)
 
             if (!isBooked) {
+              // Not really booked — schedule SMS follow-up so we don't lose the lead
+              if (data.outcome === "booked" && !hasAppointmentData) {
+                console.warn(`${tag} AI reported 'booked' but no appointment data found — treating as NOT booked, scheduling follow-up`)
+              }
               try {
                 await scheduleLeadFollowUp(
                   tenant.id,
@@ -603,11 +611,22 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         } else {
           console.log(`${tag} Lead already exists for ${maskPhone(phone)} (id: ${existingLead.id})`)
 
-          // Also treat as booked if structuredData has appointment info
-          const existingLeadIsBooked =
-            data.outcome === "booked" ||
-            !!(structuredData.appointment_date && structuredData.appointment_time) ||
-            !!(structuredData.confirmed_datetime)
+          // Only treat as booked if we have real appointment data — not just AI saying "booked"
+          const existingHasAppointment = !!(structuredData.appointment_date && structuredData.appointment_time) ||
+            !!(structuredData.confirmed_datetime) ||
+            !!(structuredData.date && structuredData.time && structuredData.address)
+          const existingTranscriptBooked = data.transcript && data.transcript.length > 200 && existingHasAppointment
+          const existingLeadIsBooked = existingTranscriptBooked ||
+            (data.outcome === "booked" && existingHasAppointment)
+
+          if (!existingLeadIsBooked && data.outcome === "booked") {
+            console.warn(`${tag} AI reported 'booked' for existing lead ${existingLead.id} but no appointment data — scheduling follow-up`)
+            try {
+              await scheduleLeadFollowUp(tenant.id, String(existingLead.id), phone, fullName || "there")
+            } catch (err) {
+              console.error(`${tag} Failed to schedule follow-up for false-booked lead:`, err)
+            }
+          }
 
           if (existingLeadIsBooked) {
             console.log(`${tag} Updating existing lead ${existingLead.id} with booked outcome`)
