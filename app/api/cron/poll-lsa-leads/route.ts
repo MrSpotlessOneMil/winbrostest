@@ -152,7 +152,36 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      // For phone calls, VAPI/Sarah already handled the call — don't schedule SMS follow-up
+      // For phone calls, VAPI already created a lead with source='phone' — find it and update source to google_lsa
+      if (lead.leadType === 'PHONE_CALL') {
+        // Match by phone number + tenant + created within 5 minutes of LSA lead creation
+        const lsaCreatedAt = lead.leadCreationTimestamp ? new Date(lead.leadCreationTimestamp) : new Date()
+        const matchWindow = new Date(lsaCreatedAt.getTime() - 5 * 60 * 1000).toISOString()
+        const matchWindowEnd = new Date(lsaCreatedAt.getTime() + 5 * 60 * 1000).toISOString()
+
+        const { data: vapiLead } = await client
+          .from('leads')
+          .select('id, source')
+          .eq('phone_number', phone)
+          .eq('tenant_id', tenant.id)
+          .eq('source', 'phone')
+          .gte('created_at', matchWindow)
+          .lte('created_at', matchWindowEnd)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (vapiLead) {
+          await client.from('leads').update({ source: 'google_lsa' }).eq('id', vapiLead.id)
+          await client.from('customers').update({ lead_source: 'google_lsa' }).eq('phone_number', phone).eq('tenant_id', tenant.id)
+          console.log(`[LSA] Updated existing VAPI lead ${vapiLead.id} source to google_lsa`)
+        } else {
+          // No matching VAPI lead — update the lead we just created
+          // Also update customer lead_source
+          await client.from('customers').update({ lead_source: 'google_lsa' }).eq('phone_number', phone).eq('tenant_id', tenant.id)
+        }
+      }
+
       // For message leads, schedule follow-up
       if (lead.leadType === 'MESSAGE' && newLead?.id) {
         const leadName = customerName || 'Customer'

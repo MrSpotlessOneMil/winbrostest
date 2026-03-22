@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Phone, PhoneOutgoing, MessageSquare, Globe, Instagram, ChevronRight, Radar } from "lucide-react"
+import { Phone, PhoneOutgoing, MessageSquare, Globe, Instagram, ChevronRight, Radar, MapPin, Wrench, Star } from "lucide-react"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 import type { Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -13,7 +13,7 @@ type UiLead = {
   id: string
   name: string
   phone: string | null
-  source: "phone" | "meta" | "website" | "sms" | "sam"
+  source: "phone" | "meta" | "website" | "sms" | "sam" | "google_lsa" | "thumbtack" | "angi"
   time: string
   status: "new" | "contacted" | "booked" | "nurturing" | "lost"
   service: string
@@ -34,7 +34,8 @@ function timeAgo(iso: string): string {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const source = (l.source === "meta" || l.source === "website" || l.source === "sms" || l.source === "sam" ? l.source : "phone") as UiLead["source"]
+  const validSources = ["meta", "website", "sms", "sam", "google_lsa", "thumbtack", "angi"]
+  const source = (validSources.includes(l.source) ? l.source : "phone") as UiLead["source"]
   const status =
     (l.status === "new" || l.status === "contacted" || l.status === "booked" || l.status === "nurturing" || l.status === "lost"
       ? l.status
@@ -62,6 +63,9 @@ const sourceIcons = {
   website: Globe,
   sms: MessageSquare,
   sam: Radar,
+  google_lsa: MapPin,
+  thumbtack: Wrench,
+  angi: Star,
 }
 
 const statusConfig = {
@@ -130,11 +134,12 @@ export function RecentLeads() {
             </div>
           )}
           {!loading && leads.map((lead) => {
-            const SourceIcon = sourceIcons[lead.source as keyof typeof sourceIcons]
+            const SourceIcon = sourceIcons[lead.source as keyof typeof sourceIcons] || Phone
             return (
-              <div
+              <Link
                 key={lead.id}
-                className="flex items-center gap-4 glass-list-item p-3"
+                href={lead.phone ? `/customers?phone=${encodeURIComponent(lead.phone)}` : '/customers'}
+                className="flex items-center gap-4 glass-list-item p-3 cursor-pointer hover:bg-zinc-800/60 transition-colors"
               >
                 <div
                   className={cn(
@@ -143,7 +148,10 @@ export function RecentLeads() {
                     lead.source === "meta" && "bg-pink-500/15 text-pink-500",
                     lead.source === "website" && "bg-success/15 text-success",
                     lead.source === "sms" && "bg-accent/15 text-accent",
-                    lead.source === "sam" && "bg-orange-500/15 text-orange-500"
+                    lead.source === "sam" && "bg-orange-500/15 text-orange-500",
+                    lead.source === "google_lsa" && "bg-emerald-500/15 text-emerald-400",
+                    lead.source === "thumbtack" && "bg-cyan-500/15 text-cyan-400",
+                    lead.source === "angi" && "bg-orange-600/15 text-orange-500"
                   )}
                 >
                   <SourceIcon className="h-5 w-5" />
@@ -172,7 +180,7 @@ export function RecentLeads() {
                   </div>
                   <span className="text-xs text-zinc-600">{lead.time}</span>
                 </div>
-              </div>
+              </Link>
             )
           })}
           {!loading && leads.length === 0 && (
