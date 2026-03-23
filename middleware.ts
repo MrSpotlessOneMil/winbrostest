@@ -42,6 +42,7 @@ const externalRoutes = [
 ]
 
 function isPublicRoute(pathname: string): boolean {
+  if (pathname === '/') return true // Root page (role select / crew login) is public
   return publicRoutes.some(route => pathname === route || pathname.startsWith(route + '/'))
 }
 
