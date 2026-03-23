@@ -641,9 +641,27 @@ export default function CustomersPage() {
     if (customer.first_name || customer.last_name) {
       return [customer.first_name, customer.last_name].filter(Boolean).join(" ")
     }
-    // No name — show source label + phone so it's never a raw number
-    const sourceLabel = customer.lead_source ? sourceLabelsMap[customer.lead_source] || "Lead" : "Lead"
-    return `${sourceLabel} · ${formatPhone(customer.phone_number)}`
+    return formatPhone(customer.phone_number)
+  }
+
+  const getSourceBadge = (customer: Customer) => {
+    if (!customer.lead_source) return null
+    const label = sourceLabelsMap[customer.lead_source]
+    if (!label) return null
+    const colors: Record<string, string> = {
+      retargeting: "bg-cyan-500/20 text-cyan-300",
+      sam: "bg-orange-500/20 text-orange-300",
+      meta: "bg-pink-500/20 text-pink-300",
+      google_lsa: "bg-green-500/20 text-green-300",
+      website: "bg-emerald-500/20 text-emerald-300",
+      phone: "bg-blue-500/20 text-blue-300",
+      sms: "bg-purple-500/20 text-purple-300",
+      email: "bg-yellow-500/20 text-yellow-300",
+      google: "bg-blue-500/20 text-blue-300",
+      thumbtack: "bg-yellow-500/20 text-yellow-300",
+      ghl: "bg-purple-500/20 text-purple-300",
+    }
+    return { label, className: colors[customer.lead_source] || "bg-zinc-500/20 text-zinc-300" }
   }
 
   const getCustomerMessages = (phoneNumber: string) => {
@@ -1643,6 +1661,12 @@ export default function CustomersPage() {
                                   const badge = getLifecycleBadge(customer)
                                   return badge ? (
                                     <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${badge.bg} ${badge.color} leading-none`}>{badge.label}</span>
+                                  ) : null
+                                })()}
+                                {(() => {
+                                  const srcBadge = getSourceBadge(customer)
+                                  return srcBadge ? (
+                                    <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
                                   ) : null
                                 })()}
                                 {customer.card_on_file_at && (
