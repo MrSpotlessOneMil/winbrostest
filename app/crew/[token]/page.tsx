@@ -1,85 +1,32 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useParams, useRouter } from "next/navigation"
-import {
-  Calendar,
-  Clock,
-  MapPin,
-  ChevronRight,
-  Loader2,
-  CheckCircle,
-  AlertCircle,
-  Briefcase,
-  History,
-  PlusCircle,
-  LogOut,
-} from "lucide-react"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { Loader2, AlertCircle } from "lucide-react"
+import type { PortalData } from "./crew-types"
+import Design1 from "./designs/design1"
+import Design2 from "./designs/design2"
+import Design3 from "./designs/design3"
+import Design4 from "./designs/design4"
+import Design5 from "./designs/design5"
 
-interface JobCard {
-  id: number
-  date: string
-  scheduled_at: string | null
-  address: string | null
-  service_type: string | null
-  status: string
-  job_type: string | null
-  assignment_status: string
-  assignment_id: string
-  customer_first_name: string | null
-  cleaner_omw_at: string | null
-  cleaner_arrived_at: string | null
-  payment_method: string | null
-}
-
-interface PortalData {
-  cleaner: { id: number; name: string; phone: string; availability: any; employee_type?: string }
-  tenant: { name: string; slug: string }
-  todaysJobs: JobCard[]
-  upcomingJobs: JobCard[]
-  pendingJobs: JobCard[]
-  pastJobs: JobCard[]
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  })
-}
-
-function formatTime(timeStr: string | null): string {
-  if (!timeStr) return "TBD"
-  try {
-    const [h, m] = timeStr.split(":").map(Number)
-    const ampm = h >= 12 ? "PM" : "AM"
-    const hour12 = h % 12 || 12
-    return `${hour12}:${m.toString().padStart(2, "0")} ${ampm}`
-  } catch {
-    return timeStr
-  }
-}
-
-function humanize(value: string): string {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function getJobStatusDisplay(job: JobCard): { label: string; color: string } {
-  if (job.job_type === "estimate") return { label: "Estimate", color: "bg-purple-100 text-purple-800" }
-  if (job.assignment_status === "pending") return { label: "Needs Response", color: "bg-amber-100 text-amber-800" }
-  if (job.status === "completed") return { label: "Done", color: "bg-green-100 text-green-800" }
-  if (job.cleaner_arrived_at) return { label: "At Location", color: "bg-blue-100 text-blue-800" }
-  if (job.cleaner_omw_at) return { label: "On My Way", color: "bg-indigo-100 text-indigo-800" }
-  return { label: "Upcoming", color: "bg-slate-100 text-slate-700" }
-}
+const DESIGNS = [
+  { id: 1, name: "Midnight Luxe", component: Design1, desc: "Dark glassmorphism" },
+  { id: 2, name: "Aurora", component: Design2, desc: "Light gradient premium" },
+  { id: 3, name: "Mono", component: Design3, desc: "Ultra-minimal editorial" },
+  { id: 4, name: "Neon", component: Design4, desc: "Dark + electric accents" },
+  { id: 5, name: "Warm", component: Design5, desc: "Earth-toned luxury" },
+]
 
 export default function CrewPortalPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const token = params.token as string
+
+  const designParam = searchParams.get("design")
+  const designNum = designParam ? parseInt(designParam, 10) : 0
+  const showPicker = designParam !== null
 
   const [data, setData] = useState<PortalData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -96,14 +43,13 @@ export default function CrewPortalPage() {
       .finally(() => setLoading(false))
   }, [token])
 
-  // Silently set an employee session cookie when visiting via token link
   useEffect(() => {
-    fetch(`/api/crew/${token}/auto-session`, { method: 'POST' }).catch(() => {})
+    fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {})
   }, [token])
 
   async function handleLogout() {
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
-    router.push('/login')
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {})
+    router.push("/login")
   }
 
   if (loading) {
@@ -126,185 +72,40 @@ export default function CrewPortalPage() {
     )
   }
 
-  const { cleaner, tenant, todaysJobs, upcomingJobs, pendingJobs, pastJobs } = data
+  // Find the active design (default to Design 2 Aurora if no param or invalid)
+  const activeDesign = DESIGNS.find((d) => d.id === designNum) || DESIGNS[1]
+  const DesignComponent = activeDesign.component
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <div className="bg-blue-600 text-white px-4 py-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-blue-200 text-sm">{tenant.name}</p>
-            <h1 className="text-xl font-bold mt-0.5">Hey, {cleaner.name}!</h1>
+    <>
+      <DesignComponent data={data} token={token} onLogout={handleLogout} />
+
+      {/* Design Picker — only shows when ?design= param is present */}
+      {showPicker && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-lg border-t border-slate-200 shadow-[0_-4px_20px_rgba(0,0,0,0.1)]">
+          <div className="max-w-lg mx-auto px-3 py-3">
+            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-medium mb-2 text-center">
+              Pick Your Design
+            </p>
+            <div className="flex gap-1.5 justify-center">
+              {DESIGNS.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => router.replace(`/crew/${token}?design=${d.id}`)}
+                  className={`flex-1 py-2 px-1 rounded-lg text-center transition-all ${
+                    activeDesign.id === d.id
+                      ? "bg-slate-900 text-white shadow-md"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  <span className="text-xs font-semibold block">{d.id}</span>
+                  <span className="text-[9px] block mt-0.5 opacity-70">{d.name}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 text-blue-200 hover:text-white text-xs mt-1 transition-colors"
-            title="Log out"
-          >
-            <LogOut className="size-3.5" />
-            Log out
-          </button>
         </div>
-      </div>
-
-      <div className="max-w-lg mx-auto px-4 py-4 space-y-6">
-        {/* New Quote CTA — salesmen only */}
-        {cleaner.employee_type === "salesman" && (
-          <button
-            onClick={() => router.push(`/crew/${token}/new-quote`)}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl p-4 flex items-center gap-3 shadow-md hover:shadow-lg active:scale-[0.98] transition-all"
-          >
-            <div className="size-11 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
-              <PlusCircle className="size-6" />
-            </div>
-            <div className="text-left">
-              <h3 className="font-bold text-base">New Quote</h3>
-              <p className="text-blue-200 text-xs">Create a quote for a new customer</p>
-            </div>
-            <ChevronRight className="size-5 ml-auto text-blue-200" />
-          </button>
-        )}
-
-        {/* Pending assignments (needs response) */}
-        {pendingJobs.length > 0 && (
-          <Section
-            title="Needs Your Response"
-            icon={<AlertCircle className="size-5 text-amber-500" />}
-            count={pendingJobs.length}
-          >
-            {pendingJobs.map((job) => (
-              <JobCardComponent key={job.id} job={job} token={token} />
-            ))}
-          </Section>
-        )}
-
-        {/* Today's Jobs */}
-        <Section
-          title="Today's Jobs"
-          icon={<Briefcase className="size-5 text-blue-500" />}
-          count={todaysJobs.length}
-          emptyText="No jobs scheduled for today"
-        >
-          {todaysJobs.map((job) => (
-            <JobCardComponent key={job.id} job={job} token={token} />
-          ))}
-        </Section>
-
-        {/* Upcoming */}
-        {upcomingJobs.length > 0 && (
-          <Section
-            title="Upcoming (Next 7 Days)"
-            icon={<Calendar className="size-5 text-indigo-500" />}
-            count={upcomingJobs.length}
-          >
-            {upcomingJobs.map((job) => (
-              <JobCardComponent key={job.id} job={job} token={token} />
-            ))}
-          </Section>
-        )}
-
-        {/* Past Jobs */}
-        {pastJobs.length > 0 && (
-          <Section
-            title="Completed"
-            icon={<History className="size-5 text-slate-400" />}
-            count={pastJobs.length}
-          >
-            {pastJobs.map((job) => (
-              <JobCardComponent key={job.id} job={job} token={token} compact />
-            ))}
-          </Section>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function Section({
-  title,
-  icon,
-  count,
-  emptyText,
-  children,
-}: {
-  title: string
-  icon: React.ReactNode
-  count: number
-  emptyText?: string
-  children: React.ReactNode
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        {icon}
-        <h2 className="font-semibold text-slate-800">{title}</h2>
-        <span className="text-sm text-slate-400 ml-auto">{count}</span>
-      </div>
-      {count === 0 && emptyText ? (
-        <p className="text-sm text-slate-400 bg-white rounded-lg p-4 text-center">{emptyText}</p>
-      ) : (
-        <div className="space-y-2">{children}</div>
       )}
-    </div>
-  )
-}
-
-function JobCardComponent({
-  job,
-  token,
-  compact,
-}: {
-  job: JobCard
-  token: string
-  compact?: boolean
-}) {
-  const router = useRouter()
-  const statusDisplay = getJobStatusDisplay(job)
-  const isEstimate = job.job_type === "estimate"
-  const href = isEstimate ? `/crew/${token}/estimate/${job.id}` : `/crew/${token}/job/${job.id}`
-
-  return (
-    <button
-      onClick={() => router.push(href)}
-      className={`w-full text-left bg-white rounded-lg border p-3 hover:shadow-sm transition-all ${
-        isEstimate ? "border-purple-200 hover:border-purple-300" : "border-slate-200 hover:border-blue-300"
-      }`}
-    >
-      <div className="flex items-start justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${statusDisplay.color}`}>
-              {statusDisplay.label}
-            </span>
-            {job.service_type && (
-              <span className="text-xs text-slate-400">{humanize(job.service_type)}</span>
-            )}
-          </div>
-          <div className="mt-1.5 flex items-center gap-3 text-sm text-slate-600">
-            <span className="flex items-center gap-1">
-              <Calendar className="size-3.5" />
-              {formatDate(job.date)}
-            </span>
-            <span className="flex items-center gap-1">
-              <Clock className="size-3.5" />
-              {formatTime(job.scheduled_at)}
-            </span>
-          </div>
-          {!compact && job.address && (
-            <p className="mt-1 text-sm text-slate-500 flex items-start gap-1 truncate">
-              <MapPin className="size-3.5 mt-0.5 shrink-0" />
-              <span className="truncate">{job.address}</span>
-            </p>
-          )}
-          {job.customer_first_name && (
-            <p className="mt-0.5 text-xs text-slate-400">
-              Customer: {job.customer_first_name}
-            </p>
-          )}
-        </div>
-        <ChevronRight className="size-5 text-slate-300 shrink-0 mt-1" />
-      </div>
-    </button>
+    </>
   )
 }
