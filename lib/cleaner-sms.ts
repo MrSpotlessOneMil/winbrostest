@@ -124,7 +124,6 @@ export async function notifyCleanerAssignment(
   }
   if (job.square_footage) details.push(`${job.square_footage} sqft`)
   if (job.hours) details.push(`${job.hours} hrs`)
-  if (job.price) details.push(`$${Number(job.price).toFixed(0)}`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
   let link = ''
