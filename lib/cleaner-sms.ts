@@ -462,7 +462,7 @@ export const CLEANER_SMS_PATTERNS = {
   omw: /^(omw|on my way|otw|heading over|leaving now)\b/i,
   here: /^(here|arrived|i'?m here|at the house)\b/i,
   done: /^(done|finished|complete|all done)\b/i,
-  accept: /^(yes|yeah|yep|yup|y|sure|accept|ok|okay|1)\b/i,
+  accept: /^(yes|yeah|yep|yup|y|sure|accept|1)\b/i,
   decline: /^(no|nah|n|decline|pass|can'?t|2)\b/i,
   login: /\b(login|log in|password|pin|username|sign in|my credentials|how do i log in|my login)\b/i,
 }
@@ -569,12 +569,19 @@ export async function processCleanerAssignmentReply(
     .eq('id', pending.id)
 
   if (accepted) {
-    // Accept: update cleaner_assignment status
-    await client
+    // Accept: update cleaner_assignment status — only if still pending
+    const { data: updated } = await client
       .from('cleaner_assignments')
       .update({ status: 'accepted', responded_at: new Date().toISOString() })
       .eq('id', pending.assignment_id)
       .eq('status', 'pending')
+      .select('id')
+
+    // If no rows updated, the assignment was already cancelled/accepted — abort
+    if (!updated || updated.length === 0) {
+      console.log(`[cleaner-sms] Assignment ${pending.assignment_id} no longer pending — skipping confirmation`)
+      return { success: false, error: 'Assignment no longer pending (already cancelled or accepted)' }
+    }
 
     // Update job status
     await client
