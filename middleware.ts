@@ -17,6 +17,7 @@ const publicRoutes = [
   '/api/auth/login',
   '/api/auth/logout',
   '/api/auth/session',
+  '/api/auth/crew-login',
   '/quote',
   '/api/quotes',
   '/tip',
