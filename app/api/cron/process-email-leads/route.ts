@@ -744,8 +744,8 @@ async function handleEmailBookingCompletion(
     price: servicePrice || null,
     date: jobDate,
     scheduled_at: preferredTime || '09:00',
-    status: 'scheduled',
-    booked: true,
+    status: 'quoted',
+    booked: false,
     notes: jobNotes || null,
     job_type: isWinBros ? 'estimate' : 'cleaning',
   }).select('id').single()
@@ -775,9 +775,9 @@ async function handleEmailBookingCompletion(
     isEstimate: isWinBros,
   })
 
-  // ── Update lead to booked ──
+  // ── Update lead to qualified (booked requires payment + cleaner assigned) ──
   await client.from('leads').update({
-    status: 'booked',
+    status: 'qualified',
     converted_to_job_id: newJob.id,
     form_data: {
       ...(typeof lead.form_data === 'object' && lead.form_data ? lead.form_data : {}),

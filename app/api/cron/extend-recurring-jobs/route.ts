@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
               sqft: job.sqft,
               frequency: job.frequency,
               status: "scheduled",
-              booked: true,
+              booked: false,
               parent_job_id: job.id,
               addons: job.addons,
             })

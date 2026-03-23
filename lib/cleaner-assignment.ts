@@ -21,6 +21,7 @@ import {
 import { notifyCleanerAssignment } from './cleaner-sms'
 import { logSystemEvent } from './system-events'
 import { getTenantById, getDefaultTenant, tenantUsesFeature } from './tenant'
+import { maybeMarkBooked } from './maybe-mark-booked'
 
 // Extended Cleaner type with location data (now included in base Cleaner interface)
 export type CleanerWithLocation = Cleaner
@@ -463,6 +464,9 @@ export async function triggerCleanerAssignment(
       },
     })
 
+    // Cleaner assigned — check if payment also confirmed → mark booked
+    await maybeMarkBooked(jobId)
+
     return { success: true }
   } catch (error) {
     console.error(`[cleaner-assignment] Error triggering assignment:`, error)
@@ -564,6 +568,9 @@ async function triggerBroadcastAssignment(
   if (notifiedCount === 0) {
     return { success: false, error: 'Created assignments but failed to notify any cleaners' }
   }
+
+  // Cleaner(s) assigned — check if payment also confirmed → mark booked
+  await maybeMarkBooked(jobId)
 
   return { success: true }
 }

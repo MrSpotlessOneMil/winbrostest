@@ -758,7 +758,7 @@ async function generateRecurringInstances(opts: {
       sqft: opts.sqft,
       frequency: opts.frequency,
       status: "scheduled",
-      booked: true,
+      booked: false,
       parent_job_id: opts.parentJobId,
       addons: opts.addons,
     })

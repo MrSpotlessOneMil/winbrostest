@@ -1451,12 +1451,12 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (phoneLead) {
-        console.log(`[OpenPhone] Using phone-source lead ${phoneLead.id} (status: ${phoneLead.status}) as booked lead fallback`)
-        // Update lead to "booked" since the VAPI confirmation was sent
-        if (phoneLead.status !== "booked") {
+        console.log(`[OpenPhone] Using phone-source lead ${phoneLead.id} (status: ${phoneLead.status}) as qualified lead fallback`)
+        // Update lead to "qualified" (booked requires payment + cleaner assigned)
+        if (phoneLead.status !== "qualified" && phoneLead.status !== "booked") {
           await client
             .from("leads")
-            .update({ status: "booked" })
+            .update({ status: "qualified" })
             .eq("id", phoneLead.id)
         }
         bookedLead = phoneLead
@@ -2801,8 +2801,8 @@ export async function POST(request: NextRequest) {
                 price: servicePrice || null,
                 date: jobDate,
                 scheduled_at: bookingData.preferredTime || '09:00',
-                status: 'scheduled',
-                booked: true,
+                status: 'quoted',
+                booked: false,
                 notes: jobNotes || null,
                 job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
               }).select("id").single()
@@ -2841,11 +2841,11 @@ export async function POST(request: NextRequest) {
                 })
               }
 
-              // Update lead to booked
+              // Update lead to qualified (booked requires payment + cleaner assigned)
               await client
                 .from("leads")
                 .update({
-                  status: "booked",
+                  status: "qualified",
                   converted_to_job_id: newJob.id,
                   form_data: {
                     ...parseFormData(existingLead.form_data),

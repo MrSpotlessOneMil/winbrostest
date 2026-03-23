@@ -16,6 +16,7 @@ import {
 } from '@/lib/supabase'
 import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
+import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -99,6 +100,9 @@ export async function POST(request: NextRequest) {
     await updateJob(jobId, {
       // Store cleaner name in a field if you have one, or in notes
     })
+
+    // Cleaner assigned — check if payment also confirmed → mark booked
+    await maybeMarkBooked(jobId)
 
     // Notify cleaner via SMS
     const notifyResult = await notifyCleanerAssignment(
