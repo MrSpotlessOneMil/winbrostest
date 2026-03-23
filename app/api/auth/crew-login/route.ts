@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
     .from('cleaners')
     .select('id, name, phone, portal_token, employee_type, tenant_id, tenants!inner(name, slug)')
     .is('deleted_at', null)
-    .eq('is_active', true)
+    .eq('active', true)
 
   if (error) {
     console.error('[crew-login] DB error:', error)
