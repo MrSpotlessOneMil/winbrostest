@@ -1309,10 +1309,8 @@ export default function JobsPage() {
     const scheduled_at = editForm.time
     const body: Record<string, any> = { id: jobId, date, scheduled_at }
 
-    // Include cleaner_id if it changed
-    if (editForm.cleanerId !== selectedEvent.cleanerId) {
-      body.cleaner_id = editForm.cleanerId || null
-    }
+    // Always send cleaner_id so unassign works even when cleanerId wasn't on the direct FK
+    body.cleaner_id = editForm.cleanerId || null
 
     try {
       const res = await fetch("/api/jobs", {
