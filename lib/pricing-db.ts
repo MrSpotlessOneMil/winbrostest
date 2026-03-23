@@ -6,7 +6,6 @@
  */
 
 import { getSupabaseClient } from './supabase'
-import { getDefaultTenant } from './tenant'
 import pricingDataFallback from './pricing-data.json'
 
 export type PricingTier = 'standard' | 'deep' | 'move'
@@ -47,15 +46,9 @@ export async function getPricingTiers(tenantId?: string): Promise<Record<string,
   try {
     const client = getSupabaseClient()
 
-    // Get tenant ID if not provided
     let tId = tenantId
     if (!tId) {
-      const tenant = await getDefaultTenant()
-      tId = tenant?.id
-    }
-
-    if (!tId) {
-      console.log('[pricing-db] No tenant ID, using fallback pricing')
+      console.log('[pricing-db] No tenant ID provided, using fallback pricing')
       return pricingDataFallback as unknown as Record<string, PricingRow[]>
     }
 
@@ -102,11 +95,7 @@ export async function getPricingAddons(tenantId?: string): Promise<PricingAddon[
 
     let tId = tenantId
     if (!tId) {
-      const tenant = await getDefaultTenant()
-      tId = tenant?.id
-    }
-
-    if (!tId) {
+      console.log('[pricing-db] No tenant ID provided for addons, using defaults')
       return getDefaultAddons()
     }
 

@@ -294,7 +294,7 @@ export async function generateAutoResponse(
   // If adding a new service type, create a new response generator + feature flag.
   if (tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')) {
     try {
-      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext)
+      return await generateWinBrosResponse(incomingMessage, tenant, conversationHistory, knownCustomerInfo, options?.isReturningCustomer, options?.customerContext, options?.isRetargetingReply)
     } catch (error) {
       console.error('[Auto-Response] Window cleaning response failed, falling back to generic:', error)
     }
@@ -630,7 +630,8 @@ async function generateWinBrosResponse(
   conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
   knownCustomerInfo?: KnownCustomerInfo,
   isReturningCustomer?: boolean,
-  customerContext?: CustomerContext | null
+  customerContext?: CustomerContext | null,
+  isRetargetingReply?: boolean,
 ): Promise<AutoResponseResult> {
   const { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } = await import('./winbros-sms-prompt')
 
@@ -662,17 +663,24 @@ async function generateWinBrosResponse(
   }
 
   let returningCustomerBlock = ''
-  if (isReturningCustomer) {
+  if (isRetargetingReply) {
+    returningCustomerBlock = '\n\nIMPORTANT: This customer is replying to a retargeting text we sent them. They already know who we are. Do NOT pitch them immediately or list service types right away. Just be conversational and warm, like a friend checking in. Ask how you can help or what they had in mind. Build rapport first, let THEM tell you what they need. Only start collecting booking info once they express clear interest.\n'
+  } else if (isReturningCustomer) {
     returningCustomerBlock = '\n\nIMPORTANT: This customer previously used our services and is replying to a seasonal promotional offer we sent them. Treat them as a valued returning customer. Be warm, thank them for being a returning client, reference their past experience with us, and make rebooking easy. Do NOT treat them like a cold new lead.\n'
   }
 
   // Inject customer context (active jobs, history, profile) for situation awareness
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: tenant.timezone || 'America/Chicago',
-  })
+  const tz = tenant.timezone || 'America/Chicago'
+  const now = new Date()
+  const dateStr = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: tz,
+  }).format(now)
+  const timeStr = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
+  }).format(now)
+  const today = `${dateStr} (current time: ${timeStr})`
 
   const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
@@ -1076,10 +1084,14 @@ export async function generateEmailResponse(
     ? `\n\nAVAILABLE TIME SLOTS (present these to the customer when asking about date/time):\n${availableSlots}\nPresent these naturally — e.g. "We have a few openings coming up — [slot 1], [slot 2], or [slot 3]. Which works best for you?"\n`
     : ''
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: tz,
-  })
+  const emailNow = new Date()
+  const emailDateStr = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: tz,
+  }).format(emailNow)
+  const emailTimeStr = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
+  }).format(emailNow)
+  const today = `${emailDateStr} (current time: ${emailTimeStr})`
 
   const tagHint = '(and tags like [BOOKING_COMPLETE] or [ESCALATE:reason] if needed)'
   const userMessage = `Today's date: ${today}\n\nEmail conversation so far:\n${historyContext}${knownInfoBlock}${slotsBlock}${contextBlock}\n\nCustomer just emailed: "${message}"\n\nRespond as ${sdrName}. Write the full email reply text ${tagHint}. Nothing else.`
@@ -1218,10 +1230,15 @@ async function generateHouseCleaningResponse(
   // Inject customer context (active jobs, history, profile) for situation awareness
   const contextBlock = customerContext ? formatCustomerContextForPrompt(customerContext, tenant) : ''
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-    timeZone: tenant.timezone || 'America/Chicago',
-  })
+  const hcTz = tenant.timezone || 'America/Chicago'
+  const hcNow = new Date()
+  const hcDateStr = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: hcTz,
+  }).format(hcNow)
+  const hcTimeStr = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric', minute: '2-digit', hour12: true, timeZone: hcTz,
+  }).format(hcNow)
+  const today = `${hcDateStr} (current time: ${hcTimeStr})`
 
   const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 

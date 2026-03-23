@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getTenantBySlug } from "@/lib/tenant"
 import { requireAdmin } from "@/lib/auth"
 
 type Scenario =
@@ -47,13 +47,14 @@ export async function POST(request: NextRequest) {
   const client = getSupabaseServiceClient()
   const body = await request.json().catch(() => ({}))
   const scenario: Scenario = body.scenario || "seed_all"
+  const slug: string = body.tenant_slug || "winbros"
 
-  // Get the default tenant (winbros) - required for all operations
-  const tenant = await getDefaultTenant()
+  // Resolve tenant by slug from request body (defaults to winbros for demo)
+  const tenant = await getTenantBySlug(slug)
   if (!tenant) {
     return NextResponse.json(
-      { success: false, error: "No default tenant found. Please set up the winbros tenant first." },
-      { status: 500 }
+      { success: false, error: `Tenant not found for slug: ${slug}` },
+      { status: 404 }
     )
   }
   const tenantId = tenant.id

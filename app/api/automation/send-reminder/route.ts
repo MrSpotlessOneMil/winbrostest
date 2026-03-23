@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getSupabaseServiceClient } from "@/lib/supabase"
-import { getDefaultTenant } from "@/lib/tenant"
+import { getTenantById } from "@/lib/tenant"
 import { sendSMS } from "@/lib/openphone"
 import { sendJobReminder } from "@/lib/cleaner-sms"
 
@@ -8,6 +8,7 @@ interface ReminderPayload {
   type: "day_before" | "one_hour_before" | "job_start"
   job_id?: string
   date?: string // For batch day-before reminders
+  tenant_id?: string
 }
 
 /**
@@ -28,16 +29,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const body = await request.text()
+  let payload: ReminderPayload
+  try {
+    payload = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
 
-  const tenant = await getDefaultTenant()
+  const { type, job_id, date, tenant_id } = payload
+
+  if (!tenant_id) {
+    return NextResponse.json({ success: false, error: "tenant_id is required" }, { status: 400 })
+  }
+
+  const tenant = await getTenantById(tenant_id)
   if (!tenant) {
-    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+    return NextResponse.json({ success: false, error: "Tenant not found" }, { status: 404 })
   }
 
   try {
-    const payload: ReminderPayload = JSON.parse(body)
-    const { type, job_id, date } = payload
 
     const client = getSupabaseServiceClient()
     let remindersSent = 0

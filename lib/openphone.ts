@@ -85,18 +85,19 @@ export async function sendSMS(
   }
 
   // ── Content dedup (skip when caller pre-inserted the DB record) ──
-  // Prevents the same message from being sent twice within 5 minutes
+  // Prevents the exact same message from being sent twice within 5 minutes.
+  // Uses full content match (not prefix) to avoid false positives when
+  // different templates share a similar opening (e.g. "Hey {name} it's {business}...")
   if (!options?.skipDedup) try {
     const dedupClient = getSupabaseServiceClient()
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
-    const contentPrefix = message.slice(0, 100)
     const { data: recentDupes } = await dedupClient
       .from('messages')
       .select('id')
       .eq('phone_number', toE164Format)
       .eq('direction', 'outbound')
+      .eq('content', message)
       .gte('created_at', fiveMinsAgo)
-      .like('content', `${contentPrefix}%`)
       .limit(1)
 
     if (recentDupes && recentDupes.length > 0) {

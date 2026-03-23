@@ -553,9 +553,6 @@ export async function initiateOutboundCall(
   nameOrContext?: string | { leadId?: string; jobId?: string },
   contextOrLeadId?: { leadId?: string; jobId?: string } | string
 ): Promise<{ success: boolean; callId?: string; error?: string }> {
-  // Import getDefaultTenant dynamically to avoid circular dependencies
-  const { getDefaultTenant } = await import('./tenant')
-
   // Determine if called with tenant or without (backwards compat)
   let tenant: Tenant | null
   let phoneNumber: string
@@ -563,15 +560,9 @@ export async function initiateOutboundCall(
   let context: { leadId?: string; jobId?: string } | undefined
 
   if (typeof tenantOrPhone === 'string') {
-    // Old calling pattern: initiateOutboundCall(phoneNumber, customerName, context?, leadId?)
-    tenant = await getDefaultTenant()
-    phoneNumber = tenantOrPhone
-    customerName = phoneOrName
-    if (typeof nameOrContext === 'object') {
-      context = nameOrContext
-    } else if (typeof contextOrLeadId === 'string') {
-      context = { leadId: contextOrLeadId }
-    }
+    // Old calling pattern is no longer supported — tenant must be provided
+    console.error('[vapi] initiateOutboundCall called without tenant object — caller must pass tenant as first argument')
+    return { success: false, error: 'Tenant must be provided as first argument (old string-based calling pattern is removed)' }
   } else {
     // New calling pattern: initiateOutboundCall(tenant, phoneNumber, customerName, context?)
     tenant = tenantOrPhone

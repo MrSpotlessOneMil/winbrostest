@@ -100,10 +100,12 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   console.log(`${tag} Phone resolved: ${maskPhone(phone)}`)
   const client = getSupabaseServiceClient()
 
-  // Resolve tenant
-  const tenant = tenantSlug
-    ? await getTenantBySlug(tenantSlug)
-    : await getDefaultTenant()
+  // Resolve tenant — require explicit slug, never fall back to a default
+  if (!tenantSlug) {
+    console.error(`${tag} No tenant slug provided — cannot route VAPI call. Aborting to prevent cross-tenant bleed.`)
+    return NextResponse.json({ success: false, error: "No tenant slug provided" }, { status: 400 })
+  }
+  const tenant = await getTenantBySlug(tenantSlug)
   console.log(`${tag} Tenant lookup: ${tenant ? tenant.slug : 'NO TENANT FOUND'}`)
 
   if (!tenant) {

@@ -594,7 +594,15 @@ export function parseNaturalDate(input: string): { date: string | null; time: st
 
   const now = new Date()
   // Work in Central time (WinBros is in Illinois)
-  const centralNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Chicago' }))
+  // Use Intl.DateTimeFormat to correctly extract local time components (DST-aware)
+  const tz = 'America/Chicago'
+  const opts = { timeZone: tz, hour12: false } as const
+  const centralYear = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(now))
+  const centralMonth = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(now)) - 1
+  const centralDay = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(now))
+  const centralHour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric' }).format(now))
+  const centralMinute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(now))
+  const centralNow = new Date(centralYear, centralMonth, centralDay, centralHour === 24 ? 0 : centralHour, centralMinute)
   const text = input.toLowerCase().trim()
 
   let targetDate: Date | null = null

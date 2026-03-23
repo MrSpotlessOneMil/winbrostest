@@ -354,9 +354,13 @@ export async function triggerCleanerAssignment(
       }
     }
 
-    // Look up the correct tenant from job.tenant_id
+    // Look up the correct tenant from job.tenant_id — NEVER fall back to a default tenant
     const jobTenantId = (job as any).tenant_id
-    const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+    if (!jobTenantId) {
+      console.error(`[cleaner-assignment] Job ${jobId} has no tenant_id — cannot assign. Skipping to prevent cross-tenant bleed.`)
+      return []
+    }
+    const tenant = await getTenantById(jobTenantId)
 
     // ──────────────────────────────────────────────────────────────────────
     // RECURRING PREFERRED CLEANER — runs before broadcast/routing split.

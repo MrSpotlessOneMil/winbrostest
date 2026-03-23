@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getDefaultTenant } from '@/lib/tenant'
+import { getTenantById } from '@/lib/tenant'
 
 /**
  * GET /api/tip/job-info?jobId=xxx
@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
       .from('jobs')
       .select(`
         id,
+        tenant_id,
         service_type,
         date,
         cleaner_id,
@@ -54,9 +55,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Get tenant/business name
-    const tenant = await getDefaultTenant()
-    const businessName = tenant?.business_name || 'WinBros Cleaning'
+    // Get tenant/business name from the job's tenant_id
+    const tenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
+    const businessName = tenant?.business_name || 'Cleaning Service'
 
     return NextResponse.json({
       success: true,

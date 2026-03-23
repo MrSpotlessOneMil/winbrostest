@@ -48,16 +48,24 @@ export async function POST(request: NextRequest) {
     }
 
     // Iterate dates to find the soonest slot with team capacity
+    // Start from today if there's still time, otherwise tomorrow
     const MAX_DAYS = 14
-    const tomorrow = new Date()
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tz = tenant.timezone || 'America/Chicago'
+    const localHour = Number(new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour: 'numeric', hour12: false,
+    }).format(new Date()))
+    // Only try today if it's before 2 PM local (enough time to schedule + dispatch)
+    const startDate = new Date()
+    if (localHour >= 14) {
+      startDate.setDate(startDate.getDate() + 1)
+    }
 
     let scheduledDate: string | null = null
     let optimization = null
     let assignedTeamId: number | undefined
 
     for (let i = 0; i < MAX_DAYS; i++) {
-      const candidate = new Date(tomorrow)
+      const candidate = new Date(startDate)
       candidate.setDate(candidate.getDate() + i)
       const dateStr = candidate.toISOString().split('T')[0]
 

@@ -246,7 +246,7 @@ export async function POST(
           } else if (stageAction.type === 'call') {
             // Initiate call
             try {
-              await initiateOutboundCall(leadPhone, leadName, { leadId })
+              await initiateOutboundCall(tenant, leadPhone, leadName, { leadId })
               actionResult.message = `Call initiated for stage ${stage}`
 
               // For stage 4 (double dial), schedule a second call in 30 seconds

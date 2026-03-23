@@ -61,12 +61,23 @@ function addMinutes(date: Date, mins: number): Date {
 }
 
 function getTimezoneOffset(date: Date): string {
-  const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
-  const pstDate = new Date(date.toLocaleString('en-US', { timeZone: TIMEZONE }))
-  const diffMinutes = (utcDate.getTime() - pstDate.getTime()) / 60000
-  const hours = Math.floor(Math.abs(diffMinutes) / 60)
-  const mins = Math.abs(diffMinutes) % 60
-  const sign = diffMinutes <= 0 ? '+' : '-'
+  // Use Intl to extract local time parts for the given date, then compute offset from UTC
+  const opts = { timeZone: TIMEZONE, hour12: false } as const
+  const localYear = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(date))
+  const localMonth = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(date)) - 1
+  const localDay = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(date))
+  let localHour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric' }).format(date))
+  if (localHour === 24) localHour = 0
+  const localMinute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(date))
+  const localSecond = Number(new Intl.DateTimeFormat('en-US', { ...opts, second: 'numeric' }).format(date))
+
+  // Build a pseudo-UTC date from local parts to find the offset
+  const localAsUtc = Date.UTC(localYear, localMonth, localDay, localHour, localMinute, localSecond)
+  const diffMinutes = (localAsUtc - date.getTime()) / 60000
+  const absDiff = Math.abs(Math.round(diffMinutes))
+  const hours = Math.floor(absDiff / 60)
+  const mins = absDiff % 60
+  const sign = diffMinutes >= 0 ? '+' : '-'
   return `${sign}${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
 }
 
@@ -115,10 +126,23 @@ function createLocalDate(year: number, month: number, day: number, hour: number,
   const hourStr = String(hour).padStart(2, '0')
   const minStr = String(minute).padStart(2, '0')
   const secStr = String(second).padStart(2, '0')
-  // CDT (UTC-5) roughly Mar second Sunday – Nov first Sunday; CST (UTC-6) otherwise
-  const isCDT = (month > 2 && month < 10) || (month === 2 && day >= 8) || (month === 10 && day < 1)
-  const offset = isCDT ? '-05:00' : '-06:00'
-  return new Date(`${year}-${monthStr}-${dayStr}T${hourStr}:${minStr}:${secStr}${offset}`)
+  const iso = `${year}-${monthStr}-${dayStr}T${hourStr}:${minStr}:${secStr}`
+
+  // First guess: try CST (UTC-6), then check if Intl says the hour is correct
+  // If not, it's CDT (UTC-5) — adjust by 1 hour
+  const guess = new Date(`${iso}-06:00`)
+  const actualHour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE, hour: 'numeric', hour12: false,
+  }).format(guess))
+  const normalizedActual = actualHour === 24 ? 0 : actualHour
+
+  if (normalizedActual !== hour) {
+    // Wrong DST period — e.g., guessed CST but it's CDT, so local hour is 1 ahead
+    // Subtract the overshoot to get to the correct UTC instant
+    const overshoot = normalizedActual - hour
+    return new Date(guess.getTime() - overshoot * 60 * 60 * 1000)
+  }
+  return guess
 }
 
 function parseDateFlexible(value: unknown): Date | null {

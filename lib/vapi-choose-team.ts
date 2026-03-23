@@ -402,12 +402,22 @@ function addMinutes(date: Date, mins: number): Date {
 }
 
 function getPacificOffset(date: Date): string {
-  const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }))
-  const pstDate = new Date(date.toLocaleString('en-US', { timeZone: TIMEZONE }))
-  const diffMinutes = (utcDate.getTime() - pstDate.getTime()) / 60000
-  const hours = Math.floor(Math.abs(diffMinutes) / 60)
-  const mins = Math.abs(diffMinutes) % 60
-  const sign = diffMinutes <= 0 ? '+' : '-'
+  // Use Intl to extract local time parts, then compute offset from UTC (DST-aware)
+  const opts = { timeZone: TIMEZONE, hour12: false } as const
+  const localYear = Number(new Intl.DateTimeFormat('en-US', { ...opts, year: 'numeric' }).format(date))
+  const localMonth = Number(new Intl.DateTimeFormat('en-US', { ...opts, month: 'numeric' }).format(date)) - 1
+  const localDay = Number(new Intl.DateTimeFormat('en-US', { ...opts, day: 'numeric' }).format(date))
+  let localHour = Number(new Intl.DateTimeFormat('en-US', { ...opts, hour: 'numeric' }).format(date))
+  if (localHour === 24) localHour = 0
+  const localMinute = Number(new Intl.DateTimeFormat('en-US', { ...opts, minute: 'numeric' }).format(date))
+  const localSecond = Number(new Intl.DateTimeFormat('en-US', { ...opts, second: 'numeric' }).format(date))
+
+  const localAsUtc = Date.UTC(localYear, localMonth, localDay, localHour, localMinute, localSecond)
+  const diffMinutes = (localAsUtc - date.getTime()) / 60000
+  const absDiff = Math.abs(Math.round(diffMinutes))
+  const hours = Math.floor(absDiff / 60)
+  const mins = absDiff % 60
+  const sign = diffMinutes >= 0 ? '+' : '-'
   return `${sign}${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
 }
 

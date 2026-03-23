@@ -133,6 +133,50 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// Task types that should only send during personal hours (9am-9pm local time)
+// These are marketing/outreach messages — not operational reminders
+const PERSONAL_HOURS_TASKS = new Set(['retargeting', 'post_job_review', 'post_job_recurring_push'])
+const PERSONAL_HOUR_START = 9  // 9 AM
+const PERSONAL_HOUR_END = 21   // 9 PM
+
+/**
+ * Check if current time is within personal hours (9am-9pm) in the tenant's timezone.
+ * Returns { ok: true } if within hours, or { ok: false, nextWindowUtc } with the next 9am UTC time.
+ */
+function checkPersonalHours(tenant: { timezone?: string } | null): { ok: boolean; nextWindowUtc?: Date } {
+  const tz = tenant?.timezone || 'America/Chicago'
+  const now = new Date()
+  const localHour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour: 'numeric', hour12: false,
+  }).format(now))
+  const normalizedHour = localHour === 24 ? 0 : localHour
+
+  if (normalizedHour >= PERSONAL_HOUR_START && normalizedHour < PERSONAL_HOUR_END) {
+    return { ok: true }
+  }
+
+  // Calculate next 9am local time
+  const localYear = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric' }).format(now))
+  const localMonth = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'numeric' }).format(now))
+  const localDay = Number(new Intl.DateTimeFormat('en-US', { timeZone: tz, day: 'numeric' }).format(now))
+
+  // If it's before 9am today, next window is today at 9am. If it's after 9pm, next window is tomorrow 9am.
+  let targetDay = localDay
+  if (normalizedHour >= PERSONAL_HOUR_END) targetDay += 1
+
+  // Build approximate next 9am — use CST guess then adjust like createLocalDate pattern
+  const iso = `${localYear}-${String(localMonth).padStart(2, '0')}-${String(targetDay).padStart(2, '0')}T09:00:00`
+  const guess = new Date(`${iso}-06:00`)
+  const actualHour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour: 'numeric', hour12: false,
+  }).format(guess))
+  const adj = actualHour === 24 ? 0 : actualHour
+  if (adj !== 9) {
+    return { ok: false, nextWindowUtc: new Date(guess.getTime() - (adj - 9) * 60 * 60 * 1000) }
+  }
+  return { ok: false, nextWindowUtc: guess }
+}
+
 /**
  * Process a single task based on its type
  */
@@ -141,6 +185,21 @@ async function processTask(task: ScheduledTask): Promise<void> {
 
   // Get tenant if specified
   const tenant = tenant_id ? await getTenantById(tenant_id) : null
+
+  // Gate marketing/outreach messages to personal hours (9am-9pm local time)
+  if (PERSONAL_HOURS_TASKS.has(task_type) && tenant) {
+    const hours = checkPersonalHours(tenant)
+    if (!hours.ok && hours.nextWindowUtc) {
+      // Reschedule to next 9am window — don't process now
+      console.log(`[process-scheduled-tasks] ${task_type} outside personal hours for ${tenant.slug}, rescheduling to ${hours.nextWindowUtc.toISOString()}`)
+      const supabase = getSupabaseServiceClient()
+      await supabase
+        .from('scheduled_tasks')
+        .update({ status: 'pending', scheduled_for: hours.nextWindowUtc.toISOString() })
+        .eq('id', task.id)
+      return
+    }
+  }
 
   switch (task_type) {
     case 'lead_followup':
@@ -842,12 +901,14 @@ async function processRetargeting(
 
   // Build message from template (A/B variant)
   const serviceDesc = getTenantServiceDescription(tenant)
+  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
   const firstName = customerName.split(' ')[0] || customerName
   const templateObj = RETARGETING_TEMPLATES[template] || RETARGETING_TEMPLATES['9_word']
   const messageTemplate = templateObj[variant] || templateObj.a
   let message = messageTemplate
     .replace('{name}', firstName)
     .replace('{service}', serviceDesc)
+    .replace('{business}', businessName)
 
   // For quoted_not_booked step 1 (quote_followup), append the quote link
   if (sequence === 'quoted_not_booked' && template === 'quote_followup') {

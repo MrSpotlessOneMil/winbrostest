@@ -91,7 +91,7 @@ function buildSystemPrompt(): string {
     '    "name": string|null,',
     '    "phone": string|null,',
     '    "availability": {',
-    '      "tz": "America/Los_Angeles",',
+    '      "tz": "America/Chicago",',
     '      "rules": [',
     '        { "days": ["MO","TU"], "start": "09:00", "end": "17:00" }',
     '      ]',
@@ -115,7 +115,7 @@ function buildSystemPrompt(): string {
     '- Respond in the same language as the cleaner.',
     '- If the cleaner asks about their jobs, answer using the provided job context.',
     '- Cleaners are NOT allowed to reschedule jobs themselves.',
-    '- If a cleaner asks to reschedule or change time/date, tell them: "I\'m sorry, but cleaners cannot reschedule jobs. You can either cancel this job, or contact Dominic at +1 (424) 275-5847 to discuss rescheduling."',
+    '- If a cleaner asks to reschedule or change time/date, tell them: "I\'m sorry, but cleaners cannot reschedule jobs. You can either cancel this job, or contact your manager to discuss rescheduling."',
     '- Do NOT mark intent="cancel_job" for reschedule requests unless they explicitly confirm they want to cancel.',
     '- Only set intent="cancel_job" when the cleaner clearly says they want to cancel/decline or cannot do the job they were assigned.',
     '- Phrases like "I need to cancel", "I want to decline", "I can\'t do it", "not available anymore" should be intent="cancel_job".',
@@ -253,6 +253,15 @@ function normalizeTimezone(value: string): string | undefined {
   const upper = normalized.toUpperCase()
   if (upper === 'PST' || upper === 'PDT' || upper === 'PT' || upper === 'PACIFIC') {
     return 'America/Los_Angeles'
+  }
+  if (upper === 'CST' || upper === 'CDT' || upper === 'CT' || upper === 'CENTRAL') {
+    return 'America/Chicago'
+  }
+  if (upper === 'EST' || upper === 'EDT' || upper === 'ET' || upper === 'EASTERN') {
+    return 'America/New_York'
+  }
+  if (upper === 'MST' || upper === 'MDT' || upper === 'MT' || upper === 'MOUNTAIN') {
+    return 'America/Denver'
   }
   return normalized
 }

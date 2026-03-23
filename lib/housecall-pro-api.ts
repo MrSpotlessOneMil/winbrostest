@@ -1347,7 +1347,11 @@ export async function createLeadInHCP(
   },
   existingTenant?: Tenant | null
 ): Promise<{ success: boolean; leadId?: string; customerId?: string; error?: string }> {
-  const tenant = existingTenant || await getDefaultTenant()
+  if (!existingTenant) {
+    console.error('[HCP API] createLeadInHCP called without tenant — aborting to prevent cross-tenant bleed')
+    return { success: false, error: 'No tenant provided' }
+  }
+  const tenant = existingTenant
   if (!tenant) {
     return { success: false, error: 'No tenant configured' }
   }
@@ -1364,18 +1368,14 @@ export async function createLeadInHCP(
  * Convenience wrapper for job completion
  */
 export async function markJobCompleteInHCP(
+  tenant: Tenant,
   jobId: string,
   hcpJobId?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!hcpJobId) {
-    // If no HCP job ID, we can't sync
     console.log(`[HCP API] No HCP job ID for job ${jobId}, skipping sync`)
     return { success: true }
   }
 
-  const tenant = await getDefaultTenant()
-  if (!tenant) {
-    return { success: false, error: 'No tenant configured' }
-  }
   return completeHCPJob(tenant, hcpJobId)
 }

@@ -69,7 +69,7 @@ export async function recordMessageSent(
   phone: string,
   source: string,
   phase: string
-): Promise<void> {
+): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseServiceClient()
 
   const { error } = await client.from('customer_message_log').insert({
@@ -82,15 +82,21 @@ export async function recordMessageSent(
 
   if (error) {
     console.error(`[lifecycle] Failed to record message: ${error.message}`)
+    return { success: false, error: error.message }
   }
 
   // Update customer's last_automated_message_at
   if (customerId) {
-    await client
+    const { error: updateErr } = await client
       .from('customers')
       .update({ last_automated_message_at: new Date().toISOString() })
       .eq('id', customerId)
+    if (updateErr) {
+      console.error(`[lifecycle] Failed to update last_automated_message_at: ${updateErr.message}`)
+    }
   }
+
+  return { success: true }
 }
 
 /**

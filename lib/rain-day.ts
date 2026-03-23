@@ -16,7 +16,7 @@ import { notifyScheduleChange } from './cleaner-sms'
 import { checkRainDay as checkRainDayWeather, formatWeatherBriefing } from './weather'
 import type { DailyForecast } from './weather'
 import type { Tenant } from './tenant'
-import { getDefaultTenant, getTenantBusinessName } from './tenant'
+import { getTenantById, getTenantBusinessName } from './tenant'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -75,9 +75,9 @@ export async function checkAndHandleRainDay(
   const spreadDays = options?.spreadDays ?? 14
   const notify = options?.sendNotifications !== false
 
-  const tenant = await getDefaultTenant()
+  const tenant = await getTenantById(tenantId)
   if (!tenant) {
-    return { checked: false, isRainDay: false, error: 'No tenant configured' }
+    return { checked: false, isRainDay: false, error: `Tenant not found: ${tenantId}` }
   }
 
   // Determine the service area ZIP code
