@@ -28,6 +28,13 @@ export default function CrewPortalPage() {
   const designNum = designParam ? parseInt(designParam, 10) : 0
   const showPicker = designParam !== null
 
+  // Persist design choice to localStorage so job detail page can read it
+  useEffect(() => {
+    if (designNum >= 1 && designNum <= 5) {
+      try { localStorage.setItem("crew-design", String(designNum)) } catch {}
+    }
+  }, [designNum])
+
   const [data, setData] = useState<PortalData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -72,8 +79,8 @@ export default function CrewPortalPage() {
     )
   }
 
-  // Find the active design (default to Design 2 Aurora if no param or invalid)
-  const activeDesign = DESIGNS.find((d) => d.id === designNum) || DESIGNS[1]
+  // Find the active design (default to Design 5 Warm)
+  const activeDesign = DESIGNS.find((d) => d.id === designNum) || DESIGNS[4]
   const DesignComponent = activeDesign.component
 
   return (
