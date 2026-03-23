@@ -87,8 +87,15 @@ export async function POST(request: NextRequest) {
       selectedCleaner = availableCleaners[0]
     }
 
-    // Cancel any existing assignments for this job (reassignment)
+    // Clear all existing assignments for this job (reassignment)
+    // Delete cancelled/declined ones (stale) and cancel active ones
     const supabase = (await import('@/lib/supabase')).getSupabaseServiceClient()
+    await supabase
+      .from('cleaner_assignments')
+      .delete()
+      .eq('job_id', Number(jobId))
+      .in('status', ['cancelled', 'declined'])
+
     await supabase
       .from('cleaner_assignments')
       .update({ status: 'cancelled' })
