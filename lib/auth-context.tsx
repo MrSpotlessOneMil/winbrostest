@@ -100,6 +100,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json()
 
       if (data.success && data.data?.user) {
+        // Employee sessions should not access the dashboard — redirect to portal
+        if (data.data.type === 'employee' && data.data.portalToken) {
+          window.location.href = `/crew/${data.data.portalToken}`
+          return
+        }
+
         setAuthenticated(true)
         setUser(data.data.user)
         setIsAdmin(data.data.user.username === 'admin')
