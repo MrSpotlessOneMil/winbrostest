@@ -34,6 +34,7 @@ export interface JobInfo {
   hours?: number | null
   price?: number | string | null
   phone_number?: string | null
+  frequency?: string | null
 }
 
 export interface CustomerInfo {
@@ -114,13 +115,26 @@ export async function notifyCleanerAssignment(
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
+  const custName = customer?.first_name || null
+
+  // Build detail lines
+  const details: string[] = []
+  if (job.bedrooms || job.bathrooms) {
+    details.push(`${job.bedrooms || 0} bed / ${job.bathrooms || 0} bath`)
+  }
+  if (job.square_footage) details.push(`${job.square_footage} sqft`)
+  if (job.hours) details.push(`${job.hours} hrs`)
+  if (job.price) details.push(`$${Number(job.price).toFixed(0)}`)
+  if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
   let link = ''
   if (cleaner.portal_token && job.id) {
-    link = `\nDetails: ${jobUrl(cleaner.portal_token, job.id)}`
+    link = `\n\nTap the link to view full details & accept:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `New job: ${date} ${time} at ${address}. ${service}.${link}\nReply ACCEPT or DECLINE.`
+  const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
+  const custStr = custName ? `\nCustomer: ${custName}` : ''
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}\n\nReply ACCEPT or DECLINE.`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 
