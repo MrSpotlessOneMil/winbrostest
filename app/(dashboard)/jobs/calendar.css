@@ -128,40 +128,22 @@
   font-weight: 400 !important;
 }
 
-.fc .event-pending {
-  background: rgba(234, 179, 8, 0.7);
-}
-
-.fc .event-scheduled {
-  background: rgba(139, 92, 246, 0.7);
+.fc .event-pending,
+.fc .event-scheduled,
+.fc .event-confirmed,
+.fc .event-in-progress,
+.fc .event-completed,
+.fc .event-rescheduled,
+.fc .event-quoted {
+  background: rgba(16, 185, 129, 0.7);
 }
 
 .fc .event-membership {
   border: 1.5px solid rgba(255, 215, 0, 0.7) !important;
 }
 
-.fc .event-confirmed {
-  background: rgba(59, 130, 246, 0.7);
-}
-
-.fc .event-in-progress {
-  background: rgba(245, 158, 11, 0.7);
-}
-
-.fc .event-completed {
-  background: rgba(16, 185, 129, 0.7);
-}
-
 .fc .event-cancelled {
   background: rgba(113, 113, 122, 0.7);
-}
-
-.fc .event-rescheduled {
-  background: rgba(234, 179, 8, 0.7);
-}
-
-.fc .event-quoted {
-  background: rgba(6, 182, 212, 0.7);
 }
 
 .fc .fc-list-event-title a,
