@@ -228,7 +228,9 @@ export async function PATCH(request: NextRequest) {
                 )
               }
 
-              // Customer confirmation SMS
+              // Customer SMS on reassignment — DISABLED (customers complained about spam)
+              // Cleaner changes are internal; customer doesn't need to know
+              if (false) {
               const customer = Array.isArray(oldJob?.customers) ? oldJob.customers[0] : oldJob?.customers
               const customerPhone = customer?.phone_number || oldJob?.phone_number
               const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
@@ -268,6 +270,7 @@ export async function PATCH(request: NextRequest) {
                   if (logErr) console.error("[Jobs PATCH] Failed to log assignment message:", logErr)
                 })
               }
+              } // end disabled customer SMS block
             }
           }
         }
