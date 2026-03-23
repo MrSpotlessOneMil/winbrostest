@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Send SMS with login info
-  const message = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://cleanmachine.live').replace('https://', '')
+  const message = `Your portal login:\n\nWebsite: ${baseUrl}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipDedup: true })
 

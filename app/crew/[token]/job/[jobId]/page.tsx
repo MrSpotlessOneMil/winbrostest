@@ -349,11 +349,19 @@ export default function JobDetailPage() {
 
   const { job, assignment, customer, checklist, tenant } = data
   const isPending = assignment.status === "pending"
+  const isCancelled = assignment.status === "cancelled" || assignment.status === "declined"
   const isActive = ["scheduled", "in_progress"].includes(job.status)
   const isCompleted = job.status === "completed"
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
+      {/* Cancelled/declined banner */}
+      {isCancelled && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-3 text-center">
+          <p className="text-amber-800 font-semibold text-sm">This assignment has been cancelled</p>
+          <p className="text-amber-600 text-xs mt-0.5">You can view the details but no actions are available.</p>
+        </div>
+      )}
       {/* Header */}
       <div className="bg-blue-600 text-white px-4 py-4">
         <button

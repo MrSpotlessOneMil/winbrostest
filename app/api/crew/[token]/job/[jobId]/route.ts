@@ -38,7 +38,6 @@ async function resolveContext(token: string, jobId: string) {
     .eq('cleaner_id', cleaner.id)
     .eq('job_id', parseInt(jobId))
     .eq('tenant_id', cleaner.tenant_id)
-    .in('status', ['pending', 'accepted', 'confirmed'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()

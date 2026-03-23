@@ -449,8 +449,9 @@ export async function sendLoginCredentials(
     return { success: false, error: 'Cleaner has no credentials or phone' }
   }
 
-  const portalLink = `${getBaseUrl()}/crew/${cleaner.portal_token}`
-  const message = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
+  const baseUrl = getBaseUrl()
+  const portalLink = `${baseUrl}/crew/${cleaner.portal_token}`
+  const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
 
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 }
