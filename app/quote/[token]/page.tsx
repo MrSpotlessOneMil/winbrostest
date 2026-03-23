@@ -84,6 +84,7 @@ export default function QuotePage() {
   const [customerEmail, setCustomerEmail] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
+  const [customerNotes, setCustomerNotes] = useState("")
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -255,6 +256,7 @@ export default function QuotePage() {
           customer_name: customerName || undefined,
           customer_email: customerEmail || undefined,
           service_date: serviceDate || undefined,
+          customer_notes: customerNotes || undefined,
           service_agreement_accepted: true,
         }),
       })
@@ -653,6 +655,26 @@ export default function QuotePage() {
                 <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ── Customer Notes ──────────────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <FileText className="size-5 text-blue-500" />
+              Notes
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">Anything we should know? Special instructions, pets, access codes, etc.</p>
+            <textarea
+              value={customerNotes}
+              onChange={(e) => setCustomerNotes(e.target.value)}
+              placeholder="e.g. Key under the mat, please avoid the back bedroom..."
+              rows={3}
+              maxLength={500}
+              className="w-full px-4 py-3 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none placeholder:text-slate-300"
+            />
+            <p className="text-right text-xs text-slate-300 mt-1">{customerNotes.length}/500</p>
           </div>
         )}
 
