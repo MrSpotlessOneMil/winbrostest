@@ -77,6 +77,7 @@ export default function QuotePage() {
   const [addonQuantities, setAddonQuantities] = useState<Record<string, number>>({})
   const [approving, setApproving] = useState(false)
   const [selectedMembership, setSelectedMembership] = useState<string | null>(null)
+  const [tierLocked, setTierLocked] = useState(false)
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
@@ -97,7 +98,8 @@ export default function QuotePage() {
         if (json.custom_base_price != null) {
           setSelectedTierKey('custom')
         } else if (json.quote.selected_tier && (json.tiers as QuoteTier[]).some((t) => t.key === json.quote.selected_tier)) {
-          // Salesman pre-selected a tier - use it as default (customer can still change)
+          // Salesman pre-selected a tier — lock it so customer can't change
+          setTierLocked(true)
           const preselectedTier = json.quote.selected_tier as string
           setSelectedTierKey(preselectedTier)
 
@@ -191,7 +193,11 @@ export default function QuotePage() {
 
   const getAddonPrice = useCallback(
     (addon: QuoteAddon): number => {
-      if (!selectedTierPrice) return 0
+      if (!selectedTierPrice) {
+        // Custom-priced quotes: use the addon's own price (not 0)
+        if (addon.priceType === "per_unit") return addon.price * (addonQuantities[addon.key] || 1)
+        return addon.price
+      }
       if (addon.key === "interior") {
         const item = selectedTierPrice.breakdown.find((b) => b.service === "Interior Window Cleaning")
         if (item) return item.price
@@ -406,8 +412,8 @@ export default function QuotePage() {
           </div>
         ) : (
         <div>
-          <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Choose Your Package</h2>
-          <p className="text-slate-400 text-sm mb-5">Select the service level that fits your needs.</p>
+          <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Package"}</h2>
+          <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your recurring service." : "Select the service level that fits your needs."}</p>
 
           <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
             {tiers.map((tier, idx) => {
@@ -420,7 +426,7 @@ export default function QuotePage() {
                 <button
                   key={tier.key}
                   type="button"
-                  disabled={isExpired}
+                  disabled={isExpired || tierLocked}
                   onClick={() => handleTierChange(tier.key)}
                   className={`
                     relative w-full text-left rounded-2xl border-2 transition-all duration-200 p-5 flex flex-col
@@ -428,7 +434,7 @@ export default function QuotePage() {
                       ? `${colors.bg} ${colors.border} ring-2 ${colors.ring} shadow-lg`
                       : "bg-white border-blue-100 hover:border-blue-200 hover:shadow-md"
                     }
-                    ${isExpired ? "opacity-50 cursor-not-allowed" : "cursor-pointer active:scale-[0.98]"}
+                    ${isExpired ? "opacity-50 cursor-not-allowed" : tierLocked ? "cursor-default" : "cursor-pointer active:scale-[0.98]"}
                   `}
                 >
                   {tier.badge && (
@@ -555,8 +561,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Membership Plans ────────────────────────────────── */}
-        {!isExpired && servicePlans.length > 0 && (
+        {/* ── Membership Plans (hidden when tier locked or custom-priced — discount already applied) */}
+        {!isExpired && !isCustomPriced && !tierLocked && servicePlans.length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Save with a Membership</h2>
             <p className="text-slate-400 text-sm mb-5">Regular service = bigger savings every visit.</p>
