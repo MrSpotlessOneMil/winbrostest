@@ -187,7 +187,6 @@ export default function AppEntryPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-neutral-100">Technician / Cleaner</h3>
-                    <p className="text-sm text-neutral-500">View jobs, update status, checklists</p>
                   </div>
                 </div>
               </button>
@@ -204,7 +203,6 @@ export default function AppEntryPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-neutral-100">Salesman</h3>
-                    <p className="text-sm text-neutral-500">Estimates, quotes, customer info</p>
                   </div>
                 </div>
               </button>
@@ -221,7 +219,6 @@ export default function AppEntryPage() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-neutral-100">Operator / Owner</h3>
-                    <p className="text-sm text-neutral-500">Full dashboard, inbox, scheduling</p>
                   </div>
                 </div>
               </button>
