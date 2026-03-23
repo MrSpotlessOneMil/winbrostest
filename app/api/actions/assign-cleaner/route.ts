@@ -88,14 +88,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Clear all existing assignments for this job (reassignment)
-    // Delete cancelled/declined ones (stale) and cancel active ones
     const supabase = (await import('@/lib/supabase')).getSupabaseServiceClient()
-    await supabase
+
+    // Get stale assignment IDs to clean up FK dependencies first
+    const { data: staleAssignments } = await supabase
       .from('cleaner_assignments')
-      .delete()
+      .select('id')
       .eq('job_id', Number(jobId))
       .in('status', ['cancelled', 'declined'])
 
+    if (staleAssignments && staleAssignments.length > 0) {
+      const staleIds = staleAssignments.map(a => a.id)
+      // Delete pending_sms_assignments that reference these (FK dependency)
+      await supabase
+        .from('pending_sms_assignments')
+        .delete()
+        .in('assignment_id', staleIds)
+      // Now delete the stale assignments
+      await supabase
+        .from('cleaner_assignments')
+        .delete()
+        .in('id', staleIds)
+    }
+
+    // Cancel any still-active assignments
     await supabase
       .from('cleaner_assignments')
       .update({ status: 'cancelled' })
