@@ -119,6 +119,12 @@ export async function findBestCleaners(
         jobLat,
         jobLng
       )
+      // Skip if cleaner has a max distance and job is too far
+      const maxDist = (cleaner as any).max_distance_miles
+      if (maxDist != null && distance > Number(maxDist)) {
+        console.log(`[cleaner-assignment] Skipping ${cleaner.name} — ${distance.toFixed(1)} mi exceeds max ${maxDist} mi`)
+        continue
+      }
       cleanersWithDistance.push({ cleaner, distance })
     } else {
       // Cleaners without location get a very large distance to sort them last

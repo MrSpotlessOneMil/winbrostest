@@ -19,6 +19,7 @@ export interface CleanerInfo {
   name: string
   phone?: string | null
   portal_token?: string | null
+  hourly_rate?: number | null
 }
 
 export interface JobInfo {
@@ -124,6 +125,12 @@ export async function notifyCleanerAssignment(
   if (job.square_footage) details.push(`${job.square_footage} sqft`)
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
+
+  // Cleaner pay (their rate × hours, NOT the customer price)
+  const rate = cleaner.hourly_rate || 25
+  if (job.hours) {
+    details.push(`Your pay: $${(rate * Number(job.hours)).toFixed(0)}`)
+  }
 
   let link = ''
   if (cleaner.portal_token && job.id) {
