@@ -87,7 +87,15 @@ export async function POST(request: NextRequest) {
       selectedCleaner = availableCleaners[0]
     }
 
-    // Create assignment
+    // Cancel any existing assignments for this job (reassignment)
+    const supabase = (await import('@/lib/supabase')).getSupabaseServiceClient()
+    await supabase
+      .from('cleaner_assignments')
+      .update({ status: 'cancelled' })
+      .eq('job_id', Number(jobId))
+      .in('status', ['pending', 'accepted', 'confirmed'])
+
+    // Create new assignment
     const assignment = await createCleanerAssignment(jobId, selectedCleaner.id!)
     if (!assignment) {
       return NextResponse.json(
@@ -96,10 +104,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update job with assigned cleaner name
-    await updateJob(jobId, {
-      // Store cleaner name in a field if you have one, or in notes
-    })
+    // Update job cleaner_id so calendar reflects the change
+    await updateJob(jobId, { cleaner_id: selectedCleaner.id })
 
     // Cleaner assigned — check if payment also confirmed → mark booked
     await maybeMarkBooked(jobId)

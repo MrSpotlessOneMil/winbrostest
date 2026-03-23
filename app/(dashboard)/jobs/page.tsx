@@ -1826,10 +1826,10 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
-                {/* Send to specific cleaner */}
+                {/* Reassign / Send to specific cleaner */}
                 <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
                   <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
-                    Send to a specific cleaner
+                    {selectedEvent?.cleaner && selectedEvent.cleaner !== "Unassigned" ? "Reassign cleaner" : "Send to a specific cleaner"}
                   </div>
                   <div style={{ display: "flex", gap: "0.5rem" }}>
                     <select
@@ -1838,7 +1838,7 @@ export default function JobsPage() {
                       style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
                     >
                       <option value="">Pick a cleaner...</option>
-                      {cleanersList.map((c) => (
+                      {cleanersList.filter(c => c.id !== selectedEvent?.cleanerId).map((c) => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
