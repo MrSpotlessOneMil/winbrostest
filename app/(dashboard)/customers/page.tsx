@@ -711,8 +711,10 @@ export default function CustomersPage() {
     if (lead.status === "assigned" || lead.status === "scheduled") return { label: "Assigned", className: "bg-emerald-500/20 text-emerald-400" }
     if (lead.status === "paid") return { label: "Paid", className: "bg-green-500/20 text-green-400" }
     if (lead.status === "booked") return { label: "Booked", className: "bg-yellow-500/20 text-yellow-400" }
+    if (lead.status === "qualified") return { label: "Qualified", className: "bg-violet-500/20 text-violet-400" }
     if (lead.status === "quoted" || lead.stripe_payment_link) return { label: "Quoted", className: "bg-cyan-500/20 text-cyan-400" }
     if (lead.status === "responded" || lead.status === "engaged") return { label: "Engaged", className: "bg-purple-500/20 text-purple-400" }
+    if (lead.status === "contacted") return { label: "Contacted", className: "bg-sky-500/20 text-sky-400" }
     const stage = lead.followup_stage || 0
     if (stage <= 1) return { label: "New", className: "bg-blue-500/20 text-blue-400" }
     return { label: "Following Up", className: "bg-amber-500/20 text-amber-400" }

@@ -589,6 +589,8 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     quote_id: quote.id,
     ...(hasServiceDate ? { date: quote.service_date } : {}),
     ...(membershipId ? { membership_id: membershipId } : {}),
+    // Set frequency from membership plan so recurring cron creates future instances
+    ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
@@ -875,6 +877,7 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved & deposit paid — ${serviceName} package`,
     quote_id: quote.id,
     ...(depositMembershipId ? { membership_id: depositMembershipId } : {}),
+    ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient

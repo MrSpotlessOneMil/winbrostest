@@ -774,6 +774,7 @@ export default function JobsPage() {
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [sendToCleanerId, setSendToCleanerId] = useState("")
+  const [sendToCleanerIds, setSendToCleanerIds] = useState<string[]>([])
   const [sendingToCleaner, setSendingToCleaner] = useState(false)
   const [sendToCleanerResult, setSendToCleanerResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1183,19 +1184,19 @@ export default function JobsPage() {
   }
 
   const handleSendToCleaner = async () => {
-    if (!selectedEvent || !sendToCleanerId) return
+    if (!selectedEvent || sendToCleanerIds.length === 0) return
     setSendingToCleaner(true)
     setSendToCleanerResult(null)
     try {
-      const res = await fetch('/api/actions/assign-cleaner', {
+      const res = await fetch('/api/actions/notify-cleaners', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerId: sendToCleanerId }),
+        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerIds: sendToCleanerIds }),
       })
       const data = await res.json()
       if (res.ok && data.success) {
-        const name = data.cleaner?.name || 'Cleaner'
-        setSendToCleanerResult(`Sent to ${name} — waiting for response`)
+        setSendToCleanerResult(`Sent to ${data.notified} cleaner${data.notified === 1 ? '' : 's'} — waiting for response`)
+        setSendToCleanerIds([])
         await refreshJobs()
       } else {
         setSendToCleanerResult(`Error: ${data.error || 'Failed to send'}`)
@@ -1846,41 +1847,49 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
-                {/* Reassign / Send to specific cleaner */}
+                {/* Send job to cleaners (they must accept) */}
                 <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
                   <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
-                    {selectedEvent?.cleaner && selectedEvent.cleaner !== "Unassigned" ? "Reassign cleaner" : "Send to a specific cleaner"}
+                    Send job to cleaners
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <select
-                      value={sendToCleanerId}
-                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
-                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
-                    >
-                      <option value="">Pick a cleaner...</option>
-                      {cleanersList.filter(c => c.id !== selectedEvent?.cleanerId).map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleSendToCleaner}
-                      disabled={!sendToCleanerId || sendingToCleaner}
-                      style={{
-                        padding: "0.4rem 0.75rem",
-                        borderRadius: 6,
-                        border: "none",
-                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
-                        color: "#fff",
-                        fontWeight: 600,
-                        fontSize: "0.8rem",
-                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
-                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {sendingToCleaner ? "Sending..." : "Send"}
-                    </button>
+                  <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {cleanersList.filter(c => c.id !== selectedEvent?.cleanerId).map((c) => (
+                      <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: "0.8rem", color: "#e4e4e7", padding: "0.25rem 0.4rem", borderRadius: 4, background: sendToCleanerIds.includes(c.id) ? "rgba(16, 185, 129, 0.15)" : "transparent" }}>
+                        <input
+                          type="checkbox"
+                          checked={sendToCleanerIds.includes(c.id)}
+                          onChange={(e) => {
+                            setSendToCleanerResult(null)
+                            if (e.target.checked) {
+                              setSendToCleanerIds(prev => [...prev, c.id])
+                            } else {
+                              setSendToCleanerIds(prev => prev.filter(id => id !== c.id))
+                            }
+                          }}
+                          style={{ accentColor: "#10b981" }}
+                        />
+                        {c.name}
+                      </label>
+                    ))}
                   </div>
+                  <button
+                    onClick={handleSendToCleaner}
+                    disabled={sendToCleanerIds.length === 0 || sendingToCleaner}
+                    style={{
+                      width: "100%",
+                      padding: "0.5rem 0.75rem",
+                      borderRadius: 6,
+                      border: "none",
+                      background: sendToCleanerIds.length > 0 ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                      cursor: sendToCleanerIds.length === 0 || sendingToCleaner ? "not-allowed" : "pointer",
+                      opacity: sendToCleanerIds.length === 0 || sendingToCleaner ? 0.5 : 1,
+                    }}
+                  >
+                    {sendingToCleaner ? "Sending..." : `Send to ${sendToCleanerIds.length || ''} cleaner${sendToCleanerIds.length !== 1 ? 's' : ''}`}
+                  </button>
                   {sendToCleanerResult && (
                     <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
                       {sendToCleanerResult}
@@ -1924,41 +1933,49 @@ export default function JobsPage() {
                 <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
                   Duration: {selectedEvent?.hours || 2} hours
                 </div>
-                {/* Send to specific cleaner (also in edit mode) */}
+                {/* Send to cleaners (also in edit mode) */}
                 <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
                   <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
-                    Send job offer to a cleaner
+                    Send job to cleaners
                   </div>
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <select
-                      value={sendToCleanerId}
-                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
-                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
-                    >
-                      <option value="">Pick a cleaner...</option>
-                      {cleanersList.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleSendToCleaner}
-                      disabled={!sendToCleanerId || sendingToCleaner}
-                      style={{
-                        padding: "0.4rem 0.75rem",
-                        borderRadius: 6,
-                        border: "none",
-                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
-                        color: "#fff",
-                        fontWeight: 600,
-                        fontSize: "0.8rem",
-                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
-                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {sendingToCleaner ? "Sending..." : "Send"}
-                    </button>
+                  <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {cleanersList.map((c) => (
+                      <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: "0.8rem", color: "#e4e4e7", padding: "0.25rem 0.4rem", borderRadius: 4, background: sendToCleanerIds.includes(c.id) ? "rgba(16, 185, 129, 0.15)" : "transparent" }}>
+                        <input
+                          type="checkbox"
+                          checked={sendToCleanerIds.includes(c.id)}
+                          onChange={(e) => {
+                            setSendToCleanerResult(null)
+                            if (e.target.checked) {
+                              setSendToCleanerIds(prev => [...prev, c.id])
+                            } else {
+                              setSendToCleanerIds(prev => prev.filter(id => id !== c.id))
+                            }
+                          }}
+                          style={{ accentColor: "#10b981" }}
+                        />
+                        {c.name}
+                      </label>
+                    ))}
                   </div>
+                  <button
+                    onClick={handleSendToCleaner}
+                    disabled={sendToCleanerIds.length === 0 || sendingToCleaner}
+                    style={{
+                      width: "100%",
+                      padding: "0.5rem 0.75rem",
+                      borderRadius: 6,
+                      border: "none",
+                      background: sendToCleanerIds.length > 0 ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontSize: "0.8rem",
+                      cursor: sendToCleanerIds.length === 0 || sendingToCleaner ? "not-allowed" : "pointer",
+                      opacity: sendToCleanerIds.length === 0 || sendingToCleaner ? 0.5 : 1,
+                    }}
+                  >
+                    {sendingToCleaner ? "Sending..." : `Send to ${sendToCleanerIds.length || ''} cleaner${sendToCleanerIds.length !== 1 ? 's' : ''}`}
+                  </button>
                   {sendToCleanerResult && (
                     <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
                       {sendToCleanerResult}
