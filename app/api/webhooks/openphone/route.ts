@@ -205,7 +205,7 @@ export async function POST(request: NextRequest) {
         console.log(`[OpenPhone] Outbound message already stored for ${maskPhone(toPhone)}, skipping duplicate`)
       } else {
         // Save the outbound message (only for messages sent directly from OpenPhone app)
-        const { error: msgErr } = await client.from("messages").insert({
+        const { data: insertedMsg, error: msgErr } = await client.from("messages").insert({
           tenant_id: tenant?.id,
           customer_id: customer?.id || null,
           phone_number: toE164,
@@ -218,7 +218,7 @@ export async function POST(request: NextRequest) {
           source: "openphone_app",
           external_message_id: outboundOpMsgId || null,
           metadata: payload,
-        })
+        }).select("id").single()
 
         if (msgErr) {
           console.error("[OpenPhone] Failed to save outbound message:", msgErr)
@@ -258,6 +258,12 @@ export async function POST(request: NextRequest) {
             isBroadcast = true
             console.log(`[OpenPhone] Broadcast detected (${count} identical messages in 10min) — skipping manual takeover for ${maskPhone(toPhone)}`)
           }
+        }
+
+        // Re-label the message source when it's automated (not truly manual staff)
+        if (insertedMsg?.id && (isBroadcast || isAgentOutreach)) {
+          const newSource = isAgentOutreach ? "agent_outreach" : "broadcast"
+          await client.from("messages").update({ source: newSource }).eq("id", insertedMsg.id)
         }
 
         // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for agent outreach and broadcasts)
@@ -512,6 +518,15 @@ export async function POST(request: NextRequest) {
     .upsert({ phone_number: phone, tenant_id: tenant?.id }, { onConflict: "tenant_id,phone_number" })
     .select("*")
     .single()
+
+  // Backfill lead_source for customers who entered via SMS but don't have one yet
+  if (customer && !customer.lead_source && tenant?.id) {
+    await client
+      .from("customers")
+      .update({ lead_source: "sms" })
+      .eq("id", customer.id)
+    customer.lead_source = "sms"
+  }
 
   if (custErr) {
     return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })

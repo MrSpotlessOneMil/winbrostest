@@ -74,6 +74,7 @@ export async function POST(request: NextRequest) {
       first_name: row.first_name || "Unknown",
       lifecycle_stage: stage,
       lifecycle_stage_override: stage,
+      lead_source: "retargeting",
     }
     if (row.last_name) upsertData.last_name = row.last_name
     if (row.email) upsertData.email = row.email
