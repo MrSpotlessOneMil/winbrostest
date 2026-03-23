@@ -2,23 +2,23 @@
   "crons": [
     {
       "path": "/api/cron/process-scheduled-tasks",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/ghl-followups",
-      "schedule": "*/2 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/check-timeouts",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/post-job-followup",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/route-dispatch",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/unified-daily",
@@ -26,7 +26,7 @@
     },
     {
       "path": "/api/cron/send-reminders",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/lifecycle-reengagement",
@@ -38,7 +38,7 @@
     },
     {
       "path": "/api/cron/send-final-payments",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/extend-recurring-jobs",
@@ -46,7 +46,7 @@
     },
     {
       "path": "/api/cron/process-email-leads",
-      "schedule": "*/2 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/lifecycle-auto-enroll",
@@ -54,7 +54,7 @@
     },
     {
       "path": "/api/cron/sync-openphone-contacts",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/cron/osiris-learn",
