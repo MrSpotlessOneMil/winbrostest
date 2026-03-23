@@ -1323,7 +1323,13 @@ export default function JobsPage() {
         setSelectedEvent(null)
         setEditMode(false)
         await refreshJobs()
+      } else {
+        console.error("[edit-save] Failed:", data.error)
+        alert(`Save failed: ${data.error || "Unknown error"}`)
       }
+    } catch (err) {
+      console.error("[edit-save] Network error:", err)
+      alert("Save failed — network error")
     } finally {
       setSaving(false)
     }

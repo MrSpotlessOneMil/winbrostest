@@ -185,8 +185,12 @@ export async function PATCH(request: NextRequest) {
       updates.cleaner_id = cleaner_id ? Number(cleaner_id) : null
       const tenantId = tenant?.id || (oldJob as any)?.tenant_id
       if (tenantId) {
-        // Clear all existing assignments for this job and insert the new one
-        await getSupabaseServiceClient().from("cleaner_assignments").delete().eq("job_id", Number(id))
+        // Cancel all active assignments for this job
+        await getSupabaseServiceClient()
+          .from("cleaner_assignments")
+          .update({ status: "cancelled" })
+          .eq("job_id", Number(id))
+          .in("status", ["pending", "accepted", "confirmed"])
         if (cleaner_id) {
           await getSupabaseServiceClient().from("cleaner_assignments").insert({
             job_id: Number(id),
