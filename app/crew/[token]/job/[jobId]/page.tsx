@@ -261,7 +261,7 @@ export default function JobDetailPage() {
 
           {/* Property pills */}
           {(job.bedrooms || job.bathrooms || job.sqft) && (
-            <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+            <div className="flex flex-wrap gap-2 mt-4">
               {job.bedrooms != null && <InfoPill icon={<Bed className="size-3.5" />} text={`${job.bedrooms} bed`} />}
               {job.bathrooms != null && <InfoPill icon={<Bath className="size-3.5" />} text={`${job.bathrooms} bath`} />}
               {job.sqft != null && <InfoPill icon={<Ruler className="size-3.5" />} text={`${job.sqft} sqft`} />}
@@ -272,7 +272,7 @@ export default function JobDetailPage() {
 
           {/* Pay — big and prominent */}
           {job.cleaner_pay != null && (
-            <div className="mt-3 pt-3 flex items-center gap-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+            <div className="mt-4 flex items-center gap-3">
               <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: "#dcfce7" }}>
                 <DollarSign className="size-5 text-emerald-600" />
               </div>
@@ -285,7 +285,7 @@ export default function JobDetailPage() {
 
           {/* Notes */}
           {job.notes && (
-            <div className="mt-3 pt-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+            <div className="mt-4">
               <NotesDisplay notes={job.notes} />
             </div>
           )}
@@ -465,8 +465,8 @@ export default function JobDetailPage() {
           </div>
         )}
 
-        {/* ═══ PAYMENT ═══ */}
-        {isActive && !isPending && (
+        {/* ═══ PAYMENT ═══ (hidden when card on file — auto-charge handles it) */}
+        {isActive && !isPending && !job.card_on_file && (
           <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.25s" }}>
             <p className="font-bold text-slate-800 text-sm mb-3">Payment Method</p>
             <div className="grid grid-cols-2 gap-2">
