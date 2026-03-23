@@ -210,6 +210,10 @@ const LIFECYCLE_BADGE: Record<string, { label: string; color: string; bg: string
 
 function getLifecycleBadge(customer: Customer) {
   if (customer.sms_opt_out) return LIFECYCLE_BADGE.opted_out
+  // Retargeting customers should show "Retargeting", not "New Lead"
+  if (customer.lead_source === 'retargeting' && (!customer.lifecycle_stage || customer.lifecycle_stage === 'new_lead')) {
+    return { label: "Retargeting", color: "text-cyan-300", bg: "bg-cyan-500/15" }
+  }
   const stage = customer.lifecycle_stage
   if (!stage) return null
   return LIFECYCLE_BADGE[stage] || null
@@ -646,22 +650,18 @@ export default function CustomersPage() {
 
   const getSourceBadge = (customer: Customer) => {
     if (!customer.lead_source) return null
-    const label = sourceLabelsMap[customer.lead_source]
-    if (!label) return null
-    const colors: Record<string, string> = {
-      retargeting: "bg-cyan-500/20 text-cyan-300",
-      sam: "bg-orange-500/20 text-orange-300",
-      meta: "bg-pink-500/20 text-pink-300",
-      google_lsa: "bg-green-500/20 text-green-300",
-      website: "bg-emerald-500/20 text-emerald-300",
-      phone: "bg-blue-500/20 text-blue-300",
-      sms: "bg-purple-500/20 text-purple-300",
-      email: "bg-yellow-500/20 text-yellow-300",
-      google: "bg-blue-500/20 text-blue-300",
-      thumbtack: "bg-yellow-500/20 text-yellow-300",
-      ghl: "bg-purple-500/20 text-purple-300",
+    // Only show badge for paid/trackable channels — not for generic sources
+    const trackableChannels: Record<string, { label: string; className: string }> = {
+      sam: { label: "SAM", className: "bg-orange-500/20 text-orange-300" },
+      meta: { label: "Meta", className: "bg-pink-500/20 text-pink-300" },
+      google_lsa: { label: "LSA", className: "bg-green-500/20 text-green-300" },
+      google: { label: "Google", className: "bg-blue-500/20 text-blue-300" },
+      website: { label: "Website", className: "bg-emerald-500/20 text-emerald-300" },
+      thumbtack: { label: "Thumbtack", className: "bg-yellow-500/20 text-yellow-300" },
+      angi: { label: "Angi", className: "bg-red-500/20 text-red-300" },
+      ghl: { label: "GHL", className: "bg-purple-500/20 text-purple-300" },
     }
-    return { label, className: colors[customer.lead_source] || "bg-zinc-500/20 text-zinc-300" }
+    return trackableChannels[customer.lead_source] || null
   }
 
   const getCustomerMessages = (phoneNumber: string) => {
