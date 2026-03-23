@@ -652,6 +652,10 @@ export default function CustomersPage() {
     if (!customer.lead_source) return null
     // Only show badge for paid/trackable channels — not for generic sources
     const trackableChannels: Record<string, { label: string; className: string }> = {
+      retargeting: { label: "Retargeting", className: "bg-violet-500/20 text-violet-300" },
+      sms: { label: "SMS", className: "bg-cyan-500/20 text-cyan-300" },
+      phone: { label: "Phone", className: "bg-sky-500/20 text-sky-300" },
+      email: { label: "Email", className: "bg-amber-500/20 text-amber-300" },
       sam: { label: "SAM", className: "bg-orange-500/20 text-orange-300" },
       meta: { label: "Meta", className: "bg-pink-500/20 text-pink-300" },
       google_lsa: { label: "LSA", className: "bg-green-500/20 text-green-300" },
