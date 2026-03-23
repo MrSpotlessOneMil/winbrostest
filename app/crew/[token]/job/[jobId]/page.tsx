@@ -353,29 +353,29 @@ export default function JobDetailPage() {
               ))}
             </div>
 
-            {/* Action buttons */}
-            <div className="flex gap-2">
-              {steps.map(step => {
-                const canClick = step.key === "omw" ? (!job.cleaner_omw_at) :
-                  step.key === "here" ? (!!job.cleaner_omw_at && !job.cleaner_arrived_at) :
-                    (!!job.cleaner_arrived_at && !isCompleted)
-                return (
-                  <button
-                    key={step.key}
-                    onClick={() => updateStatus(step.key)}
-                    disabled={!canClick || !!updating || step.done}
-                    className="flex-1 py-3 rounded-2xl font-black text-xs text-white active:scale-95 transition-all disabled:opacity-30"
-                    style={{
-                      background: step.done ? step.color : "#e2ddd5",
-                      boxShadow: step.done ? `0 3px 0 ${step.color}90` : "0 3px 0 #ccc8bf",
-                      color: step.done ? "#fff" : "#8a857d",
-                    }}
-                  >
-                    {updating === step.key ? <Loader2 className="size-4 animate-spin mx-auto" /> : step.label.toUpperCase()}
-                  </button>
-                )
-              })}
-            </div>
+            {/* Action button — only show the NEXT step as one big button */}
+            {(() => {
+              const nextStep = !job.cleaner_omw_at ? steps[0] :
+                !job.cleaner_arrived_at ? steps[1] :
+                !isCompleted ? steps[2] : null
+              if (!nextStep) return null
+              return (
+                <button
+                  onClick={() => updateStatus(nextStep.key)}
+                  disabled={!!updating}
+                  className="w-full py-4 rounded-2xl font-black text-base text-white active:scale-[0.97] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{
+                    background: nextStep.color,
+                    boxShadow: `0 4px 0 ${nextStep.color}90, 0 6px 20px ${nextStep.color}30`,
+                  }}
+                >
+                  {updating === nextStep.key
+                    ? <Loader2 className="size-5 animate-spin" />
+                    : <>{nextStep.icon} {nextStep.label.toUpperCase()}</>
+                  }
+                </button>
+              )
+            })()}
           </div>
         )}
 
