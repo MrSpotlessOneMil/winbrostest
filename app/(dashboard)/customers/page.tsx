@@ -1659,17 +1659,7 @@ export default function CustomersPage() {
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
                                 {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
                                   <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
-                                ) : (() => {
-                                  // One badge max: source badge for paid channels, otherwise lifecycle
-                                  const srcBadge = getSourceBadge(customer)
-                                  if (srcBadge) {
-                                    return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
-                                  }
-                                  const badge = getLifecycleBadge(customer)
-                                  return badge ? (
-                                    <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${badge.bg} ${badge.color} leading-none`}>{badge.label}</span>
-                                  ) : null
-                                })()}
+                                ) : null}
                                 {customer.card_on_file_at && (
                                   <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
                                 )}
@@ -1756,14 +1746,6 @@ export default function CustomersPage() {
                           <h2 className="text-base font-semibold text-zinc-100">
                             {getCustomerName(selectedCustomer)}
                           </h2>
-                          {(() => {
-                            const badge = getLeadBadge(getCustomerLead(selectedCustomer.phone_number))
-                            return (
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${badge.className}`}>
-                                {badge.label}
-                              </span>
-                            )
-                          })()}
                         </div>
                         <p className="text-xs text-zinc-500">
                           {formatPhone(selectedCustomer.phone_number)}
