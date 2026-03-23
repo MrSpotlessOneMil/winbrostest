@@ -139,7 +139,7 @@ export async function notifyCleanerAssignment(
 
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
-  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}\n\nReply ACCEPT or DECLINE.`
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 
@@ -569,6 +569,20 @@ export async function processCleanerAssignmentReply(
     .eq('id', pending.id)
 
   if (accepted) {
+    // Guard: check if another cleaner already accepted this job
+    const { data: existingAccepted } = await client
+      .from('cleaner_assignments')
+      .select('id, cleaner_id')
+      .eq('job_id', pending.job_id)
+      .eq('status', 'accepted')
+      .limit(1)
+      .maybeSingle()
+
+    if (existingAccepted) {
+      console.log(`[cleaner-sms] Job ${pending.job_id} already has accepted cleaner ${existingAccepted.cleaner_id} — rejecting late accept from ${cleanerId}`)
+      return { success: false, error: 'Job already assigned to another cleaner' }
+    }
+
     // Accept: update cleaner_assignment status — only if still pending
     const { data: updated } = await client
       .from('cleaner_assignments')
