@@ -3,206 +3,14 @@
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft,
-  Calendar,
-  Clock,
-  MapPin,
-  User,
-  Phone,
-  CheckCircle,
-  Circle,
-  Loader2,
-  AlertCircle,
-  Navigation,
-  Home as HomeIcon,
-  CreditCard,
-  DollarSign,
-  Send,
-  MessageCircle,
-  Bed,
-  Bath,
-  Ruler,
-  Timer,
-  Users,
-  ChevronDown,
-  ChevronUp,
-  X,
+  ArrowLeft, Calendar, Clock, MapPin, User, Phone,
+  CheckCircle2, Circle, Loader2, AlertCircle,
+  Navigation, Home as HomeIcon, CreditCard, DollarSign,
+  Send, MessageCircle, Bed, Bath, Ruler, Timer, Users,
+  ChevronDown, ChevronUp, PartyPopper, Sparkles, Car, Flag,
 } from "lucide-react"
 
-// ── Themes ──────────────────────────────────────────────
-const THEMES: Record<number, Theme> = {
-  1: { // Midnight Luxe
-    bg: "#0a0a0f",
-    cardBg: "rgba(255,255,255,0.03)",
-    cardBorder: "rgba(255,255,255,0.06)",
-    cardHover: "rgba(255,255,255,0.06)",
-    headerBg: "transparent",
-    headerGradient: "linear-gradient(135deg, #ffffff 0%, #a78bfa 100%)",
-    text: "#e2e8f0",
-    textMuted: "rgba(255,255,255,0.4)",
-    textFaint: "rgba(255,255,255,0.2)",
-    accent: "#8b5cf6",
-    accentRgb: "139,92,246",
-    accentLight: "rgba(139,92,246,0.15)",
-    success: "#4ade80",
-    successBg: "rgba(34,197,94,0.12)",
-    successBorder: "rgba(34,197,94,0.25)",
-    danger: "#f87171",
-    dangerBg: "rgba(248,113,113,0.12)",
-    dangerBorder: "rgba(248,113,113,0.25)",
-    payGradient: "linear-gradient(90deg, #f59e0b, #fbbf24)",
-    inputBg: "rgba(255,255,255,0.05)",
-    inputBorder: "rgba(255,255,255,0.1)",
-    inputText: "#e2e8f0",
-    divider: "rgba(255,255,255,0.06)",
-    msgMine: "#8b5cf6",
-    msgTheirs: "rgba(255,255,255,0.05)",
-    msgTheirsBorder: "rgba(255,255,255,0.08)",
-    glass: true,
-    dark: true,
-    orbs: true,
-  },
-  2: { // Aurora
-    bg: "#fafafa",
-    cardBg: "#ffffff",
-    cardBorder: "transparent",
-    cardHover: "#ffffff",
-    headerBg: "linear-gradient(135deg, #9333ea 0%, #3b82f6 50%, #2dd4bf 100%)",
-    headerGradient: "",
-    text: "#1e293b",
-    textMuted: "#64748b",
-    textFaint: "#94a3b8",
-    accent: "#3b82f6",
-    accentRgb: "59,130,246",
-    accentLight: "#eff6ff",
-    success: "#22c55e",
-    successBg: "#f0fdf4",
-    successBorder: "#bbf7d0",
-    danger: "#ef4444",
-    dangerBg: "#fef2f2",
-    dangerBorder: "#fecaca",
-    payGradient: "",
-    inputBg: "#ffffff",
-    inputBorder: "#e2e8f0",
-    inputText: "#1e293b",
-    divider: "#f1f5f9",
-    msgMine: "#3b82f6",
-    msgTheirs: "#f8fafc",
-    msgTheirsBorder: "#e2e8f0",
-    glass: false,
-    dark: false,
-    orbs: false,
-  },
-  3: { // Mono
-    bg: "#ffffff",
-    cardBg: "#f8f8f8",
-    cardBorder: "transparent",
-    cardHover: "#f4f4f4",
-    headerBg: "transparent",
-    headerGradient: "",
-    text: "#0f172a",
-    textMuted: "#64748b",
-    textFaint: "#cbd5e1",
-    accent: "#4f46e5",
-    accentRgb: "79,70,229",
-    accentLight: "#eef2ff",
-    success: "#22c55e",
-    successBg: "#f0fdf4",
-    successBorder: "#bbf7d0",
-    danger: "#ef4444",
-    dangerBg: "#fef2f2",
-    dangerBorder: "#fecaca",
-    payGradient: "",
-    inputBg: "#ffffff",
-    inputBorder: "#e2e8f0",
-    inputText: "#0f172a",
-    divider: "#f1f5f9",
-    msgMine: "#4f46e5",
-    msgTheirs: "#f8f8f8",
-    msgTheirsBorder: "#e5e7eb",
-    glass: false,
-    dark: false,
-    orbs: false,
-  },
-  4: { // Neon
-    bg: "#000000",
-    cardBg: "#0a0a0a",
-    cardBorder: "#27272a",
-    cardHover: "#111111",
-    headerBg: "transparent",
-    headerGradient: "",
-    text: "#fafafa",
-    textMuted: "#a1a1aa",
-    textFaint: "#52525b",
-    accent: "#22d3ee",
-    accentRgb: "34,211,238",
-    accentLight: "rgba(34,211,238,0.1)",
-    success: "#4ade80",
-    successBg: "rgba(74,222,128,0.1)",
-    successBorder: "rgba(74,222,128,0.25)",
-    danger: "#f87171",
-    dangerBg: "rgba(248,113,113,0.1)",
-    dangerBorder: "rgba(248,113,113,0.25)",
-    payGradient: "",
-    inputBg: "#0a0a0a",
-    inputBorder: "#27272a",
-    inputText: "#fafafa",
-    divider: "#27272a",
-    msgMine: "#22d3ee",
-    msgTheirs: "#0a0a0a",
-    msgTheirsBorder: "#27272a",
-    glass: false,
-    dark: true,
-    orbs: false,
-  },
-  5: { // Warm
-    bg: "#faf8f5",
-    cardBg: "#ffffff",
-    cardBorder: "rgba(251,191,36,0.15)",
-    cardHover: "rgba(255,247,237,0.5)",
-    headerBg: "linear-gradient(135deg, rgba(146,64,14,0.9) 0%, rgba(124,45,18,0.8) 100%)",
-    headerGradient: "",
-    text: "#292524",
-    textMuted: "#78716c",
-    textFaint: "#a8a29e",
-    accent: "#b45309",
-    accentRgb: "180,83,9",
-    accentLight: "#fffbeb",
-    success: "#059669",
-    successBg: "#ecfdf5",
-    successBorder: "#a7f3d0",
-    danger: "#dc2626",
-    dangerBg: "#fef2f2",
-    dangerBorder: "#fecaca",
-    payGradient: "",
-    inputBg: "#ffffff",
-    inputBorder: "rgba(251,191,36,0.2)",
-    inputText: "#292524",
-    divider: "rgba(251,191,36,0.1)",
-    msgMine: "#b45309",
-    msgTheirs: "#faf8f5",
-    msgTheirsBorder: "rgba(251,191,36,0.15)",
-    glass: false,
-    dark: false,
-    orbs: false,
-  },
-}
-
-interface Theme {
-  bg: string; cardBg: string; cardBorder: string; cardHover: string
-  headerBg: string; headerGradient: string
-  text: string; textMuted: string; textFaint: string
-  accent: string; accentRgb: string; accentLight: string
-  success: string; successBg: string; successBorder: string
-  danger: string; dangerBg: string; dangerBorder: string
-  payGradient: string
-  inputBg: string; inputBorder: string; inputText: string
-  divider: string
-  msgMine: string; msgTheirs: string; msgTheirsBorder: string
-  glass: boolean; dark: boolean; orbs: boolean
-}
-
-// ── Types ──────────────────────────────────────────────
+// ── Types ──
 interface JobDetail {
   id: number; date: string; scheduled_at: string | null; address: string | null
   service_type: string | null; status: string; notes: string | null
@@ -216,11 +24,9 @@ interface JobDetail {
 interface ChecklistItem { id: number; text: string; order: number; required: boolean; completed: boolean; completed_at: string | null }
 interface Message { id: string; content: string; direction: string; role: string; timestamp: string; source: string; is_mine: boolean }
 interface JobData {
-  job: JobDetail
-  assignment: { id: string; status: string }
+  job: JobDetail; assignment: { id: string; status: string }
   customer: { first_name: string | null; last_name: string | null; phone?: string | null }
-  checklist: ChecklistItem[]
-  tenant: { name: string; slug: string }
+  checklist: ChecklistItem[]; tenant: { name: string; slug: string }
 }
 
 function formatDate(d: string) { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) }
@@ -230,22 +36,11 @@ function formatTime(t: string | null) {
 }
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
 
-// ── Main Component ──────────────────────────────────────
 export default function JobDetailPage() {
   const params = useParams()
   const router = useRouter()
   const token = params.token as string
   const jobId = params.jobId as string
-
-  // Read design from localStorage
-  const [designNum, setDesignNum] = useState(5)
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem("crew-design")
-      if (stored) { const n = parseInt(stored, 10); if (n >= 1 && n <= 5) setDesignNum(n) }
-    } catch {}
-  }, [])
-  const t = THEMES[designNum] || THEMES[2]
 
   const [data, setData] = useState<JobData | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -259,6 +54,7 @@ export default function JobDetailPage() {
   const [chargeResult, setChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
   const [sendingTipLink, setSendingTipLink] = useState(false)
   const [tipLinkSent, setTipLinkSent] = useState(false)
+  const [showConfetti, setShowConfetti] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const apiBase = `/api/crew/${token}/job/${jobId}`
@@ -267,7 +63,6 @@ export default function JobDetailPage() {
     fetch(apiBase).then(r => { if (!r.ok) throw new Error("Not found"); return r.json() })
       .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [apiBase])
-
   const fetchMessages = useCallback(() => {
     fetch(`${apiBase}/messages`).then(r => r.json()).then(d => setMessages(d.messages || [])).catch(() => {})
   }, [apiBase])
@@ -282,35 +77,32 @@ export default function JobDetailPage() {
     setUpdating(status)
     try {
       const res = await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed to update"); return }
+      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
+      if (status === "done") { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 3000) }
       fetchData()
     } catch { alert("Network error") } finally { setUpdating(null) }
   }
-
   async function updateChecklist(itemId: number, completed: boolean) {
     try {
       await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checklist_item_id: itemId, completed }) })
       setData(prev => prev ? { ...prev, checklist: prev.checklist.map(i => i.id === itemId ? { ...i, completed, completed_at: completed ? new Date().toISOString() : null } : i) } : prev)
     } catch {}
   }
-
   async function updatePayment(method: string) {
     try {
       await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payment_method: method }) })
       setData(prev => prev ? { ...prev, job: { ...prev.job, payment_method: method } } : prev)
     } catch {}
   }
-
   async function handleCancelAccepted() {
-    if (!confirm("Are you sure you can't make this job? It will be reassigned to another cleaner.")) return
+    if (!confirm("Are you sure you can't make this job? It will be reassigned.")) return
     setUpdating("cancel")
     try {
       const res = await fetch(apiBase, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel_accepted" }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed to cancel"); return }
+      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
       router.push(`/crew/${token}`)
     } catch { alert("Network error") } finally { setUpdating(null) }
   }
-
   async function handleAcceptDecline(action: "accept" | "decline") {
     setUpdating(action)
     try {
@@ -319,7 +111,6 @@ export default function JobDetailPage() {
       fetchData()
     } catch { alert("Network error") } finally { setUpdating(null) }
   }
-
   async function chargeCard() {
     if (charging) return; setCharging(true); setChargeResult(null)
     try {
@@ -329,40 +120,35 @@ export default function JobDetailPage() {
       else { setChargeResult({ success: true, amount: json.amount }); fetchData() }
     } catch { setChargeResult({ success: false, error: "Network error" }) } finally { setCharging(false) }
   }
-
   async function sendTipLink() {
     if (sendingTipLink) return; setSendingTipLink(true)
     try {
       const res = await fetch(`${apiBase}/tip-link`, { method: "POST", headers: { "Content-Type": "application/json" } })
       if (res.ok) setTipLinkSent(true)
-      else { const json = await res.json(); alert(json.error || "Failed to send tip link") }
+      else { const json = await res.json(); alert(json.error || "Failed") }
     } catch { alert("Network error") } finally { setSendingTipLink(false) }
   }
-
   async function sendMessage() {
     if (!messageText.trim()) return; setSendingMessage(true)
     try {
       const res = await fetch(`${apiBase}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: messageText.trim() }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed to send"); return }
+      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
       setMessageText(""); fetchMessages()
     } catch { alert("Network error") } finally { setSendingMessage(false) }
   }
 
-  // ── Loading ──
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: t.bg }}>
-      <Loader2 className="size-8 animate-spin" style={{ color: t.accent }} />
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
+      <Loader2 className="size-8 animate-spin text-emerald-500" />
     </div>
   )
-
-  // ── Error ──
   if (error || !data) return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: t.bg }}>
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0" }}>
       <div className="text-center">
-        <AlertCircle className="size-12 mx-auto mb-3" style={{ color: t.danger }} />
-        <h1 className="text-xl font-semibold" style={{ color: t.text }}>Job Not Found</h1>
-        <p className="mt-1 text-sm" style={{ color: t.textMuted }}>This job doesn&apos;t exist or you don&apos;t have access.</p>
-        <button onClick={() => router.push(`/crew/${token}`)} className="mt-4 text-sm font-medium" style={{ color: t.accent }}>Back to Portal</button>
+        <AlertCircle className="size-12 text-red-400 mx-auto mb-3" />
+        <h1 className="text-xl font-bold text-slate-800">Job Not Found</h1>
+        <p className="text-slate-500 mt-1 text-sm">Not found or no access.</p>
+        <button onClick={() => router.push(`/crew/${token}`)} className="mt-4 text-sm font-bold text-emerald-600">Back to Portal</button>
       </div>
     </div>
   )
@@ -374,602 +160,470 @@ export default function JobDetailPage() {
   const isCompleted = job.status === "completed"
   const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
   const completedCount = checklist.filter(i => i.completed).length
+  const allChecked = checklist.length > 0 && completedCount === checklist.length
 
-  // Step progress for status buttons
+  // Step tracker data
   const steps = [
-    { done: !!job.cleaner_omw_at, label: "OMW" },
-    { done: !!job.cleaner_arrived_at, label: "HERE" },
-    { done: isCompleted, label: "DONE" },
+    { key: "omw", label: "On My Way", icon: <Car className="size-5" />, done: !!job.cleaner_omw_at, color: "#ff9600" },
+    { key: "here", label: "Arrived", icon: <HomeIcon className="size-5" />, done: !!job.cleaner_arrived_at, color: "#1cb0f6" },
+    { key: "done", label: "Complete", icon: <Flag className="size-5" />, done: isCompleted, color: "#58cc02" },
   ]
-  const currentStep = steps.filter(s => s.done).length
 
   return (
-    <div className="min-h-screen pb-8" style={{ background: t.bg, color: t.text }}>
-      {/* Ambient orbs for Midnight Luxe */}
-      {t.orbs && (
-        <>
-          <div className="fixed pointer-events-none" style={{ width: 400, height: 400, borderRadius: "50%", background: "rgba(139,92,246,0.12)", filter: "blur(100px)", top: "-5%", right: "-10%", zIndex: 0 }} />
-          <div className="fixed pointer-events-none" style={{ width: 300, height: 300, borderRadius: "50%", background: "rgba(6,182,212,0.08)", filter: "blur(80px)", bottom: "10%", left: "-5%", zIndex: 0 }} />
-        </>
+    <div className="min-h-screen pb-8" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
+      <style>{`
+        @keyframes popIn { 0% { opacity:0; transform: scale(0.85) translateY(8px); } 60% { transform: scale(1.02); } 100% { opacity:1; transform: scale(1); } }
+        @keyframes slideUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
+        @keyframes checkPop { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
+        @keyframes confettiFall { 0% { transform: translateY(-100vh) rotate(0deg); opacity:1; } 100% { transform: translateY(100vh) rotate(720deg); opacity:0; } }
+        @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(88,204,2,0.4); } 50% { box-shadow: 0 0 0 8px rgba(88,204,2,0); } }
+        .pop-in { animation: popIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both; }
+        .slide-up { animation: slideUp 0.4s ease-out both; }
+        .check-pop { animation: checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+      `}</style>
+
+      {/* Confetti overlay */}
+      {showConfetti && (
+        <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
+          {Array.from({ length: 40 }).map((_, i) => (
+            <div
+              key={i}
+              className="absolute rounded-sm"
+              style={{
+                width: 8 + Math.random() * 8,
+                height: 8 + Math.random() * 8,
+                background: ["#58cc02", "#ff9600", "#1cb0f6", "#ff4b4b", "#ce82ff", "#ffd700"][i % 6],
+                left: `${Math.random() * 100}%`,
+                animation: `confettiFall ${1.5 + Math.random() * 2}s linear ${Math.random() * 0.5}s both`,
+              }}
+            />
+          ))}
+        </div>
       )}
 
-      <div className="relative z-10">
-        {/* ── Cancelled Banner ── */}
-        {isCancelled && (
-          <div className="px-4 py-3 text-center text-sm" style={{ background: t.dangerBg, borderBottom: `1px solid ${t.dangerBorder}`, color: t.danger }}>
-            This assignment has been cancelled
+      {/* Cancelled banner */}
+      {isCancelled && (
+        <div className="px-4 py-3 text-center text-sm font-bold text-white" style={{ background: "#ff4b4b" }}>
+          This assignment was cancelled
+        </div>
+      )}
+
+      {/* ═══ HEADER ═══ */}
+      <div className="px-5 pt-5 pb-4" style={{ background: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)" }}>
+        <button onClick={() => router.push(`/crew/${token}`)} className="flex items-center gap-1.5 text-white/70 text-sm mb-3 hover:text-white transition-colors">
+          <ArrowLeft className="size-4" /> Back
+        </button>
+        <p className="text-white/60 text-xs mb-0.5">{tenant.name}</p>
+        <h1 className="text-xl font-black text-white">
+          {job.service_type ? humanize(job.service_type) : "Job"} #{job.id}
+        </h1>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 space-y-4 mt-4">
+
+        {/* ═══ JOB INFO CARD ═══ */}
+        <div className="bg-white rounded-2xl p-5 pop-in" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+          {/* Date/Time hero */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="size-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #58cc02, #89e219)" }}>
+              <Calendar className="size-5 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-slate-800">{formatDate(job.date)}</p>
+              <p className="text-sm text-slate-500 flex items-center gap-1"><Clock className="size-3.5" /> {formatTime(job.scheduled_at)}</p>
+            </div>
+          </div>
+
+          {/* Address */}
+          {job.address && (
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl mb-3 transition-colors"
+              style={{ background: "#f0f9ff", border: "1.5px solid #bae6fd" }}>
+              <MapPin className="size-4 text-sky-500 shrink-0" />
+              <span className="text-sm font-medium text-sky-700 truncate">{job.address}</span>
+            </a>
+          )}
+
+          {/* Customer + Phone */}
+          <div className="space-y-2">
+            {customerName && (
+              <div className="flex items-center gap-2.5 text-sm text-slate-600">
+                <User className="size-4 text-slate-400" /> <span className="font-medium">{customerName}</span>
+              </div>
+            )}
+            {customer.phone && (
+              <div className="flex items-center gap-2.5 text-sm">
+                <Phone className="size-4 text-slate-400" />
+                <a href={`tel:${customer.phone}`} className="font-medium text-emerald-600">{customer.phone}</a>
+              </div>
+            )}
+          </div>
+
+          {/* Property pills */}
+          {(job.bedrooms || job.bathrooms || job.sqft) && (
+            <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+              {job.bedrooms != null && <InfoPill icon={<Bed className="size-3.5" />} text={`${job.bedrooms} bed`} />}
+              {job.bathrooms != null && <InfoPill icon={<Bath className="size-3.5" />} text={`${job.bathrooms} bath`} />}
+              {job.sqft != null && <InfoPill icon={<Ruler className="size-3.5" />} text={`${job.sqft} sqft`} />}
+              {(job.total_hours || job.hours) && <InfoPill icon={<Timer className="size-3.5" />} text={`${job.total_hours ?? job.hours}h`} />}
+              {job.num_cleaners && <InfoPill icon={<Users className="size-3.5" />} text={`${job.num_cleaners} crew`} />}
+            </div>
+          )}
+
+          {/* Pay — big and prominent */}
+          {job.cleaner_pay != null && (
+            <div className="mt-3 pt-3 flex items-center gap-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+              <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: "#dcfce7" }}>
+                <DollarSign className="size-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-xl font-black text-emerald-600">${Number(job.cleaner_pay).toFixed(2)}</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your Pay</p>
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          {job.notes && (
+            <div className="mt-3 pt-3" style={{ borderTop: "1.5px solid #f1ede6" }}>
+              <NotesDisplay notes={job.notes} />
+            </div>
+          )}
+        </div>
+
+        {/* ═══ ACCEPT / DECLINE ═══ */}
+        {isPending && (
+          <div className="bg-white rounded-2xl p-5 pop-in" style={{ boxShadow: "0 0 0 2px #ff9600, 0 4px 15px rgba(255,150,0,0.15)", animationDelay: "0.1s" }}>
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="size-5 text-amber-500" />
+              <p className="font-bold text-slate-800">New Job Assignment</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleAcceptDecline("accept")}
+                disabled={!!updating}
+                className="flex-1 py-3.5 rounded-2xl font-black text-sm text-white active:scale-95 transition-all disabled:opacity-50"
+                style={{ background: "#58cc02", boxShadow: "0 4px 0 #46a302" }}
+              >
+                {updating === "accept" ? <Loader2 className="size-4 animate-spin mx-auto" /> : "ACCEPT"}
+              </button>
+              <button
+                onClick={() => handleAcceptDecline("decline")}
+                disabled={!!updating}
+                className="flex-1 py-3.5 rounded-2xl font-black text-sm text-white active:scale-95 transition-all disabled:opacity-50"
+                style={{ background: "#ff4b4b", boxShadow: "0 4px 0 #d63c3c" }}
+              >
+                {updating === "decline" ? <Loader2 className="size-4 animate-spin mx-auto" /> : "DECLINE"}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* ── Header ── */}
-        <div
-          className="px-5 pt-5 pb-6"
-          style={{
-            background: t.headerBg || "transparent",
-            borderRadius: t.headerBg && !t.dark ? "0 0 1.5rem 1.5rem" : undefined,
-          }}
-        >
-          <button
-            onClick={() => router.push(`/crew/${token}`)}
-            className="flex items-center gap-1.5 text-sm mb-4 transition-opacity hover:opacity-80"
-            style={{ color: t.headerBg ? "rgba(255,255,255,0.7)" : t.textMuted }}
-          >
-            <ArrowLeft className="size-4" />
-            Back
+        {/* ═══ STEP TRACKER (OMW → HERE → DONE) ═══ */}
+        {isActive && !isPending && (
+          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.15s" }}>
+            <p className="font-bold text-slate-800 mb-5 text-sm">Job Progress</p>
+
+            {/* Visual step tracker */}
+            <div className="flex items-center justify-between mb-6 px-2">
+              {steps.map((step, i) => (
+                <div key={step.key} className="flex items-center flex-1">
+                  {/* Step circle */}
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div
+                      className="size-12 rounded-2xl flex items-center justify-center transition-all duration-500"
+                      style={{
+                        background: step.done ? step.color : "#f1ede6",
+                        color: step.done ? "#ffffff" : "#c4bfb6",
+                        boxShadow: step.done ? `0 4px 12px ${step.color}40` : "none",
+                        animation: step.done ? "pulse 2s ease-in-out infinite" : "none",
+                      }}
+                    >
+                      {step.done ? <CheckCircle2 className="size-6" /> : step.icon}
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500">{step.label}</span>
+                  </div>
+                  {/* Connector line */}
+                  {i < steps.length - 1 && (
+                    <div className="flex-1 h-1 rounded-full mx-2 transition-all duration-500"
+                      style={{ background: steps[i + 1].done || step.done ? (step.done ? step.color : "#e2ddd5") : "#e2ddd5" }}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex gap-2">
+              {steps.map(step => {
+                const canClick = step.key === "omw" ? (!job.cleaner_omw_at) :
+                  step.key === "here" ? (!!job.cleaner_omw_at && !job.cleaner_arrived_at) :
+                    (!!job.cleaner_arrived_at && !isCompleted)
+                return (
+                  <button
+                    key={step.key}
+                    onClick={() => updateStatus(step.key)}
+                    disabled={!canClick || !!updating || step.done}
+                    className="flex-1 py-3 rounded-2xl font-black text-xs text-white active:scale-95 transition-all disabled:opacity-30"
+                    style={{
+                      background: step.done ? step.color : "#e2ddd5",
+                      boxShadow: step.done ? `0 3px 0 ${step.color}90` : "0 3px 0 #ccc8bf",
+                      color: step.done ? "#fff" : "#8a857d",
+                    }}
+                  >
+                    {updating === step.key ? <Loader2 className="size-4 animate-spin mx-auto" /> : step.label.toUpperCase()}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Can't Make It */}
+        {isActive && !isPending && !job.cleaner_omw_at && (
+          <button onClick={handleCancelAccepted} disabled={!!updating}
+            className="w-full py-3 rounded-2xl text-sm font-bold text-red-500 active:scale-[0.97] transition-all disabled:opacity-50"
+            style={{ background: "#fff5f5", border: "2px solid #fecaca" }}>
+            {updating === "cancel" ? "Cancelling..." : "Can't Make It"}
           </button>
-          <p className="text-xs mb-1" style={{ color: t.headerBg ? "rgba(255,255,255,0.6)" : t.textFaint }}>
-            {tenant.name}
-          </p>
-          <h1
-            className="text-xl font-bold"
-            style={t.headerGradient ? {
-              background: t.headerGradient,
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            } : { color: t.headerBg ? "#ffffff" : t.text }}
-          >
-            {job.service_type ? humanize(job.service_type) : "Job"} #{job.id}
-          </h1>
-        </div>
+        )}
 
-        <div className="max-w-lg mx-auto px-4 space-y-4" style={{ marginTop: t.headerBg && !t.dark ? "-0.5rem" : undefined }}>
-
-          {/* ── Job Info Card ── */}
-          <Card t={t}>
-            {/* Date & Time — hero row */}
-            <div className="flex items-center gap-5 mb-4">
-              <div className="flex items-center gap-2">
-                <div className="size-9 rounded-xl flex items-center justify-center" style={{ background: t.accentLight }}>
-                  <Calendar className="size-4" style={{ color: t.accent }} />
-                </div>
-                <div>
-                  <p className="text-sm font-medium" style={{ color: t.text }}>{formatDate(job.date)}</p>
-                  <p className="text-xs" style={{ color: t.textMuted }}>{formatTime(job.scheduled_at)}</p>
-                </div>
+        {/* ═══ CHECKLIST (CLIPBOARD) ═══ */}
+        {checklist.length > 0 && !isPending && (
+          <div className="relative slide-up" style={{ animationDelay: "0.2s" }}>
+            {/* Clip */}
+            <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">
+              <div className="w-16 h-5 rounded-b-lg relative" style={{ background: "linear-gradient(180deg, #a8a29e, #78716c)", boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>
+                <div className="absolute top-1 left-1/2 -translate-x-1/2 size-3 rounded-full" style={{ background: "linear-gradient(135deg, #e7e5e4, #d6d3d1)", border: "1.5px solid #a8a29e" }} />
               </div>
             </div>
 
-            <Divider t={t} />
-
-            {/* Address */}
-            {job.address && (
-              <InfoRow icon={<MapPin className="size-4" />} t={t}>
-                <a
-                  href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline underline-offset-2"
-                  style={{ color: t.accent }}
-                >
-                  {job.address}
-                </a>
-              </InfoRow>
-            )}
-
-            {/* Customer */}
-            {customerName && <InfoRow icon={<User className="size-4" />} t={t}><span>{customerName}</span></InfoRow>}
-            {customer.phone && (
-              <InfoRow icon={<Phone className="size-4" />} t={t}>
-                <a href={`tel:${customer.phone}`} className="underline underline-offset-2" style={{ color: t.accent }}>{customer.phone}</a>
-              </InfoRow>
-            )}
-
-            {/* Property Details — pills */}
-            {(job.bedrooms || job.bathrooms || job.sqft) && (
-              <>
-                <Divider t={t} />
-                <div className="flex flex-wrap gap-2">
-                  {job.bedrooms != null && <Pill icon={<Bed className="size-3.5" />} text={`${job.bedrooms} bed`} t={t} />}
-                  {job.bathrooms != null && <Pill icon={<Bath className="size-3.5" />} text={`${job.bathrooms} bath`} t={t} />}
-                  {job.sqft != null && <Pill icon={<Ruler className="size-3.5" />} text={`${job.sqft} sqft`} t={t} />}
-                </div>
-              </>
-            )}
-
-            {/* Hours & Cleaners */}
-            {(job.total_hours || job.num_cleaners || job.hours) && (
-              <div className="flex flex-wrap gap-2 mt-1">
-                {(job.total_hours || job.hours) && <Pill icon={<Timer className="size-3.5" />} text={`${job.total_hours ?? job.hours}h`} t={t} />}
-                {job.num_cleaners && <Pill icon={<Users className="size-3.5" />} text={`${job.num_cleaners} cleaner${job.num_cleaners > 1 ? "s" : ""}`} t={t} />}
-              </div>
-            )}
-
-            {/* Pay */}
-            {job.cleaner_pay != null && (
-              <>
-                <Divider t={t} />
-                <div className="flex items-center gap-2.5">
-                  <div className="size-9 rounded-xl flex items-center justify-center" style={{ background: t.successBg }}>
-                    <DollarSign className="size-4" style={{ color: t.success }} />
-                  </div>
-                  <span
-                    className="text-lg font-bold"
-                    style={t.payGradient ? {
-                      background: t.payGradient,
-                      WebkitBackgroundClip: "text",
-                      WebkitTextFillColor: "transparent",
-                    } : { color: t.success }}
-                  >
-                    ${Number(job.cleaner_pay).toFixed(2)}
-                  </span>
-                  <span className="text-xs" style={{ color: t.textFaint }}>Your pay</span>
-                </div>
-              </>
-            )}
-
-            {/* Notes */}
-            {job.notes && (
-              <>
-                <Divider t={t} />
-                <NotesDisplay notes={job.notes} t={t} />
-              </>
-            )}
-          </Card>
-
-          {/* ── Accept / Decline ── */}
-          {isPending && (
-            <Card t={t}>
-              <p className="text-sm font-semibold mb-3" style={{ color: t.text }}>New Job Assignment</p>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleAcceptDecline("accept")}
-                  disabled={!!updating}
-                  className="flex-1 py-3 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.97] disabled:opacity-50"
-                  style={{ background: t.success }}
-                >
-                  {updating === "accept" ? "..." : "Accept"}
-                </button>
-                <button
-                  onClick={() => handleAcceptDecline("decline")}
-                  disabled={!!updating}
-                  className="flex-1 py-3 rounded-xl font-semibold text-sm text-white transition-all active:scale-[0.97] disabled:opacity-50"
-                  style={{ background: t.danger }}
-                >
-                  {updating === "decline" ? "..." : "Decline"}
-                </button>
-              </div>
-            </Card>
-          )}
-
-          {/* ── Status Progress (OMW → HERE → DONE) ── */}
-          {isActive && !isPending && (
-            <Card t={t}>
-              <p className="text-sm font-semibold mb-4" style={{ color: t.text }}>Job Progress</p>
-              {/* Progress bar */}
-              <div className="flex items-center gap-1 mb-4">
-                {steps.map((step, i) => (
-                  <div key={i} className="flex-1 flex items-center gap-1">
-                    <div
-                      className="h-1.5 flex-1 rounded-full transition-all duration-500"
-                      style={{
-                        background: step.done ? t.accent : t.dark ? "rgba(255,255,255,0.08)" : "#e2e8f0",
-                        boxShadow: step.done ? `0 0 8px rgba(${t.accentRgb},0.3)` : "none",
-                      }}
-                    />
-                  </div>
+            <div className="bg-white rounded-2xl pt-8 pb-5 px-5 relative overflow-hidden" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+              {/* Ruled lines */}
+              <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.04 }}>
+                {Array.from({ length: 15 }).map((_, i) => (
+                  <div key={i} className="w-full absolute" style={{ top: `${50 + i * 36}px`, height: 1, background: "#1e40af" }} />
                 ))}
               </div>
-              {/* Buttons */}
-              <div className="flex gap-2">
-                <StatusBtn
-                  label="OMW" icon={<Navigation className="size-4" />}
-                  active={!!job.cleaner_omw_at}
-                  disabled={!!job.cleaner_omw_at || !!updating}
-                  loading={updating === "omw"}
-                  onClick={() => updateStatus("omw")}
-                  t={t}
-                />
-                <StatusBtn
-                  label="HERE" icon={<HomeIcon className="size-4" />}
-                  active={!!job.cleaner_arrived_at}
-                  disabled={!job.cleaner_omw_at || !!job.cleaner_arrived_at || !!updating}
-                  loading={updating === "here"}
-                  onClick={() => updateStatus("here")}
-                  t={t}
-                />
-                <StatusBtn
-                  label="DONE" icon={<CheckCircle className="size-4" />}
-                  active={isCompleted}
-                  disabled={!job.cleaner_arrived_at || isCompleted || !!updating}
-                  loading={updating === "done"}
-                  onClick={() => updateStatus("done")}
-                  t={t}
-                />
-              </div>
-            </Card>
-          )}
+              {/* Red margin line */}
+              <div className="absolute top-0 bottom-0 left-12 w-[1px] pointer-events-none" style={{ background: "rgba(239,68,68,0.12)" }} />
 
-          {/* ── Can't Make It ── */}
-          {isActive && !isPending && !job.cleaner_omw_at && (
-            <button
-              onClick={handleCancelAccepted}
-              disabled={!!updating}
-              className="w-full py-3 rounded-xl text-sm font-medium transition-all disabled:opacity-50"
-              style={{
-                background: t.dangerBg,
-                color: t.danger,
-                border: `1px solid ${t.dangerBorder}`,
-              }}
-            >
-              {updating === "cancel" ? "Cancelling..." : "Can't Make It"}
-            </button>
-          )}
-
-          {/* ── Checklist (Clipboard Style) ── */}
-          {checklist.length > 0 && !isPending && (
-            <div className="relative">
-              {/* Clipboard clip at top center */}
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-                <div
-                  className="w-20 h-6 rounded-b-lg relative"
-                  style={{
-                    background: t.dark ? "#3f3f46" : "#a8a29e",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-                  }}
-                >
-                  {/* Metal circle on clip */}
-                  <div
-                    className="absolute top-1 left-1/2 -translate-x-1/2 size-3.5 rounded-full"
-                    style={{
-                      background: t.dark
-                        ? "linear-gradient(135deg, #52525b, #71717a)"
-                        : "linear-gradient(135deg, #d6d3d1, #e7e5e4)",
-                      border: `1.5px solid ${t.dark ? "#71717a" : "#a8a29e"}`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Clipboard body */}
-              <div
-                className="rounded-2xl pt-8 pb-5 px-5 relative overflow-hidden"
-                style={{
-                  background: t.dark ? "rgba(255,255,255,0.03)" : "#fffdf7",
-                  border: `1.5px solid ${t.dark ? "rgba(255,255,255,0.06)" : "rgba(180,83,9,0.12)"}`,
-                  boxShadow: t.dark ? "none" : "0 2px 12px rgba(120,53,15,0.06), inset 0 1px 0 rgba(255,255,255,0.8)",
-                  backdropFilter: t.glass ? "blur(24px)" : undefined,
-                }}
-              >
-                {/* Faint ruled lines */}
-                <div className="absolute inset-0 pointer-events-none" style={{ opacity: t.dark ? 0.03 : 0.06 }}>
-                  {Array.from({ length: 12 }).map((_, i) => (
-                    <div key={i} className="w-full absolute" style={{ top: `${52 + i * 38}px`, height: 1, background: t.dark ? "#ffffff" : "#b45309" }} />
-                  ))}
-                </div>
-
-                {/* Header row */}
-                <div className="flex items-center justify-between mb-4 relative z-10">
-                  <p className="text-sm font-semibold tracking-wide" style={{ color: t.text }}>
-                    Checklist
-                  </p>
-                  <span
-                    className="text-xs font-bold px-2.5 py-1 rounded-full"
-                    style={{ background: t.accentLight, color: t.accent }}
-                  >
-                    {completedCount}/{checklist.length}
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="font-bold text-slate-800 text-sm">Checklist</p>
+                  <span className="text-xs font-black px-2.5 py-1 rounded-full" style={{
+                    background: allChecked ? "#dcfce7" : "#fef3c7",
+                    color: allChecked ? "#16a34a" : "#d97706",
+                  }}>
+                    {allChecked ? "ALL DONE!" : `${completedCount}/${checklist.length}`}
                   </span>
                 </div>
 
                 {/* Progress bar */}
-                <div className="h-1.5 rounded-full mb-5 relative z-10" style={{ background: t.dark ? "rgba(255,255,255,0.06)" : "rgba(180,83,9,0.08)" }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{
-                      width: `${(completedCount / checklist.length) * 100}%`,
-                      background: t.dark ? t.accent : "linear-gradient(90deg, #b45309, #d97706)",
-                      boxShadow: `0 0 10px rgba(${t.accentRgb},0.3)`,
-                    }}
-                  />
+                <div className="h-2 rounded-full mb-4" style={{ background: "#f1ede6" }}>
+                  <div className="h-full rounded-full transition-all duration-500 ease-out" style={{
+                    width: `${(completedCount / checklist.length) * 100}%`,
+                    background: allChecked ? "#58cc02" : "linear-gradient(90deg, #ff9600, #ffb347)",
+                    boxShadow: `0 0 8px ${allChecked ? "rgba(88,204,2,0.4)" : "rgba(255,150,0,0.3)"}`,
+                  }} />
                 </div>
 
-                {/* Items */}
-                <div className="space-y-0.5 relative z-10">
-                  {checklist.map((item, idx) => (
+                <div className="space-y-1">
+                  {checklist.map(item => (
                     <button
                       key={item.id}
                       onClick={() => updateChecklist(item.id, !item.completed)}
-                      className="flex items-center gap-3 w-full text-left py-2.5 px-2 rounded-lg transition-all group"
-                      style={{
-                        animationDelay: `${idx * 40}ms`,
-                      }}
+                      className="flex items-center gap-3 w-full text-left py-2.5 px-2 rounded-xl active:scale-[0.98] transition-all group"
                     >
-                      {/* Custom checkbox */}
-                      <div
-                        className="size-5 rounded-md flex items-center justify-center shrink-0 transition-all duration-200"
+                      <div className={`size-6 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200 ${item.completed ? "check-pop" : ""}`}
                         style={{
-                          background: item.completed ? t.success : "transparent",
-                          border: item.completed ? "none" : `2px solid ${t.dark ? "rgba(255,255,255,0.15)" : "#d6d3d1"}`,
-                          boxShadow: item.completed ? `0 0 8px rgba(34,197,94,0.25)` : "none",
-                        }}
-                      >
+                          background: item.completed ? "#58cc02" : "transparent",
+                          border: item.completed ? "none" : "2.5px solid #d6d3d1",
+                          boxShadow: item.completed ? "0 2px 8px rgba(88,204,2,0.3)" : "none",
+                        }}>
                         {item.completed && (
-                          <svg viewBox="0 0 12 12" className="size-3" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2.5 6L5 8.5L9.5 3.5" />
+                          <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M2 6L5 9L10 3" />
                           </svg>
                         )}
                       </div>
-                      <span
-                        className={`text-sm transition-all duration-200 ${item.completed ? "line-through" : ""}`}
-                        style={{ color: item.completed ? t.textFaint : t.text }}
-                      >
+                      <span className={`text-sm font-medium transition-all ${item.completed ? "line-through text-slate-400" : "text-slate-700"}`}>
                         {item.text}
                       </span>
                     </button>
                   ))}
                 </div>
+
+                {allChecked && (
+                  <div className="mt-4 flex items-center justify-center gap-2 py-3 rounded-xl" style={{ background: "#f0fdf4" }}>
+                    <PartyPopper className="size-5 text-emerald-500" />
+                    <span className="text-sm font-bold text-emerald-600">Everything done! Nice work!</span>
+                  </div>
+                )}
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── Payment Method ── */}
-          {isActive && !isPending && (
-            <Card t={t}>
-              <p className="text-sm font-semibold mb-3" style={{ color: t.text }}>Payment</p>
-              <div className="grid grid-cols-2 gap-2">
-                {(["card", "cash", "check", "venmo"] as const).map(method => (
-                  <button
-                    key={method}
-                    onClick={() => updatePayment(method)}
-                    className="py-2.5 px-3 rounded-xl text-sm font-medium transition-all"
+        {/* ═══ PAYMENT ═══ */}
+        {isActive && !isPending && (
+          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.25s" }}>
+            <p className="font-bold text-slate-800 text-sm mb-3">Payment Method</p>
+            <div className="grid grid-cols-2 gap-2">
+              {(["card", "cash", "check", "venmo"] as const).map(method => {
+                const selected = job.payment_method === method
+                return (
+                  <button key={method} onClick={() => updatePayment(method)}
+                    className="py-3 px-3 rounded-xl text-sm font-bold active:scale-95 transition-all"
                     style={{
-                      background: job.payment_method === method ? t.accentLight : "transparent",
-                      border: `1.5px solid ${job.payment_method === method ? t.accent : t.dark ? "rgba(255,255,255,0.08)" : "#e2e8f0"}`,
-                      color: job.payment_method === method ? t.accent : t.textMuted,
-                    }}
-                  >
-                    {method === "card" && <CreditCard className="size-4 inline mr-1.5" />}
-                    {method === "cash" && <DollarSign className="size-4 inline mr-1.5" />}
+                      background: selected ? "#58cc02" : "#f7f5f0",
+                      color: selected ? "#fff" : "#78716c",
+                      boxShadow: selected ? "0 3px 0 #46a302" : "0 2px 0 #e2ddd5",
+                      border: selected ? "none" : "1.5px solid #e2ddd5",
+                    }}>
+                    {method === "card" && <CreditCard className="size-4 inline mr-1" />}
+                    {method === "cash" && <DollarSign className="size-4 inline mr-1" />}
                     {method.charAt(0).toUpperCase() + method.slice(1)}
                   </button>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          {/* ── Charge Card ── */}
-          {isCompleted && job.card_on_file && !job.paid && (
-            <Card t={t}>
-              <p className="text-sm font-semibold mb-1" style={{ color: t.text }}>Charge Card on File</p>
-              <p className="text-xs mb-3" style={{ color: t.textMuted }}>Charge customer&apos;s saved card</p>
-              {chargeResult?.success && (
-                <div className="rounded-xl p-3 mb-3 flex items-center gap-2" style={{ background: t.successBg, border: `1px solid ${t.successBorder}` }}>
-                  <CheckCircle className="size-4" style={{ color: t.success }} />
-                  <span className="text-sm" style={{ color: t.success }}>Charged ${chargeResult.amount?.toFixed(2)}</span>
-                </div>
-              )}
-              {chargeResult && !chargeResult.success && (
-                <div className="rounded-xl p-3 mb-3 flex items-center gap-2" style={{ background: t.dangerBg, border: `1px solid ${t.dangerBorder}` }}>
-                  <AlertCircle className="size-4" style={{ color: t.danger }} />
-                  <span className="text-sm" style={{ color: t.danger }}>{chargeResult.error}</span>
-                </div>
-              )}
-              <ActionButton onClick={chargeCard} disabled={charging} loading={charging} t={t} color="success">
-                <CreditCard className="size-4" /> Charge Customer
-              </ActionButton>
-            </Card>
-          )}
-
-          {/* ── Paid ── */}
-          {isCompleted && job.paid && (
-            <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: t.successBg, border: `1px solid ${t.successBorder}` }}>
-              <CheckCircle className="size-5" style={{ color: t.success }} />
-              <div>
-                <p className="font-semibold text-sm" style={{ color: t.success }}>Payment Collected</p>
-                <p className="text-xs" style={{ color: t.success, opacity: 0.7 }}>Paid via {job.payment_method || "card"}</p>
-              </div>
+                )
+              })}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* ── Tip Link ── */}
-          {isCompleted && (
-            <Card t={t}>
-              <p className="text-sm font-semibold mb-2" style={{ color: t.text }}>Tip Link</p>
-              {tipLinkSent ? (
-                <div className="rounded-xl p-3 flex items-center gap-2" style={{ background: t.successBg, border: `1px solid ${t.successBorder}` }}>
-                  <CheckCircle className="size-4" style={{ color: t.success }} />
-                  <span className="text-sm" style={{ color: t.success }}>Tip link sent!</span>
-                </div>
-              ) : (
-                <>
-                  <p className="text-xs mb-3" style={{ color: t.textMuted }}>Send the customer a link to leave a tip</p>
-                  <ActionButton onClick={sendTipLink} disabled={sendingTipLink} loading={sendingTipLink} t={t} color="accent">
-                    <DollarSign className="size-4" /> Send Tip Link
-                  </ActionButton>
-                </>
-              )}
-            </Card>
-          )}
+        {/* ═══ CHARGE CARD ═══ */}
+        {isCompleted && job.card_on_file && !job.paid && (
+          <div className="bg-white rounded-2xl p-5" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+            <p className="font-bold text-slate-800 text-sm mb-1">Charge Card</p>
+            <p className="text-xs text-slate-400 mb-3">Charge the customer&apos;s saved card</p>
+            {chargeResult?.success && (
+              <div className="rounded-xl p-3 mb-3 flex items-center gap-2 bg-emerald-50 border-2 border-emerald-200">
+                <CheckCircle2 className="size-4 text-emerald-500" />
+                <span className="text-sm font-bold text-emerald-600">Charged ${chargeResult.amount?.toFixed(2)}</span>
+              </div>
+            )}
+            {chargeResult && !chargeResult.success && (
+              <div className="rounded-xl p-3 mb-3 flex items-center gap-2 bg-red-50 border-2 border-red-200">
+                <AlertCircle className="size-4 text-red-500" />
+                <span className="text-sm font-bold text-red-600">{chargeResult.error}</span>
+              </div>
+            )}
+            <button onClick={chargeCard} disabled={charging}
+              className="w-full py-3 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
+              style={{ background: "#58cc02", boxShadow: "0 4px 0 #46a302" }}>
+              {charging ? <Loader2 className="size-4 animate-spin" /> : <><CreditCard className="size-4" /> CHARGE CUSTOMER</>}
+            </button>
+          </div>
+        )}
 
-          {/* ── Messages ── */}
-          {!isPending && (
-            <Card t={t}>
-              <button onClick={() => setShowMessages(!showMessages)} className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-2">
-                  <MessageCircle className="size-5" style={{ color: t.accent }} />
-                  <span className="text-sm font-semibold" style={{ color: t.text }}>Message Client</span>
-                </div>
-                {showMessages ? <ChevronUp className="size-4" style={{ color: t.textFaint }} /> : <ChevronDown className="size-4" style={{ color: t.textFaint }} />}
+        {/* Paid */}
+        {isCompleted && job.paid && (
+          <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: "#dcfce7", border: "2px solid #86efac" }}>
+            <CheckCircle2 className="size-6 text-emerald-500" />
+            <div>
+              <p className="font-bold text-emerald-700 text-sm">Payment Collected</p>
+              <p className="text-xs text-emerald-600">Paid via {job.payment_method || "card"}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Tip Link */}
+        {isCompleted && (
+          <div className="bg-white rounded-2xl p-5" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
+            <p className="font-bold text-slate-800 text-sm mb-2">Tip Link</p>
+            {tipLinkSent ? (
+              <div className="rounded-xl p-3 flex items-center gap-2 bg-emerald-50 border-2 border-emerald-200">
+                <CheckCircle2 className="size-4 text-emerald-500" />
+                <span className="text-sm font-bold text-emerald-600">Sent!</span>
+              </div>
+            ) : (
+              <button onClick={sendTipLink} disabled={sendingTipLink}
+                className="w-full py-3 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
+                style={{ background: "#1cb0f6", boxShadow: "0 4px 0 #1499d6" }}>
+                {sendingTipLink ? <Loader2 className="size-4 animate-spin" /> : <><DollarSign className="size-4" /> SEND TIP LINK</>}
               </button>
+            )}
+          </div>
+        )}
 
-              {showMessages && (
-                <div className="mt-4">
-                  <div className="max-h-64 overflow-y-auto space-y-2 mb-3 p-3 rounded-xl" style={{ background: t.dark ? "rgba(255,255,255,0.02)" : "#f8fafc" }}>
-                    {messages.length === 0
-                      ? <p className="text-sm text-center py-6" style={{ color: t.textFaint }}>No messages yet</p>
-                      : messages.map(msg => (
-                          <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                            <div
-                              className="max-w-[80%] px-3.5 py-2.5 rounded-2xl text-[15px] leading-relaxed"
-                              style={{
-                                background: msg.direction === "outbound"
-                                  ? (msg.is_mine ? t.msgMine : (t.dark ? "rgba(255,255,255,0.08)" : "#d1d5db"))
-                                  : t.msgTheirs,
-                                color: msg.direction === "outbound" && msg.is_mine ? "#ffffff" : t.text,
-                                border: msg.direction !== "outbound" ? `1px solid ${t.msgTheirsBorder}` : "none",
-                              }}
-                            >
-                              <p>{msg.content}</p>
-                              <p className="text-[10px] mt-1" style={{ opacity: 0.5 }}>
-                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                              </p>
-                            </div>
-                          </div>
-                        ))
-                    }
-                    <div ref={messagesEndRef} />
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={messageText}
-                      onChange={e => setMessageText(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                      placeholder="Type a message..."
-                      className="flex-1 rounded-xl px-4 py-2.5 text-base focus:outline-none transition-colors"
-                      style={{
-                        background: t.inputBg,
-                        border: `1.5px solid ${t.inputBorder}`,
-                        color: t.inputText,
-                      }}
-                      maxLength={1000}
-                    />
-                    <button
-                      onClick={sendMessage}
-                      disabled={!messageText.trim() || sendingMessage}
-                      className="p-2.5 rounded-xl text-white disabled:opacity-40 transition-all active:scale-95"
-                      style={{ background: t.accent }}
-                    >
-                      {sendingMessage ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                    </button>
-                  </div>
+        {/* ═══ MESSAGES ═══ */}
+        {!isPending && (
+          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.3s" }}>
+            <button onClick={() => setShowMessages(!showMessages)} className="flex items-center justify-between w-full">
+              <div className="flex items-center gap-2">
+                <div className="size-8 rounded-xl flex items-center justify-center" style={{ background: "#eff6ff" }}>
+                  <MessageCircle className="size-4 text-blue-500" />
                 </div>
-              )}
-            </Card>
-          )}
-        </div>
+                <span className="text-sm font-bold text-slate-800">Message Client</span>
+              </div>
+              {showMessages ? <ChevronUp className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
+            </button>
+
+            {showMessages && (
+              <div className="mt-4">
+                <div className="max-h-64 overflow-y-auto space-y-2 mb-3 p-3 rounded-xl" style={{ background: "#f7f5f0" }}>
+                  {messages.length === 0
+                    ? <p className="text-sm text-center py-6 text-slate-400">No messages yet</p>
+                    : messages.map(msg => (
+                        <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+                          <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed"
+                            style={{
+                              background: msg.direction === "outbound" ? (msg.is_mine ? "#58cc02" : "#d1d5db") : "#ffffff",
+                              color: msg.direction === "outbound" && msg.is_mine ? "#fff" : "#1e293b",
+                              border: msg.direction !== "outbound" ? "1.5px solid #e2ddd5" : "none",
+                            }}>
+                            <p>{msg.content}</p>
+                            <p className="text-[10px] mt-1" style={{ opacity: 0.5 }}>
+                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                  }
+                  <div ref={messagesEndRef} />
+                </div>
+                <div className="flex gap-2">
+                  <input type="text" value={messageText} onChange={e => setMessageText(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
+                    placeholder="Type a message..."
+                    className="flex-1 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none"
+                    style={{ background: "#f7f5f0", border: "1.5px solid #e2ddd5" }} maxLength={1000} />
+                  <button onClick={sendMessage} disabled={!messageText.trim() || sendingMessage}
+                    className="p-2.5 rounded-xl text-white disabled:opacity-30 active:scale-90 transition-all"
+                    style={{ background: "#58cc02" }}>
+                    {sendingMessage ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-// ── Subcomponents ─────────────────────────────────────
-
-function Card({ t, children }: { t: Theme; children: React.ReactNode }) {
+function InfoPill({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
-    <div
-      className="rounded-2xl p-5"
-      style={{
-        background: t.cardBg,
-        border: `1px solid ${t.cardBorder}`,
-        boxShadow: t.glass ? "none" : (t.dark ? "none" : "0 1px 3px rgba(0,0,0,0.04)"),
-        backdropFilter: t.glass ? "blur(24px)" : undefined,
-        WebkitBackdropFilter: t.glass ? "blur(24px)" : undefined,
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-function Divider({ t }: { t: Theme }) {
-  return <div className="my-3" style={{ height: 1, background: t.divider }} />
-}
-
-function InfoRow({ icon, t, children }: { icon: React.ReactNode; t: Theme; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-2.5 py-1.5 text-sm" style={{ color: t.textMuted }}>
-      <span style={{ color: t.textFaint }}>{icon}</span>
-      {children}
-    </div>
-  )
-}
-
-function Pill({ icon, text, t }: { icon: React.ReactNode; text: string; t: Theme }) {
-  return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg"
-      style={{ background: t.dark ? "rgba(255,255,255,0.05)" : "#f1f5f9", color: t.textMuted }}
-    >
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl" style={{ background: "#f7f5f0", color: "#78716c" }}>
       {icon} {text}
     </span>
   )
 }
 
-function StatusBtn({ label, icon, active, disabled, loading, onClick, t }: {
-  label: string; icon: React.ReactNode; active: boolean; disabled: boolean; loading: boolean; onClick: () => void; t: Theme
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-40 active:scale-[0.97]"
-      style={{
-        background: active ? t.accent : "transparent",
-        border: `1.5px solid ${active ? t.accent : (t.dark ? "rgba(255,255,255,0.1)" : "#e2e8f0")}`,
-        color: active ? "#ffffff" : t.textMuted,
-        boxShadow: active ? `0 0 12px rgba(${t.accentRgb},0.3)` : "none",
-      }}
-    >
-      {loading ? <Loader2 className="size-4 animate-spin" /> : icon}
-      {label}
-    </button>
-  )
-}
-
-function ActionButton({ onClick, disabled, loading, t, color, children }: {
-  onClick: () => void; disabled: boolean; loading: boolean; t: Theme; color: "success" | "accent"; children: React.ReactNode
-}) {
-  const bg = color === "success" ? t.success : t.accent
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="w-full py-3 rounded-xl font-semibold text-sm text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50 active:scale-[0.97]"
-      style={{ background: bg }}
-    >
-      {loading ? <><Loader2 className="size-4 animate-spin" /> Loading...</> : children}
-    </button>
-  )
-}
-
-function NotesDisplay({ notes, t }: { notes: string; t: Theme }) {
+function NotesDisplay({ notes }: { notes: string }) {
   const segments = notes.split(/\||\n/).map(s => s.trim()).filter(Boolean)
-  const description: string[] = []
-  const bullets: string[] = []
-  for (const seg of segments) {
-    if (seg.startsWith("*")) bullets.push(seg.replace(/^\*\s*/, ""))
-    else description.push(seg)
-  }
-
+  const desc: string[] = []; const bullets: string[] = []
+  for (const seg of segments) { if (seg.startsWith("*")) bullets.push(seg.replace(/^\*\s*/, "")); else desc.push(seg) }
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: t.textFaint }}>Notes</p>
-      {description.length > 0 && <p className="text-sm" style={{ color: t.textMuted }}>{description.join(" — ")}</p>}
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Notes</p>
+      {desc.length > 0 && <p className="text-sm text-slate-600">{desc.join(" — ")}</p>}
       {bullets.length > 0 && (
-        <ul className="space-y-1.5 ml-1">
+        <ul className="space-y-1.5">
           {bullets.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm" style={{ color: t.textMuted }}>
-              <span className="mt-1 shrink-0 size-1.5 rounded-full" style={{ background: t.accent }} />
+            <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
+              <span className="mt-1.5 size-2 rounded-full shrink-0" style={{ background: "#ff9600" }} />
               <span>{item}</span>
             </li>
           ))}
