@@ -571,82 +571,94 @@ export async function POST(request: NextRequest) {
 
     // Handle cleaner assignment at creation time
     // assignment_mode: "auto_broadcast" (default) | "specific" | "unassigned"
-    const assignmentMode = body.assignment_mode || (body.cleaner_id ? 'specific' : 'auto_broadcast')
+    // Supports cleaner_ids[] (multi) or legacy cleaner_id (single)
+    const cleanerIds: string[] = Array.isArray(body.cleaner_ids) && body.cleaner_ids.length > 0
+      ? body.cleaner_ids
+      : body.cleaner_id ? [body.cleaner_id] : []
+    const assignmentMode = body.assignment_mode || (cleanerIds.length > 0 ? 'specific' : 'auto_broadcast')
 
-    if (assignmentMode === 'specific' && body.cleaner_id) {
-      // Manual assignment — create confirmed assignment + notify
+    if (assignmentMode === 'specific' && cleanerIds.length > 0) {
+      // Manual assignment — create confirmed assignments + notify each cleaner
       const svc = getSupabaseServiceClient()
-      await svc.from("cleaner_assignments").insert({
-        job_id: Number(row.id),
-        cleaner_id: Number(body.cleaner_id),
-        status: "confirmed",
-        tenant_id: tenant.id,
-        assigned_at: new Date().toISOString(),
-        responded_at: new Date().toISOString(),
-      })
+      const jobAddress = body.address || "TBD"
+      const jobDate = scheduledDate || "TBD"
+      const jobTime = scheduledAt || ""
+      const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
+      let timeDisplay = ""
+      if (timeParts) {
+        const h = parseInt(timeParts[1])
+        const m = timeParts[2]
+        const ampm = h >= 12 ? "PM" : "AM"
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+        timeDisplay = ` at ${h12}:${m} ${ampm}`
+      }
 
-      // Notify cleaner via SMS + customer SMS (fire-and-forget)
-      const { data: cleaner } = await svc
-        .from("cleaners")
-        .select("id, name, phone")
-        .eq("id", Number(body.cleaner_id))
-        .single()
+      // Set first cleaner as primary on jobs table
+      await svc.from("jobs").update({ cleaner_id: Number(cleanerIds[0]) }).eq("id", row.id)
 
-      if (cleaner) {
-        if (cleaner.phone) {
-          const jobAddress = body.address || "TBD"
-          const jobDate = scheduledDate || "TBD"
-          const jobTime = scheduledAt || ""
-          const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
-          let timeDisplay = ""
-          if (timeParts) {
-            const h = parseInt(timeParts[1])
-            const m = timeParts[2]
-            const ampm = h >= 12 ? "PM" : "AM"
-            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-            timeDisplay = ` at ${h12}:${m} ${ampm}`
+      const cleanerNames: string[] = []
+      for (const cId of cleanerIds) {
+        await svc.from("cleaner_assignments").insert({
+          job_id: Number(row.id),
+          cleaner_id: Number(cId),
+          status: "confirmed",
+          tenant_id: tenant.id,
+          assigned_at: new Date().toISOString(),
+          responded_at: new Date().toISOString(),
+        })
+
+        const { data: cleaner } = await svc
+          .from("cleaners")
+          .select("id, name, phone")
+          .eq("id", Number(cId))
+          .single()
+
+        if (cleaner) {
+          cleanerNames.push(cleaner.name || "Cleaner")
+          if (cleaner.phone) {
+            const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
+            sendSMS(tenant as any, cleaner.phone, smsMsg).catch((err) =>
+              console.error("[Jobs POST] Failed to send SMS to cleaner:", err)
+            )
           }
-          const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
-          sendSMS(tenant as any, cleaner.phone, smsMsg).catch((err) =>
-            console.error("[Jobs POST] Failed to send SMS to cleaner:", err)
-          )
         }
+      }
 
-        // Customer confirmation SMS
-        if (phone) {
-          const custName = [first_name, last_name].filter(Boolean).join(" ").trim() || "there"
-          const dateFormatted = scheduledDate
-            ? new Date(scheduledDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
-            : "your scheduled date"
-          const timeParts = String(scheduledAt || "").match(/^(\d{1,2}):(\d{2})/)
-          let timeFormatted = "your scheduled time"
-          if (timeParts) {
-            const h = parseInt(timeParts[1])
-            const m = timeParts[2]
-            const ampm = h >= 12 ? "PM" : "AM"
-            const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-            timeFormatted = `${h12}:${m} ${ampm}`
-          }
-          const smsMsg = cleanerAssigned(custName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
-          sendSMS(tenant as any, phone, smsMsg).catch((err) =>
-            console.error("[Jobs POST] Failed to send assignment SMS:", err)
-          )
-          svc.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customerId,
-            phone_number: phone,
-            role: "assistant",
-            content: smsMsg,
-            direction: "outbound",
-            message_type: "sms",
-            ai_generated: false,
-            source: "calendar_assign",
-            job_id: Number(row.id),
-            timestamp: new Date().toISOString(),
-          }).then(({ error: logErr }) => {
-            if (logErr) console.error("[Jobs POST] Failed to log assignment message:", logErr)
-          })
+      // Customer confirmation SMS (once, listing all assigned cleaners)
+      if (phone) {
+        const custName = [first_name, last_name].filter(Boolean).join(" ").trim() || "there"
+        const dateFormatted = scheduledDate
+          ? new Date(scheduledDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+          : "your scheduled date"
+        const custTimeParts = String(scheduledAt || "").match(/^(\d{1,2}):(\d{2})/)
+        let timeFormatted = "your scheduled time"
+        if (custTimeParts) {
+          const h = parseInt(custTimeParts[1])
+          const m = custTimeParts[2]
+          const ampm = h >= 12 ? "PM" : "AM"
+          const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
+          timeFormatted = `${h12}:${m} ${ampm}`
         }
+        const teamLabel = cleanerNames.length > 1 ? `Your team (${cleanerNames.join(" & ")})` : (cleanerNames[0] || "Your cleaner")
+        const smsMsg = cleanerAssigned(custName, teamLabel, dateFormatted, timeFormatted)
+        sendSMS(tenant as any, phone, smsMsg).catch((err) =>
+          console.error("[Jobs POST] Failed to send assignment SMS:", err)
+        )
+        svc.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customerId,
+          phone_number: phone,
+          role: "assistant",
+          content: smsMsg,
+          direction: "outbound",
+          message_type: "sms",
+          ai_generated: false,
+          source: "calendar_assign",
+          job_id: Number(row.id),
+          timestamp: new Date().toISOString(),
+        }).then(({ error: logErr }) => {
+          if (logErr) console.error("[Jobs POST] Failed to log assignment message:", logErr)
+        })
       }
     } else if (assignmentMode === 'auto_broadcast' && tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
       // Auto-broadcast to available cleaners

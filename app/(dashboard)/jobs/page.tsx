@@ -103,7 +103,8 @@ type CreateForm = {
   bathrooms: string
   sqft: string
   frequency: string
-  cleaner_id: string
+  cleaner_ids: string[]
+  cleaner_count: string
   assignment_mode: AssignmentMode
   is_quote: boolean
   selected_addons: string[]
@@ -404,7 +405,8 @@ export default function JobsPage() {
     bathrooms: "",
     sqft: "",
     frequency: "one-time",
-    cleaner_id: "",
+    cleaner_ids: [],
+    cleaner_count: "1",
     assignment_mode: "auto_broadcast" as AssignmentMode,
     is_quote: false,
     selected_addons: [],
@@ -415,6 +417,7 @@ export default function JobsPage() {
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; sent: boolean } | null>(null)
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
@@ -465,16 +468,17 @@ export default function JobsPage() {
             const addon = addonsList.find((a) => a.addon_key === key)
             return sum + (addon?.flat_price || 0)
           }, 0)
-          // Auto-set duration from labor_hours
+          // Auto-set duration and cleaner count from labor_hours
           const laborMins = res.data.labor_hours ? Math.round(Number(res.data.labor_hours) * 60) : 0
+          const recCleaners = res.data.cleaners ? Number(res.data.cleaners) : 1
           setBaseLaborMinutes(laborMins)
           const addonMins = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
             return sum + (addon?.minutes || 0)
           }, 0)
-          const totalMins = laborMins + addonMins
-          const snapped = [60, 90, 120, 150, 180, 240, 300, 360].find(v => v >= totalMins) || 360
-          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped) }))
+          const wallMins = Math.ceil((laborMins + addonMins) / (recCleaners || 1))
+          const snapped = [60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
         }
       })
       .catch(() => {})
@@ -527,7 +531,7 @@ export default function JobsPage() {
     })
   }, [addonsList, createForm.selected_tier_index, windowTiers, isHouseCleaning])
 
-  // Recalculate price and duration when add-ons or base price change
+  // Recalculate price and duration when add-ons, base price, or cleaner count change
   useEffect(() => {
     if (!basePrice && !createForm.selected_addons.length) return
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
@@ -541,11 +545,12 @@ export default function JobsPage() {
         const addon = derivedAddonsList.find((a) => a.addon_key === key)
         return sum + (addon?.minutes || 0)
       }, 0)
-      const totalMins = baseLaborMinutes + addonMins
-      updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360].find(v => v >= totalMins) || 360)
+      const count = Number(createForm.cleaner_count) || 1
+      const wallMins = Math.ceil((baseLaborMinutes + addonMins) / count)
+      updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480)
     }
     setCreateForm((prev) => ({ ...prev, ...updates }))
-  }, [createForm.selected_addons, basePrice, baseLaborMinutes, derivedAddonsList])
+  }, [createForm.selected_addons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
 
   // Auto-populate price when window tier changes (WinBros only)
   useEffect(() => {
@@ -950,13 +955,15 @@ export default function JobsPage() {
       bathrooms: "",
       sqft: "",
       frequency: "one-time",
-      cleaner_id: "",
+      cleaner_ids: [],
+      cleaner_count: "1",
       assignment_mode: "auto_broadcast",
       is_quote: false,
       selected_addons: [],
       membership_id: "",
       selected_tier_index: "",
       lead_source: "",
+      credited_salesman_id: "",
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -971,6 +978,7 @@ export default function JobsPage() {
     setAddressSuggestions([])
     setLookedUpCustomerId(null)
     setCustomerMemberships([])
+    setQuoteSuccess(null)
     setCreateOpen(true)
 
     // Fetch cleaners list if not already loaded
@@ -1470,8 +1478,45 @@ export default function JobsPage() {
 
     setCreateSaving(true)
     setCreateError("")
+    setQuoteSuccess(null)
 
     try {
+      // ── Quote flow: create a real quote with tier selection page ──
+      if (createForm.is_quote) {
+        const res = await fetch("/api/actions/quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customer_id: lookedUpCustomerId ? Number(lookedUpCustomerId) : undefined,
+            customer_name: createForm.customer_name.trim() || "Customer",
+            customer_phone: phone,
+            customer_email: createForm.email.trim() || undefined,
+            customer_address: createForm.address.trim() || undefined,
+            square_footage: createForm.sqft ? Number(createForm.sqft) : undefined,
+            bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
+            bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
+            service_category: (createForm.service_type || "").toLowerCase().includes("move") ? "move_in_out" : "standard",
+            notes: createForm.notes.trim() || undefined,
+            custom_base_price: undefined,
+            send_sms: true,
+          }),
+        })
+
+        const data = await res.json()
+        if (!data.success) {
+          setCreateError(data.error || "Failed to create quote")
+          return
+        }
+
+        setQuoteSuccess({
+          url: data.quote_url || `/quote/${data.quote?.token}`,
+          token: data.quote?.token,
+          sent: true,
+        })
+        return
+      }
+
+      // ── Normal job flow ──
       // Resolve membership: existing membership ID or create new one from plan slug
       let resolvedMembershipId: string | undefined
       const memVal = createForm.membership_id
@@ -1516,9 +1561,10 @@ export default function JobsPage() {
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
           membership_id: resolvedMembershipId,
-          cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
+          cleaner_ids: createForm.assignment_mode === "specific" && createForm.cleaner_ids.length > 0 ? createForm.cleaner_ids : undefined,
           assignment_mode: createForm.assignment_mode,
-          status: createForm.is_quote ? "quoted" : "scheduled",
+          cleaner_count: Number(createForm.cleaner_count) || 1,
+          status: "scheduled",
           lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
           credited_salesman_id: createForm.credited_salesman_id ? Number(createForm.credited_salesman_id) : undefined,
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
@@ -1670,13 +1716,15 @@ export default function JobsPage() {
             bathrooms: "",
             sqft: "",
             frequency: "one-time",
-            cleaner_id: "",
+            cleaner_ids: [],
+            cleaner_count: "1",
             assignment_mode: "auto_broadcast",
             is_quote: false,
             selected_addons: [],
             membership_id: "",
             selected_tier_index: "",
             lead_source: "",
+            credited_salesman_id: "",
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -1691,6 +1739,7 @@ export default function JobsPage() {
           setAddressSuggestions([])
           setLookedUpCustomerId(null)
           setCustomerMemberships([])
+          setQuoteSuccess(null)
           setCreateOpen(true)
           if (cleanersList.length === 0) {
             fetch("/api/teams")
@@ -2402,14 +2451,72 @@ export default function JobsPage() {
       >
         <div className="cal-modal" style={{ maxWidth: 900, maxHeight: "calc(100vh - 2rem)" }}>
           <div className="cal-modal-header">
-            <h5>Create Job</h5>
+            <h5>{createForm.is_quote ? "Send Quote" : "Create Job"}</h5>
             <button
               className="cal-modal-close"
-              onClick={() => setCreateOpen(false)}
+              onClick={() => { setCreateOpen(false); setQuoteSuccess(null) }}
             >
               &times;
             </button>
           </div>
+          {quoteSuccess ? (
+            <div className="cal-modal-body" style={{ textAlign: "center", padding: "2rem 1.5rem" }}>
+              <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>&#10003;</div>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.5rem" }}>Quote Sent!</h3>
+              <p style={{ color: "#a1a1aa", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
+                {createForm.customer_name || "Customer"} will receive an SMS with their quote link.
+                They can pick Good / Better / Best, add extras, and pay online.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "center" }}>
+                <a
+                  href={quoteSuccess.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "0.5rem 1.25rem",
+                    background: "#3b82f6",
+                    color: "#fff",
+                    borderRadius: "0.375rem",
+                    textDecoration: "none",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  View Quote Page
+                </a>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.origin + quoteSuccess.url)
+                    alert("Quote link copied!")
+                  }}
+                  style={{ fontSize: "0.8rem" }}
+                >
+                  Copy Link
+                </button>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => {
+                    setQuoteSuccess(null)
+                    setCreateOpen(false)
+                    setPhoneLookedUp("")
+                    setPhoneSuggestions([])
+                    setShowPhoneSuggestions(false)
+                    formSnapshotRef.current = null
+                    isPreviewingRef.current = false
+                    basePriceSnapshotRef.current = 0
+                    setIsPreviewing(false)
+                    setLookedUpCustomerId(null)
+                    setCustomerMemberships([])
+                  }}
+                  style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (<>
           <div className="cal-modal-body">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               {/* ── LEFT COLUMN ── */}
@@ -2687,32 +2794,67 @@ export default function JobsPage() {
                   </div>
                 )}
 
-                {/* Row 4: Assignment & Membership/Frequency */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                {/* Row 4: Assignment + Cleaners & Membership/Frequency */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                   <div>
                     <label className="cal-form-label">Assignment</label>
                     <select
                       className="cal-form-control"
-                      value={createForm.assignment_mode === "specific" ? `cleaner:${createForm.cleaner_id}` : createForm.assignment_mode}
+                      value={createForm.assignment_mode}
                       onChange={(e) => {
-                        const val = e.target.value
-                        if (val === "auto_broadcast") {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "auto_broadcast", cleaner_id: "" }))
-                        } else if (val === "unassigned") {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "unassigned", cleaner_id: "" }))
-                        } else if (val.startsWith("cleaner:")) {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "specific", cleaner_id: val.replace("cleaner:", "") }))
-                        }
+                        const val = e.target.value as AssignmentMode
+                        setCreateForm((prev) => ({ ...prev, assignment_mode: val, cleaner_ids: [] }))
                       }}
                     >
                       <option value="auto_broadcast">Auto Broadcast</option>
                       <option value="unassigned">Unassigned</option>
-                      {cleanersList.length > 0 && (
-                        <option disabled style={{ fontWeight: 600, color: "#71717a" }}>── Assign to ──</option>
-                      )}
-                      {cleanersList.map((c) => (
-                        <option key={c.id} value={`cleaner:${c.id}`}>{c.name}</option>
-                      ))}
+                      <option value="specific">Pick Cleaners</option>
+                    </select>
+                    {createForm.assignment_mode === "specific" && cleanersList.length > 0 && (
+                      <div style={{ marginTop: "0.35rem", display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                        {cleanersList.map((c) => {
+                          const selected = createForm.cleaner_ids.includes(c.id)
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setCreateForm((prev) => {
+                                  const ids = selected
+                                    ? prev.cleaner_ids.filter((id) => id !== c.id)
+                                    : [...prev.cleaner_ids, c.id]
+                                  return { ...prev, cleaner_ids: ids }
+                                })
+                              }}
+                              style={{
+                                padding: "0.2rem 0.5rem",
+                                borderRadius: 6,
+                                fontSize: "0.75rem",
+                                border: selected ? "1px solid #22d3ee" : "1px solid #3f3f46",
+                                background: selected ? "rgba(34, 211, 238, 0.15)" : "transparent",
+                                color: selected ? "#22d3ee" : "#a1a1aa",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {selected ? "✓ " : ""}{c.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ width: "70px" }}>
+                    <label className="cal-form-label"># Crew</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.cleaner_count}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, cleaner_count: e.target.value }))
+                      }
+                    >
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
                     </select>
                   </div>
                   {isHouseCleaning ? (
@@ -2896,6 +3038,8 @@ export default function JobsPage() {
                       <option value="240">4 hours</option>
                       <option value="300">5 hours</option>
                       <option value="360">6 hours</option>
+                      <option value="420">7 hours</option>
+                      <option value="480">8 hours</option>
                     </select>
                   </div>
                 </div>
@@ -3126,6 +3270,7 @@ export default function JobsPage() {
               {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Send Quote" : "Create Job"}
             </button>
           </div>
+          </>)}
         </div>
       </div>
     </>
