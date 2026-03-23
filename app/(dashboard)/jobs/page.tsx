@@ -246,7 +246,10 @@ function resolveNotes(job: CalendarJob): string {
 function resolveCleanerFromAssignments(job: CalendarJob): { id: string; name: string } | null {
   const assignments = job.cleaner_assignments
   if (!Array.isArray(assignments) || assignments.length === 0) return null
-  const confirmed = assignments.find((a: any) => a.status === "confirmed") || assignments[0]
+  const confirmed = assignments.find((a: any) => a.status === "confirmed")
+    || assignments.find((a: any) => a.status === "accepted")
+    || assignments.find((a: any) => a.status === "pending")
+    || null
   if (!confirmed) return null
   const c = Array.isArray(confirmed.cleaners) ? confirmed.cleaners[0] : confirmed.cleaners
   if (!c) return null
