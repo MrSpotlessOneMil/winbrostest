@@ -1659,7 +1659,13 @@ export default function CustomersPage() {
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
                                 {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
                                   <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
-                                ) : null}
+                                ) : (() => {
+                                  const srcBadge = getSourceBadge(customer)
+                                  if (srcBadge) {
+                                    return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
+                                  }
+                                  return null
+                                })()}
                                 {customer.card_on_file_at && (
                                   <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
                                 )}
