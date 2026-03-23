@@ -208,13 +208,13 @@ export default function JobDetailPage() {
         </div>
       )}
 
-      {/* ═══ HEADER ═══ */}
-      <div className="px-5 pt-5 pb-4" style={{ background: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)" }}>
-        <button onClick={() => router.push(`/crew/${token}`)} className="flex items-center gap-1.5 text-white/70 text-sm mb-3 hover:text-white transition-colors">
+      {/* ═══ HEADER (inline, no colored bar) ═══ */}
+      <div className="max-w-lg mx-auto px-5 pt-5">
+        <button onClick={() => router.push(`/crew/${token}`)} className="flex items-center gap-1.5 text-slate-400 text-sm mb-4 hover:text-slate-600 transition-colors">
           <ArrowLeft className="size-4" /> Back
         </button>
-        <p className="text-white/60 text-xs mb-0.5">{tenant.name}</p>
-        <h1 className="text-xl font-black text-white">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">{tenant.name}</p>
+        <h1 className="text-xl font-black text-slate-800">
           {job.service_type ? humanize(job.service_type) : "Job"} #{job.id}
         </h1>
       </div>
