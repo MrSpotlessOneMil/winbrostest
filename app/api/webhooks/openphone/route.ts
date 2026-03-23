@@ -1495,7 +1495,7 @@ export async function POST(request: NextRequest) {
       .select("id")
       .eq("phone_number", phone)
       .eq("tenant_id", tenant?.id)
-      .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked", "vapi_booking_confirmation"])
+      .in("source", ["card_on_file", "deposit", "invoice", "estimate_booked"])
       .limit(1)
       .maybeSingle()
 

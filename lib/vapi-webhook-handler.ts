@@ -578,7 +578,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   source: "vapi_booking_confirmation",
                 }).select("id").single()
 
-                const smsResult = await sendSMS(tenant, phone, confirmationMsg)
+                // skipDedup: we pre-inserted the DB record above, so sendSMS's content dedup would find it
+                const smsResult = await sendSMS(tenant, phone, confirmationMsg, { skipDedup: true })
 
                 if (smsResult.success) {
                   console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
@@ -813,7 +814,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 source: "vapi_booking_confirmation",
               }).select("id").single()
 
-              const smsResult = await sendSMS(tenant, phone, confirmationMsg)
+              // skipDedup: we pre-inserted the DB record above, so sendSMS's content dedup would find it
+              const smsResult = await sendSMS(tenant, phone, confirmationMsg, { skipDedup: true })
 
               if (smsResult.success) {
                 console.log(`${tag} Booking confirmation text sent to ${maskPhone(phone)}`)
