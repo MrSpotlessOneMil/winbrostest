@@ -26,8 +26,8 @@ export async function GET(request: NextRequest) {
       query.eq("tenant_id", tenant.id)
     }
 
-    // Never show cancelled jobs on the calendar
-    query.neq("status", "cancelled")
+    // Only show confirmed jobs on the calendar (not quotes or cancelled)
+    query.in("status", ["scheduled", "in_progress", "completed"])
 
     const { data, error } = await query
       .order("created_at", { ascending: false })
