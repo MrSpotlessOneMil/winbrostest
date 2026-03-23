@@ -13,6 +13,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
+import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
 import { getEstimateFromNotes } from '@/lib/pricing-config'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
@@ -409,6 +410,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         }
       }
     }
+
+    // Cleaner accepted — check if payment is also confirmed → mark booked
+    await maybeMarkBooked(jobId)
 
     return NextResponse.json({ success: true, action: 'accepted' })
   } else {

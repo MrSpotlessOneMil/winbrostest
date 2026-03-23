@@ -484,8 +484,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 price: jobPrice,
                 hours: estimateJobHours(serviceType),
                 cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-                status: isWinBros ? "scheduled" : "quoted",
-                booked: isWinBros ? true : false,
+                status: "quoted",
+                booked: false,
                 paid: false,
                 notes: jobNotes || null,
                 payment_status: "pending",
@@ -581,15 +581,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   }
                 }
 
-                // Only mark lead as booked and send confirmation if job was actually created
+                // Mark lead as qualified (not booked — booked requires payment + cleaner assigned)
                 await client
                   .from("leads")
                   .update({
-                    status: "booked",
+                    status: "qualified",
                     converted_to_job_id: job.id,
                   })
                   .eq("id", lead.id)
-                console.log(`${tag} Lead ${lead.id} status set to "booked"`)
+                console.log(`${tag} Lead ${lead.id} status set to "qualified"`)
 
                 // Send booking confirmation text
                 const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
@@ -751,8 +751,8 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               price: existingJobPrice,
               hours: null,
               cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-              status: isWinBrosExisting ? "scheduled" : "quoted",
-              booked: isWinBrosExisting ? true : false,
+              status: "quoted",
+              booked: false,
               paid: false,
               notes: existingLeadNotes,
               payment_status: "pending",
@@ -822,11 +822,11 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
               })
 
-              // Only mark lead as booked if job was actually created
+              // Mark lead as qualified (booked requires payment + cleaner assigned)
               await client
                 .from("leads")
                 .update({
-                  status: "booked",
+                  status: "qualified",
                   converted_to_job_id: job.id,
                   form_data: {
                     ...bookingInfo,

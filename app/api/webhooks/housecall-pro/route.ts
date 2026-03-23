@@ -328,8 +328,8 @@ export async function POST(request: NextRequest) {
             service_type: lineItemName || "Service",
             date: scheduledDate,
             scheduled_at: scheduledTime,
-            status: "scheduled",
-            booked: true,
+            status: "quoted",
+            booked: false,
             housecall_pro_job_id: hcpJobId || null,
             price: (job as any)?.total_amount ?? null,
             hours: jobHours,
@@ -640,7 +640,7 @@ export async function POST(request: NextRequest) {
                     notes: localJob.notes ? `${localJob.notes}\n[From estimate #${localJob.id}]` : `[From estimate #${localJob.id}]`,
                     job_type: 'cleaning',
                     status: 'pending',
-                    booked: true,
+                    booked: false,
                     paid: true,
                     payment_status: 'fully_paid',
                     date: null,
@@ -1004,7 +1004,7 @@ export async function POST(request: NextRequest) {
             const hcpStatus = (data as any)?.lead?.status || (data as any)?.status
             let status: string | undefined
             if (hcpStatus === "won" || hcpStatus === "converted") {
-              status = "booked"
+              status = "qualified"
             } else if (hcpStatus === "lost") {
               status = "lost"
             }

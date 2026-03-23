@@ -13,6 +13,7 @@
 import { getSupabaseServiceClient } from './supabase'
 import { sendSMS } from './openphone'
 import { syncNewJobToHCP } from './hcp-job-sync'
+import { maybeMarkBooked } from './maybe-mark-booked'
 import type { Tenant } from './tenant'
 import { getTenantById, getTenantBusinessName } from './tenant'
 import type { OptimizationResult, OptimizedRoute, OptimizedStop, TeamForRouting } from './route-optimizer'
@@ -153,6 +154,9 @@ export async function dispatchRoutes(
           .update({ status: 'assigned', updated_at: new Date().toISOString() })
           .eq('id', associatedLead.id)
       }
+
+      // Cleaner assigned — check if payment also confirmed → mark booked
+      await maybeMarkBooked(stop.jobId)
     }
 
     // 3. Send route to team lead via SMS

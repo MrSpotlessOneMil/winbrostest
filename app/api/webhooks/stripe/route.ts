@@ -18,6 +18,7 @@ import { buildWinBrosJobNotes } from '@/lib/winbros-sms-prompt'
 import { paymentFailed as paymentFailedTemplate } from '@/lib/sms-templates'
 import { cancelTask } from '@/lib/scheduler'
 import { cancelPendingTasks } from '@/lib/lifecycle-engine'
+import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
 
 /** Safely add months without JS Date overflow (Jan 31 + 1 month = Feb 28, not Mar 3) */
 function addMonths(date: Date, months: number): Date {
@@ -194,11 +195,10 @@ async function handleDepositPayment(
   // Use service client — webhook has no tenant JWT, anon key is blocked by RLS
   const serviceClient = getSupabaseServiceClient()
 
-  // Update job status — mark as booked + scheduled now that deposit is paid
+  // Update job status — deposit paid, but not "booked" until cleaner is also assigned
   const updatedJob = await updateJob(jobId, {
     payment_status: 'deposit_paid',
     confirmed_at: new Date().toISOString(),
-    booked: true,
     status: 'scheduled' as any,
   }, {}, serviceClient)
 
@@ -302,7 +302,7 @@ async function handleDepositPayment(
     hcpLeadId = lead?.source_id
 
     const updatedLead = await updateGHLLead(leadId, {
-      status: 'booked',
+      status: 'qualified',
       converted_to_job_id: jobId,
     })
 
@@ -342,6 +342,11 @@ async function handleDepositPayment(
 
   // Trigger cleaner assignment
   const assignmentResult = await triggerCleanerAssignment(jobId)
+
+  // Check if both payment + cleaner now satisfied → mark booked
+  if (assignmentResult.success) {
+    await maybeMarkBooked(jobId)
+  }
 
   if (!assignmentResult.success) {
     console.error(`[Stripe Webhook] Cleaner assignment failed: ${assignmentResult.error}`)
@@ -575,7 +580,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     service_type: serviceName,
     price: Number(quote.total) || 0,
     status: hasServiceDate ? 'scheduled' : 'pending',
-    booked: true,
+    booked: false,
     paid: false,
     payment_status: 'pending',
     confirmed_at: new Date().toISOString(),
@@ -862,7 +867,7 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     service_type: serviceName,
     price: Number(quote.total) || 0,
     status: 'pending',
-    booked: true,
+    booked: false,
     paid: false,
     payment_status: 'deposit_paid',
     confirmed_at: new Date().toISOString(),
@@ -960,6 +965,9 @@ async function handleFinalPayment(jobId: string, session: Stripe.Checkout.Sessio
       currency: session.currency,
     },
   })
+
+  // Payment confirmed — check if cleaner is also assigned → mark booked
+  await maybeMarkBooked(jobId)
 
   console.log(`[Stripe Webhook] FINAL payment processed successfully for job ${jobId}`)
 }
@@ -1300,11 +1308,11 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
     } else {
       console.log(`[Stripe Webhook] Job found: ${job_id} — service: ${job.service_type}, date: ${job.date}, address: ${job.address}, price: ${job.price}`)
 
-      // Card-on-file saved → transition quoted jobs to scheduled (cleaning tenant flow)
+      // Card-on-file saved → transition quoted jobs to scheduled (but not booked — needs cleaner too)
       if (job.status === 'quoted') {
         const { error: transitionErr } = await client
           .from('jobs')
-          .update({ status: 'scheduled', booked: true })
+          .update({ status: 'scheduled' })
           .eq('id', job_id)
           .eq('status', 'quoted') // atomic: only transition if still quoted
         if (transitionErr) {
@@ -1313,6 +1321,8 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
           console.log(`[Stripe Webhook] Job ${job_id} transitioned quoted→scheduled after card saved`)
           // Refresh job object so downstream assignment logic sees updated status
           job = await getJobById(job_id, client)
+          // Check if cleaner is already assigned → maybe mark booked
+          await maybeMarkBooked(job_id, job)
         }
       }
     }
@@ -1357,7 +1367,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         date: bookingData.preferredDate || null,
         scheduled_at: bookingData.preferredTime || null,
         status: 'scheduled',
-        booked: true,
+        booked: false,
         // TENANT ISOLATION: buildWinBrosJobNotes is window-cleaning-specific.
         // Cedar Rapids house cleaning uses mergeOverridesIntoNotes instead.
         // Do NOT use buildWinBrosJobNotes for non-WinBros tenants.
@@ -1390,7 +1400,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
         // Update lead with the real job ID
         await client
           .from('leads')
-          .update({ converted_to_job_id: retryJob.id, status: 'booked' })
+          .update({ converted_to_job_id: retryJob.id, status: 'qualified' })
           .eq('id', leadId)
       } else {
         console.error(`[Stripe Webhook] Job creation retry failed for lead ${leadId}`)
