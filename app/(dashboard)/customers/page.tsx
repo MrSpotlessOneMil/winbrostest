@@ -1658,15 +1658,14 @@ export default function CustomersPage() {
                                 {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
                                   <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
                                 ) : (() => {
+                                  // One badge max: source badge for paid channels, otherwise lifecycle
+                                  const srcBadge = getSourceBadge(customer)
+                                  if (srcBadge) {
+                                    return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
+                                  }
                                   const badge = getLifecycleBadge(customer)
                                   return badge ? (
                                     <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${badge.bg} ${badge.color} leading-none`}>{badge.label}</span>
-                                  ) : null
-                                })()}
-                                {(() => {
-                                  const srcBadge = getSourceBadge(customer)
-                                  return srcBadge ? (
-                                    <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
                                   ) : null
                                 })()}
                                 {customer.card_on_file_at && (
