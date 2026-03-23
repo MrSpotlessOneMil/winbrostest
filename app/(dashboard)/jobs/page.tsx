@@ -1004,6 +1004,22 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
+
+    // Load cleaners list for send-to-cleaner dropdown (view mode)
+    if (cleanersList.length === 0) {
+      fetch("/api/teams").then(r => r.json()).then(data => {
+        const all: { id: string; name: string }[] = []
+        for (const team of data.data || []) {
+          for (const member of team.members || []) {
+            all.push({ id: String(member.id), name: member.name })
+          }
+        }
+        for (const c of data.unassigned_cleaners || []) {
+          all.push({ id: String(c.id), name: c.name })
+        }
+        setCleanersList(all)
+      }).catch(() => {})
+    }
   }
 
   const refreshJobs = async () => {
