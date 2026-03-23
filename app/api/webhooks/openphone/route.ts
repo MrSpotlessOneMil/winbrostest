@@ -1951,24 +1951,77 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, flow: "phone_call_post_booking_ai", leadId: bookedLead.id })
       }
 
-      // No payment links sent yet — ask for email to complete booking
-      const confirmMsg = `Thanks for confirming! To send you the confirmed pricing and secure your booking, could you send me your best email address?`
-      const confirmResult = await sendSMS(tenant!, phone, confirmMsg)
-      if (confirmResult.success) {
+      // No quote sent yet — customer confirmed details, create quote and send link
+      // Determine service category from job
+      let job = null
+      if (bookedLead.converted_to_job_id) {
+        const { data: jobData } = await client.from("jobs").select("*").eq("id", bookedLead.converted_to_job_id).single()
+        job = jobData
+      }
+      if (!job) {
+        const { data: recentJob } = await client.from("jobs").select("*").eq("phone_number", phone).eq("tenant_id", tenant?.id).order("created_at", { ascending: false }).limit(1).single()
+        job = recentJob
+      }
+
+      const svcType = (job?.service_type || '').toLowerCase()
+      const quoteCategory = svcType.includes('move') ? 'move_in_out' : svcType.includes('deep') ? 'deep' : 'standard'
+      const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null
+
+      const { data: newQuote, error: quoteError } = await client
+        .from("quotes")
+        .insert({
+          tenant_id: tenant!.id,
+          customer_id: customer.id,
+          customer_name: customerName,
+          customer_phone: phone,
+          customer_email: customer.email || null,
+          customer_address: job?.address || customer.address || null,
+          bedrooms: job?.notes?.match(/(\d+)\s*bed/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*bed/i)![1]) : null,
+          bathrooms: job?.notes?.match(/(\d+(?:\.\d+)?)\s*bath/i)?.[1] ? parseFloat(job.notes.match(/(\d+(?:\.\d+)?)\s*bath/i)![1]) : null,
+          square_footage: job?.notes?.match(/(\d+)\s*(?:sq|sqft|sf)/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*(?:sq|sqft|sf)/i)![1]) : null,
+          service_category: quoteCategory,
+          service_date: job?.date || null,
+          notes: [
+            job?.service_type ? `Service: ${job.service_type}` : null,
+            job?.date ? `Date: ${job.date}` : null,
+            job?.scheduled_at ? `Time: ${job.scheduled_at}` : null,
+          ].filter(Boolean).join(' | ') || null,
+        })
+        .select("id, token")
+        .single()
+
+      if (quoteError || !newQuote) {
+        console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
+        const fallbackMsg = `Thanks for confirming! We'll be in touch with your quote shortly.`
+        await sendSMS(tenant!, phone, fallbackMsg)
+        return NextResponse.json({ success: true, flow: "phone_call_quote_fallback", leadId: bookedLead.id })
+      }
+
+      const { getClientConfig } = await import("@/lib/client-config")
+      const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+      const quoteUrl = `${appDomain}/quote/${newQuote.token}`
+
+      const quoteMsg = customer.first_name
+        ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
+        : `Here's your quote — pick the option that works best for you: ${quoteUrl}`
+
+      const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg)
+      if (quoteSmsResult.success) {
         await client.from("messages").insert({
           tenant_id: tenant?.id,
           customer_id: customer.id,
           phone_number: phone,
           role: "assistant",
-          content: confirmMsg,
+          content: quoteMsg,
           direction: "outbound",
           message_type: "sms",
           ai_generated: false,
           timestamp: new Date().toISOString(),
-          source: "openphone",
-          metadata: { lead_id: bookedLead.id },
+          source: "estimate_booked",
+          metadata: { lead_id: bookedLead.id, job_id: job?.id, quote_id: newQuote.id, quote_token: newQuote.token },
         })
       }
+      console.log(`[OpenPhone] Quote sent to ${maskPhone(phone)} — quote ${newQuote.id}, token ${newQuote.token}`)
 
       // Extract corrections from conversation and update DB
       try {
@@ -1986,7 +2039,6 @@ export async function POST(request: NextRequest) {
           }
           console.log(`[OpenPhone] Updated customer/job with corrections:`, updates)
 
-          // Sync corrections to HousecallPro
           if (tenant) {
             await syncCustomerToHCP({
               tenantId: tenant.id,
@@ -2002,7 +2054,7 @@ export async function POST(request: NextRequest) {
         console.error("[OpenPhone] Error extracting corrections:", extractErr)
       }
 
-      return NextResponse.json({ success: true, flow: "phone_call_confirm", leadId: bookedLead.id })
+      return NextResponse.json({ success: true, flow: "phone_call_quote_sent", leadId: bookedLead.id })
     }
   }
 
