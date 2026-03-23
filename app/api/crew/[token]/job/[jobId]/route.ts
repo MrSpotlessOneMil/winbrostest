@@ -352,11 +352,53 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const { action } = body
-  if (!action || !['accept', 'decline'].includes(action)) {
+  if (!action || !['accept', 'decline', 'cancel_accepted'].includes(action)) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
 
   const { cleaner, assignment, job, tenant, client } = ctx
+
+  // Handle cancel after accepting — cleaner backs out of an accepted/confirmed job
+  if (action === 'cancel_accepted') {
+    if (!['accepted', 'confirmed'].includes(assignment.status)) {
+      return NextResponse.json({ error: 'Can only cancel accepted or confirmed assignments' }, { status: 400 })
+    }
+
+    // Don't allow cancel if cleaner already marked OMW
+    if (job.cleaner_omw_at) {
+      return NextResponse.json({ error: 'Cannot cancel after marking On My Way' }, { status: 400 })
+    }
+
+    // Cancel the assignment
+    await client
+      .from('cleaner_assignments')
+      .update({ status: 'cancelled', responded_at: new Date().toISOString() })
+      .eq('id', assignment.id)
+
+    // Reset job booked status since cleaner dropped
+    await client
+      .from('jobs')
+      .update({ booked: false, cleaner_confirmed: false, customer_notified: false, updated_at: new Date().toISOString() })
+      .eq('id', parseInt(jobId))
+
+    // Alert owner
+    const { alertOwner } = await import('@/lib/owner-alert')
+    await alertOwner(`Cleaner Dropped Job\n\n${cleaner.name} cancelled job #${jobId} after accepting.\nCustomer: ${(job as any).customers?.first_name || 'Unknown'}\nDate: ${job.date || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nRe-broadcasting to available cleaners...`, {
+      jobId,
+    })
+
+    // Re-broadcast to all available cleaners
+    const { triggerCleanerAssignment } = await import('@/lib/cleaner-assignment')
+    const rebroadcastResult = await triggerCleanerAssignment(jobId)
+
+    if (!rebroadcastResult.success) {
+      console.error(`[crew-api] Re-broadcast failed after ${cleaner.name} cancelled: ${rebroadcastResult.error}`)
+    } else {
+      console.log(`[crew-api] Re-broadcast triggered after ${cleaner.name} cancelled job ${jobId}`)
+    }
+
+    return NextResponse.json({ success: true, action: 'cancel_accepted', rebroadcast: rebroadcastResult.success })
+  }
 
   if (assignment.status !== 'pending') {
     return NextResponse.json({ error: 'Assignment already responded to' }, { status: 400 })
