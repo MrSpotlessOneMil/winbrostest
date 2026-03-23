@@ -96,7 +96,7 @@ export async function generateQuoteInvoice(
       customer: stripeCustomer.id,
       collection_method: 'send_invoice',
       days_until_due: 30,
-      auto_advance: true,
+      auto_advance: false, // Don't auto-send emails or auto-charge
       metadata: {
         job_id: String(jobId),
         quote_id: String(quote.id),
@@ -140,11 +140,11 @@ export async function generateQuoteInvoice(
       })
     }
 
-    // Finalize to generate hosted URL and trigger email send
+    // Finalize to generate hosted URL with line-item breakdown
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
 
-    // Mark as paid out of band — this is informational, actual payment via deposit flow
-    await stripe.invoices.pay(finalizedInvoice.id, { paid_out_of_band: true })
+    // Do NOT mark paid — invoice stays open as a viewable breakdown.
+    // Actual payment is collected via card-on-file charge when job completes.
 
     // Update job record
     await serviceClient

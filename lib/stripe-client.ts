@@ -199,11 +199,12 @@ export async function createAndSendInvoice(
     // Find or create Stripe customer (on the same Stripe account)
     const stripeCustomer = await findOrCreateStripeCustomer(customer, stripeSecretKey)
 
-    // Create invoice as informational (no payment collection — customer pays via deposit link)
+    // Create invoice as informational breakdown (no payment collection — customer pays via deposit link)
     const invoice = await stripe.invoices.create({
       customer: stripeCustomer.id,
       collection_method: 'send_invoice',
       days_until_due: 30,
+      auto_advance: false, // Don't auto-send emails or auto-charge
       metadata: {
         job_id: job.id || '',
         phone_number: job.phone_number,
@@ -256,14 +257,13 @@ export async function createAndSendInvoice(
       })
     }
 
-    // Finalize the invoice to generate hosted page with details
+    // Finalize the invoice to generate hosted page with line-item breakdown
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id)
 
-    // Mark as paid out of band — removes the "Pay" button from the hosted page.
-    // Actual payment is collected via the separate deposit link (50% now, 50% later).
-    await stripe.invoices.pay(finalizedInvoice.id, { paid_out_of_band: true })
+    // Do NOT mark paid — invoice stays open as a viewable breakdown.
+    // Actual payment is collected via card-on-file charge when job completes.
 
-    console.log(`[Stripe] Informational invoice ${finalizedInvoice.id} created for ${customer.email} (marked paid — deposit link handles payment)`)
+    console.log(`[Stripe] Informational invoice ${finalizedInvoice.id} created for ${customer.email} (open — card charged on completion)`)
 
     return {
       success: true,
