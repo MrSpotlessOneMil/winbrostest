@@ -426,6 +426,7 @@ export default function JobsPage() {
   const [addChargeDesc, setAddChargeDesc] = useState("")
   const [addChargeSaving, setAddChargeSaving] = useState(false)
   const [basePrice, setBasePrice] = useState<number>(0)
+  const [baseLaborMinutes, setBaseLaborMinutes] = useState<number>(0)
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
@@ -464,7 +465,16 @@ export default function JobsPage() {
             const addon = addonsList.find((a) => a.addon_key === key)
             return sum + (addon?.flat_price || 0)
           }, 0)
-          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+          // Auto-set duration from labor_hours
+          const laborMins = res.data.labor_hours ? Math.round(Number(res.data.labor_hours) * 60) : 0
+          setBaseLaborMinutes(laborMins)
+          const addonMins = createForm.selected_addons.reduce((sum, key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            return sum + (addon?.minutes || 0)
+          }, 0)
+          const totalMins = laborMins + addonMins
+          const snapped = [60, 90, 120, 150, 180, 240, 300, 360].find(v => v >= totalMins) || 360
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped) }))
         }
       })
       .catch(() => {})
@@ -517,15 +527,25 @@ export default function JobsPage() {
     })
   }, [addonsList, createForm.selected_tier_index, windowTiers, isHouseCleaning])
 
-  // Recalculate price when add-ons or base price change
+  // Recalculate price and duration when add-ons or base price change
   useEffect(() => {
     if (!basePrice && !createForm.selected_addons.length) return
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
       return sum + (addon?.flat_price || 0)
     }, 0)
-    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
-  }, [createForm.selected_addons, basePrice, derivedAddonsList])
+    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal) }
+    // Auto-update duration if we have base labor minutes
+    if (baseLaborMinutes > 0) {
+      const addonMins = createForm.selected_addons.reduce((sum, key) => {
+        const addon = derivedAddonsList.find((a) => a.addon_key === key)
+        return sum + (addon?.minutes || 0)
+      }, 0)
+      const totalMins = baseLaborMinutes + addonMins
+      updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360].find(v => v >= totalMins) || 360)
+    }
+    setCreateForm((prev) => ({ ...prev, ...updates }))
+  }, [createForm.selected_addons, basePrice, baseLaborMinutes, derivedAddonsList])
 
   // Auto-populate price when window tier changes (WinBros only)
   useEffect(() => {
@@ -552,6 +572,7 @@ export default function JobsPage() {
     const isWindow = (createForm.service_type || "").toLowerCase().includes("window")
     if (!isWindow && createForm.selected_tier_index !== "") {
       setBasePrice(0)
+    setBaseLaborMinutes(0)
       setCreateForm((prev) => ({ ...prev, selected_tier_index: "", price: "" }))
     }
   }, [createForm.service_type])
@@ -946,6 +967,7 @@ export default function JobsPage() {
     basePriceSnapshotRef.current = 0
     setIsPreviewing(false)
     setBasePrice(0)
+    setBaseLaborMinutes(0)
     setAddressSuggestions([])
     setLookedUpCustomerId(null)
     setCustomerMemberships([])
@@ -1665,6 +1687,7 @@ export default function JobsPage() {
           basePriceSnapshotRef.current = 0
           setIsPreviewing(false)
           setBasePrice(0)
+    setBaseLaborMinutes(0)
           setAddressSuggestions([])
           setLookedUpCustomerId(null)
           setCustomerMemberships([])
