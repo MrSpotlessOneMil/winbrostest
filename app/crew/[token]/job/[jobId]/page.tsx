@@ -211,6 +211,28 @@ export default function JobDetailPage() {
     } catch {}
   }
 
+  async function handleCancelAccepted() {
+    if (!confirm("Are you sure you can't make this job? It will be reassigned to another cleaner.")) return
+    setUpdating("cancel")
+    try {
+      const res = await fetch(apiBase, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel_accepted" }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        alert(err.error || "Failed to cancel")
+        return
+      }
+      router.push(`/crew/${token}`)
+    } catch {
+      alert("Network error")
+    } finally {
+      setUpdating(null)
+    }
+  }
+
   async function handleAcceptDecline(action: "accept" | "decline") {
     setUpdating(action)
     try {
@@ -481,6 +503,19 @@ export default function JobDetailPage() {
                 color="green"
               />
             </div>
+          </div>
+        )}
+
+        {/* Can't Make It — only for accepted/confirmed jobs before OMW */}
+        {isActive && !isPending && !job.cleaner_omw_at && (
+          <div className="bg-white rounded-lg border border-red-200 p-4">
+            <button
+              onClick={handleCancelAccepted}
+              disabled={!!updating}
+              className="w-full text-red-500 text-sm font-medium py-2 hover:text-red-600 disabled:opacity-50"
+            >
+              {updating === "cancel" ? "Cancelling..." : "Can't Make It"}
+            </button>
           </div>
         )}
 
