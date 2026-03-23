@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
     let credentials_sent = false
     if (phone && data) {
       try {
-        const msg = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${username}\nPIN: ${pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
+        const msg = `Your Osiris portal login:\n\nWebsite: cleanmachine.live\nUsername: ${username}\nPIN: ${pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
         await sendSMS(tenant, phone, msg)
         const serviceClient = getSupabaseServiceClient()
         await serviceClient.from("cleaners").update({ credentials_sent_at: new Date().toISOString() }).eq("id", data.id)
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
 
     if (credentialsChanged && data?.phone && data?.username && data?.pin) {
       try {
-        const msg = `Your Osiris portal login has been updated:\n\nWebsite: theosirisai.com\nUsername: ${data.username}\nPIN: ${data.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
+        const msg = `Your Osiris portal login has been updated:\n\nWebsite: cleanmachine.live\nUsername: ${data.username}\nPIN: ${data.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
         await sendSMS(tenant, data.phone, msg)
         await serviceClient.from("cleaners").update({ credentials_sent_at: new Date().toISOString() }).eq("id", cleaner_id)
         credentials_sent = true
