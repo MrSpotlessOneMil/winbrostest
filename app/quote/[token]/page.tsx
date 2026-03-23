@@ -78,6 +78,7 @@ export default function QuotePage() {
   const [approving, setApproving] = useState(false)
   const [selectedMembership, setSelectedMembership] = useState<string | null>(null)
   const [tierLocked, setTierLocked] = useState(false)
+  const [membershipLocked, setMembershipLocked] = useState(false)
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
@@ -141,6 +142,12 @@ export default function QuotePage() {
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
+
+        // Pre-select and lock membership if salesman already set it
+        if (json.quote.membership_plan) {
+          setSelectedMembership(json.quote.membership_plan)
+          setMembershipLocked(true)
+        }
 
         const q: Record<string, number> = {}
         json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") q[a.key] = 1 })
@@ -561,13 +568,14 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Membership Plans (hidden when tier locked or custom-priced — discount already applied) */}
-        {!isExpired && !isCustomPriced && !tierLocked && servicePlans.length > 0 && (
+        {/* ── Membership Plans (hidden for custom-priced — discount already applied) */}
+        {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Save with a Membership</h2>
-            <p className="text-slate-400 text-sm mb-5">Regular service = bigger savings every visit.</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{membershipLocked ? "Your Recurring Plan" : "Save with a Membership"}</h2>
+            <p className="text-slate-400 text-sm mb-5">{membershipLocked ? "Included with your service." : "Regular service = bigger savings every visit."}</p>
 
             <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
+              {!membershipLocked && (
               <button type="button" onClick={() => setSelectedMembership(null)}
                 className={`relative w-full text-left rounded-xl border-2 p-4 transition-all cursor-pointer active:scale-[0.98] ${
                   selectedMembership === null ? "border-slate-400 bg-slate-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
@@ -581,13 +589,15 @@ export default function QuotePage() {
                   </div>
                 )}
               </button>
+              )}
 
               {servicePlans.map((plan) => {
                 const isSelected = selectedMembership === plan.slug
                 const freeAddons = plan.free_addons || []
+                if (membershipLocked && !isSelected) return null
                 return (
-                  <button key={plan.slug} type="button" onClick={() => setSelectedMembership(plan.slug)}
-                    className={`relative w-full text-left rounded-xl border-2 p-4 transition-all cursor-pointer active:scale-[0.98] ${
+                  <button key={plan.slug} type="button" onClick={() => !membershipLocked && setSelectedMembership(plan.slug)}
+                    className={`relative w-full text-left rounded-xl border-2 p-4 transition-all ${membershipLocked ? "cursor-default" : "cursor-pointer active:scale-[0.98]"} ${
                       isSelected ? "border-emerald-400 bg-emerald-50 shadow-sm" : "border-blue-100 bg-white hover:border-blue-200"
                     }`}
                   >
