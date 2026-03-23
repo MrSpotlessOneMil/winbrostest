@@ -634,6 +634,7 @@ export default function CustomersPage() {
     vapi: "Call Lead",
     manual: "Manual Lead",
     email: "Email Lead",
+    retargeting: "Retargeting",
   }
 
   const getCustomerName = (customer: Customer) => {
@@ -1524,6 +1525,55 @@ export default function CustomersPage() {
                       >
                         <Download className="w-3.5 h-3.5" />
                         {syncingMessages ? "Pulling history..." : "Import Message History"}
+                      </button>
+                      <div className="border-t border-zinc-700/50" />
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false)
+                          try {
+                            const res = await fetch("/api/actions/export", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ type: "customers" }),
+                            })
+                            if (!res.ok) { alert("Export failed"); return }
+                            const blob = await res.blob()
+                            const url = URL.createObjectURL(blob)
+                            const a = document.createElement("a")
+                            a.href = url
+                            a.download = res.headers.get("Content-Disposition")?.split("filename=")[1]?.replace(/"/g, "") || "customers.csv"
+                            a.click()
+                            URL.revokeObjectURL(url)
+                          } catch { alert("Export failed") }
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        Export Customers (CSV)
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setActionsOpen(false)
+                          try {
+                            const res = await fetch("/api/actions/export", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ type: "jobs" }),
+                            })
+                            if (!res.ok) { alert("Export failed"); return }
+                            const blob = await res.blob()
+                            const url = URL.createObjectURL(blob)
+                            const a = document.createElement("a")
+                            a.href = url
+                            a.download = res.headers.get("Content-Disposition")?.split("filename=")[1]?.replace(/"/g, "") || "jobs.csv"
+                            a.click()
+                            URL.revokeObjectURL(url)
+                          } catch { alert("Export failed") }
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-700/50 transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        Export Jobs (CSV)
                       </button>
                     </div>
                   )}

@@ -46,6 +46,7 @@ import {
   Building,
   Star,
   Wrench,
+  RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ApiResponse, Lead as ApiLead, PaginatedResponse } from "@/lib/types"
@@ -78,6 +79,7 @@ const sourceLabels: Record<string, string> = {
   manual: "Manual",
   email: "Email",
   vapi: "VAPI Call",
+  retargeting: "Retargeting",
 }
 
 function titleSource(source: string): string {
@@ -89,7 +91,7 @@ type UiLead = {
   id: string
   name: string
   phone: string
-  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google" | "sam" | "google_lsa" | "ghl" | "angi"
+  source: "phone" | "meta" | "website" | "sms" | "thumbtack" | "google" | "sam" | "google_lsa" | "ghl" | "angi" | "retargeting"
   status: "new" | "contacted" | "qualified" | "booked" | "nurturing" | "lost"
   service: string
   estimatedValue: number
@@ -98,7 +100,7 @@ type UiLead = {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google", "sam", "google_lsa", "ghl", "angi"]
+  const knownSources: UiLead["source"][] = ["meta", "website", "sms", "thumbtack", "google", "sam", "google_lsa", "ghl", "angi", "retargeting"]
   const source = (knownSources.includes(l.source as any) ? l.source : "phone") as UiLead["source"]
   const isSam = l.source === "sam" || (l as any).form_data?.sam_handoff === true
   const status =
@@ -135,6 +137,7 @@ const sourceIcons = {
   google_lsa: MapPin,
   ghl: Building,
   angi: Star,
+  retargeting: RefreshCw,
 }
 
 const sourceColors: Record<string, string> = {
@@ -148,6 +151,7 @@ const sourceColors: Record<string, string> = {
   ghl: "bg-purple-500/15 text-purple-400",
   thumbtack: "bg-yellow-500/15 text-yellow-400",
   angi: "bg-red-500/15 text-red-400",
+  retargeting: "bg-cyan-500/15 text-cyan-400",
 }
 
 const statusConfig = {
