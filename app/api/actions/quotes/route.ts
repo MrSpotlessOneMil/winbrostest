@@ -16,6 +16,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const status = searchParams.get("status")
+  const customerId = searchParams.get("customer_id")
+  const customerPhone = searchParams.get("customer_phone")
   const limit = Math.min(parseInt(searchParams.get("limit") || "50", 10) || 50, 200)
 
   let query = supabase
@@ -27,6 +29,12 @@ export async function GET(request: NextRequest) {
 
   if (status) {
     query = query.eq("status", status)
+  }
+  if (customerId) {
+    query = query.eq("customer_id", Number(customerId))
+  }
+  if (customerPhone) {
+    query = query.eq("customer_phone", customerPhone)
   }
 
   const { data: quotes, error } = await query
