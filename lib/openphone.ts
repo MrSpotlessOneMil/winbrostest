@@ -233,7 +233,7 @@ export const SMS_TEMPLATES = {
     const serviceLabel = /cleaning/i.test(humanType) ? humanType : `${humanType} cleaning`
     const displayLabel = isEstimate ? `free ${serviceLabel} estimate` : serviceLabel
     const nextStep = isEstimate
-      ? `send your best email and I'll get you confirmed`
+      ? `just reply to confirm and I'll get you scheduled`
       : `just reply to confirm and I'll send over your quote`
     let msg = `Hi ${name}! Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If everything looks good, ${nextStep}!`
     if (offerApplied) {

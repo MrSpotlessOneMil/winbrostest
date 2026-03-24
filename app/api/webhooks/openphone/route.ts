@@ -1951,8 +1951,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, flow: "phone_call_post_booking_ai", leadId: bookedLead.id })
       }
 
-      // No quote sent yet — customer confirmed details, create quote and send link
-      // Determine service category from job
+      // No quote sent yet — customer confirmed details, look up job and respond
       let job = null
       if (bookedLead.converted_to_job_id) {
         const { data: jobData } = await client.from("jobs").select("*").eq("id", bookedLead.converted_to_job_id).single()
@@ -1963,6 +1962,92 @@ export async function POST(request: NextRequest) {
         job = recentJob
       }
 
+      // ── Estimate jobs (WinBros): confirm + assign salesman (no payment/quote) ──
+      if (job?.job_type === 'estimate' && tenant) {
+        const { data: existingAssignment } = await client
+          .from("cleaner_assignments")
+          .select("id")
+          .eq("job_id", job.id)
+          .not("status", "in", '("cancelled","declined")')
+          .limit(1)
+          .maybeSingle()
+
+        if (existingAssignment) {
+          console.log(`[OpenPhone] Estimate job ${job.id} already has assignment — skipping`)
+          return NextResponse.json({ success: true, flow: "phone_call_estimate_already_confirmed", leadId: bookedLead.id })
+        }
+
+        const customerFirst = customer.first_name || 'there'
+        const tz = tenant.timezone || 'America/Chicago'
+        const jobDateTime = job.scheduled_at
+          ? formatDateHuman(job.scheduled_at, tz)
+          : job.date
+            ? formatDateHuman(job.date, tz)
+            : 'your requested date'
+        const jobAddress = job.address || customer.address || 'your address'
+        const confirmMsg = `You're all confirmed, ${customerFirst}! Your free estimate is set for ${jobDateTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
+        const smsResult = await sendSMS(tenant, phone, confirmMsg)
+        if (smsResult.success) {
+          await client.from("messages").insert({
+            tenant_id: tenant.id, customer_id: customer.id, phone_number: phone,
+            role: "assistant", content: confirmMsg, direction: "outbound",
+            message_type: "sms", ai_generated: false, timestamp: new Date().toISOString(),
+            source: "estimate_booked",
+          })
+        }
+
+        // Assign salesman via route optimizer
+        let salesmanAssigned = false
+        try {
+          if (job.date) {
+            const { optimizeRoutesIncremental } = await import("@/lib/route-optimizer")
+            const { dispatchRoutes } = await import("@/lib/dispatch")
+            const { optimization, assignedTeamId, assignedLeadId } =
+              await optimizeRoutesIncremental(Number(job.id), job.date, tenant.id, 'salesman')
+            if (assignedTeamId) {
+              await dispatchRoutes(optimization, tenant.id, { sendTelegramToTeams: false, sendSmsToCustomers: false, sendOwnerSummary: false })
+              if (assignedLeadId) {
+                const { data: salesman } = await client.from('cleaners').select('phone, name, portal_token').eq('id', assignedLeadId).maybeSingle()
+                if (salesman?.phone) {
+                  const { getClientConfig } = await import("@/lib/client-config")
+                  const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                  const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${job.id}` : ''
+                  await sendSMS(tenant, salesman.phone, `New Estimate Assigned - ${tenant.name || 'Team'}\n\nCustomer: ${customerFirst}\nService: ${job.service_type || 'Estimate'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`)
+                  salesmanAssigned = true
+                }
+              }
+            }
+          }
+        } catch (estimateErr) {
+          console.error("[OpenPhone] Route optimizer failed for estimate:", estimateErr)
+        }
+        if (!salesmanAssigned) {
+          try {
+            const { data: availableSalesmen } = await client.from('cleaners').select('id, phone, name, portal_token')
+              .eq('tenant_id', tenant.id).eq('employee_type', 'salesman').eq('active', true).is('deleted_at', null).not('phone', 'is', null).limit(3)
+            if (availableSalesmen?.length) {
+              const salesman = availableSalesmen[0]
+              await client.from('cleaner_assignments').insert({ job_id: Number(job.id), cleaner_id: salesman.id, tenant_id: tenant.id, status: 'pending' })
+              const { getClientConfig } = await import("@/lib/client-config")
+              const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+              const portalLink = salesman.portal_token ? `\n\nView job details & update status:\n${appDomain}/crew/${salesman.portal_token}/estimate/${job.id}` : ''
+              await sendSMS(tenant, salesman.phone, `New Estimate Assigned - ${tenant.name || 'Team'}\n\nCustomer: ${customerFirst}\nService: ${job.service_type || 'Estimate'}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}${portalLink}`)
+            } else if (tenant.owner_phone) {
+              await sendSMS(tenant, tenant.owner_phone, `New estimate booked but NO salesman available!\n\nCustomer: ${customerFirst}\nAddress: ${jobAddress}\nDate: ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\n\nPlease assign manually.`)
+            }
+          } catch (fallbackErr) {
+            console.error("[OpenPhone] Fallback salesman assignment failed:", fallbackErr)
+          }
+        }
+
+        await client.from("leads").update({ status: "assigned" }).eq("id", bookedLead.id)
+        await logSystemEvent({ tenant_id: tenant.id, source: "openphone", event_type: "SMS_ESTIMATE_BOOKED",
+          message: `Estimate confirmed for ${phone} — job ${job.id}, salesman assignment triggered`,
+          phone_number: phone, metadata: { lead_id: bookedLead.id, job_id: job.id } })
+        return NextResponse.json({ success: true, flow: "phone_call_estimate_confirmed", leadId: bookedLead.id })
+      }
+
+      // ── Cleaning jobs: create quote and send link ──
       const svcType = (job?.service_type || '').toLowerCase()
       const quoteCategory = svcType.includes('move') ? 'move_in_out' : svcType.includes('deep') ? 'deep' : 'standard'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null
