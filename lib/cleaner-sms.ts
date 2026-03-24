@@ -606,10 +606,15 @@ export async function processCleanerAssignmentReply(
       return { success: false, error: 'Assignment no longer pending (already cancelled or accepted)' }
     }
 
-    // Update job status
+    // Update job status + set cleaner_id so it shows in calendar/teams
     await client
       .from('jobs')
-      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+      .update({ cleaner_id: cleanerId, updated_at: new Date().toISOString() })
+      .eq('id', pending.job_id)
+    // Also move to scheduled if still pending/new
+    await client
+      .from('jobs')
+      .update({ status: 'scheduled' })
       .eq('id', pending.job_id)
       .in('status', ['pending', 'new'])
 

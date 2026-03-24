@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
 
   let query = client
     .from("jobs")
-    .select("*, customers (*), teams ( id, name )", { count: "exact" })
+    .select("*, customers (*), teams ( id, name ), cleaners!jobs_cleaner_id_fkey ( id, name ), cleaner_assignments ( cleaner_id, status, cleaners ( id, name ) )", { count: "exact" })
     .order("created_at", { ascending: false })
   if (tenant) query = query.eq("tenant_id", tenant.id)
 
@@ -94,6 +94,21 @@ export async function GET(request: NextRequest) {
   const jobs: Job[] = (rows || []).map((row: any) => {
     const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers
     const team = Array.isArray(row.teams) ? row.teams[0] : row.teams
+
+    // Resolve cleaner name: direct FK first, then cleaner_assignments fallback
+    let cleanerName: string | undefined
+    const directCleaner = Array.isArray(row.cleaners) ? row.cleaners[0] : row.cleaners
+    if (directCleaner?.name) {
+      cleanerName = directCleaner.name
+    } else if (Array.isArray(row.cleaner_assignments) && row.cleaner_assignments.length > 0) {
+      const active = row.cleaner_assignments.find((a: any) => a.status === "confirmed")
+        || row.cleaner_assignments.find((a: any) => a.status === "accepted")
+        || row.cleaner_assignments.find((a: any) => a.status === "pending")
+      if (active) {
+        const c = Array.isArray(active.cleaners) ? active.cleaners[0] : active.cleaners
+        if (c?.name) cleanerName = c.name
+      }
+    }
 
     const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "Unknown"
     const scheduledDate = toIsoDateOnly(row.date || row.created_at)
@@ -115,6 +130,7 @@ export async function GET(request: NextRequest) {
       estimated_value: estimatedValue,
       actual_value: row.actual_value != null ? Number(row.actual_value) : undefined,
       status: mapDbStatusToApi(row.status),
+      cleaner_name: cleanerName,
       team_id: row.team_id != null ? String(row.team_id) : undefined,
       team_confirmed: Boolean(row.team_id),
       team_confirmed_at: row.updated_at ? String(row.updated_at) : undefined,
