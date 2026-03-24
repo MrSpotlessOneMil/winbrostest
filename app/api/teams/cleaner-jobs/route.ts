@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     // Get jobs where cleaner_id is directly set
     let directJobsQuery = client
       .from("jobs")
-      .select("id, address, service_type, date, scheduled_at, status, price, customers(name, phone_number)")
+      .select("id, address, service_type, date, scheduled_at, status, price, customers(first_name, last_name, phone_number)")
       .eq("cleaner_id", Number(cleanerId))
       .neq("status", "cancelled")
     if (tenant) directJobsQuery = directJobsQuery.eq("tenant_id", tenant.id)
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
     if (assignedJobIds.length > 0) {
       let assignedQuery = client
         .from("jobs")
-        .select("id, address, service_type, date, scheduled_at, status, price, customers(name, phone_number)")
+        .select("id, address, service_type, date, scheduled_at, status, price, customers(first_name, last_name, phone_number)")
         .in("id", assignedJobIds)
         .neq("status", "cancelled")
       if (tenant) assignedQuery = assignedQuery.eq("tenant_id", tenant.id)
@@ -86,7 +86,7 @@ export async function GET(request: NextRequest) {
     const formatJob = (j: any) => ({
       id: j.id,
       address: j.address || "",
-      customer_name: j.customers?.name || "Unknown",
+      customer_name: [j.customers?.first_name, j.customers?.last_name].filter(Boolean).join(" ").trim() || "Unknown",
       service_type: j.service_type || "",
       scheduled_date: j.date,
       scheduled_time: j.scheduled_at || "",
