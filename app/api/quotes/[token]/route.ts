@@ -334,9 +334,11 @@ export async function PATCH(
     const domain = await getTenantRedirectDomain(tenant.id)
     const quoteSuccessUrl = `${domain}/quote/${token}/success`
 
-    // If customer has an email, find or create Stripe customer
+    // Always find or create a Stripe customer so the card gets attached
     const email = (customer_email || quote.customer_email) as string | undefined
     let stripeCustomerId: string | undefined
+
+    // Try with email first (enables receipt emails)
     if (email) {
       try {
         const stripeCustomer = await findOrCreateStripeCustomer(
@@ -345,7 +347,24 @@ export async function PATCH(
         )
         stripeCustomerId = stripeCustomer.id
       } catch {
-        // Continue without Stripe customer — checkout will collect email
+        // Fall through to phone-only creation
+      }
+    }
+
+    // If no Stripe customer yet (no email or lookup failed), create from phone+name
+    if (!stripeCustomerId) {
+      try {
+        const custName = (customer_name || quote.customer_name || 'Customer').trim()
+        const custPhone = quote.customer_phone || ''
+        const stripeCustomer = await stripe.customers.create({
+          name: custName,
+          ...(custPhone ? { phone: custPhone } : {}),
+          ...(email ? { email } : {}),
+          metadata: { source: 'quote_checkout', quote_id: quote.id },
+        })
+        stripeCustomerId = stripeCustomer.id
+      } catch (err) {
+        console.error('[Quote PATCH] Failed to create Stripe customer:', err)
       }
     }
 
@@ -370,6 +389,7 @@ export async function PATCH(
       },
     }
 
+    // Always attach to a Stripe customer so card-on-file works
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId
     } else if (email) {
