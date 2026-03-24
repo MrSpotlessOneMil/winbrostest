@@ -2743,40 +2743,31 @@ export default function JobsPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                     <div>
                       <label className="cal-form-label">Bedrooms *</label>
-                      <select
+                      <input
+                        type="number"
                         className="cal-form-control"
+                        placeholder="3"
+                        min="0"
+                        step="0.5"
                         value={createForm.bedrooms}
                         onChange={(e) =>
                           setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
                         }
-                      >
-                        <option value="">Select</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
-                        <option value="5">5</option>
-                        <option value="6">6+</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="cal-form-label">Bathrooms *</label>
-                      <select
+                      <input
+                        type="number"
                         className="cal-form-control"
+                        placeholder="2"
+                        min="0"
+                        step="0.5"
                         value={createForm.bathrooms}
                         onChange={(e) =>
                           setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
                         }
-                      >
-                        <option value="">Select</option>
-                        <option value="1">1</option>
-                        <option value="1.5">1.5</option>
-                        <option value="2">2</option>
-                        <option value="2.5">2.5</option>
-                        <option value="3">3</option>
-                        <option value="3.5">3.5</option>
-                        <option value="4">4+</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="cal-form-label">Sqft *</label>
