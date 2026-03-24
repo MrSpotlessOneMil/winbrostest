@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/auth'
+import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS } from '@/lib/openphone'
 import { generateAutoResponse, loadCustomerContext, type KnownCustomerInfo } from '@/lib/auto-response'
@@ -42,8 +42,9 @@ function isNegativeReply(content: string): boolean {
 }
 
 export async function GET(request: NextRequest) {
-  const isAdmin = await requireAdmin(request)
-  if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const { actionable, negative, extra } = await findGhostedCustomers()
 
@@ -78,8 +79,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const isAdmin = await requireAdmin(request)
-  if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   const client = getSupabaseServiceClient()
   const tenant = await getTenantById(WINBROS_TENANT_ID)
