@@ -570,6 +570,35 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     }
   }
 
+  // Manual handling: skip job creation, cleaner dispatch, and all automations
+  if (quote.manual_handling) {
+    console.log(`[Stripe Webhook] Quote ${quote_id} is manual_handling — skipping job creation and automations`)
+
+    // Still send confirmation SMS
+    const smsPhone = customerPhone
+    if (smsPhone && tenant) {
+      try {
+        const { sendSMS } = await import('@/lib/openphone')
+        const custName = quote.customer_name?.split(' ')[0] || 'there'
+        const msg = `Hey ${custName}! Your card is on file with ${tenant.business_name || tenant.name}. We'll be in touch to finalize the details and schedule your service. Thank you!`
+        await sendSMS(tenant, smsPhone, msg)
+      } catch (err) {
+        console.error('[Stripe Webhook] Failed to send manual_handling confirmation SMS:', err)
+      }
+    }
+
+    await logSystemEvent({
+      tenant_id: quote.tenant_id,
+      source: 'stripe',
+      event_type: 'QUOTE_CARD_ON_FILE',
+      message: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved (manual handling) — card on file — ${serviceName}`,
+      phone_number: smsPhone || undefined,
+      metadata: { quote_id, selected_tier, manual_handling: true },
+    })
+
+    return
+  }
+
   // Create job from the approved quote (with membership_id if applicable)
   const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
   const jobInsert: Record<string, unknown> = {

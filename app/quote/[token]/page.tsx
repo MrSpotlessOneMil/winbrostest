@@ -37,7 +37,7 @@ interface TierPrice { price: number; breakdown: { service: string; price: number
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -184,7 +184,11 @@ export default function QuotePage() {
   const addons = data?.addons ?? []
   const tierPrices = data?.tierPrices ?? {}
   const servicePlans = data?.servicePlans ?? []
-  const serviceAgreement = data?.serviceAgreement ?? null
+  const rawAgreement = data?.serviceAgreement ?? null
+  // Use custom terms from the quote if available (custom-priced quotes)
+  const serviceAgreement = data?.custom_terms
+    ? { ...rawAgreement!, terms: data.custom_terms, satisfaction_guarantee: true }
+    : rawAgreement
   const tenant = data?.tenant ?? null
   const serviceType = data?.serviceType ?? "house_cleaning"
   const customBasePrice = data?.custom_base_price ?? null
@@ -194,9 +198,18 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
+  // For custom-priced quotes, pre-selected addons are treated as INCLUDED (free)
+  const originalSelectedAddons = data?.quote?.selected_addons as Array<string | { key: string }> | null
+  const customIncludedKeys = isCustomPriced && originalSelectedAddons
+    ? new Set(originalSelectedAddons.map(a => typeof a === 'string' ? a : a.key))
+    : null
+
   const isAddonIncluded = useCallback(
-    (addonKey: string): boolean => !!selectedTier && selectedTier.included.includes(addonKey),
-    [selectedTier]
+    (addonKey: string): boolean => {
+      if (customIncludedKeys?.has(addonKey)) return true
+      return !!selectedTier && selectedTier.included.includes(addonKey)
+    },
+    [selectedTier, customIncludedKeys]
   )
 
   const getAddonPrice = useCallback(
@@ -408,15 +421,45 @@ export default function QuotePage() {
         {isCustomPriced ? (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
-            <p className="text-slate-400 text-sm mb-3">Prepared by our team after your on-site estimate.</p>
+            <p className="text-slate-400 text-sm mb-3">Prepared by our team specifically for your property.</p>
             <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-slate-800 font-bold text-lg">Base Service</h3>
-                  <p className="text-slate-500 text-sm mt-1">Custom-quoted price</p>
+                  <h3 className="text-slate-800 font-bold text-lg">Custom Service Package</h3>
+                  <p className="text-slate-500 text-sm mt-1">{quote.customer_address || "Your property"}</p>
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
               </div>
+              {data?.quote_notes && (
+                <div className="border-t border-blue-200 pt-4 space-y-3">
+                  {data.quote_notes.split('\n\n').map((section, si) => {
+                    const lines = section.split('\n')
+                    const heading = lines[0]
+                    const items = lines.slice(1).filter(l => l.startsWith('•') || l.startsWith('-'))
+                    const isHeading = !heading.startsWith('•') && !heading.startsWith('-') && items.length > 0
+                    return (
+                      <div key={si}>
+                        {isHeading && (
+                          <h4 className="text-sm font-bold text-slate-700 mb-1.5">{heading}</h4>
+                        )}
+                        {!isHeading && !items.length && heading && (
+                          <p className="text-sm text-slate-600">{heading}</p>
+                        )}
+                        {items.length > 0 && (
+                          <ul className="space-y-1">
+                            {items.map((item, ii) => (
+                              <li key={ii} className="flex items-start gap-2 text-sm text-slate-600">
+                                <Check className="size-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                <span>{item.replace(/^[•\-]\s*/, '')}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           </div>
         ) : (

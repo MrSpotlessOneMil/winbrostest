@@ -112,6 +112,8 @@ export async function GET(
     servicePlans: servicePlans || [],
     serviceAgreement,
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
+    custom_terms: quote.custom_terms || null,
+    quote_notes: quote.notes || null,
     tenant: {
       name: tenant.business_name || tenant.name,
       slug: tenant.slug,
