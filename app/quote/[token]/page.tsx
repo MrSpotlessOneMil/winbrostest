@@ -538,8 +538,8 @@ export default function QuotePage() {
         </div>
         )}
 
-        {/* ── Add-ons ─────────────────────────────────────────── */}
-        {addons.length > 0 && (
+        {/* ── Add-ons (hidden for custom-priced quotes — all included in base price) */}
+        {addons.length > 0 && !isCustomPriced && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
             <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
