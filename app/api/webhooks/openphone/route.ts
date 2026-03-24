@@ -242,9 +242,18 @@ export async function POST(request: NextRequest) {
           }
         }
 
+        // Retargeting detection: if customer has an active retargeting sequence, this outbound is automated — skip manual takeover
+        let isRetargeting = false
+        if (!isAgentOutreach && customer?.id) {
+          if (customer.retargeting_sequence && !customer.retargeting_completed_at) {
+            isRetargeting = true
+            console.log(`[OpenPhone] Active retargeting sequence for ${maskPhone(toPhone)} — skipping manual takeover`)
+          }
+        }
+
         // Blast detection: if same content was sent to 5+ numbers in last 10 min, it's a broadcast — skip manual takeover
         let isBroadcast = false
-        if (!isAgentOutreach && customer?.id && tenant && extracted.content) {
+        if (!isAgentOutreach && !isRetargeting && customer?.id && tenant && extracted.content) {
           const blastCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString()
           const { count } = await client
             .from("messages")
@@ -261,13 +270,13 @@ export async function POST(request: NextRequest) {
         }
 
         // Re-label the message source when it's automated (not truly manual staff)
-        if (insertedMsg?.id && (isBroadcast || isAgentOutreach)) {
-          const newSource = isAgentOutreach ? "agent_outreach" : "broadcast"
+        if (insertedMsg?.id && (isBroadcast || isAgentOutreach || isRetargeting)) {
+          const newSource = isAgentOutreach ? "agent_outreach" : isRetargeting ? "retargeting" : "broadcast"
           await client.from("messages").update({ source: newSource }).eq("id", insertedMsg.id)
         }
 
-        // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for agent outreach and broadcasts)
-        if (customer?.id && tenant && !isBroadcast && !isAgentOutreach) {
+        // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for automated outbound)
+        if (customer?.id && tenant && !isBroadcast && !isAgentOutreach && !isRetargeting) {
           await client
             .from("customers")
             .update({

@@ -372,6 +372,25 @@ async function processLeadFollowup(
     }
   }
 
+  // Skip if the customer is in an active retargeting sequence or was recently retargeted
+  if (leadPhone && tenant?.id) {
+    const { data: retargetCustomer } = await client
+      .from('customers')
+      .select('id, retargeting_sequence, retargeting_completed_at, auto_response_paused')
+      .eq('phone_number', leadPhone)
+      .eq('tenant_id', tenant.id)
+      .maybeSingle()
+
+    if (retargetCustomer?.retargeting_sequence && !retargetCustomer.retargeting_completed_at) {
+      console.log(`[lead-followup] Phone ${leadPhone} has active retargeting sequence, skipping lead follow-up for lead ${leadId}`)
+      return
+    }
+    if (retargetCustomer?.auto_response_paused) {
+      console.log(`[lead-followup] Phone ${leadPhone} has auto_response_paused, skipping lead follow-up for lead ${leadId}`)
+      return
+    }
+  }
+
   // Skip if auto-followup is paused for this lead
   const formData = parseFormData(lead.form_data)
   if (formData.followup_paused === true) {
@@ -930,7 +949,32 @@ async function processRetargeting(
 
   console.log(`[retargeting] Sending ${sequence} step ${step} to ${customerPhone.slice(-4)} (${tenant.slug})`)
 
+  // Pre-insert message record with source='retargeting' BEFORE sendSMS.
+  // This lets the outbound webhook dedup detect it and skip manual takeover,
+  // so the AI auto-responder stays active when the customer replies.
+  let preInsertedMsgId: string | null = null
+  if (tenantId) {
+    const { data: msgRecord } = await supabase.from('messages').insert({
+      tenant_id: tenantId,
+      customer_id: customerId,
+      phone_number: customerPhone,
+      role: 'assistant',
+      content: message,
+      direction: 'outbound',
+      message_type: 'sms',
+      ai_generated: false,
+      timestamp: new Date().toISOString(),
+      source: 'retargeting',
+    }).select('id').single()
+    preInsertedMsgId = msgRecord?.id || null
+  }
+
   const result = await sendSMS(tenant, customerPhone, message)
+
+  if (!result.success && preInsertedMsgId) {
+    // Clean up pre-inserted record since send failed
+    await supabase.from('messages').delete().eq('id', preInsertedMsgId)
+  }
 
   if (result.success) {
     // Update customer retargeting step
