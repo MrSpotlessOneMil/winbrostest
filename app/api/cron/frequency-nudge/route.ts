@@ -62,10 +62,29 @@ export async function GET(request: NextRequest) {
       continue
     }
 
-    console.log(`[Frequency Nudge] Claimed ${jobs.length} jobs for ${tenant.slug}`)
+    // Exclude customers with active/paused memberships (skip promos for subscribers)
+    const membershipCustomerIds = new Set<number>()
+    const customerIds = [...new Set(jobs.map((j: any) => j.customer_id).filter(Boolean))]
+    if (customerIds.length > 0) {
+      const { data: membershipCustomers } = await client
+        .from('customer_memberships')
+        .select('customer_id')
+        .eq('tenant_id', tenant.id)
+        .in('status', ['active', 'paused'])
+        .in('customer_id', customerIds)
+
+      for (const m of membershipCustomers || []) {
+        membershipCustomerIds.add(m.customer_id)
+      }
+    }
+
+    console.log(`[Frequency Nudge] Claimed ${jobs.length} jobs for ${tenant.slug} (${membershipCustomerIds.size} membership subscribers excluded)`)
 
     for (const job of jobs) {
       try {
+        // Skip customers with active service plan subscriptions
+        if (membershipCustomerIds.has(job.customer_id)) continue
+
         const phone = job.customer_phone || job.job_phone_number
         const customerName = job.customer_first_name || 'there'
 

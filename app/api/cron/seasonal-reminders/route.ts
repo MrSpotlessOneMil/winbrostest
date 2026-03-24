@@ -51,12 +51,26 @@ export async function GET(request: NextRequest) {
       let errors = 0
 
       try {
+        // Exclude customers with active/paused memberships (skip promos for subscribers)
+        const { data: membershipCustomers } = await client
+          .from('customer_memberships')
+          .select('customer_id')
+          .eq('tenant_id', tenant.id)
+          .in('status', ['active', 'paused'])
+
+        const membershipCustomerIds = (membershipCustomers || []).map(m => m.customer_id).filter(Boolean)
+
         // Build customer query based on target segment
         let customerQuery = client
           .from('customers')
           .select('id, first_name, phone_number, seasonal_reminder_tracker')
           .eq('tenant_id', tenant.id)
           .not('phone_number', 'is', null)
+
+        // Exclude membership subscribers from promotional campaigns
+        if (membershipCustomerIds.length > 0) {
+          customerQuery = customerQuery.not('id', 'in', `(${membershipCustomerIds.join(',')})`)
+        }
 
         // For segment-based targeting, we need to check job history
         if (campaign.target_segment !== 'all') {

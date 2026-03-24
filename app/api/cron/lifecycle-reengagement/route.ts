@@ -48,6 +48,17 @@ export async function GET(request: NextRequest) {
       const businessName = tenant.business_name_short || tenant.name || 'us'
       const defaultDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
 
+      // Get customer IDs with active/paused memberships (skip promos for subscribers)
+      const { data: membershipCustomers } = await client
+        .from('customer_memberships')
+        .select('customer_id')
+        .eq('tenant_id', tenant.id)
+        .in('status', ['active', 'paused'])
+
+      const membershipCustomerIds = new Set(
+        (membershipCustomers || []).map(m => m.customer_id)
+      )
+
       // Find customers with last completed job 30+ days ago
       // who don't have upcoming jobs and haven't opted into recurring
       const { data: candidates, error: queryError } = await client
@@ -79,6 +90,7 @@ export async function GET(request: NextRequest) {
 
       for (const cust of candidates) {
         if ((cust as any).sms_opt_out) continue
+        if (membershipCustomerIds.has(cust.id)) continue
 
         const jobs = cust.jobs as Array<{ id: number; completed_at: string | null; status: string }>
         if (!jobs || jobs.length === 0) continue
@@ -122,6 +134,7 @@ export async function GET(request: NextRequest) {
       if (neverBookedCandidates && neverBookedCandidates.length > 0) {
         for (const nb of neverBookedCandidates) {
           if (nb.sms_opt_out) continue
+          if (membershipCustomerIds.has(nb.id)) continue
 
           // Confirm they have NO completed jobs (truly never-booked)
           const { data: completedJob } = await client
@@ -154,7 +167,7 @@ export async function GET(request: NextRequest) {
       const cleanerPhones = await getCleanerPhoneSet(tenant.id)
       const filteredCustomers = eligibleCustomers.filter(c => !isCleanerPhone(c.phone_number, cleanerPhones))
 
-      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${filteredCustomers.length} eligible customers (${eligibleCustomers.length - filteredCustomers.length} cleaners excluded)`)
+      console.log(`[Lifecycle Reengagement] ${tenant.slug}: ${filteredCustomers.length} eligible customers (${eligibleCustomers.length - filteredCustomers.length} cleaners excluded, ${membershipCustomerIds.size} membership subscribers excluded)`)
 
       for (const cust of filteredCustomers) {
         try {
