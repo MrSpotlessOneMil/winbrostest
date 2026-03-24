@@ -126,20 +126,28 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay (their rate × hours, NOT the customer price)
+  // Job price
+  const price = job.price ? Number(job.price) : 0
+  if (price > 0) details.push(`Job price: $${price.toFixed(0)}`)
+
+  // Cleaner pay (their rate × hours)
   const rate = cleaner.hourly_rate || 25
   if (job.hours) {
     details.push(`Your pay: $${(rate * Number(job.hours)).toFixed(0)}`)
   }
 
-  let link = ''
-  if (cleaner.portal_token && job.id) {
-    link = `\n\nTap the link to view full details & accept:\n${jobUrl(cleaner.portal_token, job.id)}`
-  }
-
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
-  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}`
+
+  // Notes preview (first 100 chars — contains package info, special instructions)
+  const notesPreview = job.notes ? `\n${job.notes.slice(0, 100)}${job.notes.length > 100 ? '...' : ''}` : ''
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = `\n\nView full details, checklist & confirm:\n${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 
@@ -186,13 +194,18 @@ export async function notifyCleanerAwarded(
   const date = formatDate(job.date)
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
+  const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
+  const price = job.price ? Number(job.price) : 0
+  const priceStr = price > 0 ? `\nJob price: $${price.toFixed(0)}` : ''
+  const rate = cleaner.hourly_rate || 25
+  const payStr = job.hours ? `\nYour pay: $${(rate * Number(job.hours)).toFixed(0)}` : ''
 
   let link = ''
   if (cleaner.portal_token && job.id) {
-    link = ` Job details: ${jobUrl(cleaner.portal_token, job.id)}`
+    link = `\n\nView checklist & details:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `You're confirmed for ${date} ${time} at ${address}!${link}`
+  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${priceStr}${payStr}${link}`
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 }
 
@@ -235,7 +248,7 @@ export async function sendUrgentFollowUp(
     link = `\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `We still need your response for the ${date} ${time} job at ${address}.${link}\nReply YES or NO.`
+  const message = `We still need your response for the ${date} ${time} job at ${address}.${link ? `\n\nTap here to respond:${link}` : ''}`
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
 }
 

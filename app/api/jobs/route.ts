@@ -207,12 +207,12 @@ export async function PATCH(request: NextRequest) {
             const svc = getSupabaseServiceClient()
             const { data: cleaner } = await svc
               .from("cleaners")
-              .select("id, name, phone")
+              .select("id, name, phone, portal_token")
               .eq("id", Number(cleaner_id))
               .single()
 
             if (cleaner) {
-              // SMS info message to cleaner (no accept/decline — owner made the decision)
+              // SMS info message to cleaner with portal link
               if (cleaner.phone) {
                 const jobDate = date || oldJob?.date || "TBD"
                 const jobTime = scheduled_at || oldJob?.scheduled_at || ""
@@ -226,7 +226,9 @@ export async function PATCH(request: NextRequest) {
                   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
                   timeDisplay = ` at ${h12}:${m} ${ampm}`
                 }
-                const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
+                const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
+                const portalLink = cleaner.portal_token ? `\n\nView details & checklist:\n${baseUrl}/crew/${cleaner.portal_token}/job/${id}` : ''
+                const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}.${portalLink}`
                 sendSMS(assignTenant as any, cleaner.phone, smsMsg).catch((err) =>
                   console.error("[Jobs PATCH] Failed to send SMS to cleaner:", err)
                 )
@@ -609,14 +611,16 @@ export async function POST(request: NextRequest) {
 
         const { data: cleaner } = await svc
           .from("cleaners")
-          .select("id, name, phone")
+          .select("id, name, phone, portal_token")
           .eq("id", Number(cId))
           .single()
 
         if (cleaner) {
           cleanerNames.push(cleaner.name || "Cleaner")
           if (cleaner.phone) {
-            const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}. Check your schedule for details.`
+            const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
+            const portalLink = cleaner.portal_token ? `\n\nView details & checklist:\n${baseUrl}/crew/${cleaner.portal_token}/job/${row.id}` : ''
+            const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}.${portalLink}`
             sendSMS(tenant as any, cleaner.phone, smsMsg).catch((err) =>
               console.error("[Jobs POST] Failed to send SMS to cleaner:", err)
             )
