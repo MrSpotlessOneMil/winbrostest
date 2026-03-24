@@ -351,23 +351,6 @@ export async function PATCH(
       }
     }
 
-    // If no Stripe customer yet (no email or lookup failed), create from phone+name
-    if (!stripeCustomerId) {
-      try {
-        const custName = (customer_name || quote.customer_name || 'Customer').trim()
-        const custPhone = quote.customer_phone || ''
-        const stripeCustomer = await stripe.customers.create({
-          name: custName,
-          ...(custPhone ? { phone: custPhone } : {}),
-          ...(email ? { email } : {}),
-          metadata: { source: 'quote_checkout', quote_id: quote.id },
-        })
-        stripeCustomerId = stripeCustomer.id
-      } catch (err) {
-        console.error('[Quote PATCH] Failed to create Stripe customer:', err)
-      }
-    }
-
     const sessionMetadata = {
       quote_id: quote.id,
       quote_token: token,
@@ -387,11 +370,13 @@ export async function PATCH(
       setup_intent_data: {
         metadata: sessionMetadata,
       },
+      // Always create a Stripe customer so the card gets attached and is chargeable
+      customer_creation: 'always',
     }
 
-    // Always attach to a Stripe customer so card-on-file works
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId
+      delete sessionParams.customer_creation // not needed when customer already exists
     } else if (email) {
       sessionParams.customer_email = email
     }
