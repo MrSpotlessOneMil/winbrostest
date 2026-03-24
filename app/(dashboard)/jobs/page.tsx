@@ -582,6 +582,28 @@ export default function JobsPage() {
     }
   }, [createForm.service_type])
 
+  // Auto-select add-ons included in the chosen service type (house cleaning only)
+  useEffect(() => {
+    if (!isHouseCleaning) return
+    if (addonsList.length === 0) return
+    const st = (createForm.service_type || "").toLowerCase()
+    const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+    const includedKeys = addonsList
+      .filter((a: any) => Array.isArray(a.included_in) && a.included_in.includes(tierKey))
+      .map((a: any) => a.addon_key)
+    // All addon keys that are included in ANY tier (so we can remove stale ones on switch)
+    const allIncludableKeys = addonsList
+      .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
+      .map((a: any) => a.addon_key)
+    setCreateForm((prev) => {
+      // Keep manually-selected add-ons (ones not auto-includable), drop old auto-included, add new ones
+      const manual = prev.selected_addons.filter((k) => !allIncludableKeys.includes(k))
+      const merged = [...new Set([...manual, ...includedKeys])]
+      if (merged.length === prev.selected_addons.length && merged.every((k) => prev.selected_addons.includes(k))) return prev
+      return { ...prev, selected_addons: merged }
+    })
+  }, [createForm.service_type, addonsList, isHouseCleaning])
+
   // Fetch service plans for membership dropdown (WinBros only)
   useEffect(() => {
     if (!createOpen || isHouseCleaning || servicePlans.length > 0) return
@@ -3096,7 +3118,11 @@ export default function JobsPage() {
                       maxHeight: isHouseCleaning ? 300 : 150,
                       overflowY: "auto",
                     }}>
-                      {derivedAddonsList.map((addon) => (
+                      {derivedAddonsList.map((addon) => {
+                        const st = (createForm.service_type || "").toLowerCase()
+                        const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+                        const isIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
+                        return (
                         <label
                           key={addon.addon_key}
                           style={{
@@ -3126,14 +3152,15 @@ export default function JobsPage() {
                           />
                           <span style={{ flex: 1 }}>{addon.label}</span>
                           <span style={{
-                            color: addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
+                            color: isIncluded ? "#4ade80" : addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
                             fontSize: "0.75rem",
                             fontWeight: 600,
                           }}>
-                            {addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
+                            {isIncluded ? "INCLUDED" : addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
                           </span>
                         </label>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}

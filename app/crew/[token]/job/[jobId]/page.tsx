@@ -21,7 +21,7 @@ interface JobDetail {
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null
   payment_method: string | null; card_on_file: boolean
 }
-interface ChecklistItem { id: number; text: string; order: number; required: boolean; completed: boolean; completed_at: string | null }
+interface ChecklistItem { id: number | string; text: string; order: number; required: boolean; completed: boolean; completed_at: string | null }
 interface Message { id: string; content: string; direction: string; role: string; timestamp: string; source: string; is_mine: boolean }
 interface JobData {
   job: JobDetail; assignment: { id: string; status: string }
@@ -82,7 +82,7 @@ export default function JobDetailPage() {
       fetchData()
     } catch { alert("Network error") } finally { setUpdating(null) }
   }
-  async function updateChecklist(itemId: number, completed: boolean) {
+  async function updateChecklist(itemId: number | string, completed: boolean) {
     try {
       await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checklist_item_id: itemId, completed }) })
       setData(prev => prev ? { ...prev, checklist: prev.checklist.map(i => i.id === itemId ? { ...i, completed, completed_at: completed ? new Date().toISOString() : null } : i) } : prev)

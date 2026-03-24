@@ -24,6 +24,7 @@ export async function GET(request: NextRequest) {
         label: a.label,
         flat_price: a.flat_price,
         minutes: a.minutes,
+        included_in: a.included_in || null,
       })),
     })
   } catch (error) {

@@ -47,7 +47,7 @@ async function resolveContext(token: string, jobId: string) {
   const { data: job } = await client
     .from('jobs')
     .select(`
-      id, date, scheduled_at, address, service_type, status, notes,
+      id, date, scheduled_at, address, service_type, status, notes, addons,
       bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     (completedItems || []).map((i: any) => [i.checklist_item_id, i])
   )
 
-  const checklist = (checklistItems || []).map((item: any) => ({
+  const checklist: any[] = (checklistItems || []).map((item: any) => ({
     id: item.id,
     text: item.item_text,
     order: item.item_order,
@@ -106,6 +106,36 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     completed: completedMap.get(item.id)?.completed || false,
     completed_at: completedMap.get(item.id)?.completed_at || null,
   }))
+
+  // Inject add-on items that aren't already covered by the static checklist
+  // e.g. "inside fridge" added to a standard cleaning should still appear
+  const ADDON_CHECKLIST_MAP: Record<string, string> = {
+    inside_fridge: 'Inside fridge',
+    inside_oven: 'Inside oven & microwave',
+    inside_cabinets: 'Inside all cabinets & drawers',
+    windows_interior: 'Interior windows washed',
+    windows_exterior: 'Exterior windows washed',
+    windows_both: 'Interior + exterior windows washed',
+  }
+  try {
+    const jobAddons: { key: string }[] = job.addons ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons) : []
+    const existingTexts = new Set(checklist.map((c) => c.text.toLowerCase()))
+    let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
+    for (const addon of jobAddons) {
+      const label = ADDON_CHECKLIST_MAP[addon.key]
+      if (!label) continue
+      // Skip if the checklist already has this item (case-insensitive partial match)
+      if ([...existingTexts].some((t) => t.includes(label.toLowerCase().split(' ')[0]) && t.includes(label.toLowerCase().split(' ').slice(-1)[0]))) continue
+      checklist.push({
+        id: `addon_${addon.key}`,
+        text: label,
+        order: nextOrder++,
+        required: true,
+        completed: false,
+        completed_at: null,
+      })
+    }
+  } catch {}
 
   // Show customer phone only for WinBros (use_hcp_mirror feature flag)
   const showCustomerPhone = tenantUsesFeature(tenant, 'use_hcp_mirror')
@@ -303,11 +333,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   // Handle checklist update
   if (body.checklist_item_id !== undefined) {
     const completed = !!body.completed
+    const itemId = body.checklist_item_id
+
+    // Add-on checklist items have string IDs (e.g. "addon_inside_fridge")
+    // — can't store in job_checklist_items FK. Accept toggle silently.
+    if (typeof itemId === 'string' && String(itemId).startsWith('addon_')) {
+      return NextResponse.json({ success: true })
+    }
 
     await client.from('job_checklist_items').upsert(
       {
         job_id: parseInt(jobId),
-        checklist_item_id: body.checklist_item_id,
+        checklist_item_id: itemId,
         completed,
         completed_at: completed ? new Date().toISOString() : null,
         completed_by: typeof cleaner.id === 'string' ? parseInt(cleaner.id) : cleaner.id,
