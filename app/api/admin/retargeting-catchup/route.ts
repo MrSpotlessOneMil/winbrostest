@@ -23,14 +23,18 @@ const WINBROS_TENANT_ID = 'e954fbd6-b3e1-4271-88b0-341c9df56beb'
 const NEGATIVE_PATTERNS = [
   /^no\.?$/i,
   /^n\.?$/i,
+  /^n\b/i,                          // "N thanks", "N ty", etc.
   /^nope/i,
   /^nah/i,
+  /^no[,.]?\s*(not|thank|thanks|ty)/i,  // "No, not at the moment", "No. Thank you", "No thanks"
   /^not (right now|at this time|at the moment|yet|interested|now)/i,
   /^no thank/i,
   /^no,? thank/i,
   /^thanks?,? (i|we) (don'?t|will|moved|no longer|already|washed)/i,
   /\b(don'?t live|moved|no longer need|cleaning them ourselves|not making a decision|we are good|good thanks)\b/i,
+  /\b(washed.*already|already.*washed|cleaned.*myself|did it myself|already.*done)\b/i,
   /^thanks?\s*$/i,
+  /^thank you\s*$/i,                // bare "Thank you" with nothing else = polite close
 ]
 
 // Additional phone numbers to include regardless of query results
