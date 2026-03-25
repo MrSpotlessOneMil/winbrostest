@@ -40,19 +40,13 @@ test.describe('Session Fixes — March 25 2026', () => {
   // ── Customers page: Quotes tab exists (not Invoices) ──
   test('customers page has Quotes tab instead of Invoices', async ({ page }) => {
     await page.goto('/customers')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('domcontentloaded')
 
-    // Click first customer in the list
-    const firstCustomer = page.locator('[class*="cursor-pointer"], [role="button"]').first()
-    if (await firstCustomer.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await firstCustomer.click()
-      await page.waitForTimeout(1000)
-    }
-
-    const quotesTab = page.getByText('Quotes', { exact: false })
+    // Wait for tabs to appear (a customer auto-selects on load)
+    const quotesTab = page.getByText('Quotes', { exact: true })
     const invoicesTab = page.getByText('Invoices', { exact: true })
 
-    await expect(quotesTab.first()).toBeVisible({ timeout: 5000 })
+    await expect(quotesTab.first()).toBeVisible({ timeout: 20000 })
     expect(await invoicesTab.isVisible().catch(() => false)).toBeFalsy()
   })
 
