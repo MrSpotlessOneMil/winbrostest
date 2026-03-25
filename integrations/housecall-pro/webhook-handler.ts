@@ -21,6 +21,7 @@ import { normalizePhone } from '@/lib/phone-utils'
 import { logSystemEvent } from '@/lib/system-events'
 import { getClientConfig } from '@/lib/client-config'
 import { getTenantBySlug, getTenantBusinessName, getTenantSdrName } from '@/lib/tenant'
+import { scheduleLeadFollowUp } from '@/lib/scheduler'
 import { checkStackedReschedules } from '@/lib/winbros-alerts'
 
 // Lazy-initialize Supabase client (avoid build-time env var access)
@@ -643,8 +644,13 @@ async function handleLeadCreated(
       console.error(`[HCP Webhook] Failed to send SMS: ${smsResult.error}`)
     }
 
-    // 5. Schedule follow-up sequence with double-dial
-    await scheduleHCPFollowUpSequence(lead.id, phoneNumber)
+    // 5. Schedule follow-up sequence (same as Spotless/Cedar: 5 touches over 14 days, SMS only)
+    await scheduleLeadFollowUp(
+      winbrosTenant.id,
+      String(lead.id),
+      phoneNumber,
+      firstName
+    )
 
     // 6. Log the event
     await logSystemEvent({
@@ -746,49 +752,5 @@ async function getOrCreateCustomerFromLead(
   return newCustomer
 }
 
-/**
- * Schedule the HCP follow-up sequence
- *
- * Cron processes queue every 15 minutes, so steps are spaced
- * to guarantee each fires in a separate cron run.
- *
- * Flow:
- * 1. Initial SMS (already sent)
- * 2. +15 min → Call
- * 3. +45 min → Post-no-answer SMS
- * 4. +90 min → Follow-up SMS #1
- * 5. +180 min → Follow-up SMS #2 (final)
- */
-async function scheduleHCPFollowUpSequence(
-  leadId: string,
-  phoneNumber: string
-): Promise<void> {
-  const now = Date.now()
-  const supabase = getSupabase()
-
-  const schedule = [
-    { type: 'trigger_call', delayMin: 15, label: 'Call' },
-    { type: 'post_no_answer_sms', delayMin: 45, label: 'Post-call SMS' },
-    { type: 'followup_sms_1', delayMin: 90, label: 'Follow-up SMS #1' },
-    { type: 'followup_sms_2', delayMin: 180, label: 'Follow-up SMS #2 (final)' },
-  ]
-
-  let scheduled = 0
-  for (const item of schedule) {
-    const { error } = await supabase.from('followup_queue').insert({
-      lead_id: leadId,
-      phone_number: phoneNumber,
-      followup_type: item.type,
-      scheduled_at: new Date(now + item.delayMin * 60 * 1000).toISOString(),
-      status: 'pending',
-    })
-
-    if (error) {
-      console.error(`[HCP Webhook] Failed to schedule ${item.label} for lead ${leadId}:`, error.message)
-    } else {
-      scheduled++
-    }
-  }
-
-  console.log(`[HCP Webhook] Scheduled ${scheduled}/${schedule.length} follow-ups for lead ${leadId}`)
-}
+// HCP follow-up now uses the shared scheduleLeadFollowUp() from lib/scheduler.ts
+// Same 5-touch / 14-day sequence as Spotless & Cedar Rapids

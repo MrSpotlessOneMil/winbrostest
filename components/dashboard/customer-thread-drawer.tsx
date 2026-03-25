@@ -8,7 +8,8 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet"
-import { MessageSquare, Phone, Clock, Bot, User, MapPin, DollarSign } from "lucide-react"
+import { MessageSquare, Phone, Clock, Bot, User, MapPin, DollarSign, ExternalLink } from "lucide-react"
+import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 
 interface ThreadMessage {
@@ -69,6 +70,7 @@ export function CustomerThreadDrawer({
   const [messages, setMessages] = useState<ThreadMessage[]>([])
   const [customer, setCustomer] = useState<CustomerInfo | null>(null)
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (open && phoneNumber) {
@@ -105,12 +107,23 @@ export function CustomerThreadDrawer({
         <SheetHeader>
           <SheetTitle className="text-lg">{customerName}</SheetTitle>
           <SheetDescription>
-            {phoneNumber && (
-              <span className="flex items-center gap-1.5">
-                <Phone className="w-3 h-3" />
-                {formatPhone(phoneNumber)}
-              </span>
-            )}
+            <span className="flex items-center gap-2">
+              {phoneNumber && (
+                <span className="flex items-center gap-1.5">
+                  <Phone className="w-3 h-3" />
+                  {formatPhone(phoneNumber)}
+                </span>
+              )}
+              {customer && (
+                <button
+                  onClick={() => { onClose(); router.push(`/customers?phone=${encodeURIComponent(phoneNumber || '')}`) }}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/10 text-primary text-[11px] font-medium hover:bg-primary/20 transition-colors"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  View Customer
+                </button>
+              )}
+            </span>
           </SheetDescription>
         </SheetHeader>
 
@@ -172,6 +185,8 @@ export function CustomerThreadDrawer({
                           ? "AI"
                           : msg.source === "openphone_app"
                           ? "Staff"
+                          : msg.source === "broadcast" || msg.source === "agent_outreach"
+                          ? "Auto"
                           : "System"
                         : "Customer"}
                     </span>

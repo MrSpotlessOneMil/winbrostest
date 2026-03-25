@@ -21,7 +21,7 @@
 
 ### Spotless Scrubbers (`spotless-scrubbers`)
 - **Status:** LIVE as of Feb 25, 2026
-- **Owner:** Emil
+- **Owner:** Dominic Lutz
 - **Service:** House cleaning
 - **Integrations:** VAPI, OpenPhone (+1 424-677-1146), Stripe, Telegram
 - **Invoicing:** Stripe (NOT Wave)
