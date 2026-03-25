@@ -12,16 +12,17 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { username, password } = body
+    const identifier = username // accepts username, email, or phone
 
-    if (!username || !password) {
+    if (!identifier || !password) {
       return NextResponse.json(
         { success: false, error: 'Username and password are required' },
         { status: 400 }
       )
     }
 
-    // Try owner/manager login first
-    const user = await verifyPassword(username, password)
+    // Try owner/manager login first (identifier can be username, email, or phone)
+    const user = await verifyPassword(identifier, password)
 
     if (user) {
       const token = await createSession(user.id)
@@ -57,8 +58,8 @@ export async function POST(request: NextRequest) {
       return response
     }
 
-    // Fallback: try employee (cleaner) login
-    const cleaner = await verifyEmployeePassword(username, password)
+    // Fallback: try employee (cleaner) login (employees use username only)
+    const cleaner = await verifyEmployeePassword(identifier, password)
 
     if (cleaner) {
       const token = await createEmployeeSession(cleaner.id)
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { success: false, error: 'Invalid username or password' },
+      { success: false, error: 'Invalid credentials' },
       { status: 401 }
     )
   } catch (error) {

@@ -171,7 +171,7 @@ function LoginForm() {
                 htmlFor="username"
                 className="block font-mono text-xs uppercase tracking-wider text-neutral-400"
               >
-                <span className="text-emerald-400">//</span> Username
+                <span className="text-emerald-400">//</span> Email, Phone, or Username
               </label>
               <input
                 id="username"
@@ -179,7 +179,7 @@ function LoginForm() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full rounded-lg border border-neutral-700 bg-neutral-900/50 px-4 py-3 font-mono text-neutral-100 placeholder-neutral-600 transition-all duration-200 focus:border-emerald-500/50 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                placeholder="enter_username"
+                placeholder="email, phone, or username"
                 disabled={isLoading}
                 required
                 autoComplete="username"

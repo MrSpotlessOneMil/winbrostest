@@ -40,18 +40,55 @@ function generateToken(): string {
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
+/**
+ * Normalize a phone input: strip everything except digits and a leading +.
+ * Accepts messy input like "(309) 241-1958", "1-309-241-1958", "+1 309 241 1958", etc.
+ */
+function normalizePhone(raw: string): string {
+  // Strip everything that isn't a digit
+  const digits = raw.replace(/\D/g, '')
+  // Prepend +1 if 10 digits (US), or + if 11+ digits (already has country code)
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  return `+${digits}`
+}
+
+/**
+ * Detect identifier type from login input.
+ * Email: contains @
+ * Phone: after stripping non-digits, has 7+ digits
+ * Otherwise: username
+ */
+function detectIdentifierType(identifier: string): 'email' | 'phone' | 'username' {
+  const trimmed = identifier.trim()
+  if (trimmed.includes('@')) return 'email'
+  const digits = trimmed.replace(/\D/g, '')
+  if (digits.length >= 7) return 'phone'
+  return 'username'
+}
+
 export async function verifyPassword(
-  username: string,
+  identifier: string,
   password: string
 ): Promise<AuthUser | null> {
   const client = getSupabaseServiceClient()
+  const trimmed = identifier.trim()
+  const type = detectIdentifierType(trimmed)
 
-  const { data: user, error } = await client
+  let query = client
     .from('users')
     .select('id, username, display_name, email, tenant_id, is_active, password_hash')
-    .eq('username', username)
     .eq('is_active', true)
-    .single()
+
+  if (type === 'email') {
+    query = query.ilike('email', trimmed)
+  } else if (type === 'phone') {
+    query = query.eq('phone', normalizePhone(trimmed))
+  } else {
+    query = query.eq('username', trimmed)
+  }
+
+  const { data: user, error } = await query.single()
 
   if (error || !user) {
     return null
