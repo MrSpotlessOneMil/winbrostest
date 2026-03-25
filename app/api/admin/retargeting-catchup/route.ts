@@ -197,7 +197,7 @@ export async function POST(request: NextRequest) {
             source: 'retargeting_catchup',
           })
 
-          const smsResult = await sendSMS(tenant, c.phone_number, cleanedResponse)
+          const smsResult = await sendSMS(tenant, c.phone_number, cleanedResponse, { skipDedup: true })
 
           if (smsResult.success) {
             await logSystemEvent({
