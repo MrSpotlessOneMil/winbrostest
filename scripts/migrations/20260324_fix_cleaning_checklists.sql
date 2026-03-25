@@ -1,12 +1,20 @@
 -- ============================================================================
--- Migration: Fix cleaning checklists to match website service descriptions
+-- Migration: Fix cleaning checklists + pricing_addons included_in
 --
--- Problem: Deep cleaning had only 12 abbreviated items (fewer than standard's 17).
--- Move-in/out had the same abbreviated base. Neither matched spotlessscrubbers.org.
+-- Problem 1: Deep cleaning had only 12 abbreviated items (fewer than standard's 17).
+--            Move-in/out had the same abbreviated base. Neither matched spotlessscrubbers.org.
+-- Problem 2: pricing_addons inside_fridge/inside_oven only had included_in=['move'],
+--            but deep cleaning also includes these per the website.
 --
 -- Fix: Deep = all standard items + deep extras (inside appliances, grout, windows)
 --       Move = all deep items + move extras (cabinets, closets, garage, etc.)
+--       pricing_addons: inside_fridge/inside_oven included_in updated to ['deep','move']
 -- ============================================================================
+
+-- Update pricing_addons: inside_fridge and inside_oven are included in deep cleaning too
+UPDATE pricing_addons
+SET included_in = ARRAY['deep', 'move']::TEXT[]
+WHERE addon_key IN ('inside_fridge', 'inside_oven');
 
 -- Clear existing deep_cleaning and move_in_out checklists for all tenants
 -- (standard_cleaning stays as-is — it's already correct)
