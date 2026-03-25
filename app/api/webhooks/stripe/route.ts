@@ -482,11 +482,28 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       .maybeSingle()
 
     if (customer?.id) {
-      await serviceClient.from('customers').update({
+      // Pull email from Stripe session/customer so we have it for invoices
+      let stripeEmail: string | null = null
+      if (session.customer_details?.email) {
+        stripeEmail = session.customer_details.email
+      } else if (session.customer_email) {
+        stripeEmail = session.customer_email as string
+      } else if (stripeCustomerId && tenant?.stripe_secret_key) {
+        try {
+          const stripeLib = (await import('@/lib/stripe-client')).getStripeClientForTenant(tenant.stripe_secret_key)
+          const stripeCust = await stripeLib.customers.retrieve(stripeCustomerId)
+          if (!stripeCust.deleted && stripeCust.email) stripeEmail = stripeCust.email
+        } catch {}
+      }
+
+      const updates: Record<string, any> = {
         card_on_file_at: new Date().toISOString(),
         stripe_customer_id: stripeCustomerId,
-      }).eq('id', customer.id)
-      console.log(`[Stripe Webhook] Marked customer ${customer.id} as card-on-file`)
+      }
+      if (stripeEmail) updates.email = stripeEmail
+
+      await serviceClient.from('customers').update(updates).eq('id', customer.id)
+      console.log(`[Stripe Webhook] Marked customer ${customer.id} as card-on-file${stripeEmail ? ` (email: ${stripeEmail})` : ''}`)
     }
   }
 
