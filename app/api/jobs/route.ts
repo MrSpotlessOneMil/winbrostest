@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
       estimated_value: estimatedValue,
       actual_value: row.actual_value != null ? Number(row.actual_value) : undefined,
       status: mapDbStatusToApi(row.status),
-      cleaner_name: cleanerName,
+      cleaner_name: cleanerName || null,
       team_id: row.team_id != null ? String(row.team_id) : undefined,
       team_confirmed: Boolean(row.team_id),
       team_confirmed_at: row.updated_at ? String(row.updated_at) : undefined,
