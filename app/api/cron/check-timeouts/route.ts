@@ -375,7 +375,7 @@ async function executeCheckTimeouts(request: NextRequest) {
     // customers being stuck in paused state forever if they never text back.
     let unpaused = 0
     try {
-      const unpauseCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString() // 15 min — matches webhook
+      const unpauseCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString() // 10 min — matches webhook
       const { data: stale } = await client
         .from('customers')
         .select('id, phone_number, tenant_id')

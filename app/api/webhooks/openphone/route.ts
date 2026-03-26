@@ -1033,7 +1033,7 @@ export async function POST(request: NextRequest) {
     } else {
     // Check if the last manual outbound was more than 15 min ago - if so, auto-unpause
     // 15 min = staff moved on. 2 hours was WAY too long and caused ghosting.
-    const ACTIVE_CONVERSATION_MS = 15 * 60 * 1000 // 15 minutes — if staff hasn't replied in 15min, they moved on
+    const ACTIVE_CONVERSATION_MS = 10 * 60 * 1000 // 10 minutes — if staff hasn't replied in 10min, they moved on
     const unpauseCutoff = new Date(Date.now() - ACTIVE_CONVERSATION_MS).toISOString()
     const { data: recentManualOutbound } = await client
       .from("messages")
@@ -1066,7 +1066,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
     } else {
       // No recent manual activity - auto-unpause and clear manual takeover
-      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 15min, staff moved on`)
+      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 10min, staff moved on`)
       await client.from("customers").update({ auto_response_paused: false, manual_takeover_at: null }).eq("id", customer.id)
       // Also unpause the lead if one exists
       const { data: pausedLead } = await client
@@ -1419,7 +1419,7 @@ export async function POST(request: NextRequest) {
   // are provided early but extractBookingData runs at the end after 15-20+ messages)
   const { data: recentMessages } = await client
     .from("messages")
-    .select("role, content")
+    .select("role, content, source, direction")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
@@ -1429,6 +1429,42 @@ export async function POST(request: NextRequest) {
     role: m.role as 'client' | 'assistant',
     content: m.content
   })) || []
+
+  // ============================================
+  // HUMAN-HANDLED CONVERSATION DETECTION
+  // If the last 2+ outbound messages were from a human (openphone_app), and
+  // the conversation looks resolved, don't jump in — human has it handled.
+  // ============================================
+  if (recentMessages && recentMessages.length >= 3) {
+    const lastOutbounds = recentMessages
+      .filter(m => m.direction === 'outbound')
+      .slice(-3) // last 3 outbound messages (already reversed, so these are most recent)
+    const humanOutbounds = lastOutbounds.filter(m => m.source === 'openphone_app')
+    if (humanOutbounds.length >= 2) {
+      // Last 2+ outbound messages were from a human — check if conversation looks resolved
+      const lastHumanMsg = humanOutbounds[humanOutbounds.length - 1]?.content?.toLowerCase() || ''
+      const resolvedSignals = /see you|confirmed|scheduled|all set|sounds good|perfect|we('ll| will) be there|appointment|booked|monday|tuesday|wednesday|thursday|friday|saturday|sunday/
+      if (resolvedSignals.test(lastHumanMsg)) {
+        console.log(`[OpenPhone] Human-handled conversation detected for ${maskPhone(phone)} — last human msg looks resolved, skipping AI`)
+        // Store the inbound message but don't generate AI response
+        await client.from("messages").insert({
+          tenant_id: tenant?.id,
+          customer_id: customer?.id,
+          phone_number: phone,
+          role: "client",
+          content: extracted.content,
+          direction: "inbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "openphone",
+          external_message_id: opMessageId || null,
+          metadata: { filtered: "human_handled_resolved" },
+        })
+        return NextResponse.json({ success: true, filtered: "human_handled_conversation" })
+      }
+    }
+  }
 
   // ============================================
   // SEASONAL REPLY DETECTION: Check if customer is replying to a seasonal campaign
