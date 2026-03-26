@@ -668,6 +668,8 @@ async function generateWinBrosResponse(
   const { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } = await import('./winbros-sms-prompt')
 
   const systemPrompt = buildWinBrosEstimatePrompt()
+  const sdrName = tenant.sdr_persona || 'Mary'
+  const businessName = tenant.business_name_short || tenant.business_name || 'WinBros'
 
   const historyContext = conversationHistory?.length
     ? conversationHistory.slice(-50).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')

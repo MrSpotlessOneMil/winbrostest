@@ -3393,6 +3393,17 @@ export async function POST(request: NextRequest) {
             },
           })
 
+          // Extract memory facts from new-inquiry conversation (fire-and-forget)
+          if (customer?.id && tenant?.id) {
+            const recentMsgs = conversationHistory.slice(-6).concat([
+              { role: 'client' as const, content: combinedMessage },
+              { role: 'assistant' as const, content: cleanedNewResponse },
+            ])
+            import('@/lib/assistant-memory').then(mem =>
+              mem.extractAndStoreFacts(tenant!.id, customer.id, '', recentMsgs)
+            ).catch(err => console.warn('[Memory] New inquiry fact extraction failed:', err))
+          }
+
           // Schedule mid-convo nudge (5 min) — customer may go silent
           if (tenant && customer) {
             await client.from("customers").update({ awaiting_reply_since: new Date().toISOString() }).eq("id", customer.id)
