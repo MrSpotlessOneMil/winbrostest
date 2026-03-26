@@ -11,7 +11,6 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
-import { ScheduleGantt } from "@/components/dashboard/schedule-gantt"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -391,12 +390,6 @@ export default function JobsPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
-  const [viewMode, setViewMode] = useState<"calendar" | "schedule">(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("osiris-calendar-viewmode") === "schedule" ? "schedule" : "calendar"
-    }
-    return "calendar"
-  })
   const [createForm, setCreateForm] = useState<CreateForm>({
     customer_phone: "",
     customer_name: "",
@@ -960,29 +953,6 @@ export default function JobsPage() {
     })
   }, [jobs, cleanerColorMap])
 
-  // Gantt view data — reuse existing helpers
-  const ganttJobs = useMemo(() => {
-    return jobs.map(job => {
-      const start = resolveStart(job)
-      const end = resolveEnd(job)
-      const cleanerName = resolveCleanerName(job) || ""
-      const cleanerId = resolveCleanerId(job)
-      const customerName = resolveCustomerName(job)
-      const color = cleanerName ? (cleanerColorMap.get(cleanerName) || "#6b7280") : "#52525b"
-      return {
-        id: String(job.id),
-        title: customerName,
-        customerName,
-        cleanerName,
-        cleanerId,
-        start,
-        end,
-        status: job.status || "scheduled",
-        color,
-      }
-    })
-  }, [jobs, cleanerColorMap])
-
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -1100,54 +1070,6 @@ export default function JobsPage() {
         for (const c of data.unassigned_cleaners || []) {
           all.push({ id: String(c.id), name: c.name })
         }
-        setCleanersList(all)
-      }).catch(() => {})
-    }
-  }
-
-  // Handle Gantt job click — build CalendarEventDetails from raw job data
-  const handleGanttJobClick = (jobId: string) => {
-    const job = jobs.find(j => String(j.id) === jobId)
-    if (!job) return
-    const start = resolveStart(job)
-    const end = resolveEnd(job)
-    const details: CalendarEventDetails = {
-      jobId: String(job.id),
-      title: resolveCustomerName(job),
-      start,
-      end,
-      location: resolveLocation(job),
-      description: resolveServiceLabel(job),
-      status: job.status || "scheduled",
-      price: job.price || job.estimated_value || 0,
-      client: resolveCustomerName(job),
-      cleaner: resolveCleanerName(job) || "",
-      cleanerName: resolveCleanerName(job) || "",
-      cleanerId: resolveCleanerId(job),
-      team: resolveTeamName(job),
-      service: resolveServiceLabel(job),
-      notes: resolveNotes(job),
-      hours: job.hours || 2,
-      cardOnFile: !!(job as any).card_on_file_at,
-      frequency: job.frequency || "one-time",
-      parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
-      jobType: (job as any).job_type || "",
-      leadSource: resolveLeadSource(job),
-    }
-    setSelectedEvent(details)
-    setEditMode(false)
-    setConfirmDelete(false)
-    setAutoScheduleResult(null)
-    setAddChargeOpen(false)
-    setSendToCleanerId("")
-    setSendToCleanerResult(null)
-    if (cleanersList.length === 0) {
-      fetch("/api/teams").then(r => r.json()).then(data => {
-        const all: { id: string; name: string }[] = []
-        for (const team of data.data || []) {
-          for (const member of team.members || []) all.push({ id: String(member.id), name: member.name })
-        }
-        for (const c of data.unassigned_cleaners || []) all.push({ id: String(c.id), name: c.name })
         setCleanersList(all)
       }).catch(() => {})
     }
@@ -1708,45 +1630,12 @@ export default function JobsPage() {
               Schedule and manage all service appointments
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-              <button
-                onClick={() => { setViewMode("calendar"); localStorage.setItem("osiris-calendar-viewmode", "calendar") }}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "calendar" ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"}`}
-              >
-                Calendar
-              </button>
-              <button
-                onClick={() => { setViewMode("schedule"); localStorage.setItem("osiris-calendar-viewmode", "schedule") }}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "schedule" ? "bg-zinc-700 text-zinc-100" : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"}`}
-              >
-                Schedule
-              </button>
-            </div>
-            <button className="rain-day-btn" onClick={openRainDay}>
-              Rainy Day Reschedule
-            </button>
-          </div>
+          <button className="rain-day-btn" onClick={openRainDay}>
+            Rainy Day Reschedule
+          </button>
         </div>
 
         {loading ? <CubeLoader /> : <>
-
-        {viewMode === "schedule" ? (
-          <div className="calendar-card" style={{ position: "relative" }}>
-            <ScheduleGantt
-              jobs={ganttJobs}
-              cleanerColorMap={cleanerColorMap}
-              onJobClick={handleGanttJobClick}
-              onCreateClick={() => {
-                const now = new Date()
-                const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
-                setCreateForm(prev => ({ ...prev, date, time: "09:00" }))
-                setCreateOpen(true)
-              }}
-            />
-          </div>
-        ) : (
-        <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0 }}>
           {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
             <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
@@ -1825,8 +1714,6 @@ export default function JobsPage() {
             />
           </div>
         </div>
-        </>
-        )}
         </>}
       </div>
 
