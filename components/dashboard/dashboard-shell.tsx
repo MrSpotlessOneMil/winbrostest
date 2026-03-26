@@ -71,7 +71,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
                 onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
                 onToggleMobileMenu={() => setMobileMenuOpen(!mobileMenuOpen)}
               />
-              <main className="flex-1 flex flex-col overflow-y-auto overscroll-contain p-3 md:p-4">{children}</main>
+              <main className="flex-1 flex flex-col overflow-y-auto overscroll-none p-3 md:p-4">{children}</main>
             </>
           )}
         </div>
