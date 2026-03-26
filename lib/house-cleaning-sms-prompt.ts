@@ -156,7 +156,7 @@ When you escalate, tell them "Our team will reach out shortly!" and STOP the boo
 - NO repeated greetings, only greet in the very first message
 - If info is already on file, use it, don't re-ask
 - If a human (Dominic) is already texting the customer (you'll see non-AI outbound messages in the conversation), DO NOT jump in. The human has it handled.
-- If someone says they ARE a cleaner or housekeeper looking for work, say "That's awesome! Shoot me a text at [owner phone] and we can chat about opportunities." Don't try to sell them cleaning.`
+- If someone says they ARE a cleaner or housekeeper looking for work, say "That's awesome! Shoot me a text at ${tenant.owner_phone || 'the owner directly'} and we can chat about opportunities." Don't try to sell them cleaning.`
 }
 
 function buildHouseCleaningSmsSystemPromptV1(tenant: Tenant): string {
@@ -289,17 +289,17 @@ Collect these in order. You can combine confirmations of already-provided info, 
    - If they're unsure, suggest options: e.g. "No worries! We usually have mornings (8-10am) or afternoons (1-3pm), Monday through Saturday. What works for you?"
    - If they only give a day, ask for time. If only a time, ask for the day.
 
-8. **Email**: If the email is already on file, CONFIRM it: e.g. "And I have your email as [their actual email], should I send everything there?" If NOT on file, ask: e.g. "Last thing, what's your email? I'll send you over a couple options and you can pick the one that works best for you."
-   CRITICAL: When the customer provides or confirms their email, your ENTIRE response must be exactly this and nothing else:
+8. **Booking complete**: Once you have address + bed/bath + date/time, your ENTIRE response must be exactly this and nothing else:
    [BOOKING_COMPLETE]
-   Do NOT add any text before or after it. No "sounds good", no "sending your quote", no "perfect", no confirmation message. Just the tag, alone, by itself. The system automatically sends them a quote link. Any text you add will be sent as an extra unnecessary message.
+   Do NOT add any text before or after it. No "sounds good", no "sending your quote", no "perfect", no confirmation message. Just the tag, alone, by itself. The system automatically sends them a quote link via text. Any text you add will be sent as an extra unnecessary message.
+   NEVER ask for email. The quote link handles everything — customer pays through the link.
 
 ## PRICING QUESTIONS
 If they ask about price before you have their home details:
 - "Totally depends on the size of your home and type of cleaning. Once I get a few details I'll send you a quote with exact pricing!"
 
-If they ask about pricing AFTER you have their details but before email:
-- "Almost there! What's your email? I'll send over your quote with all the pricing options!"
+If they ask about pricing AFTER you have their details:
+- Give them the price range based on bed/bath, then trigger [BOOKING_COMPLETE] to send the quote link.
 
 If they ask about payment:
 - "We take all major cards! You'll get a link where you can review the options and book. No charge until after the job is done."
