@@ -247,7 +247,7 @@ async function analyzeConversationPatterns(
       max_tokens: 400,
       messages: [{
         role: 'user',
-        content: `Analyze this ${outcome === 'won' ? 'successful' : 'failed'} house cleaning service conversation. Return ONLY a JSON object:
+        content: `Analyze this ${outcome === 'won' ? 'successful' : 'failed'} home services conversation. Return ONLY a JSON object:
 
 {
   "summary": "1-2 sentence summary of what happened",

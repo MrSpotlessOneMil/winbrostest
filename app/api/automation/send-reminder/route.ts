@@ -21,12 +21,9 @@ interface ReminderPayload {
  */
 export async function POST(request: NextRequest) {
   // Verify internal cron authorization
-  const authHeader = request.headers.get("authorization")
-  const cronSecret = process.env.CRON_SECRET
-
-  // Allow calls from cron job or internal services
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const { verifyCronAuth, unauthorizedResponse } = await import('@/lib/cron-auth')
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   let payload: ReminderPayload

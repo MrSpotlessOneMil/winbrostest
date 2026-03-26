@@ -214,6 +214,9 @@ async function handleDepositPayment(
   }
   const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
 
+  // Resolve customer ID for scoring and SMS (hoisted so it's accessible in scoring block below)
+  let depositCustId: number | null = updatedJob.customer_id || null
+
   // Send payment confirmation SMS to customer
   if (updatedJob.phone_number && tenant) {
     const { data: depositCust } = await serviceClient
@@ -222,7 +225,7 @@ async function handleDepositPayment(
       .eq('phone_number', updatedJob.phone_number)
       .eq('tenant_id', tenant.id)
       .maybeSingle()
-    const depositCustId = depositCust?.id || updatedJob.customer_id || null
+    depositCustId = depositCust?.id || updatedJob.customer_id || null
 
     const serviceType = updatedJob.service_type || 'cleaning'
     const dateStr = updatedJob.date || 'your scheduled date'

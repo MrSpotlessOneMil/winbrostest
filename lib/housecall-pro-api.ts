@@ -38,6 +38,7 @@ function normalizeStateToAbbrev(state: string): string | undefined {
 interface HCPApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: Record<string, unknown>
+  params?: Record<string, string>
 }
 
 interface HCPAddress {
@@ -502,7 +503,11 @@ async function hcpRequest<T>(
     try {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 15_000)
-      const response = await fetch(`${HCP_API_BASE}${endpoint}`, {
+      const url = new URL(`${HCP_API_BASE}${endpoint}`)
+      if (options.params) {
+        Object.entries(options.params).forEach(([k, v]) => url.searchParams.set(k, v))
+      }
+      const response = await fetch(url.toString(), {
         method: options.method || 'GET',
         headers: attempt.headers,
         body: options.body ? JSON.stringify(options.body) : undefined,
