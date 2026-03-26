@@ -1685,7 +1685,7 @@ export default function JobsPage() {
   return (
     <>
       <div className="calendar-shell animate-fade-in">
-        <div className="mb-3 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="mb-3 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
             <p className="text-sm text-muted-foreground">
@@ -1698,7 +1698,7 @@ export default function JobsPage() {
         </div>
 
         {loading ? <CubeLoader /> : <>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0, flexShrink: 0 }}>
           {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
             <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
               <span style={{
