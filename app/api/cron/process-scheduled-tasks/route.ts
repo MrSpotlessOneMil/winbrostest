@@ -241,8 +241,13 @@ async function processTask(task: ScheduledTask): Promise<void> {
     case 'post_job_tip':
       // Generic SMS task: payload contains { phone, message }
       if (tenant && payload.phone && payload.message) {
-        await sendSMS(tenant, payload.phone as string, payload.message as string)
-        console.log(`[process-scheduled-tasks] Sent ${task_type} SMS to ${payload.phone}`)
+        const smsResult = await sendSMS(tenant, payload.phone as string, payload.message as string)
+        if (smsResult.success) {
+          console.log(`[process-scheduled-tasks] Sent ${task_type} SMS to ${payload.phone}`)
+        } else {
+          console.error(`[process-scheduled-tasks] ${task_type} SMS FAILED for ${payload.phone}: ${smsResult.error}`)
+          throw new Error(`SMS send failed: ${smsResult.error}`) // triggers failTask retry
+        }
       }
       break
 

@@ -55,16 +55,27 @@ async function sendMultiPartSMS(
     } else {
       console.error(`[${tenant.slug}] Auto-response SMS failed for ${phone}: ${result.error}`)
       allSuccess = false
-      // Alert owner that customer is being ghosted — SMS delivery is broken
-      if (tenant.owner_phone && i === 0) {
+      // Schedule retry so the response isn't permanently lost
+      if (i === 0) {
+        import('@/lib/scheduler').then(mod =>
+          mod.scheduleTask({
+            tenantId: tenant.id,
+            taskType: 'send_sms',
+            taskKey: `sms-retry-${phone}-${Date.now()}`,
+            scheduledFor: new Date(Date.now() + 90_000), // retry in 90 seconds
+            payload: { phone, message: parts.join(' ') },
+            maxAttempts: 2,
+          })
+        ).catch(() => {})
+        // Log failure event for monitoring
         import('@/lib/system-events').then(mod =>
           mod.logSystemEvent({
             tenant_id: tenant.id,
             source: 'openphone',
             event_type: 'SMS_DELIVERY_FAILED',
-            message: `ALERT: SMS to ${phone} failed: ${result.error}. Customer may not have received a response.`,
+            message: `SMS to ${phone} failed: ${result.error}. Retry scheduled in 90s.`,
             phone_number: phone,
-            metadata: { error: result.error, customerPhone: phone },
+            metadata: { error: result.error, retryScheduled: true },
           })
         ).catch(() => {})
       }
