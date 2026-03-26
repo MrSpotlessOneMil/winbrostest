@@ -11,6 +11,7 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
+import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -371,9 +372,14 @@ const STORAGE_KEY_DATE = "calendar-date"
 function getSavedView(): string {
   if (typeof window === "undefined") return "timeGridWeek"
   const saved = localStorage.getItem(STORAGE_KEY_VIEW)
-  if (saved) return saved
+  if (saved && saved !== "gantt") return saved
   // Default to list view on mobile for better readability
   return window.innerWidth < 768 ? "listWeek" : "timeGridWeek"
+}
+
+function getSavedIsGantt(): boolean {
+  if (typeof window === "undefined") return false
+  return localStorage.getItem(STORAGE_KEY_VIEW) === "gantt"
 }
 
 function getSavedDate(): string | undefined {
@@ -390,6 +396,8 @@ export default function JobsPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
+  const [ganttView, setGanttView] = useState(getSavedIsGantt)
+  const [activeFcView, setActiveFcView] = useState(getSavedView)
   const [createForm, setCreateForm] = useState<CreateForm>({
     customer_phone: "",
     customer_name: "",
@@ -952,6 +960,60 @@ export default function JobsPage() {
       }
     })
   }, [jobs, cleanerColorMap])
+
+  const ganttJobs = useMemo<GanttJob[]>(() => {
+    return jobs.map((job) => ({
+      id: String(job.id),
+      customerName: resolveCustomerName(job),
+      cleanerName: resolveCleanerName(job) || "",
+      cleanerId: resolveCleanerId(job),
+      start: resolveStart(job),
+      end: resolveEnd(job),
+      status: job.status || "scheduled",
+      color: cleanerColorMap.get(resolveCleanerName(job) || ""),
+    }))
+  }, [jobs, cleanerColorMap])
+
+  const handleGanttJobClick = useCallback((jobId: string) => {
+    const job = jobs.find((j) => String(j.id) === jobId)
+    if (!job) return
+    const start = resolveStart(job)
+    const end = resolveEnd(job)
+    const cleanerName = resolveCleanerName(job)
+    const cleanerId = resolveCleanerId(job)
+    const customerName = resolveCustomerName(job)
+    const customer = resolveCustomer(job)
+    const details: CalendarEventDetails = {
+      jobId: String(job.id),
+      title: cleanerName ? `${customerName} (${cleanerName})` : customerName,
+      start,
+      end,
+      location: resolveLocation(job) || "",
+      description: resolveServiceLabel(job) || "",
+      status: job.status || "scheduled",
+      price: job.price || job.estimated_value || 0,
+      client: customerName,
+      cleaner: cleanerName || "",
+      cleanerName: cleanerName || "",
+      cleanerId: cleanerId || "",
+      team: resolveTeamName(job) || "",
+      service: resolveServiceLabel(job) || "",
+      notes: resolveNotes(job) || "",
+      hours: job.hours ? Number(job.hours) : 2,
+      cardOnFile: !!customer?.card_on_file_at,
+      frequency: job.frequency || "one-time",
+      parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
+      jobType: (job as any).job_type || "",
+      leadSource: resolveLeadSource(job),
+    }
+    setSelectedEvent(details)
+    setEditMode(false)
+    setConfirmDelete(false)
+    setAutoScheduleResult(null)
+    setAddChargeOpen(false)
+    setSendToCleanerId("")
+    setSendToCleanerResult(null)
+  }, [jobs])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -1653,6 +1715,15 @@ export default function JobsPage() {
         </div>
 
         <div className="calendar-card">
+          {ganttView ? (
+            <div id="calendar" style={{ padding: 16 }}>
+              <ScheduleGantt
+                jobs={ganttJobs}
+                cleanerColorMap={cleanerColorMap}
+                onJobClick={handleGanttJobClick}
+              />
+            </div>
+          ) : (
           <div id="calendar">
             <FullCalendar
               ref={calendarRef}
@@ -1679,6 +1750,7 @@ export default function JobsPage() {
               eventClick={handleEventClick}
               eventDrop={handleEventDrop}
               datesSet={(info) => {
+                setActiveFcView(info.view.type)
                 localStorage.setItem(STORAGE_KEY_VIEW, info.view.type)
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
@@ -1712,6 +1784,38 @@ export default function JobsPage() {
                 }
               }}
             />
+          </div>
+          )}
+          {/* Custom view switcher — positioned over FullCalendar toolbar */}
+          <div className="gantt-view-switcher">
+            {([
+              ["dayGridMonth", "Month"],
+              ["timeGridWeek", "Week"],
+              ["gantt", "Day"],
+              ["listMonth", "List"],
+            ] as const).map(([view, label]) => {
+              const isActive = view === "gantt" ? ganttView : (!ganttView && activeFcView === view)
+              return (
+                <button
+                  key={view}
+                  className={`gantt-view-btn${isActive ? " gantt-view-btn-active" : ""}`}
+                  onClick={() => {
+                    if (view === "gantt") {
+                      setGanttView(true)
+                      localStorage.setItem(STORAGE_KEY_VIEW, "gantt")
+                    } else {
+                      setGanttView(false)
+                      setActiveFcView(view)
+                      localStorage.setItem(STORAGE_KEY_VIEW, view)
+                      // FullCalendar re-mounts with initialView, but if already mounted change view
+                      setTimeout(() => calendarRef.current?.getApi()?.changeView(view), 0)
+                    }
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
         </div>
         </>}

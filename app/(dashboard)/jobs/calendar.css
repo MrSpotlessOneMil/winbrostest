@@ -650,3 +650,87 @@ select.cal-form-control {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* Hide FC's built-in right toolbar buttons — replaced by custom switcher */
+.fc .fc-toolbar .fc-toolbar-chunk:last-child .fc-button-group {
+  display: none;
+}
+
+/* ── Gantt view switcher ─────────────────────────────────── */
+
+.gantt-view-switcher {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  gap: 0;
+  z-index: 20;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gantt-view-btn {
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-right: 1px solid rgba(63, 63, 70, 0.4);
+}
+
+.gantt-view-btn:last-child {
+  border-right: none;
+}
+
+.gantt-view-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
+
+.gantt-view-btn-active {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+/* ── Gantt nav buttons ──────────────────────────────────── */
+
+.gantt-nav-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.gantt-nav-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
+
+.gantt-today-btn {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gantt-today-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
