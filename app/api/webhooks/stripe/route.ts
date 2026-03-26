@@ -210,9 +210,10 @@ async function handleDepositPayment(
   // Get tenant for this job to send SMS notifications
   const jobTenantId = (updatedJob as any).tenant_id
   if (!jobTenantId) {
-    console.error(`[Stripe Webhook] CRITICAL: Job ${jobId} has no tenant_id — cannot determine tenant. Skipping SMS/notifications.`)
+    console.error(`[Stripe Webhook] CRITICAL: Job ${jobId} has no tenant_id — cannot determine tenant. Aborting.`)
+    return
   }
-  const tenant = jobTenantId ? await getTenantById(jobTenantId) : null
+  const tenant = await getTenantById(jobTenantId)
 
   // Resolve customer ID for scoring and SMS (hoisted so it's accessible in scoring block below)
   let depositCustId: number | null = updatedJob.customer_id || null
@@ -375,35 +376,38 @@ async function handleDepositPayment(
   })
 
   // Score conversation as WIN for the AI learning system
-  try {
-    const { data: messages } = await serviceClient
-      .from('messages')
-      .select('direction, content, created_at')
-      .eq('customer_id', depositCustId)
-      .eq('tenant_id', jobTenantId)
-      .order('created_at', { ascending: true })
-      .limit(50)
+  // Guard: skip scoring if we don't have a valid customer_id (prevents cross-customer data leak)
+  if (depositCustId && updatedJob.phone_number) {
+    try {
+      const { data: messages } = await serviceClient
+        .from('messages')
+        .select('direction, content, created_at')
+        .eq('customer_id', depositCustId)
+        .eq('tenant_id', jobTenantId)
+        .order('created_at', { ascending: true })
+        .limit(50)
 
-    if (messages?.length && messages.length >= 2) {
-      const { scoreConversation } = await import('@/lib/conversation-scoring')
-      const conversationText = messages
-        .map(m => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`)
-        .join('\n')
+      if (messages?.length && messages.length >= 2) {
+        const { scoreConversation } = await import('@/lib/conversation-scoring')
+        const conversationText = messages
+          .map(m => `${m.direction === 'inbound' ? 'Customer' : 'Agent'}: ${m.content}`)
+          .join('\n')
 
-      await scoreConversation({
-        tenantId: jobTenantId,
-        customerId: depositCustId,
-        phone: updatedJob.phone_number,
-        conversationType: 'sms',
-        conversationText,
-        outcome: 'won',
-        revenue: (session.amount_total || 0) / 100,
-        messageCount: messages.length,
-        conversationStartedAt: messages[0].created_at,
-      })
+        await scoreConversation({
+          tenantId: jobTenantId,
+          customerId: depositCustId,
+          phone: updatedJob.phone_number,
+          conversationType: 'sms',
+          conversationText,
+          outcome: 'won',
+          revenue: (session.amount_total || 0) / 100,
+          messageCount: messages.length,
+          conversationStartedAt: messages[0].created_at,
+        })
+      }
+    } catch (scoreErr) {
+      console.error('[Stripe Webhook] Conversation scoring failed (non-blocking):', scoreErr)
     }
-  } catch (scoreErr) {
-    console.error('[Stripe Webhook] Conversation scoring failed (non-blocking):', scoreErr)
   }
 
   console.log(`[Stripe Webhook] DEPOSIT payment processed successfully for job ${jobId}`)
