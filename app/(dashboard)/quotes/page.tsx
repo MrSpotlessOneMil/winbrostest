@@ -19,6 +19,8 @@ import {
   Clock,
   CheckCircle,
   AlertTriangle,
+  Users,
+  Send,
 } from "lucide-react"
 
 interface Quote {
@@ -36,6 +38,24 @@ interface Quote {
   total_price: number | null
   created_at: string
   valid_until: string | null
+  preconfirm_status: string | null
+  cleaner_pay: number | null
+  description: string | null
+}
+
+interface CleanerOption {
+  id: number
+  name: string
+  phone: string | null
+}
+
+interface PreconfirmStatus {
+  id: number
+  cleaner_id: number
+  cleaner_name: string
+  status: string
+  notified_at: string | null
+  responded_at: string | null
 }
 
 type FilterTab = "all" | "pending" | "approved" | "expired"
@@ -81,7 +101,7 @@ export default function QuotesPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
-  const [createdQuote, setCreatedQuote] = useState<{ token: string; quote_url: string; phone?: string } | null>(null)
+  const [createdQuote, setCreatedQuote] = useState<{ token: string; quote_url: string; phone?: string; id?: string; preconfirm?: boolean } | null>(null)
   const [form, setForm] = useState({
     customer_name: "",
     customer_phone: "",
@@ -91,7 +111,32 @@ export default function QuotesPage() {
     property_type: "",
     notes: "",
     custom_base_price: "",
+    // Pre-confirm fields
+    preconfirm: false,
+    cleaner_pay: "",
+    description: "",
+    cleaner_ids: [] as number[],
   })
+
+  // Cleaner options for pre-confirm
+  const [cleaners, setCleaners] = useState<CleanerOption[]>([])
+  const [loadingCleaners, setLoadingCleaners] = useState(false)
+
+  // Pre-confirm status for expanded quote
+  const [preconfirmStatuses, setPreconfirmStatuses] = useState<Record<string, PreconfirmStatus[]>>({})
+  const [sendingPreconfirm, setSendingPreconfirm] = useState<string | null>(null)
+
+  // Load cleaners when pre-confirm is toggled on
+  useEffect(() => {
+    if (form.preconfirm && cleaners.length === 0 && !loadingCleaners) {
+      setLoadingCleaners(true)
+      fetch("/api/admin/cleaners")
+        .then(r => r.json())
+        .then(d => setCleaners((d.cleaners || d || []).filter((c: any) => c.active !== false)))
+        .catch(() => {})
+        .finally(() => setLoadingCleaners(false))
+    }
+  }, [form.preconfirm, cleaners.length, loadingCleaners])
 
   async function fetchQuotes() {
     setLoading(true)
@@ -155,19 +200,27 @@ export default function QuotesPage() {
     setCreating(true)
     setCreateError(null)
     try {
+      const payload: Record<string, unknown> = {
+        customer_name: form.customer_name.trim(),
+        customer_phone: form.customer_phone.trim() || undefined,
+        customer_email: form.customer_email.trim() || undefined,
+        customer_address: form.customer_address.trim() || undefined,
+        square_footage: form.square_footage ? parseInt(form.square_footage, 10) : undefined,
+        property_type: form.property_type || undefined,
+        notes: form.notes.trim() || undefined,
+        custom_base_price: form.custom_base_price ? parseFloat(form.custom_base_price) : undefined,
+      }
+
+      if (form.preconfirm && form.cleaner_ids.length > 0) {
+        payload.cleaner_ids = form.cleaner_ids
+        payload.cleaner_pay = form.cleaner_pay ? parseFloat(form.cleaner_pay) : undefined
+        payload.description = form.description.trim() || undefined
+      }
+
       const res = await fetch("/api/actions/quotes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_name: form.customer_name.trim(),
-          customer_phone: form.customer_phone.trim() || undefined,
-          customer_email: form.customer_email.trim() || undefined,
-          customer_address: form.customer_address.trim() || undefined,
-          square_footage: form.square_footage ? parseInt(form.square_footage, 10) : undefined,
-          property_type: form.property_type || undefined,
-          notes: form.notes.trim() || undefined,
-          custom_base_price: form.custom_base_price ? parseFloat(form.custom_base_price) : undefined,
-        }),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -178,6 +231,8 @@ export default function QuotesPage() {
         token: data.quote.token,
         quote_url: data.quote_url,
         phone: form.customer_phone.trim() || undefined,
+        id: data.quote.id,
+        preconfirm: form.preconfirm && form.cleaner_ids.length > 0,
       })
       // Reset form but keep the create panel open to show the result
       setForm({
@@ -189,6 +244,10 @@ export default function QuotesPage() {
         property_type: "",
         notes: "",
         custom_base_price: "",
+        preconfirm: false,
+        cleaner_pay: "",
+        description: "",
+        cleaner_ids: [],
       })
       fetchQuotes()
     } catch (err: unknown) {
@@ -196,6 +255,37 @@ export default function QuotesPage() {
     } finally {
       setCreating(false)
     }
+  }
+
+  async function handleSendToCleaners(quoteId: string) {
+    setSendingPreconfirm(quoteId)
+    try {
+      const res = await fetch("/api/actions/quotes/preconfirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quote_id: quoteId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to send")
+      setSmsStatus({ id: quoteId, message: `Sent to ${data.sent} cleaner${data.sent > 1 ? 's' : ''}!` })
+      setTimeout(() => setSmsStatus(null), 3000)
+      fetchQuotes()
+    } catch (err: unknown) {
+      setSmsStatus({ id: quoteId, message: err instanceof Error ? err.message : "Send failed" })
+      setTimeout(() => setSmsStatus(null), 4000)
+    } finally {
+      setSendingPreconfirm(null)
+    }
+  }
+
+  async function loadPreconfirmStatus(quoteId: string) {
+    try {
+      const res = await fetch(`/api/actions/quotes/preconfirm?quote_id=${quoteId}`)
+      const data = await res.json()
+      if (data.success) {
+        setPreconfirmStatuses(prev => ({ ...prev, [quoteId]: data.preconfirms }))
+      }
+    } catch { /* swallow */ }
   }
 
   function resetCreateForm() {
@@ -211,6 +301,10 @@ export default function QuotesPage() {
       property_type: "",
       notes: "",
       custom_base_price: "",
+      preconfirm: false,
+      cleaner_pay: "",
+      description: "",
+      cleaner_ids: [],
     })
   }
 
@@ -302,23 +396,45 @@ export default function QuotesPage() {
                   </div>
                 </div>
 
-                <div className="flex gap-2">
-                  {createdQuote.phone && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        handleSendSMS("created", createdQuote.phone!)
-                      }
-                      disabled={sendingId === "created"}
-                    >
-                      {sendingId === "created" ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <MessageSquare className="h-4 w-4 mr-2" />
+                <div className="flex flex-wrap gap-2">
+                  {createdQuote.preconfirm && createdQuote.id ? (
+                    <>
+                      <Button
+                        size="sm"
+                        onClick={() => handleSendToCleaners(createdQuote.id!)}
+                        disabled={sendingPreconfirm === createdQuote.id}
+                      >
+                        {sendingPreconfirm === createdQuote.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Send className="h-4 w-4 mr-2" />
+                        )}
+                        Send to Cleaners First
+                      </Button>
+                      <p className="w-full text-xs text-muted-foreground">
+                        Send to cleaners first. Once they confirm, you can send the quote to the client.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {createdQuote.phone && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            handleSendSMS("created", createdQuote.phone!)
+                          }
+                          disabled={sendingId === "created"}
+                        >
+                          {sendingId === "created" ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          ) : (
+                            <MessageSquare className="h-4 w-4 mr-2" />
+                          )}
+                          Send via SMS
+                        </Button>
                       )}
-                      Send via SMS
-                    </Button>
+                    </>
                   )}
                   <Button
                     size="sm"
@@ -429,6 +545,93 @@ export default function QuotesPage() {
                     </p>
                   </div>
                 </div>
+
+                {/* Pre-Confirm Cleaner Toggle */}
+                <div className="border-t border-border pt-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={form.preconfirm}
+                      onChange={(e) => setForm({ ...form, preconfirm: e.target.checked })}
+                      className="w-4 h-4 rounded border-gray-300"
+                    />
+                    <div>
+                      <span className="text-sm font-medium flex items-center gap-2">
+                        <Users className="h-4 w-4 text-primary" />
+                        Pre-confirm cleaners
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        Ask cleaners if they want this job before sending the quote to the client
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Pre-Confirm Fields (shown when toggle is on) */}
+                {form.preconfirm && (
+                  <div className="space-y-4 p-4 rounded-lg bg-primary/5 border border-primary/20">
+                    <div>
+                      <Label htmlFor="description">Service Description</Label>
+                      <Input
+                        id="description"
+                        placeholder="e.g. Deep Clean - 3 bed/2 bath"
+                        value={form.description}
+                        onChange={(e) => setForm({ ...form, description: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="cleaner_pay">Cleaner Pay ($)</Label>
+                      <Input
+                        id="cleaner_pay"
+                        type="number"
+                        placeholder="e.g. 150"
+                        min="0"
+                        step="0.01"
+                        value={form.cleaner_pay}
+                        onChange={(e) => setForm({ ...form, cleaner_pay: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">
+                        What the cleaner gets paid (not shown to client)
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Select Cleaners</Label>
+                      {loadingCleaners ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                          <Loader2 className="h-4 w-4 animate-spin" /> Loading cleaners...
+                        </div>
+                      ) : cleaners.length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-2">No active cleaners found</p>
+                      ) : (
+                        <div className="space-y-2 mt-2 max-h-48 overflow-y-auto">
+                          {cleaners.map((c) => (
+                            <label key={c.id} className="flex items-center gap-3 p-2 rounded hover:bg-accent cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={form.cleaner_ids.includes(c.id)}
+                                onChange={(e) => {
+                                  const ids = e.target.checked
+                                    ? [...form.cleaner_ids, c.id]
+                                    : form.cleaner_ids.filter(id => id !== c.id)
+                                  setForm({ ...form, cleaner_ids: ids })
+                                }}
+                                className="w-4 h-4 rounded border-gray-300"
+                              />
+                              <span className="text-sm">{c.name}</span>
+                              {c.phone && <span className="text-xs text-muted-foreground">{c.phone}</span>}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {form.cleaner_ids.length > 0 && (
+                        <p className="text-xs text-primary mt-2">
+                          {form.cleaner_ids.length} cleaner{form.cleaner_ids.length > 1 ? 's' : ''} selected
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label htmlFor="notes">Notes</Label>
                   <textarea
@@ -518,6 +721,18 @@ export default function QuotesPage() {
                               quote.selected_tier.slice(1)}
                           </Badge>
                         )}
+                        {quote.preconfirm_status === "awaiting_cleaners" && (
+                          <Badge variant="outline" className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30 text-xs">
+                            <Users className="h-3 w-3 mr-1" />
+                            Awaiting Cleaners
+                          </Badge>
+                        )}
+                        {quote.preconfirm_status === "cleaners_confirmed" && (
+                          <Badge variant="outline" className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Cleaner Confirmed
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-4 mt-1 text-sm text-muted-foreground flex-wrap">
                         {quote.property_type && (
@@ -563,7 +778,24 @@ export default function QuotesPage() {
                           <Copy className="h-4 w-4" />
                         )}
                       </Button>
-                      {quote.status === "pending" && quote.customer_phone && (
+                      {/* Pre-confirm: Send to Cleaners */}
+                      {quote.status === "pending" && quote.preconfirm_status === "awaiting_cleaners" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleSendToCleaners(quote.id)}
+                          disabled={sendingPreconfirm === quote.id}
+                          title="Send to cleaners"
+                        >
+                          {sendingPreconfirm === quote.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Send className="h-4 w-4" />
+                          )}
+                        </Button>
+                      )}
+                      {/* Normal or confirmed: Send to Client */}
+                      {quote.status === "pending" && quote.customer_phone && quote.preconfirm_status !== "awaiting_cleaners" && (
                         <Button
                           size="sm"
                           variant="ghost"
@@ -571,7 +803,7 @@ export default function QuotesPage() {
                             handleSendSMS(quote.id, quote.customer_phone!)
                           }
                           disabled={sendingId === quote.id}
-                          title="Send via SMS"
+                          title={quote.preconfirm_status === "cleaners_confirmed" ? "Send quote to client (cleaner confirmed!)" : "Send via SMS"}
                         >
                           {sendingId === quote.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />

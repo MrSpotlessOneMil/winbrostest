@@ -753,8 +753,87 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     console.error('[Stripe Webhook] Failed to cancel quote follow-up tasks:', err)
   }
 
-  // Trigger technician assignment if job was created with a service date
-  if (newJob?.id && hasServiceDate && tenant) {
+  // ============================================================
+  // PRE-CONFIRMED CLEANER: Skip broadcast if cleaners already confirmed on this quote
+  // ============================================================
+  let preconfirmHandled = false
+  if (newJob?.id) {
+    try {
+      const { data: confirmedCleaners } = await serviceClient
+        .from('quote_cleaner_preconfirms')
+        .select('cleaner_id, cleaner_pay')
+        .eq('quote_id', quote.id)
+        .eq('tenant_id', quote.tenant_id)
+        .eq('status', 'confirmed')
+
+      if (confirmedCleaners?.length) {
+        // Use the first confirmed cleaner
+        const primaryCleaner = confirmedCleaners[0]
+
+        // Create cleaner_assignment with status 'confirmed' (skip pending → accepted flow)
+        await serviceClient.from('cleaner_assignments').insert({
+          tenant_id: quote.tenant_id,
+          job_id: newJob.id,
+          cleaner_id: primaryCleaner.cleaner_id,
+          status: 'confirmed',
+          assigned_at: new Date().toISOString(),
+          responded_at: new Date().toISOString(),
+        })
+
+        // Set cleaner on the job
+        await serviceClient.from('jobs').update({
+          cleaner_id: primaryCleaner.cleaner_id,
+          cleaner_confirmed: true,
+        }).eq('id', newJob.id)
+
+        // Mark job as booked (payment + cleaner both satisfied)
+        try {
+          const { maybeMarkBooked } = await import('@/lib/maybe-mark-booked')
+          await maybeMarkBooked(String(newJob.id))
+        } catch { /* swallow */ }
+
+        // Notify the cleaner with the date the client picked
+        try {
+          const { data: cleaner } = await serviceClient
+            .from('cleaners')
+            .select('name, phone, portal_token')
+            .eq('id', primaryCleaner.cleaner_id)
+            .maybeSingle()
+
+          if (cleaner?.phone && tenant) {
+            const custName = quote.customer_name?.split(' ')[0] || 'Customer'
+            const dateStr = hasServiceDate
+              ? new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+              : 'TBD'
+            const payStr = primaryCleaner.cleaner_pay ? `\nYour pay: $${Number(primaryCleaner.cleaner_pay).toFixed(0)}` : ''
+            const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
+            const portalLink = cleaner.portal_token ? `\n\nDetails: ${appBaseUrl}/crew/${cleaner.portal_token}/job/${newJob.id}` : ''
+            const msg = `You're confirmed! ${custName} booked for ${dateStr}.\n${serviceName} at ${quote.customer_address || 'See portal'}${payStr}${portalLink}`
+            await sendSMS(tenant, cleaner.phone, msg)
+          }
+        } catch (err) {
+          console.error('[Stripe Webhook] Failed to notify pre-confirmed cleaner:', err)
+        }
+
+        // Cancel remaining preconfirm rows
+        await serviceClient
+          .from('quote_cleaner_preconfirms')
+          .update({ status: 'cancelled' })
+          .eq('quote_id', quote.id)
+          .eq('tenant_id', quote.tenant_id)
+          .neq('cleaner_id', primaryCleaner.cleaner_id)
+          .eq('status', 'confirmed')
+
+        preconfirmHandled = true
+        console.log(`[Stripe Webhook] Pre-confirmed cleaner ${primaryCleaner.cleaner_id} assigned to job ${newJob.id}`)
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Pre-confirm check failed, falling through to normal assignment:', err)
+    }
+  }
+
+  // Trigger technician assignment if job was created with a service date (skip if pre-confirmed)
+  if (newJob?.id && hasServiceDate && tenant && !preconfirmHandled) {
     try {
       const useRouteOpt = tenant.workflow_config?.use_route_optimization === true
       let techAssigned = false
@@ -796,7 +875,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       console.error('[Stripe Webhook] Technician assignment from quote failed:', err)
       try { await triggerCleanerAssignment(String(newJob.id)) } catch { /* swallow */ }
     }
-  } else if (newJob?.id) {
+  } else if (newJob?.id && !preconfirmHandled) {
     try {
       await triggerCleanerAssignment(String(newJob.id))
     } catch (err) {

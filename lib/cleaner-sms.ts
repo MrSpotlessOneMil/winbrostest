@@ -690,3 +690,43 @@ export async function processCleanerAssignmentReply(
 
   return { success: true }
 }
+
+// ── Pre-Confirm Notification ──
+
+export interface PreconfirmInfo {
+  id: number
+  quote_id: number
+  cleaner_pay: number | null
+  description: string | null
+  customer_name: string | null
+  customer_address: string | null
+  service_category: string | null
+}
+
+/**
+ * Notify a cleaner about a pre-confirm opportunity on a quote.
+ * The cleaner can confirm or decline BEFORE the client picks a date.
+ */
+export async function notifyCleanerPreconfirm(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  preconfirm: PreconfirmInfo,
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const service = preconfirm.description || preconfirm.service_category || 'Cleaning'
+  const payStr = preconfirm.cleaner_pay ? `\nYour pay: $${Number(preconfirm.cleaner_pay).toFixed(0)}` : ''
+  const addressStr = preconfirm.customer_address ? `\nArea: ${preconfirm.customer_address}` : ''
+  const custStr = preconfirm.customer_name ? `\nCustomer: ${preconfirm.customer_name.split(' ')[0]}` : ''
+
+  let link = ''
+  if (cleaner.portal_token) {
+    link = `\n\nInterested? Tap to confirm:\n${getBaseUrl()}/crew/${cleaner.portal_token}/preconfirm/${preconfirm.id}`
+  }
+
+  const message = `Hey ${cleaner.name.split(' ')[0]}! We have a ${humanize(service)} job.${payStr}${addressStr}${custStr}\n\nClient will pick the date — are you in?${link}`
+
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+}

@@ -72,6 +72,10 @@ export async function POST(request: NextRequest) {
     notes,
     custom_base_price,
     send_sms,
+    // Pre-confirm cleaner fields
+    cleaner_ids,
+    cleaner_pay,
+    description,
   } = body
 
   if (!customer_name) {
@@ -103,6 +107,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "custom_base_price must be a positive number" }, { status: 400 })
   }
 
+  // Validate cleaner_pay if provided
+  const parsedCleanerPay = cleaner_pay != null ? Number(cleaner_pay) : null
+  if (parsedCleanerPay != null && (isNaN(parsedCleanerPay) || parsedCleanerPay <= 0)) {
+    return NextResponse.json({ error: "cleaner_pay must be a positive number" }, { status: 400 })
+  }
+
+  const hasPreconfirm = Array.isArray(cleaner_ids) && cleaner_ids.length > 0
+
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
@@ -119,6 +131,9 @@ export async function POST(request: NextRequest) {
       service_category: category,
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
+      ...(parsedCleanerPay != null ? { cleaner_pay: parsedCleanerPay } : {}),
+      ...(description ? { description: description as string } : {}),
+      ...(hasPreconfirm ? { preconfirm_status: 'awaiting_cleaners' } : {}),
     })
     .select()
     .single()
@@ -126,6 +141,25 @@ export async function POST(request: NextRequest) {
   if (error || !quote) {
     console.error("[quotes/POST] Insert failed:", error)
     return NextResponse.json({ error: "Failed to create quote" }, { status: 500 })
+  }
+
+  // Create pre-confirm rows for selected cleaners
+  let preconfirms: any[] = []
+  if (hasPreconfirm && quote) {
+    const preconfirmRows = (cleaner_ids as number[]).map((cleanerId: number) => ({
+      tenant_id: tenant.id,
+      quote_id: quote.id,
+      cleaner_id: cleanerId,
+      cleaner_pay: parsedCleanerPay,
+      status: 'pending',
+    }))
+
+    const { data: inserted } = await supabase
+      .from("quote_cleaner_preconfirms")
+      .insert(preconfirmRows)
+      .select("id, cleaner_id, status")
+
+    preconfirms = inserted || []
   }
 
   // Tag customer for quoted_not_booked retargeting (only if no existing override)
@@ -139,7 +173,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Send SMS with quote link if requested and phone number available
-  if (send_sms && quote.customer_phone) {
+  // Skip if pre-confirm is active — client gets the quote AFTER cleaners confirm
+  if (send_sms && quote.customer_phone && !hasPreconfirm) {
     try {
       const { getTenantById } = await import("@/lib/tenant")
       const { sendSMS } = await import("@/lib/openphone")
@@ -161,5 +196,6 @@ export async function POST(request: NextRequest) {
     success: true,
     quote,
     quote_url: `/quote/${quote.token}`,
+    ...(preconfirms.length > 0 ? { preconfirms } : {}),
   })
 }

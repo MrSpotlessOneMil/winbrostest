@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   // Look up quote and verify tenant ownership
   const { data: quote } = await supabase
     .from("quotes")
-    .select("id, token, customer_name, customer_phone, status, tenant_id")
+    .select("id, token, customer_name, customer_phone, status, tenant_id, preconfirm_status")
     .eq("id", quote_id)
     .single()
 
@@ -39,6 +39,11 @@ export async function POST(request: NextRequest) {
 
   if (quote.status !== "pending") {
     return NextResponse.json({ error: `Cannot send — quote is ${quote.status}` }, { status: 400 })
+  }
+
+  // Guard: don't send to client if cleaners haven't confirmed yet
+  if ((quote as any).preconfirm_status === 'awaiting_cleaners') {
+    return NextResponse.json({ error: "Cleaners haven't confirmed yet — send pre-confirm first" }, { status: 400 })
   }
 
   if (!quote.customer_phone) {
