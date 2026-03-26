@@ -276,8 +276,35 @@ export async function POST(request: NextRequest) {
           await client.from("messages").update({ source: newSource }).eq("id", insertedMsg.id)
         }
 
+        // System-sent detection: check if we already have this message stored from our own system
+        // (AI response, scheduled task, retargeting, follow-up, etc.)
+        // If so, this is NOT a manual staff message — skip takeover
+        let isSystemSent = false
+        if (!isBroadcast && !isAgentOutreach && !isRetargeting && toE164 && extracted.content) {
+          const sysDedupCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 min window
+          const { data: systemMsg } = await client
+            .from("messages")
+            .select("id, source")
+            .eq("phone_number", toE164)
+            .eq("tenant_id", tenant?.id)
+            .eq("direction", "outbound")
+            .eq("content", extracted.content)
+            .gte("created_at", sysDedupCutoff)
+            .neq("source", "openphone_app")
+            .limit(1)
+            .maybeSingle()
+          if (systemMsg) {
+            isSystemSent = true
+            console.log(`[OpenPhone] Outbound is system-sent (source: ${systemMsg.source}) for ${maskPhone(toPhone)} — skipping manual takeover`)
+            // Re-label the inserted message with correct source
+            if (insertedMsg?.id) {
+              await client.from("messages").update({ source: systemMsg.source }).eq("id", insertedMsg.id)
+            }
+          }
+        }
+
         // Manual takeover: pause AI, cancel retargeting, record timestamp (skip for automated outbound)
-        if (customer?.id && tenant && !isBroadcast && !isAgentOutreach && !isRetargeting) {
+        if (customer?.id && tenant && !isBroadcast && !isAgentOutreach && !isRetargeting && !isSystemSent) {
           await client
             .from("customers")
             .update({
