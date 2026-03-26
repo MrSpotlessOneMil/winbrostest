@@ -562,6 +562,29 @@ function detectSilentHandoff(
 }
 
 /**
+ * Safety net: detect when the AI offers specific days/times without emitting [SCHEDULE_READY].
+ * This prevents the AI from fabricating availability. If detected, we return true so the
+ * caller can inject [SCHEDULE_READY] and let the real scheduler provide actual times.
+ */
+function detectFakeScheduling(rawText: string, hasScheduleReady: boolean): boolean {
+  if (hasScheduleReady) return false
+
+  const lower = rawText.toLowerCase()
+
+  // Check for day-of-week offers like "How about Monday or Tuesday?"
+  const dayPattern = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/
+  const dayMatches = lower.match(new RegExp(dayPattern, 'g'))
+  const hasMultipleDays = dayMatches && dayMatches.length >= 2
+
+  // Check for time offers like "9am", "10:00 AM", "around 2"
+  const timePattern = /\b\d{1,2}(:\d{2})?\s*(am|pm)\b/i
+  const hasTimeOffer = timePattern.test(lower)
+
+  // Only flag if the AI is clearly offering scheduling options (multiple days or day+time combos)
+  return !!(hasMultipleDays || (dayMatches && hasTimeOffer))
+}
+
+/**
  * Fallback template-based responses when AI is unavailable
  */
 function generateFallbackResponse(
@@ -802,8 +825,17 @@ async function generateWinBrosResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const isScheduleReady = detectScheduleReady(rawText)
+    let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
+
+    // Safety net: if the AI offered specific days/times without [SCHEDULE_READY],
+    // strip the fake times and trigger the real scheduler instead.
+    if (!isScheduleReady && detectFakeScheduling(rawText, isScheduleReady)) {
+      console.warn('[WinBros AI] Safety net: AI offered fake times without [SCHEDULE_READY], injecting scheduler')
+      isScheduleReady = true
+      // Strip the AI's fabricated scheduling text — scheduler will provide real times
+      cleanResponse = 'Let me check what times we have available for your estimate!'
+    }
 
     // Safety net: if the AI said "reach out" / "get back to you" but didn't include
     // any action tag, treat it as a silent escalation so the owner gets notified.
@@ -864,8 +896,15 @@ async function generateWinBrosResponse(
 
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
-    const isScheduleReady = detectScheduleReady(rawText)
+    let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
+
+    // Safety net: same fake-scheduling detection as Claude path
+    if (!isScheduleReady && detectFakeScheduling(rawText, isScheduleReady)) {
+      console.warn('[WinBros AI] Safety net (OpenAI): AI offered fake times without [SCHEDULE_READY], injecting scheduler')
+      isScheduleReady = true
+      cleanResponse = 'Let me check what times we have available for your estimate!'
+    }
 
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, isScheduleReady)
 

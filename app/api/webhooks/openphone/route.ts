@@ -3612,29 +3612,70 @@ export async function POST(request: NextRequest) {
       ? { seasonal_reply: true, campaign_id: (recentSeasonal.metadata as any)?.campaign_id }
       : {}
 
-    const { data: lead, error: leadErr } = await client.from("leads").insert({
-      tenant_id: tenant?.id,
-      source_id: `sms-${Date.now()}`,
-      phone_number: phone,
-      customer_id: customer.id,
-      first_name: firstName,
-      last_name: lastName,
-      source: isSeasonalReply ? "seasonal_reminder" : "sms",
-      status: "new",
-      form_data: {
-        original_message: combinedMessage,
-        intent_analysis: intentResult,
-        extracted_info: intentResult.extractedInfo,
-        ...seasonalMeta,
-      },
-      followup_stage: 0,
-      followup_started_at: new Date().toISOString(),
-    }).select("id").single()
+    // Check for existing non-SMS lead (HCP, VAPI, meta, etc.) to avoid creating duplicates
+    // that shadow the original source attribution
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString()
+    const { data: existingSourcedLead } = await client
+      .from("leads")
+      .select("id, source, form_data")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .not("source", "eq", "sms")
+      .in("status", ["new", "contacted", "qualified", "responded"])
+      .gte("created_at", fortyEightHoursAgo)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    let lead: { id: string } | null = null
+    let leadErr: { message: string } | null = null
+
+    if (existingSourcedLead) {
+      // Reuse the existing lead — preserve original source (e.g. housecall_pro)
+      console.log(`[OpenPhone] Found existing ${existingSourcedLead.source} lead ${existingSourcedLead.id} for ${maskPhone(phone)}, reusing instead of creating duplicate SMS lead`)
+      const existingFd = typeof existingSourcedLead.form_data === 'object' && existingSourcedLead.form_data ? existingSourcedLead.form_data : {}
+      await client
+        .from("leads")
+        .update({
+          status: "contacted",
+          last_contact_at: new Date().toISOString(),
+          form_data: {
+            ...existingFd,
+            sms_intent_analysis: intentResult,
+            sms_extracted_info: intentResult.extractedInfo,
+            ...seasonalMeta,
+          },
+        })
+        .eq("id", existingSourcedLead.id)
+      lead = { id: existingSourcedLead.id }
+    } else {
+      // No existing sourced lead — create a new one
+      const { data: newLead, error: insertErr } = await client.from("leads").insert({
+        tenant_id: tenant?.id,
+        source_id: `sms-${Date.now()}`,
+        phone_number: phone,
+        customer_id: customer.id,
+        first_name: firstName,
+        last_name: lastName,
+        source: isSeasonalReply ? "seasonal_reminder" : "sms",
+        status: "new",
+        form_data: {
+          original_message: combinedMessage,
+          intent_analysis: intentResult,
+          extracted_info: intentResult.extractedInfo,
+          ...seasonalMeta,
+        },
+        followup_stage: 0,
+        followup_started_at: new Date().toISOString(),
+      }).select("id").single()
+      lead = newLead
+      leadErr = insertErr
+    }
 
     if (leadErr) {
       console.error("[OpenPhone] Failed to create lead:", leadErr.message)
     } else if (lead?.id) {
-      console.log(`[OpenPhone] Lead created: ${lead.id}`)
+      console.log(`[OpenPhone] Lead ${existingSourcedLead ? 'reused' : 'created'}: ${lead.id}`)
 
       // Update customer record with extracted info immediately (don't wait for booking completion)
       const extractedAddr = intentResult.extractedInfo.address || null
@@ -3649,16 +3690,18 @@ export async function POST(request: NextRequest) {
         console.log(`[OpenPhone] Updated customer ${customer.id} with fields: ${Object.keys(custUpdates).join(', ')}`)
       }
 
-      // Create lead in HousecallPro for two-way sync (pass tenant to avoid getDefaultTenant())
-      const hcpResult = await createLeadInHCP({
-        firstName: firstName || undefined,
-        lastName: lastName || undefined,
-        phone,
-        email: customer.email || undefined,
-        address: intentResult.extractedInfo.address || customer.address || undefined,
-        notes: `SMS Inquiry: "${combinedMessage}"\nSource: OpenPhone SMS\nOSIRIS Lead ID: ${lead.id}`,
-        source: "sms",
-      }, tenant)
+      // Create lead in HousecallPro for two-way sync (skip if reusing an existing HCP lead)
+      const hcpResult = existingSourcedLead?.source === 'housecall_pro'
+        ? { success: false as const, error: 'Skipped — reusing existing HCP lead' }
+        : await createLeadInHCP({
+          firstName: firstName || undefined,
+          lastName: lastName || undefined,
+          phone,
+          email: customer.email || undefined,
+          address: intentResult.extractedInfo.address || customer.address || undefined,
+          notes: `SMS Inquiry: "${combinedMessage}"\nSource: OpenPhone SMS\nOSIRIS Lead ID: ${lead.id}`,
+          source: "sms",
+        }, tenant)
 
       if (hcpResult.success) {
         console.log(`[OpenPhone] Lead synced to HCP: ${hcpResult.leadId}`)
