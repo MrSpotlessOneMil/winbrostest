@@ -530,6 +530,37 @@ Write the SMS reply only.`
 }
 
 /**
+ * Detect when the AI says "someone will reach out" / "we'll get back to you"
+ * but didn't include any action tag ([ESCALATE:...], [BOOKING_COMPLETE], [SCHEDULE_READY]).
+ * This is the "hand off to nobody" scenario — the AI ended the conversation
+ * without triggering any system action.
+ */
+function detectSilentHandoff(
+  rawText: string,
+  hasEscalation: boolean,
+  hasBookingComplete: boolean,
+  hasScheduleReady: boolean,
+): boolean {
+  if (hasEscalation || hasBookingComplete || hasScheduleReady) return false
+
+  const lower = rawText.toLowerCase()
+  const handoffPhrases = [
+    'reach out',
+    'get back to you',
+    'be in touch',
+    'will contact you',
+    'someone will call',
+    'team will',
+    'we\'ll reach out',
+    'they\'ll reach out',
+    'will be reaching out',
+    'touch base with you',
+  ]
+
+  return handoffPhrases.some(phrase => lower.includes(phrase))
+}
+
+/**
  * Fallback template-based responses when AI is unavailable
  */
 function generateFallbackResponse(
@@ -707,6 +738,10 @@ async function generateWinBrosResponse(
     const isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
 
+    // Safety net: if the AI said "reach out" / "get back to you" but didn't include
+    // any action tag, treat it as a silent escalation so the owner gets notified.
+    const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, isScheduleReady)
+
     // If the AI says it's ready to schedule, call the estimate scheduler
     // and append the available time options to the response
     if (isScheduleReady) {
@@ -733,7 +768,9 @@ async function generateWinBrosResponse(
       response: cleanResponse,
       shouldSend: true,
       reason: 'WinBros AI-generated response',
-      escalation: escalation.shouldEscalate ? escalation : undefined,
+      escalation: silentHandoff
+        ? { shouldEscalate: true, reasons: ['silent_handoff_no_tag'] }
+        : escalation.shouldEscalate ? escalation : undefined,
       bookingComplete: isBookingComplete || undefined,
     }
   }
@@ -763,6 +800,8 @@ async function generateWinBrosResponse(
     const isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
 
+    const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, isScheduleReady)
+
     // Same scheduling logic for OpenAI fallback
     if (isScheduleReady) {
       const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
@@ -784,7 +823,9 @@ async function generateWinBrosResponse(
       response: cleanResponse,
       shouldSend: true,
       reason: 'WinBros AI-generated response (OpenAI)',
-      escalation: escalation.shouldEscalate ? escalation : undefined,
+      escalation: silentHandoff
+        ? { shouldEscalate: true, reasons: ['silent_handoff_no_tag'] }
+        : escalation.shouldEscalate ? escalation : undefined,
       bookingComplete: isBookingComplete || undefined,
     }
   }
@@ -1264,12 +1305,15 @@ async function generateHouseCleaningResponse(
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
+    const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
       response: cleanResponse,
       shouldSend: true,
       reason: 'House cleaning AI-generated response',
-      escalation: escalation.shouldEscalate ? escalation : undefined,
+      escalation: silentHandoff
+        ? { shouldEscalate: true, reasons: ['silent_handoff_no_tag'] }
+        : escalation.shouldEscalate ? escalation : undefined,
       bookingComplete: isBookingComplete || undefined,
     }
   }
@@ -1298,12 +1342,15 @@ async function generateHouseCleaningResponse(
     const escalation = detectEscalation(rawText, conversationHistory)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
+    const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
       response: cleanResponse,
       shouldSend: true,
       reason: 'House cleaning AI-generated response (OpenAI)',
-      escalation: escalation.shouldEscalate ? escalation : undefined,
+      escalation: silentHandoff
+        ? { shouldEscalate: true, reasons: ['silent_handoff_no_tag'] }
+        : escalation.shouldEscalate ? escalation : undefined,
       bookingComplete: isBookingComplete || undefined,
     }
   }

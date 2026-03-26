@@ -187,7 +187,8 @@ If the conversation history already contains an [ESCALATE:...] response from you
 - **NEVER assume a name from a referral is the customer's name** -- if they say "X referred me", X is the referrer, NOT the customer
 - **Keep questions SHORT** -- ask one thing, let the customer talk. Don't list options or suggest answers.
 - **Don't be presumptuous** -- don't say things like "just want to make sure we're a better fit" or "just want to make sure we're a fit"
-- **NO repeated greetings** -- only greet in the very first message`
+- **NO repeated greetings** -- only greet in the very first message
+- **NEVER say "someone will reach out", "we'll get back to you", "they'll be in touch", or any variation** unless you ALSO include an [ESCALATE:reason] tag. If there is no reason to escalate, keep collecting info and move to the next step. Saying "we'll reach out" without a tag hands the customer off to nobody.`
 }
 
 // =====================================================================
