@@ -70,6 +70,7 @@ export interface CustomerContext {
     email: string | null
     address: string | null
     notes: string | null
+    housecall_pro_customer_id: string | number | null
   } | null
   // Lead record (if exists)
   lead: {
@@ -117,8 +118,8 @@ export async function loadCustomerContext(
 
     // Customer profile
     customerId
-      ? client.from("customers").select("id, first_name, last_name, email, address, notes").eq("id", customerId).maybeSingle()
-      : client.from("customers").select("id, first_name, last_name, email, address, notes").eq("tenant_id", tenantId).eq("phone_number", phone).maybeSingle(),
+      ? client.from("customers").select("id, first_name, last_name, email, address, notes, housecall_pro_customer_id").eq("id", customerId).maybeSingle()
+      : client.from("customers").select("id, first_name, last_name, email, address, notes, housecall_pro_customer_id").eq("tenant_id", tenantId).eq("phone_number", phone).maybeSingle(),
 
     // Lead record
     client
@@ -693,7 +694,7 @@ async function generateWinBrosResponse(
   if (customerContext?.customer?.id) {
     try {
       const { buildMemoryContext } = await import('./assistant-memory')
-      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id)
+      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id, conversationHistory || [])
       if (memCtx) {
         memoryBlock = '\n\n' + memCtx
       }
@@ -1345,7 +1346,7 @@ async function generateHouseCleaningResponse(
   if (customerContext?.customer?.id) {
     try {
       const { buildMemoryContext } = await import('./assistant-memory')
-      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id)
+      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id, conversationHistory || [])
       if (memCtx) {
         memoryBlock = '\n\n' + memCtx
       }

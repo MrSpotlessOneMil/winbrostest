@@ -1422,7 +1422,7 @@ export async function POST(request: NextRequest) {
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
-    .limit(30)
+    .limit(50)
 
   const conversationHistory = recentMessages?.reverse().map(m => ({
     role: m.role as 'client' | 'assistant',

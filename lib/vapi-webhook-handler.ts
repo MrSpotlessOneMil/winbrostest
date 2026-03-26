@@ -194,7 +194,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
     import('@/lib/conversation-scoring').then(mod =>
       mod.scoreConversation({
         tenantId: tenant.id,
-        customerId: customerId || 0,
+        customerId: customerId ?? 0,
         phone,
         conversationType: 'vapi_call',
         conversationText: data.transcript!,
