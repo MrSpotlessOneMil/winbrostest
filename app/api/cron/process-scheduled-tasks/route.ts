@@ -28,6 +28,7 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { parseFormData } from '@/lib/utils'
 import { canSendToCustomer, recordMessageSent } from '@/lib/lifecycle-engine'
+import { scheduleEstimate, type EstimateOption } from '@/lib/vapi-estimate-scheduler'
 
 // Verify cron authorization
 function verifyCronAuth(request: NextRequest): boolean {
@@ -436,6 +437,29 @@ async function processLeadFollowup(
     ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
     : `Reply with your address and job details for an instant quote, or call us directly!`
 
+  // For WinBros stage 1 with a known address, fetch available estimate times
+  // (same algorithm the phone AI uses) so we can offer them directly
+  let availableTimes: EstimateOption[] = []
+  const leadAddress = formData.address as string | undefined
+  if (isWinBros && stage === 1 && leadAddress && tenant?.id) {
+    try {
+      const result = await scheduleEstimate({ address: leadAddress }, tenant.id)
+      if (result.scheduled && result.options.length > 0) {
+        availableTimes = result.options
+        console.log(`[lead-followup] Got ${availableTimes.length} available times for ${leadPhone}: ${availableTimes.map(o => `${o.day_of_week} ${o.time}`).join(', ')}`)
+      }
+    } catch (err) {
+      console.warn(`[lead-followup] Failed to fetch available times for ${leadPhone}:`, err)
+    }
+  }
+
+  /** Format available times as a human-friendly choice, e.g. "Monday at 8:00 AM, Tuesday at 11:00 AM, or Wednesday at 2:00 PM" */
+  function formatTimeOptions(options: EstimateOption[]): string {
+    const parts = options.map(o => `${o.day_of_week} at ${o.time}`)
+    if (parts.length <= 1) return parts[0] || ''
+    return parts.slice(0, -1).join(', ') + ', or ' + parts[parts.length - 1]
+  }
+
   let message: string
 
   if (isSpotlessWebLead) {
@@ -463,7 +487,15 @@ async function processLeadFollowup(
     const displayService = serviceRequested || serviceType
     switch (stage) {
       case 1:
-        message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${displayService} needs. ${quoteQuestion}`
+        if (isWinBros && serviceRequested && availableTimes.length > 0) {
+          // Best case: we know the service AND have available times — offer them directly
+          message = `Hi ${leadName}! Thanks for reaching out to ${businessName} about ${displayService}. We have a few openings for a free estimate — would ${formatTimeOptions(availableTimes)} work for you?`
+        } else if (isWinBros && availableTimes.length > 0) {
+          // Have times but no service type
+          message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We have a few openings for a free estimate — would ${formatTimeOptions(availableTimes)} work for you? What service are you looking at — windows, pressure washing, or gutters?`
+        } else {
+          message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${displayService} needs. ${quoteQuestion}`
+        }
         break
       case 2:
         message = `Just making sure you got our message — we have openings for ${displayService} this week. ${detailsRequest}`
