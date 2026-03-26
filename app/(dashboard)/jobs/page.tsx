@@ -369,11 +369,11 @@ const STORAGE_KEY_VIEW = "calendar-view"
 const STORAGE_KEY_DATE = "calendar-date"
 
 function getSavedView(): string {
-  if (typeof window === "undefined") return "dayGridMonth"
+  if (typeof window === "undefined") return "timeGridWeek"
   const saved = localStorage.getItem(STORAGE_KEY_VIEW)
   if (saved) return saved
   // Default to list view on mobile for better readability
-  return window.innerWidth < 768 ? "listMonth" : "dayGridMonth"
+  return window.innerWidth < 768 ? "listWeek" : "timeGridWeek"
 }
 
 function getSavedDate(): string | undefined {
