@@ -13,6 +13,8 @@ import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { analyzeSimpleSentiment, recordMessageSent, cancelPendingTasks } from "@/lib/lifecycle-engine"
 import { isKeywordOptOut, isStartRequest, detectOptOutIntent } from "@/lib/sms-opt-out"
 
+export const maxDuration = 60 // Pro plan: prevent cold-start + debounce + AI from timing out
+
 /**
  * Send a multi-part AI response as separate SMS messages.
  * The AI uses ||| to separate messages that should be sent as individual texts.
@@ -1093,7 +1095,7 @@ export async function POST(request: NextRequest) {
       .eq("tenant_id", tenant?.id)
       .eq("source", "openphone_app")
       .eq("direction", "outbound")
-      .gte("created_at", unpauseCutoff)
+      .gt("created_at", unpauseCutoff)
       .limit(1)
       .maybeSingle()
 
@@ -1208,7 +1210,7 @@ export async function POST(request: NextRequest) {
   // ============================================
   // AI Intent Analysis for Lead Creation
   // ============================================
-  const messageContent = extracted.content || ""
+  let messageContent = extracted.content || ""
 
   // ============================================
   // MEMBERSHIP RENEWAL REPLY HANDLER
@@ -1387,6 +1389,11 @@ export async function POST(request: NextRequest) {
     } catch (err) {
       console.error("[OpenPhone] Recurring detection error:", err)
     }
+  }
+
+  // Handle empty content (MMS/image only) — treat as "customer reached out"
+  if (!messageContent || messageContent.trim().length === 0) {
+    messageContent = '[Customer sent a photo/image]'
   }
 
   // Quick check - skip obvious non-booking messages ONLY for cold first-contact
@@ -2799,7 +2806,7 @@ export async function POST(request: NextRequest) {
         if (autoResponse.shouldSend && (autoResponse.response || autoResponse.bookingComplete)) {
           // Skip sending the AI message if it's just the [BOOKING_COMPLETE] tag —
           // the system sends its own confirmation message with invoice/deposit links
-          const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
+          const cleanedResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').replace(/\[ESCALATE:[^\]]*\]/gi, '').replace(/\[SCHEDULE_READY\]/gi, '').replace(/\[OUT_OF_AREA\]/gi, '').trim()
 
           if (cleanedResponse) {
             console.log(`[OpenPhone] Sending auto-response to existing lead: "${cleanedResponse.slice(0, 50)}..."`)
@@ -3470,7 +3477,7 @@ export async function POST(request: NextRequest) {
 
       if (autoResponse.shouldSend && autoResponse.response) {
         // Strip [BOOKING_COMPLETE] tags for new inquiries too
-        const cleanedNewResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').trim()
+        const cleanedNewResponse = autoResponse.response.replace(/\[BOOKING_COMPLETE\]/gi, '').replace(/\[ESCALATE:[^\]]*\]/gi, '').replace(/\[SCHEDULE_READY\]/gi, '').replace(/\[OUT_OF_AREA\]/gi, '').trim()
         console.log(`[OpenPhone] Sending auto-response: "${cleanedNewResponse.slice(0, 50)}..."`)
 
         if (cleanedNewResponse) {
