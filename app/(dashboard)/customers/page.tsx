@@ -677,6 +677,7 @@ export default function CustomersPage() {
     manual: "Manual Lead",
     email: "Email Lead",
     retargeting: "Retargeting",
+    housecall_pro: "HouseCall Pro",
   }
 
   const getCustomerName = (customer: Customer) => {
@@ -702,6 +703,7 @@ export default function CustomersPage() {
       thumbtack: { label: "Thumbtack", className: "bg-yellow-500/20 text-yellow-300" },
       angi: { label: "Angi", className: "bg-red-500/20 text-red-300" },
       ghl: { label: "GHL", className: "bg-purple-500/20 text-purple-300" },
+      housecall_pro: { label: "HCP", className: "bg-teal-500/20 text-teal-300" },
     }
     return trackableChannels[customer.lead_source] || null
   }

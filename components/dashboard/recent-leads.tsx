@@ -13,7 +13,7 @@ type UiLead = {
   id: string
   name: string
   phone: string | null
-  source: "phone" | "meta" | "website" | "sms" | "sam" | "google_lsa" | "thumbtack" | "angi"
+  source: "phone" | "meta" | "website" | "sms" | "sam" | "google_lsa" | "thumbtack" | "angi" | "housecall_pro"
   time: string
   status: "new" | "contacted" | "booked" | "nurturing" | "lost"
   service: string
@@ -34,7 +34,7 @@ function timeAgo(iso: string): string {
 }
 
 function mapLead(l: ApiLead): UiLead {
-  const validSources = ["meta", "website", "sms", "sam", "google_lsa", "thumbtack", "angi"]
+  const validSources = ["meta", "website", "sms", "sam", "google_lsa", "thumbtack", "angi", "housecall_pro"]
   const source = (validSources.includes(l.source) ? l.source : "phone") as UiLead["source"]
   const status =
     (l.status === "new" || l.status === "contacted" || l.status === "booked" || l.status === "nurturing" || l.status === "lost"
@@ -66,6 +66,7 @@ const sourceIcons = {
   google_lsa: MapPin,
   thumbtack: Wrench,
   angi: Star,
+  housecall_pro: Wrench,
 }
 
 const statusConfig = {
@@ -151,7 +152,8 @@ export function RecentLeads() {
                     lead.source === "sam" && "bg-orange-500/15 text-orange-500",
                     lead.source === "google_lsa" && "bg-emerald-500/15 text-emerald-400",
                     lead.source === "thumbtack" && "bg-cyan-500/15 text-cyan-400",
-                    lead.source === "angi" && "bg-orange-600/15 text-orange-500"
+                    lead.source === "angi" && "bg-orange-600/15 text-orange-500",
+                    lead.source === "housecall_pro" && "bg-teal-500/15 text-teal-400"
                   )}
                 >
                   <SourceIcon className="h-5 w-5" />

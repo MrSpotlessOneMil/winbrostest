@@ -528,13 +528,26 @@ export async function POST(request: NextRequest) {
     .select("*")
     .single()
 
-  // Backfill lead_source for customers who entered via SMS but don't have one yet
+  // Backfill lead_source for customers who genuinely entered via SMS.
+  // Only set if null — never overwrite an existing source (e.g. housecall_pro, meta, vapi).
+  // Also check leads table: if there's already a lead from a non-SMS source, use that instead.
   if (customer && !customer.lead_source && tenant?.id) {
+    const { data: existingSourceLead } = await client
+      .from("leads")
+      .select("source")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant.id)
+      .not("source", "eq", "sms")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const backfillSource = existingSourceLead?.source || "sms"
     await client
       .from("customers")
-      .update({ lead_source: "sms" })
+      .update({ lead_source: backfillSource })
       .eq("id", customer.id)
-    customer.lead_source = "sms"
+    customer.lead_source = backfillSource
   }
 
   if (custErr) {

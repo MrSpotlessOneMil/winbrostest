@@ -807,12 +807,23 @@ export async function POST(request: NextRequest) {
           const { data: customerRecord } = await client
             .from("customers")
             .upsert(
-              { phone_number: phone, tenant_id: tenant.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: leadHcpCustId ? String(leadHcpCustId) : undefined },
+              { phone_number: phone, tenant_id: tenant.id, first_name: firstName, last_name: lastName, email, address, housecall_pro_customer_id: leadHcpCustId ? String(leadHcpCustId) : undefined, lead_source: "housecall_pro" },
               { onConflict: "tenant_id,phone_number" }
             )
             .select("id")
             .single()
           const hcpSourceId = lead?.id || (data as any)?.lead?.id || (data as any)?.id || `hcp-${Date.now()}`
+
+          // Extract HCP-specific detail fields for richer lead context
+          const hcpLeadSource = lead?.source || lead?.lead_source || (data as any)?.source || null
+          const hcpWorkRequested = lead?.work_requested || lead?.notes || (data as any)?.work_requested || null
+          const hcpLeadFormData = {
+            ...(typeof data === 'object' && data !== null ? data : {}),
+            hcp_lead_id: String(hcpSourceId),
+            hcp_lead_source: hcpLeadSource ? String(hcpLeadSource) : null,
+            hcp_work_requested: hcpWorkRequested ? String(hcpWorkRequested) : null,
+          }
+
           const { data: leadRecord } = await client.from("leads").insert({
             tenant_id: tenant.id,
             source_id: String(hcpSourceId),
@@ -823,7 +834,7 @@ export async function POST(request: NextRequest) {
             email: email || null,
             source: "housecall_pro",
             status: "new",
-            form_data: data,
+            form_data: hcpLeadFormData,
             followup_stage: 0,
             followup_started_at: new Date().toISOString(),
           }).select("id").single()
