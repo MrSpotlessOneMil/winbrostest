@@ -110,6 +110,8 @@ export async function GET(request: NextRequest) {
     }
 
     // 5. Attribute earnings
+    // Apply cleaner_pay_percentage if tenant has it configured (e.g. 50 = cleaners get 50% of job price)
+    const cleanerPayPct = tenant?.workflow_config?.cleaner_pay_percentage
     const earnings = new Map<number, { total: number; jobs: number; jobDetails: { id: number; price: number; date: string; service_type: string; split: boolean }[] }>()
 
     function addEarning(cleanerId: number, jobId: number, amount: number, date: string, serviceType: string, split: boolean) {
@@ -121,8 +123,9 @@ export async function GET(request: NextRequest) {
     }
 
     for (const job of jobs || []) {
-      const price = Number(job.price) || 0
-      if (price <= 0) continue
+      const rawPrice = Number(job.price) || 0
+      if (rawPrice <= 0) continue
+      const price = cleanerPayPct ? rawPrice * (cleanerPayPct / 100) : rawPrice
 
       // Priority 1: Direct cleaner_id on the job
       if (job.cleaner_id) {

@@ -354,12 +354,8 @@ export function validateStripeWebhook(
   }
 
   if (secrets.length === 0) {
-    console.warn('No Stripe webhook secrets configured - parsing without validation')
-    try {
-      return JSON.parse(payload) as Stripe.Event
-    } catch {
-      return null
-    }
+    console.error('[Stripe] CRITICAL: No webhook secrets configured — rejecting all webhook calls')
+    return null
   }
 
   const stripe = getStripeClient()
@@ -767,7 +763,8 @@ export function calculateJobPrice(
  */
 export function calculateJobEstimate(
   job: Partial<Job>,
-  customer?: { bedrooms?: number; bathrooms?: number; square_footage?: number }
+  customer?: { bedrooms?: number; bathrooms?: number; square_footage?: number },
+  cleanerPayPercentage?: number
 ): JobPricingEstimate {
   const basePrices: Record<string, number> = {
     'Standard cleaning': 150,
@@ -851,7 +848,9 @@ export function calculateJobEstimate(
     totalHours: roundHours(totalHours),
     cleaners,
     hoursPerCleaner: roundHours(hoursPerCleaner || baseHoursPerCleaner),
-    cleanerPay: roundCurrency(totalHours * config.cleanerHourlyRate),
+    cleanerPay: cleanerPayPercentage
+      ? roundCurrency(totalPrice * (cleanerPayPercentage / 100))
+      : roundCurrency(totalHours * config.cleanerHourlyRate),
     addOns,
   }
 }
@@ -993,6 +992,23 @@ export async function calculateJobEstimateAsync(
 
   const totalPrice = roundCurrency(priceBeforeDiscount - membershipDiscount)
 
+  // Use percentage-based cleaner pay if tenant has it configured
+  let cleanerPay: number
+  if (tenantId) {
+    try {
+      const { getTenantById } = await import('./tenant')
+      const tenant = await getTenantById(tenantId)
+      const pct = tenant?.workflow_config?.cleaner_pay_percentage
+      cleanerPay = pct
+        ? roundCurrency(totalPrice * (pct / 100))
+        : roundCurrency(totalHours * config.cleanerHourlyRate)
+    } catch {
+      cleanerPay = roundCurrency(totalHours * config.cleanerHourlyRate)
+    }
+  } else {
+    cleanerPay = roundCurrency(totalHours * config.cleanerHourlyRate)
+  }
+
   return {
     basePrice: roundCurrency(basePrice),
     addOnPrice: roundCurrency(addOnPrice),
@@ -1004,7 +1020,7 @@ export async function calculateJobEstimateAsync(
     totalHours: roundHours(totalHours),
     cleaners,
     hoursPerCleaner: roundHours(hoursPerCleaner || baseHoursPerCleaner),
-    cleanerPay: roundCurrency(totalHours * config.cleanerHourlyRate),
+    cleanerPay,
     addOns,
     membershipDiscount: membershipDiscount > 0 ? membershipDiscount : undefined,
     membershipPlanName,
