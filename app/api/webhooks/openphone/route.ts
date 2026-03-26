@@ -233,6 +233,7 @@ export async function POST(request: NextRequest) {
             .from("agent_outreach_notices")
             .select("agent")
             .eq("phone_number", toE164)
+            .eq("tenant_id", tenant?.id)
             .gt("expires_at", new Date().toISOString())
             .limit(1)
             .maybeSingle()

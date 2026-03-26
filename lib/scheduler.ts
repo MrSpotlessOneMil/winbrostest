@@ -477,8 +477,8 @@ export const RETARGETING_TEMPLATES: Record<string, { a: string; b: string }> = {
   },
   'question_based': {
     // Open question about THEIR home, not your service. Gets engagement without selling.
-    a: '{name} it\'s {business}, when was the last time you had your windows cleaned? Just curious',
-    b: 'Hey {name} it\'s {business}, if you could get one thing done on the outside of your house right now what would it be?',
+    a: '{name} it\'s {business}, when was the last time you had {service} done? Just curious',
+    b: 'Hey {name} it\'s {business}, if you could get one thing done on your home right now what would it be?',
   },
   'limited_time': {
     // Specific deadline (Friday, this week) + question CTA. Real urgency, not fake.

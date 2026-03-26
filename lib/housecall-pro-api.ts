@@ -1446,32 +1446,39 @@ export async function getCustomerHCPBrain(
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
 
+    // Helper: safely parse HCP dollar amounts (may be number, string like "$500.00", or null)
+    const parseAmount = (val: unknown): number => {
+      if (typeof val === 'number') return val
+      const parsed = parseFloat(String(val || '0').replace(/[^0-9.-]/g, ''))
+      return isNaN(parsed) ? 0 : parsed
+    }
+
     const completedJobs = jobs.filter((j: Record<string, unknown>) => {
-      const status = String(j.work_status || j.status || '')
+      const status = String(j.work_status || j.status || '').toLowerCase()
       return ['complete', 'completed'].includes(status)
     })
 
     const scheduledJobs = jobs.filter((j: Record<string, unknown>) => {
-      const status = String(j.work_status || j.status || '')
+      const status = String(j.work_status || j.status || '').toLowerCase()
       return ['scheduled', 'dispatched', 'in_progress'].includes(status)
     })
 
     const upcomingJobs = scheduledJobs.map((j: Record<string, unknown>) => ({
       date: String(j.scheduled_start || (j.schedule as Record<string, unknown>)?.scheduled_start || ''),
-      service: String(j.line_items?.[0]?.name || 'Service'),
-      price: Number(j.total_amount || 0),
+      service: String((j.line_items as Array<Record<string, unknown>>)?.[0]?.name || 'Service'),
+      price: parseAmount(j.total_amount),
     }))
 
     const openEstimates = estimates
-      .filter((e: Record<string, unknown>) => ['draft', 'sent'].includes(String(e.status)))
+      .filter((e: Record<string, unknown>) => ['draft', 'sent'].includes(String(e.status || '').toLowerCase()))
       .map((e: Record<string, unknown>) => ({
         status: String(e.status),
-        amount: Number(e.total_amount || 0),
+        amount: parseAmount(e.total_amount),
         sentAt: e.sent_at ? String(e.sent_at) : null,
       }))
 
     // Calculate totals
-    const totalSpent = completedJobs.reduce((sum: number, j: Record<string, unknown>) => sum + Number(j.total_amount || 0), 0)
+    const totalSpent = completedJobs.reduce((sum: number, j: Record<string, unknown>) => sum + parseAmount(j.total_amount), 0)
 
     // Find last completed job
     const sortedCompleted = completedJobs.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {

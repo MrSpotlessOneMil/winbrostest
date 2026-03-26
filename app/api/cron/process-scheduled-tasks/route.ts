@@ -943,7 +943,7 @@ async function processRetargeting(
   // Build message from template (A/B variant)
   let serviceDesc = getTenantServiceDescription(tenant)
   const businessName = tenant.business_name_short || tenant.business_name || tenant.name
-  const firstName = customerName.split(' ')[0] || customerName
+  const firstName = (customerName.split(' ')[0] || customerName || 'there').trim() || 'there'
 
   // Personalize: pull actual last service so messages match what the customer actually had done
   // For non-HCP tenants, check the local Osiris jobs table
@@ -995,6 +995,17 @@ async function processRetargeting(
     .replace('{name}', firstName)
     .replace('{service}', serviceDesc)
     .replace('{business}', businessName)
+
+  // Guard: abort if unreplaced placeholders remain or name is a carrier keyword
+  if (message.includes('{')) {
+    console.error(`[retargeting] Unreplaced placeholder in message for customer ${customerId}: "${message.slice(0, 80)}"`)
+    return
+  }
+  const lowerFirst = firstName.toLowerCase()
+  if (['stop', 'unsubscribe', 'cancel', 'quit', 'end'].includes(lowerFirst)) {
+    console.warn(`[retargeting] Customer name "${firstName}" is a carrier keyword — skipping send for ${customerId}`)
+    return
+  }
 
   // For quoted_not_booked step 1 (quote_followup), append the quote link
   if (sequence === 'quoted_not_booked' && template === 'quote_followup') {

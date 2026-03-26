@@ -118,7 +118,7 @@ export async function loadCustomerContext(
 
     // Customer profile
     customerId
-      ? client.from("customers").select("id, first_name, last_name, email, address, notes, housecall_pro_customer_id").eq("id", customerId).maybeSingle()
+      ? client.from("customers").select("id, first_name, last_name, email, address, notes, housecall_pro_customer_id").eq("id", customerId).eq("tenant_id", tenantId).maybeSingle()
       : client.from("customers").select("id, first_name, last_name, email, address, notes, housecall_pro_customer_id").eq("tenant_id", tenantId).eq("phone_number", phone).maybeSingle(),
 
     // Lead record
