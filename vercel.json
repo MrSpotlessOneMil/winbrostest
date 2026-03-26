@@ -71,6 +71,10 @@
     {
       "path": "/api/cron/score-conversations",
       "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/ghost-watchdog",
+      "schedule": "*/2 * * * *"
     }
   ]
 }
