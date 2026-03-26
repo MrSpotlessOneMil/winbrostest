@@ -1018,7 +1018,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Per-customer auto-response kill switch (with auto-unpause after 2 hours of no manual activity)
+  // Per-customer auto-response kill switch (with auto-unpause after 15 min of no manual activity)
   if (customer?.auto_response_paused === true) {
     // If customer is replying to a retargeting sequence, auto-unpause immediately
     // so the bot can respond — retargeting is automated, not a human conversation
@@ -1031,10 +1031,10 @@ export async function POST(request: NextRequest) {
       }).eq("id", customer.id)
       // Fall through to normal AI response flow below
     } else {
-    // Check if the last manual outbound was more than 2 hours ago - if so, auto-unpause
-    // This prevents customers from being permanently stuck in paused state
-    const AUTO_UNPAUSE_MS = 2 * 60 * 60 * 1000 // 2 hours
-    const unpauseCutoff = new Date(Date.now() - AUTO_UNPAUSE_MS).toISOString()
+    // Check if the last manual outbound was more than 15 min ago - if so, auto-unpause
+    // 15 min = staff moved on. 2 hours was WAY too long and caused ghosting.
+    const ACTIVE_CONVERSATION_MS = 15 * 60 * 1000 // 15 minutes — if staff hasn't replied in 15min, they moved on
+    const unpauseCutoff = new Date(Date.now() - ACTIVE_CONVERSATION_MS).toISOString()
     const { data: recentManualOutbound } = await client
       .from("messages")
       .select("id")
@@ -1066,7 +1066,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
     } else {
       // No recent manual activity - auto-unpause and clear manual takeover
-      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 2h`)
+      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 15min, staff moved on`)
       await client.from("customers").update({ auto_response_paused: false, manual_takeover_at: null }).eq("id", customer.id)
       // Also unpause the lead if one exists
       const { data: pausedLead } = await client
