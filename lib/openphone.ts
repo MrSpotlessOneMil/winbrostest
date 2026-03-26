@@ -80,8 +80,9 @@ export async function sendSMS(
       return { success: false, error: 'Customer opted out of SMS' }
     }
   } catch (optOutErr) {
-    // Don't block SMS if opt-out check fails — log and continue
-    console.error(`[${tenant.slug}] SMS opt-out check failed:`, optOutErr)
+    // FAIL CLOSED: if we can't verify opt-out status, don't send — TCPA compliance
+    console.error(`[${tenant.slug}] SMS opt-out check failed — blocking send for safety:`, optOutErr)
+    return { success: false, error: 'Opt-out check failed — blocked for TCPA compliance' }
   }
 
   // ── Content dedup (skip when caller pre-inserted the DB record) ──
