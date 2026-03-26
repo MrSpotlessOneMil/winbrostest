@@ -241,12 +241,33 @@ async function processTask(task: ScheduledTask): Promise<void> {
     case 'post_job_tip':
       // Generic SMS task: payload contains { phone, message }
       if (tenant && payload.phone && payload.message) {
-        const smsResult = await sendSMS(tenant, payload.phone as string, payload.message as string)
+        const smsPhone = String(payload.phone)
+        const smsMessage = String(payload.message)
+        // Pre-insert DB record with source='scheduled_task' BEFORE sending
+        // This prevents the outbound webhook from triggering manual_takeover
+        // (the isSystemSent check finds this record and skips takeover)
+        const { toE164 } = await import('@/lib/phone-utils')
+        const e164Phone = toE164(smsPhone) || smsPhone
+        const { data: preInsert } = await supabase.from('messages').insert({
+          tenant_id: tenantId || tenant.id,
+          phone_number: e164Phone,
+          role: 'assistant',
+          content: smsMessage,
+          direction: 'outbound',
+          message_type: 'sms',
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: 'scheduled_task',
+        }).select('id').single()
+
+        const smsResult = await sendSMS(tenant, smsPhone, smsMessage, { skipDedup: true })
         if (smsResult.success) {
-          console.log(`[process-scheduled-tasks] Sent ${task_type} SMS to ${payload.phone}`)
+          console.log(`[process-scheduled-tasks] Sent ${task_type} SMS to ${smsPhone}`)
         } else {
-          console.error(`[process-scheduled-tasks] ${task_type} SMS FAILED for ${payload.phone}: ${smsResult.error}`)
-          throw new Error(`SMS send failed: ${smsResult.error}`) // triggers failTask retry
+          // Clean up pre-inserted record since send failed
+          if (preInsert?.id) await supabase.from('messages').delete().eq('id', preInsert.id)
+          console.error(`[process-scheduled-tasks] ${task_type} SMS FAILED for ${smsPhone}: ${smsResult.error}`)
+          throw new Error(`SMS send failed: ${smsResult.error}`)
         }
       }
       break
