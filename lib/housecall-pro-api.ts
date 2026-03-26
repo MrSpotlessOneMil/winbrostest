@@ -1379,3 +1379,220 @@ export async function markJobCompleteInHCP(
 
   return completeHCPJob(tenant, hcpJobId)
 }
+
+// =====================================================================
+// CUSTOMER BRAIN — Pull all HCP data for AI context
+// =====================================================================
+
+export type HCPCustomerStage =
+  | 'active_plan'       // Has scheduled/recurring job → NEVER retarget
+  | 'estimate_pending'  // Open estimate → follow up on estimate instead
+  | 'recently_completed'// Job completed in last 30 days → don't retarget yet
+  | 'lapsed'           // Last job 30-90 days ago → OK to retarget
+  | 'dormant'          // Last job 90+ days ago → OK to retarget
+  | 'new_lead'         // No jobs/estimates → OK to retarget
+  | 'declined'         // Estimate declined → soft retarget only
+
+export interface HCPCustomerBrain {
+  stage: HCPCustomerStage
+  stageDetail: string
+  customerName: string | null
+  address: string | null
+  totalJobs: number
+  totalSpent: number
+  lastServiceDate: string | null
+  lastServiceType: string | null
+  lastServicePrice: number | null
+  upcomingJobs: Array<{ date: string; service: string; price: number }>
+  openEstimates: Array<{ status: string; amount: number; sentAt: string | null }>
+  paymentHistory: string // "always on time", "has outstanding balance", etc.
+  notes: string | null
+}
+
+/**
+ * Pull all available HCP data for a customer and classify their lifecycle stage.
+ * Used to build the CUSTOMER BRAIN section of the AI prompt and gate retargeting.
+ */
+export async function getCustomerHCPBrain(
+  tenant: Tenant,
+  hcpCustomerId: string
+): Promise<HCPCustomerBrain | null> {
+  if (!tenant.housecall_pro_api_key) return null
+
+  try {
+    // Pull customer details
+    const customerResult = await hcpRequest<Record<string, unknown>>(tenant, `/customers/${hcpCustomerId}`)
+    const customer = customerResult.data
+
+    // Pull all jobs for this customer
+    const jobsResult = await hcpRequest<{ jobs?: Array<Record<string, unknown>> }>(
+      tenant, '/jobs', { params: { customer_id: hcpCustomerId } }
+    )
+    const jobs = jobsResult.data?.jobs || []
+
+    // Pull estimates
+    const estimatesResult = await hcpRequest<{ estimates?: Array<Record<string, unknown>> }>(
+      tenant, '/estimates', { params: { customer_id: hcpCustomerId } }
+    )
+    const estimates = estimatesResult.data?.estimates || []
+
+    // Classify jobs
+    const now = new Date()
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+
+    const completedJobs = jobs.filter((j: Record<string, unknown>) => {
+      const status = String(j.work_status || j.status || '')
+      return ['complete', 'completed'].includes(status)
+    })
+
+    const scheduledJobs = jobs.filter((j: Record<string, unknown>) => {
+      const status = String(j.work_status || j.status || '')
+      return ['scheduled', 'dispatched', 'in_progress'].includes(status)
+    })
+
+    const upcomingJobs = scheduledJobs.map((j: Record<string, unknown>) => ({
+      date: String(j.scheduled_start || (j.schedule as Record<string, unknown>)?.scheduled_start || ''),
+      service: String(j.line_items?.[0]?.name || 'Service'),
+      price: Number(j.total_amount || 0),
+    }))
+
+    const openEstimates = estimates
+      .filter((e: Record<string, unknown>) => ['draft', 'sent'].includes(String(e.status)))
+      .map((e: Record<string, unknown>) => ({
+        status: String(e.status),
+        amount: Number(e.total_amount || 0),
+        sentAt: e.sent_at ? String(e.sent_at) : null,
+      }))
+
+    // Calculate totals
+    const totalSpent = completedJobs.reduce((sum: number, j: Record<string, unknown>) => sum + Number(j.total_amount || 0), 0)
+
+    // Find last completed job
+    const sortedCompleted = completedJobs.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const dateA = new Date(String(a.updated_at || a.created_at || 0)).getTime()
+      const dateB = new Date(String(b.updated_at || b.created_at || 0)).getTime()
+      return dateB - dateA
+    })
+    const lastJob = sortedCompleted[0]
+    const lastJobDate = lastJob ? new Date(String(lastJob.updated_at || lastJob.created_at)) : null
+
+    // Determine stage
+    let stage: HCPCustomerStage = 'new_lead'
+    let stageDetail = 'No job history in HCP'
+
+    if (scheduledJobs.length > 0) {
+      stage = 'active_plan'
+      stageDetail = `${scheduledJobs.length} scheduled job(s) — next: ${upcomingJobs[0]?.date || 'TBD'}`
+    } else if (openEstimates.length > 0) {
+      stage = 'estimate_pending'
+      stageDetail = `${openEstimates.length} open estimate(s) — $${openEstimates[0]?.amount || 0}`
+    } else if (estimates.some((e: Record<string, unknown>) => e.status === 'declined')) {
+      stage = 'declined'
+      stageDetail = 'Estimate was declined'
+    } else if (lastJobDate && lastJobDate > thirtyDaysAgo) {
+      stage = 'recently_completed'
+      stageDetail = `Last job ${Math.round((now.getTime() - lastJobDate.getTime()) / (24 * 60 * 60 * 1000))} days ago`
+    } else if (lastJobDate && lastJobDate > ninetyDaysAgo) {
+      stage = 'lapsed'
+      stageDetail = `Last job ${Math.round((now.getTime() - lastJobDate.getTime()) / (24 * 60 * 60 * 1000))} days ago`
+    } else if (lastJobDate) {
+      stage = 'dormant'
+      stageDetail = `Last job ${Math.round((now.getTime() - lastJobDate.getTime()) / (24 * 60 * 60 * 1000))} days ago`
+    }
+
+    // Payment history assessment
+    const hasOutstanding = jobs.some((j: Record<string, unknown>) => Number(j.outstanding_balance || 0) > 0)
+    const paymentHistory = hasOutstanding ? 'has outstanding balance' : completedJobs.length > 0 ? 'always pays on time' : 'no payment history'
+
+    // Address
+    const addresses = (customer as Record<string, unknown>)?.addresses as Array<Record<string, unknown>> | undefined
+    const serviceAddr = addresses?.find((a: Record<string, unknown>) => a.type === 'service') || addresses?.[0]
+    const address = serviceAddr
+      ? `${serviceAddr.street || ''}${serviceAddr.city ? `, ${serviceAddr.city}` : ''}${serviceAddr.state ? ` ${serviceAddr.state}` : ''} ${serviceAddr.zip || ''}`.trim()
+      : null
+
+    const customerName = customer
+      ? `${(customer as Record<string, unknown>).first_name || ''} ${(customer as Record<string, unknown>).last_name || ''}`.trim() || null
+      : null
+
+    return {
+      stage,
+      stageDetail,
+      customerName,
+      address,
+      totalJobs: completedJobs.length,
+      totalSpent,
+      lastServiceDate: lastJob ? String(lastJob.updated_at || lastJob.created_at) : null,
+      lastServiceType: lastJob ? String((lastJob.line_items as Array<Record<string, unknown>>)?.[0]?.name || 'Service') : null,
+      lastServicePrice: lastJob ? Number(lastJob.total_amount || 0) : null,
+      upcomingJobs,
+      openEstimates,
+      paymentHistory,
+      notes: customer ? String((customer as Record<string, unknown>).notes || '') || null : null,
+    }
+  } catch (err) {
+    console.error(`[HCP Brain] Failed to load customer brain for ${hcpCustomerId}:`, err)
+    return null
+  }
+}
+
+/**
+ * Quick check: should this customer be retargeted?
+ * Returns false if they're active, have a pending estimate, or were recently serviced.
+ */
+export function shouldRetargetCustomer(brain: HCPCustomerBrain): boolean {
+  return !['active_plan', 'estimate_pending', 'recently_completed'].includes(brain.stage)
+}
+
+/**
+ * Format HCP brain data as a prompt section for the AI.
+ */
+export function formatHCPBrainForPrompt(brain: HCPCustomerBrain): string {
+  const lines: string[] = ['CUSTOMER BRAIN (from HousecallPro):']
+
+  if (brain.customerName) lines.push(`Name: ${brain.customerName}`)
+  if (brain.address) lines.push(`Address on file: ${brain.address}`)
+
+  lines.push(`Stage: ${brain.stage} (${brain.stageDetail})`)
+
+  if (brain.totalJobs > 0) {
+    lines.push(`History: ${brain.totalJobs} completed job${brain.totalJobs > 1 ? 's' : ''}, $${brain.totalSpent} total`)
+  }
+  if (brain.lastServiceDate) {
+    const daysAgo = Math.round((Date.now() - new Date(brain.lastServiceDate).getTime()) / (24 * 60 * 60 * 1000))
+    lines.push(`Last service: ${brain.lastServiceType} ($${brain.lastServicePrice}) — ${daysAgo} days ago`)
+  }
+  if (brain.upcomingJobs.length > 0) {
+    lines.push(`Upcoming: ${brain.upcomingJobs.map(j => `${j.service} on ${j.date}`).join(', ')}`)
+  }
+  if (brain.openEstimates.length > 0) {
+    lines.push(`Open estimates: ${brain.openEstimates.map(e => `$${e.amount} (${e.status})`).join(', ')}`)
+  }
+  lines.push(`Payment: ${brain.paymentHistory}`)
+  if (brain.notes) lines.push(`Notes: ${brain.notes}`)
+
+  // Stage-based guidance for the AI
+  switch (brain.stage) {
+    case 'active_plan':
+      lines.push('\n→ This customer is ALREADY BOOKED. Do NOT try to sell them. Just be helpful with their existing service.')
+      break
+    case 'estimate_pending':
+      lines.push('\n→ They have an open estimate. Ask if they had a chance to review it. Gently follow up.')
+      break
+    case 'recently_completed':
+      lines.push('\n→ Recently serviced. Be warm, ask how everything went. Don\'t push a new booking yet.')
+      break
+    case 'lapsed':
+      lines.push('\n→ Haven\'t booked in a while. Be warm, casually reference their last service. They might be ready to rebook.')
+      break
+    case 'dormant':
+      lines.push('\n→ Long time since last service. Re-engage warmly. They may need a reminder of how great it was.')
+      break
+    case 'declined':
+      lines.push('\n→ They declined an estimate. Be respectful, ask if circumstances changed. No hard sell.')
+      break
+  }
+
+  return lines.join('\n')
+}

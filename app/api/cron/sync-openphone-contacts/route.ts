@@ -12,14 +12,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getAllActiveTenants } from '@/lib/tenant'
 import { syncContactToOpenPhone } from '@/lib/openphone'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 
 export const maxDuration = 120
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   const supabase = getSupabaseServiceClient()

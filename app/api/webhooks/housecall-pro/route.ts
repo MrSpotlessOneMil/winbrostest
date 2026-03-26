@@ -68,9 +68,9 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      // No signature header — fall back to first HCP tenant (dev/unconfigured environments)
-      console.warn("[OSIRIS] HCP Webhook: No signature header, falling back to first HCP tenant")
-      tenant = hcpTenants[0] || null
+      // No signature header — reject unauthenticated requests
+      console.error("[OSIRIS] HCP Webhook: Missing signature header — rejecting")
+      return NextResponse.json({ success: false, error: "Missing signature" }, { status: 401 })
     }
 
     if (!tenant) {
@@ -303,7 +303,7 @@ export async function POST(request: NextRequest) {
 
           // Dedup: check if we already have this HCP job mirrored
           const { data: existingHcpJob } = hcpJobId
-            ? await client.from("jobs").select("id").eq("housecall_pro_job_id", String(hcpJobId)).maybeSingle()
+            ? await client.from("jobs").select("id").eq("housecall_pro_job_id", String(hcpJobId)).eq("tenant_id", tenant.id).maybeSingle()
             : { data: null }
           if (existingHcpJob) {
             console.log(`[OSIRIS] HCP Webhook: Job ${hcpJobId} already exists in OSIRIS (id: ${existingHcpJob.id}), skipping duplicate`)
@@ -405,6 +405,7 @@ export async function POST(request: NextRequest) {
               .from("jobs")
               .select("id, status")
               .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant.id)
               .maybeSingle()
 
             if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
@@ -466,6 +467,7 @@ export async function POST(request: NextRequest) {
               .from("jobs")
               .select("id, status, phone_number")
               .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant.id)
               .maybeSingle()
 
             if (localJob && !['completed', 'cancelled'].includes(localJob.status)) {
@@ -522,6 +524,7 @@ export async function POST(request: NextRequest) {
               .from("jobs")
               .select("id, status, paid")
               .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant.id)
               .maybeSingle()
 
             if (localJob && !['completed', 'cancelled'].includes(localJob.status) && !localJob.paid) {
@@ -598,6 +601,7 @@ export async function POST(request: NextRequest) {
               .from("jobs")
               .select("id, customer_id, phone_number, address, service_type, price, date, notes, team_id, job_type, tenant_id")
               .eq("housecall_pro_job_id", String(hcpJobId))
+              .eq("tenant_id", tenant.id)
               .maybeSingle()
 
             if (localJob) {

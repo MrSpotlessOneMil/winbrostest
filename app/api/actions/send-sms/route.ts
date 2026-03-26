@@ -36,8 +36,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const body = await request.json()
-    const { to, message } = body
+    let to: string | undefined
+    let message: string | undefined
+    try {
+      const body = await request.json()
+      ;({ to, message } = body)
+    } catch {
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
 
     if (!to) {
       return NextResponse.json(

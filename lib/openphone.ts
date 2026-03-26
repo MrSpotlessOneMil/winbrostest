@@ -95,6 +95,7 @@ export async function sendSMS(
       .from('messages')
       .select('id')
       .eq('phone_number', toE164Format)
+      .eq('tenant_id', tenant.id)
       .eq('direction', 'outbound')
       .eq('content', message)
       .gte('created_at', fiveMinsAgo)
@@ -117,6 +118,7 @@ export async function sendSMS(
       .from('messages')
       .select('id', { count: 'exact', head: true })
       .eq('phone_number', toE164Format)
+      .eq('tenant_id', tenant.id)
       .eq('direction', 'outbound')
       .gte('created_at', twentyFourHoursAgo)
 
@@ -235,7 +237,8 @@ export const SMS_TEMPLATES = {
     const nextStep = isEstimate
       ? `just reply to confirm and I'll get you scheduled`
       : `just reply to confirm and I'll send over your quote`
-    let msg = `Hi ${name}! Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If everything looks good, ${nextStep}!`
+    const greeting = name ? `Hi ${name}!` : `Hey!`
+    let msg = `${greeting} Just confirming: ${displayLabel} on ${dateTime} at ${address}.\n\nIf anything looks off, just text me. If everything looks good, ${nextStep}!`
     if (offerApplied) {
       msg += `\n\n🎉 Your FREE standard cleaning has been applied to this booking!`
     }
@@ -303,10 +306,10 @@ export async function validateOpenPhoneWebhook(
     console.warn('[OpenPhone] Could not fetch tenant webhook secrets:', err)
   }
 
-  // If no secrets configured anywhere, skip validation
+  // If no secrets configured anywhere, reject — fail closed
   if (secretsToTry.length === 0) {
-    console.warn('No OpenPhone webhook secrets configured - skipping validation')
-    return true
+    console.error('[OpenPhone] No webhook secrets configured — rejecting unsigned request')
+    return false
   }
 
   const candidateSignatures = extractSignatureCandidates(signature)

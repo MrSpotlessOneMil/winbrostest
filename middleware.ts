@@ -37,7 +37,6 @@ const externalRoutes = [
   '/api/cron/',
   '/api/vapi/',
   '/api/automation/',
-  '/api/demo/seed',
   '/api/marketing/',
 ]
 

@@ -1019,6 +1019,17 @@ export async function POST(request: NextRequest) {
 
   // Per-customer auto-response kill switch (with auto-unpause after 2 hours of no manual activity)
   if (customer?.auto_response_paused === true) {
+    // If customer is replying to a retargeting sequence, auto-unpause immediately
+    // so the bot can respond — retargeting is automated, not a human conversation
+    if (customer.retargeting_sequence && !customer.retargeting_stopped_reason) {
+      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — replying to retargeting sequence, bot should handle`)
+      await client.from("customers").update({
+        auto_response_paused: false,
+        manual_takeover_at: null,
+        retargeting_replied_at: new Date().toISOString(),
+      }).eq("id", customer.id)
+      // Fall through to normal AI response flow below
+    } else {
     // Check if the last manual outbound was more than 2 hours ago - if so, auto-unpause
     // This prevents customers from being permanently stuck in paused state
     const AUTO_UNPAUSE_MS = 2 * 60 * 60 * 1000 // 2 hours
@@ -1074,6 +1085,7 @@ export async function POST(request: NextRequest) {
       }
       // Fall through to normal processing - customer will get an AI response
     }
+    } // close retargeting else block
   }
 
   // Dedup: prefer message ID match, fall back to content match with extended window
@@ -2698,6 +2710,18 @@ export async function POST(request: NextRequest) {
             // Sync customer name to DB + OpenPhone as soon as we have it
             if (tenant) await syncCustomerNameIfAvailable(client, tenant, customer, conversationHistory)
 
+            // Extract and store memory facts from this conversation (fire-and-forget)
+            if (tenant && customer?.id) {
+              const recentMsgs = [
+                ...conversationHistory.slice(-6),
+                { role: 'client' as const, content: combinedMessage },
+                { role: 'assistant' as const, content: autoResponse.response || '' },
+              ]
+              import('@/lib/assistant-memory').then(mem =>
+                mem.extractAndStoreFacts(tenant.id, customer.id, '', recentMsgs)
+              ).catch(err => console.warn('[Memory] Fact extraction failed:', err))
+            }
+
             if (!sendResult.success) {
               console.error(`[OpenPhone] Failed to send auto-response to existing lead`)
               // Schedule a retry in 60 seconds
@@ -2810,9 +2834,9 @@ export async function POST(request: NextRequest) {
               }
             }
           }
-          const bookingEmail = detectedEmail || fallbackEmail
+          const bookingEmail = detectedEmail || fallbackEmail || null
 
-          if (bookingEmail && autoResponse.bookingComplete) {
+          if (autoResponse.bookingComplete) {
             // DEDUP GUARD: Check if payment links were already sent for this phone
             // This prevents duplicate Stripe links from race conditions or re-triggered bookings
             const { data: alreadySentPayment } = await client
@@ -2833,14 +2857,16 @@ export async function POST(request: NextRequest) {
               })
             }
 
-            console.log(`[OpenPhone] SMS booking completion: email=${maskEmail(bookingEmail)} (source: ${detectedEmail ? 'message' : 'fallback'}) for lead ${existingLead.id}`)
+            console.log(`[OpenPhone] SMS booking completion: email=${bookingEmail ? maskEmail(bookingEmail) : 'none'} (source: ${detectedEmail ? 'message' : bookingEmail ? 'fallback' : 'none'}) for lead ${existingLead.id}`)
 
             try {
-              // Save email to customer
-              await client
-                .from("customers")
-                .update({ email: bookingEmail })
-                .eq("id", customer.id)
+              // Save email to customer (if we have one)
+              if (bookingEmail) {
+                await client
+                  .from("customers")
+                  .update({ email: bookingEmail })
+                  .eq("id", customer.id)
+              }
 
               // Extract all booking data from conversation
               // Use the right extractor based on tenant type

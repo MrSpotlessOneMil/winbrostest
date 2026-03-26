@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { verifyCronAuth, unauthorizedResponse } from "@/lib/cron-auth"
 import { sendSMS } from "@/lib/openphone"
 import { triggerVAPIOutboundCall } from "@/integrations/ghl/follow-up-scheduler"
 import { leadFollowupInitial, leadFollowupSecond, paymentLink } from "@/lib/sms-templates"
@@ -30,13 +31,9 @@ interface LeadFollowupPayload {
  */
 export async function POST(request: NextRequest) {
   // 1. Verify internal cron authorization
-  const authHeader = request.headers.get("authorization")
-  const cronSecret = process.env.CRON_SECRET
-
-  // Allow calls from cron job or internal services
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!verifyCronAuth(request)) {
     console.error("[lead-followup] Unauthorized request")
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   const body = await request.text()

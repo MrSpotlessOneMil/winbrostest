@@ -12,7 +12,13 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const { quote_id } = await request.json()
+  let quote_id: string
+  try {
+    const body = await request.json()
+    quote_id = body.quote_id
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
 
   if (!quote_id) {
     return NextResponse.json({ error: "quote_id is required" }, { status: 400 })

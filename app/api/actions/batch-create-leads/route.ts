@@ -27,7 +27,13 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const { leads } = await request.json()
+  let leads: BatchLead[]
+  try {
+    const body = await request.json()
+    leads = body.leads
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
 
   if (!Array.isArray(leads) || leads.length === 0) {
     return NextResponse.json({ error: "Leads array is required" }, { status: 400 })

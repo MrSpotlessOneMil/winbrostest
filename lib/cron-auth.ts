@@ -16,22 +16,21 @@ import { NextRequest } from 'next/server'
 export function verifyCronAuth(request: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET
 
-  // Check Authorization header (Vercel Cron and manual triggers)
-  const authHeader = request.headers.get('authorization')
-  if (authHeader === `Bearer ${cronSecret}`) {
-    return true
-  }
-
-  // Check x-vercel-cron header (Vercel Cron sends this in production)
-  // In production, Vercel automatically authenticates cron jobs
-  const vercelCronHeader = request.headers.get('x-vercel-cron')
-  if (vercelCronHeader && process.env.VERCEL_ENV === 'production') {
-    return true
-  }
-
   // In development without CRON_SECRET, allow all requests
   if (!cronSecret && process.env.NODE_ENV !== 'production') {
     console.warn('[cron-auth] No CRON_SECRET configured, allowing request in development')
+    return true
+  }
+
+  // Require CRON_SECRET in production — x-vercel-cron header is spoofable and must not be trusted
+  if (!cronSecret) {
+    console.error('[cron-auth] CRON_SECRET not configured in production — rejecting')
+    return false
+  }
+
+  // Check Authorization header (Vercel Cron and manual triggers)
+  const authHeader = request.headers.get('authorization')
+  if (authHeader === `Bearer ${cronSecret}`) {
     return true
   }
 

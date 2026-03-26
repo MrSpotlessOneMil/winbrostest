@@ -21,6 +21,11 @@ export async function canSendToCustomer(
   cooldownHours: number = 24,
   tenantId?: string
 ): Promise<boolean> {
+  if (!tenantId) {
+    console.error(`[lifecycle] canSendToCustomer called without tenantId for customer ${customerId} — rejecting to prevent cross-tenant leak`)
+    return false
+  }
+
   const client = getSupabaseServiceClient()
 
   // Phase-specific cooldown (tenant-scoped)
@@ -31,7 +36,7 @@ export async function canSendToCustomer(
     .eq('customer_id', customerId)
     .eq('lifecycle_phase', phase)
     .gte('sent_at', cooldownCutoff)
-  if (tenantId) phaseQuery = phaseQuery.eq('tenant_id', tenantId)
+  phaseQuery = phaseQuery.eq('tenant_id', tenantId)
 
   const { count: phaseCount } = await phaseQuery
 
@@ -47,7 +52,7 @@ export async function canSendToCustomer(
     .select('id', { count: 'exact', head: true })
     .eq('customer_id', customerId)
     .gte('sent_at', dailyCutoff)
-  if (tenantId) dailyQuery = dailyQuery.eq('tenant_id', tenantId)
+  dailyQuery = dailyQuery.eq('tenant_id', tenantId)
 
   const { count: dailyCount } = await dailyQuery
 

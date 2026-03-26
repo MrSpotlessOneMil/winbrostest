@@ -22,25 +22,19 @@ describe('SMS templates', () => {
       const msg = postJobFollowup(
         'Jane',
         'Alice Cleaner',
-        'https://g.page/cedar-rapids-review',
-        'https://hookandladderexteriors.com/tip/job-001',
-        '15%'
+        'https://g.page/cedar-rapids-review'
       )
 
       expect(msg).toContain('Jane')
       expect(msg).toContain('Alice Cleaner')
       expect(msg).toContain('https://g.page/cedar-rapids-review')
-      expect(msg).toContain('https://hookandladderexteriors.com/tip/job-001')
-      expect(msg).toContain('15%')
     })
 
     it('does NOT contain WinBros or Spotless Scrubbers references', () => {
       const msg = postJobFollowup(
         'Jane',
         'Alice',
-        'https://g.page/test',
-        'https://hookandladderexteriors.com/tip/123',
-        '15%'
+        'https://g.page/test'
       )
 
       expect(msg.toLowerCase()).not.toContain('winbros')
@@ -62,14 +56,12 @@ describe('SMS templates', () => {
       const msg = cleanerAssigned(
         'Jane',
         'Alice Cleaner',
-        '+13195550010',
         'March 1, 2026',
         '10:00 AM'
       )
 
       expect(msg).toContain('Jane')
       expect(msg).toContain('Alice Cleaner')
-      expect(msg).toContain('+13195550010')
       expect(msg).toContain('March 1')
       expect(msg).toContain('10:00')
     })

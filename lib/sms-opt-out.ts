@@ -67,7 +67,8 @@ Answer with only "yes" or "no":`,
 
     clearTimeout(timeout)
 
-    const answer = (response.content[0] as { type: string; text: string }).text
+    const block = response.content[0]
+    const answer = (block && 'text' in block ? block.text : 'no')
       .trim()
       .toLowerCase()
 

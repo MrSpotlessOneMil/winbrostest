@@ -95,6 +95,7 @@ export async function POST(request: NextRequest) {
       .from('cleaner_assignments')
       .select('id')
       .eq('job_id', Number(jobId))
+      .eq('tenant_id', tenant.id)
       .in('status', ['cancelled', 'declined'])
 
     if (staleAssignments && staleAssignments.length > 0) {

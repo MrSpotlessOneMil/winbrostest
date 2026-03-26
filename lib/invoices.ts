@@ -60,11 +60,13 @@ export async function createInvoice(
 
   // Wave invoicing — prefer tenant-specific credentials, fall back to env vars
   const waveConfig = tenant?.wave_api_token
-    ? {
-        token: tenant.wave_api_token.replace(/[\r\n]/g, '').trim().replace(/^Bearer\s+/i, ''),
-        businessId: tenant.wave_business_id!,
-        incomeAccountId: tenant.wave_income_account_id!,
-      }
+    ? (tenant.wave_business_id && tenant.wave_income_account_id
+      ? {
+          token: tenant.wave_api_token.replace(/[\r\n]/g, '').trim().replace(/^Bearer\s+/i, ''),
+          businessId: tenant.wave_business_id,
+          incomeAccountId: tenant.wave_income_account_id,
+        }
+      : null)
     : getWaveConfig()
 
   if (!waveConfig) {

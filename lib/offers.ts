@@ -219,16 +219,16 @@ export async function checkFirstTimeCustomer(
   tenantId: string,
   customerIdOrPhone: number | string
 ): Promise<boolean> {
-  const query = client
+  let query = client
     .from('jobs')
     .select('id', { count: 'exact', head: true })
     .eq('tenant_id', tenantId)
     .eq('status', 'completed')
 
   if (typeof customerIdOrPhone === 'string') {
-    query.eq('phone_number', customerIdOrPhone)
+    query = query.eq('phone_number', customerIdOrPhone)
   } else {
-    query.eq('customer_id', customerIdOrPhone)
+    query = query.eq('customer_id', customerIdOrPhone)
   }
 
   const { count } = await query

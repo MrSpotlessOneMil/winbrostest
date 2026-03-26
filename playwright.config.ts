@@ -17,6 +17,11 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'security',
+      testMatch: /.*security\.spec\.ts|.*cron-security\.spec\.ts|.*admin-security\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'setup',
       testMatch: /auth\.setup\.ts/,
     },

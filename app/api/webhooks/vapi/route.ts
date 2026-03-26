@@ -24,5 +24,5 @@ export async function POST(request: NextRequest) {
   }
 
   // Default route uses the default tenant (winbros)
-  return handleVapiWebhook(payload, null)
+  return handleVapiWebhook(payload, 'winbros')
 }

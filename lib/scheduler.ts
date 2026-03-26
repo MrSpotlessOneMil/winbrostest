@@ -32,6 +32,7 @@ export type TaskType =
   | 'monthly_reengagement'
   | 'manual_call'
   | 'send_sms'
+  | 'hot_lead_followup'
 
 export interface ScheduledTask {
   id: string

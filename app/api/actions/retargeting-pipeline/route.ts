@@ -58,10 +58,17 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const { segment, customer_ids } = await request.json()
+  let segment: string
+  let customer_ids: string[] | undefined
+  try {
+    const body = await request.json()
+    ;({ segment, customer_ids } = body)
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
 
   const validSequences: RetargetingSequenceType[] = ["unresponsive", "quoted_not_booked", "one_time", "lapsed", "new_lead", "repeat", "active", "lost"]
-  if (!validSequences.includes(segment)) {
+  if (!validSequences.includes(segment as RetargetingSequenceType)) {
     return NextResponse.json({ error: `Invalid segment. Must be one of: ${validSequences.join(", ")}` }, { status: 400 })
   }
 
@@ -78,7 +85,7 @@ export async function POST(request: NextRequest) {
   // Get customers to enroll — either specific IDs or all in this lifecycle stage
   let query = supabase
     .from("customers")
-    .select("id, phone_number, first_name, last_name")
+    .select("id, phone_number, first_name, last_name, housecall_pro_customer_id")
     .eq("tenant_id", tenant.id)
     .is("retargeting_sequence", null) // Not already in a sequence
 
@@ -110,6 +117,21 @@ export async function POST(request: NextRequest) {
     if (cleanerPhoneSet.has(c.phone_number)) {
       errors.push(`Skipped ${c.first_name || "unknown"}: is a cleaner`)
       continue
+    }
+
+    // Skip customers with active HCP jobs/estimates (WinBros HCP integration)
+    if (tenant.housecall_pro_api_key && (c as Record<string, unknown>).housecall_pro_customer_id) {
+      try {
+        const { getCustomerHCPBrain, shouldRetargetCustomer } = await import("@/lib/housecall-pro-api")
+        const brain = await getCustomerHCPBrain(tenant, String((c as Record<string, unknown>).housecall_pro_customer_id))
+        if (brain && !shouldRetargetCustomer(brain)) {
+          errors.push(`Skipped ${c.first_name || "unknown"}: HCP stage is ${brain.stage} (${brain.stageDetail})`)
+          continue
+        }
+      } catch (hcpErr) {
+        console.warn(`[retargeting] HCP stage check failed for customer ${c.id}:`, hcpErr)
+        // Continue with retargeting if HCP check fails — don't block on it
+      }
     }
 
     const name = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "there"

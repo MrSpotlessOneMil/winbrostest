@@ -35,9 +35,9 @@ export async function GET(request: NextRequest) {
   const results: Array<{ tenant: string; campaign: string; sent: number; errors: number }> = []
 
   for (const tenant of tenants) {
-    if (!tenant.workflow_config.seasonal_reminders_enabled) continue
+    if (!tenant.workflow_config?.seasonal_reminders_enabled) continue
 
-    const campaigns = tenant.workflow_config.seasonal_campaigns || []
+    const campaigns = tenant.workflow_config?.seasonal_campaigns || []
     const activeCampaigns = campaigns.filter(
       (c: SeasonalCampaign) => c.enabled && c.start_date <= today && c.end_date >= today
     )

@@ -25,9 +25,15 @@ export async function POST(request: NextRequest) {
       winbrosSecret = data?.stripe_webhook_secret || undefined
     } catch (err) {
       console.error('[Stripe/WinBros] Failed to fetch tenant webhook secret:', err)
+      return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
     }
 
-    const event = validateStripeWebhook(payload, signature, winbrosSecret)
+    if (!winbrosSecret) {
+      console.error('[Stripe/WinBros] No webhook secret configured for WinBros tenant')
+      return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
+    }
+
+    const event = validateStripeWebhook(payload, signature, [winbrosSecret])
 
     if (!event) {
       console.error('[Stripe/WinBros] Invalid webhook signature')

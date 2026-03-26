@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     })
       .eq('id', job.id)
+      .eq('tenant_id', tenant.id)
       .is('date', null)
       .select('id')
       .maybeSingle()

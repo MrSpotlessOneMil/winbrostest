@@ -74,7 +74,8 @@ export async function POST(request: NextRequest) {
       )
     }
   } else {
-    console.warn("[OSIRIS] GHL Webhook: No webhook secret configured, skipping signature validation")
+    console.error("[OSIRIS] GHL Webhook: No webhook secret configured — rejecting")
+    return NextResponse.json({ success: false, error: "Webhook secret not configured" }, { status: 500 })
   }
 
   let payload: any

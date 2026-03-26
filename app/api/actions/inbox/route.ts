@@ -273,6 +273,7 @@ export async function POST(request: NextRequest) {
           manual_takeover_at: new Date().toISOString(),
         })
         .eq('id', customerId)
+        .eq('tenant_id', tenant.id)
 
       // Cancel retargeting tasks
       await client
@@ -318,6 +319,7 @@ export async function POST(request: NextRequest) {
           manual_takeover_at: null,
         })
         .eq('id', customerId)
+        .eq('tenant_id', tenant.id)
 
       // Unpause lead follow-ups
       const { data: pausedLead } = await client
@@ -356,6 +358,7 @@ export async function POST(request: NextRequest) {
           manual_takeover_at: null,
         })
         .eq('id', customerId)
+        .eq('tenant_id', tenant.id)
 
       return NextResponse.json({ success: true, action: 'resolve' })
     }

@@ -101,12 +101,15 @@ export async function POST(request: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { tenant } = auth
 
-  const body = await request.json()
-  const { action, parent_job_id, job_id, frequency } = body as {
-    action: RecurringAction
-    parent_job_id?: number
-    job_id?: number
-    frequency?: string
+  let action: RecurringAction
+  let parent_job_id: number | undefined
+  let job_id: number | undefined
+  let frequency: string | undefined
+  try {
+    const body = await request.json()
+    ;({ action, parent_job_id, job_id, frequency } = body)
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
   if (!action) {

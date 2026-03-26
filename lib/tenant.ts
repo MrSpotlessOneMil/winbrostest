@@ -12,6 +12,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js"
+import { createHmac, timingSafeEqual } from "crypto"
 
 // Use service role for tenant lookups (bypasses RLS)
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -82,6 +83,7 @@ export interface WorkflowConfig {
   use_payment_collection?: boolean   // Stripe deposit + full payment collection flow
   use_assistant_memory?: boolean     // OpenClaw-style memory system for dashboard assistant
   use_blog_generation?: boolean      // Weekly AI-generated SEO blog posts
+  use_thumbtack?: boolean            // Thumbtack Partner API lead ingestion
 
   // Card-on-file auto-charge (replaces deposit flow for cleaning tenants)
   use_card_on_file?: boolean         // Save card at booking, charge on completion (no upfront deposit)
@@ -164,6 +166,14 @@ export interface Tenant {
   stripe_webhook_error_at: string | null
   openphone_webhook_error: string | null
   openphone_webhook_error_at: string | null
+
+  // Thumbtack Partner API
+  thumbtack_access_token: string | null
+  thumbtack_refresh_token: string | null
+  thumbtack_token_expires_at: string | null
+  thumbtack_business_id: string | null
+  thumbtack_user_id: string | null
+  thumbtack_webhook_id: string | null
 
   // Gmail credentials (per-tenant email bot)
   gmail_user: string | null
@@ -375,7 +385,7 @@ export async function listTenants(): Promise<TenantSummary[]> {
  */
 export function tenantHasIntegration(
   tenant: Tenant,
-  integration: "housecall_pro" | "vapi" | "ghl" | "stripe" | "wave"
+  integration: "housecall_pro" | "vapi" | "ghl" | "stripe" | "wave" | "thumbtack"
 ): boolean {
   const config = tenant.workflow_config
 
@@ -390,6 +400,8 @@ export function tenantHasIntegration(
       return config.use_stripe && !!tenant.stripe_secret_key
     case "wave":
       return config.use_wave && !!tenant.wave_api_token
+    case "thumbtack":
+      return !!tenant.thumbtack_access_token && !!tenant.thumbtack_business_id
     default:
       return false
   }
@@ -419,6 +431,7 @@ export function tenantUsesFeature(
     | 'require_deposit'
     | 'use_assistant_memory'
     | 'use_blog_generation'
+    | 'use_thumbtack'
     | 'use_card_on_file'
   >
 ): boolean {
@@ -633,13 +646,9 @@ export function verifyTenantWebhookSignature(
   }
 
   if (!secret) {
-    // No secret configured, skip validation (with warning)
-    console.warn(`[Tenant] No ${webhookType} webhook secret configured for ${tenant.slug}`)
-    return true
+    console.error(`[Tenant] No ${webhookType} webhook secret configured for ${tenant.slug} — rejecting`)
+    return false
   }
-
-  // Import crypto for HMAC
-  const { createHmac, timingSafeEqual } = require("crypto")
 
   const expectedSignature = createHmac("sha256", secret)
     .update(payload)

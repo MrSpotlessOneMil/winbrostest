@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     .from('cleaners')
     .update({ credentials_sent_at: new Date().toISOString() })
     .eq('id', cleanerId)
+    .eq('tenant_id', tenant.id)
 
   return NextResponse.json({ success: true })
 }

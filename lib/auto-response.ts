@@ -100,7 +100,7 @@ export async function loadCustomerContext(
       .from("jobs")
       .select("id, service_type, date, scheduled_at, price, status, address, cleaner_id, cleaners(name)")
       .eq("tenant_id", tenantId)
-      .or(`phone_number.eq.${phone},customer_phone.eq.${phone}${customerId ? `,customer_id.eq.${customerId}` : ''}`)
+      .or(phone ? `phone_number.eq.${phone},customer_phone.eq.${phone}${customerId ? `,customer_id.eq.${customerId}` : ''}` : `customer_id.eq.${customerId || 0}`)
       .in("status", ["scheduled", "in_progress"])
       .order("scheduled_at", { ascending: true })
       .limit(5),
@@ -669,8 +669,38 @@ async function generateWinBrosResponse(
   const systemPrompt = buildWinBrosEstimatePrompt()
 
   const historyContext = conversationHistory?.length
-    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
+    ? conversationHistory.slice(-50).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
+
+  // ── HCP Customer Brain ──
+  // Pull all HCP data to give the AI full context about this customer
+  let hcpBrainBlock = ''
+  if (tenant.housecall_pro_api_key && customerContext?.customer?.housecall_pro_customer_id) {
+    try {
+      const { getCustomerHCPBrain, formatHCPBrainForPrompt } = await import('./housecall-pro-api')
+      const brain = await getCustomerHCPBrain(tenant, String(customerContext.customer.housecall_pro_customer_id))
+      if (brain) {
+        hcpBrainBlock = '\n\n' + formatHCPBrainForPrompt(brain)
+      }
+    } catch (err) {
+      console.warn(`[WinBros AI] HCP brain load failed:`, err)
+    }
+  }
+
+  // ── Assistant Memory ──
+  // Load remembered facts from past conversations
+  let memoryBlock = ''
+  if (customerContext?.customer?.id) {
+    try {
+      const { buildMemoryContext } = await import('./assistant-memory')
+      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id)
+      if (memCtx) {
+        memoryBlock = '\n\n' + memCtx
+      }
+    } catch (err) {
+      console.warn(`[WinBros AI] Memory load failed:`, err)
+    }
+  }
 
   // Build known info context so the AI can confirm rather than re-ask
   let knownInfoBlock = ''
@@ -713,7 +743,41 @@ async function generateWinBrosResponse(
   }).format(now)
   const today = `${dateStr} (current time: ${timeStr})`
 
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
+  // AI learning: frustration detection + winning pattern injection
+  let winbrosLearningBlock = ''
+  try {
+    const { detectFrustration, findSimilarWinningConversations } = await import('./conversation-scoring')
+
+    if (conversationHistory?.length) {
+      const frustration = detectFrustration(
+        conversationHistory.map(m => ({ role: m.role === 'client' ? 'client' : 'assistant', content: m.content })),
+        message
+      )
+      if (frustration.frustrated) {
+        winbrosLearningBlock += `\n\nWARNING: Customer seems frustrated (signals: ${frustration.signals.join(', ')}). Give a DIRECT answer. Don't ask more questions. If they want a price, give one NOW.\n`
+      }
+    }
+
+    const patterns = await findSimilarWinningConversations(tenant.id, message, 3)
+    if (patterns.length > 0) {
+      winbrosLearningBlock += '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
+      for (const p of patterns) {
+        winbrosLearningBlock += `- ${p.conversation_summary}`
+        if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
+          const tactics = (p.patterns as { winning_tactics?: string[] }).winning_tactics
+          if (tactics?.length) {
+            winbrosLearningBlock += ` (what worked: ${tactics.join(', ')})`
+          }
+        }
+        winbrosLearningBlock += '\n'
+      }
+      winbrosLearningBlock += 'Use these patterns to guide your tone and approach.\n'
+    }
+  } catch (learningErr) {
+    console.warn('[WinBros AI] Learning injection failed (non-blocking):', learningErr)
+  }
+
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}${hcpBrainBlock}${memoryBlock}${winbrosLearningBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and tags like [SCHEDULE_READY] or [BOOKING_COMPLETE] if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -1237,8 +1301,58 @@ async function generateHouseCleaningResponse(
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length
-    ? conversationHistory.slice(-30).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
+    ? conversationHistory.slice(-50).map(m => `${m.role === 'client' ? 'Customer' : sdrName}: ${m.content}`).join('\n')
     : '(No prior messages — this is a new conversation.)'
+
+  // ── Osiris Customer Brain ──
+  // Pull full customer history from Osiris DB for personalized responses
+  let customerBrainBlock = ''
+  if (customerContext?.customer?.id) {
+    try {
+      const brainParts: string[] = ['CUSTOMER BRAIN:']
+      const cust = customerContext.customer
+      if (cust.first_name) brainParts.push(`Name: ${cust.first_name} ${cust.last_name || ''}`.trim())
+      if (cust.address) brainParts.push(`Address: ${cust.address}`)
+      if (cust.email) brainParts.push(`Email: ${cust.email}`)
+
+      if (customerContext.totalJobs > 0) {
+        brainParts.push(`History: ${customerContext.totalJobs} completed job${customerContext.totalJobs > 1 ? 's' : ''}, $${customerContext.totalSpend} total`)
+        if (customerContext.recentJobs?.length > 0) {
+          const lastJob = customerContext.recentJobs[0]
+          const jobDate = lastJob.date || lastJob.completed_at
+          const daysAgo = jobDate ? Math.round((Date.now() - new Date(jobDate).getTime()) / (24 * 60 * 60 * 1000)) : null
+          brainParts.push(`Last service: ${(lastJob.service_type || 'cleaning').replace(/_/g, ' ')} ($${lastJob.price || 0})${daysAgo ? ` — ${daysAgo} days ago` : ''}`)
+        }
+      }
+
+      if (customerContext.activeJobs?.length > 0) {
+        brainParts.push(`\n→ ALREADY BOOKED. Don't re-sell. Just help with their upcoming service.`)
+      } else if (customerContext.totalJobs > 0) {
+        brainParts.push(`\n→ Returning customer. Be warm, reference their past experience. Make rebooking easy.`)
+      } else {
+        brainParts.push(`\n→ New customer. Be friendly and helpful. Don't assume anything about them.`)
+      }
+
+      customerBrainBlock = '\n\n' + brainParts.join('\n')
+    } catch (err) {
+      console.warn(`[HC AI] Customer brain build failed:`, err)
+    }
+  }
+
+  // ── Assistant Memory ──
+  // Load remembered facts from past conversations
+  let memoryBlock = ''
+  if (customerContext?.customer?.id) {
+    try {
+      const { buildMemoryContext } = await import('./assistant-memory')
+      const memCtx = await buildMemoryContext(tenant.id, customerContext.customer.id)
+      if (memCtx) {
+        memoryBlock = '\n\n' + memCtx
+      }
+    } catch (err) {
+      console.warn(`[HC AI] Memory load failed:`, err)
+    }
+  }
 
   // Build known info context so the AI can confirm rather than re-ask
   let knownInfoBlock = ''
@@ -1281,7 +1395,45 @@ async function generateHouseCleaningResponse(
   }).format(hcNow)
   const today = `${hcDateStr} (current time: ${hcTimeStr})`
 
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  // AI learning: frustration detection + winning pattern injection (all tenants)
+  let aiLearningBlock = ''
+  {
+    try {
+      const { detectFrustration, findSimilarWinningConversations } = await import('./conversation-scoring')
+
+      // Frustration detection
+      if (conversationHistory?.length) {
+        const frustration = detectFrustration(
+          conversationHistory.map(m => ({ role: m.role === 'client' ? 'client' : 'assistant', content: m.content })),
+          message
+        )
+        if (frustration.frustrated) {
+          aiLearningBlock += `\n\nWARNING: Customer seems frustrated (signals: ${frustration.signals.join(', ')}). Give a DIRECT answer. Don't ask more questions. If they want a price, give one NOW.\n`
+        }
+      }
+
+      // Inject winning patterns from similar past conversations
+      const patterns = await findSimilarWinningConversations(tenant.id, message, 3)
+      if (patterns.length > 0) {
+        aiLearningBlock += '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
+        for (const p of patterns) {
+          aiLearningBlock += `- ${p.conversation_summary}`
+          if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
+            const tactics = (p.patterns as { winning_tactics?: string[] }).winning_tactics
+            if (tactics?.length) {
+              aiLearningBlock += ` (what worked: ${tactics.join(', ')})`
+            }
+          }
+          aiLearningBlock += '\n'
+        }
+        aiLearningBlock += 'Use these patterns to guide your tone and approach.\n'
+      }
+    } catch (learningErr) {
+      console.error('[Auto-Response] AI learning injection failed (non-blocking):', learningErr)
+    }
+  }
+
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${aiLearningBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {

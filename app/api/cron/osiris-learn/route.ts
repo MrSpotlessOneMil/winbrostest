@@ -12,19 +12,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAllActiveTenants } from '@/lib/tenant'
 import { scoreAllCustomers } from '@/lib/osiris-brain'
 import { logSystemEvent } from '@/lib/system-events'
+import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 
 // route-check:no-vercel-cron
 
-function verifyCronAuth(request: NextRequest): boolean {
-  const authHeader = request.headers.get('authorization')
-  const cronSecret = process.env.CRON_SECRET
-  if (!cronSecret) return process.env.NODE_ENV !== 'production'
-  return authHeader === `Bearer ${cronSecret}`
-}
-
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }
 
   const startTime = Date.now()

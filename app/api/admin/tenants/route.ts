@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
   const SECRET_FIELDS = [
     'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
-    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret', 'gmail_app_password',
   ]
   function maskSecret(val: string | null): string | null {
     if (!val) return null
@@ -357,7 +357,7 @@ export async function PATCH(request: NextRequest) {
   const SECRET_PATCH_FIELDS = new Set([
     'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
-    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret',
+    'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret', 'gmail_app_password',
     'gmail_app_password',
   ])
   const updates: Record<string, unknown> = {}

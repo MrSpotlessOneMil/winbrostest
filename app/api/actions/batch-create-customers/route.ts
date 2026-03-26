@@ -15,7 +15,13 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  const { customers } = await request.json()
+  let customers: BatchCustomer[]
+  try {
+    const body = await request.json()
+    customers = body.customers
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
 
   if (!Array.isArray(customers) || customers.length === 0) {
     return NextResponse.json({ error: "Customers array is required" }, { status: 400 })

@@ -321,7 +321,8 @@ export async function assignNextAvailableCleaner(
  * @returns Result with success status and optional error message
  */
 export async function triggerCleanerAssignment(
-  jobId: string
+  jobId: string,
+  excludeCleanerIds?: string[]
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Get the job details
@@ -358,7 +359,7 @@ export async function triggerCleanerAssignment(
     const jobTenantId = (job as any).tenant_id
     if (!jobTenantId) {
       console.error(`[cleaner-assignment] Job ${jobId} has no tenant_id — cannot assign. Skipping to prevent cross-tenant bleed.`)
-      return []
+      return { success: false, error: 'Job has no tenant_id' }
     }
     const tenant = await getTenantById(jobTenantId)
 
@@ -396,7 +397,7 @@ export async function triggerCleanerAssignment(
 
     // ROUTING MODE (default): Pick one cleaner at a time based on distance
     console.log(`[cleaner-assignment] DISTANCE ROUTING MODE for tenant ${tenant?.slug || 'unknown'}, job ${jobId}`)
-    const assignResult = await assignNextAvailableCleaner(jobId)
+    const assignResult = await assignNextAvailableCleaner(jobId, excludeCleanerIds || [])
 
     if (!assignResult.success) {
       if (assignResult.exhausted) {
@@ -647,7 +648,7 @@ export async function cascadeToNextCleaner(
   const excludeIds = existingAssignments.map((a) => a.cleaner_id)
 
   // Trigger assignment excluding all previously contacted cleaners
-  return await triggerCleanerAssignment(jobId)
+  return await triggerCleanerAssignment(jobId, excludeIds)
 }
 
 /**
