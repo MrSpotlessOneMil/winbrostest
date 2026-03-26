@@ -1,8 +1,9 @@
 /**
- * Score Lost Conversations Cron
+ * Score Conversations Cron
  *
- * Runs every 6 hours. Finds customers who had SMS conversations but never booked,
- * with no activity in 48+ hours. Scores them as losses with AI-classified reasons.
+ * Runs every 6 hours. Two jobs:
+ * 1. SMS losses — customers who had SMS conversations but never booked (48+ hours stale)
+ * 2. VAPI calls — all unscored calls with transcripts (booked = won, not_booked = lost)
  *
  * Endpoint: GET /api/cron/score-conversations
  */
@@ -93,7 +94,6 @@ export async function GET(request: NextRequest) {
           .join('\n')
 
         const firstMsg = messages[0]
-        const lastMsg = messages[messages.length - 1]
 
         try {
           await scoreConversation({
@@ -118,11 +118,74 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  console.log(`[ScoreConv] Done: ${scored} scored, ${errors} errors`)
+  // ── VAPI Call Scoring ─────────────────────────────────────────────
+  // Score all unscored VAPI calls with transcripts (both wins and losses)
+  let vapiScored = 0
+  let vapiErrors = 0
+
+  for (const tenant of tenants) {
+    try {
+      // Get all calls with transcripts that haven't been scored yet
+      const { data: unscoredCalls } = await client
+        .from('calls')
+        .select('id, tenant_id, phone_number, customer_id, transcript, duration_seconds, outcome, started_at, date, created_at')
+        .eq('tenant_id', tenant.id)
+        .not('transcript', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(200)
+
+      if (!unscoredCalls?.length) continue
+
+      for (const call of unscoredCalls) {
+        if (!call.transcript || call.transcript.length < 50) continue
+        if (!call.phone_number) continue
+
+        // Check if already scored
+        const { data: existing } = await client
+          .from('conversation_outcomes')
+          .select('id')
+          .eq('tenant_id', tenant.id)
+          .eq('conversation_type', 'vapi_call')
+          .eq('source_phone', call.phone_number)
+          .limit(1)
+          .maybeSingle()
+
+        if (existing) continue
+
+        // Map call outcome to win/loss
+        const outcome: 'won' | 'lost' =
+          call.outcome === 'booked' ? 'won' : 'lost'
+
+        try {
+          await scoreConversation({
+            tenantId: tenant.id,
+            customerId: call.customer_id || 0,
+            phone: call.phone_number,
+            conversationType: 'vapi_call',
+            conversationText: call.transcript,
+            outcome,
+            durationSeconds: call.duration_seconds || undefined,
+            conversationStartedAt: call.started_at || call.date || call.created_at,
+          })
+          vapiScored++
+        } catch (scoreErr) {
+          console.error(`[ScoreConv] Failed to score VAPI call ${call.id}:`, scoreErr)
+          vapiErrors++
+        }
+      }
+    } catch (tenantErr) {
+      console.error(`[ScoreConv] VAPI error for tenant ${tenant.slug}:`, tenantErr)
+      vapiErrors++
+    }
+  }
+
+  console.log(`[ScoreConv] Done: SMS=${scored} scored/${errors} errors, VAPI=${vapiScored} scored/${vapiErrors} errors`)
 
   return NextResponse.json({
     success: true,
     scored,
     errors,
+    vapiScored,
+    vapiErrors,
   })
 }

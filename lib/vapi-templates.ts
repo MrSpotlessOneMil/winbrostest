@@ -17,7 +17,7 @@ const TEMPLATE_FLOW_MAP: Record<FlowType, TemplateSet> = {
     outbound: "winbros-outbound",
   },
   spotless: {
-    inbound: "winbros-inbound", // same base template, customized via placeholders
+    inbound: "house-cleaning-inbound", // V2: natural greeting, gives pricing, fewer questions
   },
   cedar: {
     inbound: "winbros-inbound",

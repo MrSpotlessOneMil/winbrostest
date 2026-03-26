@@ -188,6 +188,32 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
     },
   })
 
+  // Score call for learning system (fire-and-forget)
+  if (data.transcript && data.transcript.length > 50 && phone) {
+    const callOutcome: 'won' | 'lost' = data.outcome === 'booked' ? 'won' : 'lost'
+    import('@/lib/conversation-scoring').then(mod =>
+      mod.scoreConversation({
+        tenantId: tenant.id,
+        customerId: customerId || 0,
+        phone,
+        conversationType: 'vapi_call',
+        conversationText: data.transcript!,
+        outcome: callOutcome,
+        durationSeconds: data.duration ? Math.round(Number(data.duration)) : undefined,
+        conversationStartedAt: nowIso,
+      })
+    ).catch(err => console.warn(`${tag} Call scoring failed (non-blocking):`, err))
+
+    // Extract memory facts from call transcript (fire-and-forget)
+    if (customerId) {
+      import('@/lib/assistant-memory').then(mem =>
+        mem.extractAndStoreFacts(tenant.id, customerId!, '', [
+          { role: 'assistant', content: `[VAPI call transcript]: ${data.transcript}` }
+        ])
+      ).catch(err => console.warn(`${tag} Memory extraction from call failed (non-blocking):`, err))
+    }
+  }
+
   // For outbound calls that were answered (customer engaged), cancel remaining call follow-up tasks.
   // This prevents the system from calling the customer again after they already spoke with the AI.
   // We detect "answered" by checking for a meaningful transcript (>100 chars = real conversation).
@@ -557,7 +583,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 // Send booking confirmation text
                 const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
                 const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-                  firstName || "there",
+                  firstName || "",
                   serviceType,
                   dateTimeStr,
                   bookAddress || "your address",
@@ -591,18 +617,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   }
                 }
 
-                // Create "free second cleaning" offer if tenant has it enabled
-                try {
-                  const { createOfferFromBooking } = await import('@/lib/offers')
-                  const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
-                  if (offerResult.created) {
-                    console.log(`${tag} Free cleaning offer created for customer ${customerId} (offer ${offerResult.offer?.id})`)
-                    // Send offer bonus SMS
-                    const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
-                    await sendSMS(tenant, phone, offerMsg)
+                // Create "free second cleaning" offer — only for WinBros (house cleaning gets upsells via quote page)
+                if (isWinBros) {
+                  try {
+                    const { createOfferFromBooking } = await import('@/lib/offers')
+                    const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
+                    if (offerResult.created) {
+                      console.log(`${tag} Free cleaning offer created for customer ${customerId} (offer ${offerResult.offer?.id})`)
+                      // Delay 45s before sending bonus SMS to avoid spam feel
+                      await new Promise(resolve => setTimeout(resolve, 45_000))
+                      const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
+                      await sendSMS(tenant, phone, offerMsg)
+                    }
+                  } catch (offerErr) {
+                    console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
                   }
-                } catch (offerErr) {
-                  console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
                 }
 
                 // Deposit link is NOT sent here - customer must reply with email first.
@@ -793,7 +822,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Send booking confirmation text
               const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
               const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
-                firstName || "there",
+                firstName || "",
                 serviceType,
                 dateTimeStr,
                 bookAddress || "your address",
@@ -826,17 +855,20 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 }
               }
 
-              // Create "free second cleaning" offer if tenant has it enabled
-              try {
-                const { createOfferFromBooking } = await import('@/lib/offers')
-                const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
-                if (offerResult.created) {
-                  console.log(`${tag} Free cleaning offer created for existing-lead customer ${customerId} (offer ${offerResult.offer?.id})`)
-                  const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
-                  await sendSMS(tenant, phone, offerMsg)
+              // Create "free second cleaning" offer — only for WinBros (house cleaning gets upsells via quote page)
+              if (isWinBrosExisting) {
+                try {
+                  const { createOfferFromBooking } = await import('@/lib/offers')
+                  const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
+                  if (offerResult.created) {
+                    console.log(`${tag} Free cleaning offer created for existing-lead customer ${customerId} (offer ${offerResult.offer?.id})`)
+                    await new Promise(resolve => setTimeout(resolve, 45_000))
+                    const offerMsg = `🎉 BONUS: You've earned a FREE standard cleaning on your next visit! Just book again within 90 days and it's on us. We'll apply it automatically.`
+                    await sendSMS(tenant, phone, offerMsg)
+                  }
+                } catch (offerErr) {
+                  console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
                 }
-              } catch (offerErr) {
-                console.error(`${tag} Offer creation failed (non-blocking):`, offerErr)
               }
 
               // Deposit link sent later: customer replies with email -> OpenPhone handles deposit flow
