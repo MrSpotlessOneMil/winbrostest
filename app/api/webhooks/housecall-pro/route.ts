@@ -851,17 +851,59 @@ export async function POST(request: NextRequest) {
 
           // Send the first text IMMEDIATELY (don't wait for cron)
           const leadName = `${firstName || ''} ${lastName || ''}`.trim() || 'Customer'
+          const leadFirstName = firstName || 'there'
           const businessName = tenant.business_name_short || tenant.name || 'Our team'
 
           // NOTE: Service area validation is handled by the AI during conversation (via [OUT_OF_AREA] tag).
           // HCP addresses are often stale/wrong from its customer DB, so we don't reject at webhook level —
           // the initial greeting asks to confirm address, giving the customer a chance to correct it.
 
+          // Check if HCP already scheduled an estimate/job for this customer
+          // (e.g. booked through HCP iOS app — job.created fires before or alongside lead.created)
+          const { data: existingHcpJob } = await client
+            .from("jobs")
+            .select("id, date, scheduled_at, service_type, notes")
+            .eq("tenant_id", tenant.id)
+            .or(`phone_number.eq.${phone},customer_id.eq.${customerRecord?.id}`)
+            .in("status", ["quoted", "scheduled", "in_progress"])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+
+          // Also check the lead payload for schedule info (HCP sometimes includes it)
+          const leadSchedule = lead?.schedule || lead?.appointment || null
+          const isAlreadyScheduled = !!existingHcpJob || !!leadSchedule
+
           try {
-            // Window cleaning tenants (WinBros) use the estimate flow — just collect info for a free estimate visit
-            const initialMessage = tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')
-              ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to get you set up with a free estimate — one of our team members will come out and give you an exact quote on the spot. Can I just confirm your address so we can get that scheduled?`
-              : `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+            let initialMessage: string
+
+            if (isAlreadyScheduled) {
+              // Customer already has an appointment — don't ask to book, send a warm contextual follow-up
+              const jobNotes = existingHcpJob?.notes || hcpWorkRequested || ''
+              let scheduleSummary = ''
+              if (existingHcpJob?.scheduled_at) {
+                const tz = tenant.timezone || 'America/Chicago'
+                const dt = new Date(existingHcpJob.scheduled_at)
+                scheduleSummary = dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: tz })
+                const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz })
+                scheduleSummary = ` on ${scheduleSummary} at ${timeStr}`
+              }
+
+              initialMessage = `Hi ${leadFirstName}! This is Mary with ${businessName}. Just wanted to confirm we have your estimate${scheduleSummary}. Our team member will come out and give you an exact quote on the spot. If you have any questions before then, feel free to text me!`
+
+              console.log(`[OSIRIS] HCP Webhook: Customer ${maskPhone(phone)} already has a scheduled job (id: ${existingHcpJob?.id || 'from payload'}), sending contextual greeting instead of cold booking flow`)
+
+              // Mark lead as already booked so the AI doesn't try to re-schedule
+              await client
+                .from("leads")
+                .update({ status: "booked", form_data: { ...hcpLeadFormData, already_scheduled_in_hcp: true, hcp_job_id: existingHcpJob?.id || null } })
+                .eq("id", leadRecord?.id)
+            } else {
+              // No existing appointment — send standard booking greeting
+              initialMessage = tenant && tenantUsesFeature(tenant, 'use_hcp_mirror')
+                ? `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to get you set up with a free estimate — one of our team members will come out and give you an exact quote on the spot. Can I just confirm your address so we can get that scheduled?`
+                : `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your cleaning needs. Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+            }
 
             let smsResult
             if (tenant) {

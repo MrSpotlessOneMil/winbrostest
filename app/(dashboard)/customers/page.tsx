@@ -44,7 +44,7 @@ function formatThreadTimestamp(timestamp: string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
 }
 
-type TabType = "messages" | "jobs" | "quotes" | "membership"
+type TabType = "messages" | "jobs" | "quotes" | "membership" | "info"
 
 interface Customer {
   id: number
@@ -253,7 +253,7 @@ export default function CustomersPage() {
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
-      if (saved === "messages" || saved === "jobs" || saved === "quotes" || saved === "membership") return saved
+      if (saved === "messages" || saved === "jobs" || saved === "quotes" || saved === "membership" || saved === "info") return saved
     }
     return "messages"
   })
@@ -1417,6 +1417,10 @@ export default function CustomersPage() {
           label: "Membership",
           count: getCustomerMemberships(selectedCustomer.id).filter(m => m.status === "active" || m.status === "paused").length,
         }] : []),
+        {
+          id: "info" as TabType,
+          label: "Info",
+        },
       ]
     : []
 
@@ -2675,6 +2679,96 @@ export default function CustomersPage() {
                                 ))}
                               </div>
                             </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Info Tab — all data we have about this customer */}
+                    {activeTab === "info" && (() => {
+                      const lead = getCustomerLead(selectedCustomer.phone_number)
+                      const formData = lead?.form_data
+                        ? (typeof lead.form_data === "string" ? (() => { try { return JSON.parse(lead.form_data) } catch { return {} } })() : lead.form_data)
+                        : {}
+                      const jobs = getCustomerJobs(selectedCustomer.phone_number)
+                      const calls = getCustomerCalls(selectedCustomer.phone_number)
+
+                      const infoRows: Array<{ label: string; value: string | null | undefined }> = [
+                        { label: "Name", value: [selectedCustomer.first_name, selectedCustomer.last_name].filter(Boolean).join(" ") || null },
+                        { label: "Phone", value: selectedCustomer.phone_number },
+                        { label: "Email", value: selectedCustomer.email },
+                        { label: "Address", value: selectedCustomer.address },
+                        { label: "Lead Source", value: selectedCustomer.lead_source || lead?.source || null },
+                        { label: "Lead Status", value: lead?.status || null },
+                        { label: "Created", value: selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : null },
+                        { label: "Lifecycle Stage", value: selectedCustomer.lifecycle_stage || null },
+                        { label: "Preferred Frequency", value: selectedCustomer.preferred_frequency || null },
+                        { label: "Preferred Day", value: selectedCustomer.preferred_day || null },
+                        { label: "Card on File", value: selectedCustomer.card_on_file_at ? "Yes" : "No" },
+                        { label: "Stripe Customer", value: selectedCustomer.stripe_customer_id || null },
+                        { label: "SMS Opt-Out", value: selectedCustomer.sms_opt_out ? "Yes" : "No" },
+                        { label: "Commercial", value: selectedCustomer.is_commercial ? "Yes" : "No" },
+                        { label: "Total Jobs", value: String(jobs.length) },
+                        { label: "Total Revenue", value: `$${getCustomerRevenue(selectedCustomer.phone_number).toLocaleString()}` },
+                        { label: "Total Paid", value: `$${getCustomerPaid(selectedCustomer.phone_number).toLocaleString()}` },
+                        { label: "Total Calls", value: String(calls.length) },
+                      ]
+
+                      // HCP-specific fields from form_data
+                      const hcpFields: Array<{ label: string; value: string | null | undefined }> = []
+                      if (formData.hcp_lead_id) hcpFields.push({ label: "HCP Lead ID", value: formData.hcp_lead_id })
+                      if (formData.hcp_lead_source) hcpFields.push({ label: "HCP Lead Source", value: formData.hcp_lead_source })
+                      if (formData.hcp_work_requested) hcpFields.push({ label: "HCP Work Requested", value: formData.hcp_work_requested })
+                      if (formData.already_scheduled_in_hcp) hcpFields.push({ label: "Pre-Scheduled in HCP", value: "Yes" })
+                      if (formData.hcp_job_id) hcpFields.push({ label: "HCP Job ID", value: String(formData.hcp_job_id) })
+
+                      // Notes from customer record
+                      const notes = selectedCustomer.notes || selectedCustomer.recurring_notes
+
+                      return (
+                        <div className="space-y-4 p-1">
+                          {/* Core Info */}
+                          <div className="space-y-1">
+                            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Customer Details</p>
+                            {infoRows.map((row) => (
+                              <div key={row.label} className="flex items-start justify-between py-1.5 border-b border-zinc-800/50 last:border-0">
+                                <span className="text-xs text-zinc-500 shrink-0">{row.label}</span>
+                                <span className="text-xs text-zinc-200 text-right ml-4 break-all">{row.value || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* HCP Data */}
+                          {hcpFields.length > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium text-teal-400 uppercase tracking-wider mb-2">HouseCall Pro</p>
+                              {hcpFields.map((row) => (
+                                <div key={row.label} className="flex items-start justify-between py-1.5 border-b border-zinc-800/50 last:border-0">
+                                  <span className="text-xs text-zinc-500 shrink-0">{row.label}</span>
+                                  <span className="text-xs text-zinc-200 text-right ml-4 break-all">{row.value || "—"}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Notes */}
+                          {notes && (
+                            <div className="space-y-1">
+                              <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Notes</p>
+                              <p className="text-xs text-zinc-300 bg-zinc-800/40 rounded-lg p-3 whitespace-pre-wrap">{notes}</p>
+                            </div>
+                          )}
+
+                          {/* Raw Lead Form Data (expandable) */}
+                          {Object.keys(formData).length > 0 && (
+                            <details className="group">
+                              <summary className="text-xs font-medium text-zinc-500 uppercase tracking-wider cursor-pointer hover:text-zinc-400 transition-colors">
+                                Raw Lead Data
+                              </summary>
+                              <pre className="mt-2 text-[10px] text-zinc-400 bg-zinc-800/40 rounded-lg p-3 overflow-x-auto max-h-60 overflow-y-auto">
+                                {JSON.stringify(formData, null, 2)}
+                              </pre>
+                            </details>
                           )}
                         </div>
                       )
