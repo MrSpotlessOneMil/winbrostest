@@ -60,7 +60,7 @@ CREATE POLICY tenant_isolation_conversation_outcomes ON conversation_outcomes
 CREATE OR REPLACE FUNCTION match_winning_conversations(
   query_embedding extensions.vector(1536),
   p_tenant_id UUID,
-  match_threshold FLOAT DEFAULT 0.7,
+  match_threshold FLOAT DEFAULT 0.65,
   match_count INT DEFAULT 5
 )
 RETURNS TABLE (

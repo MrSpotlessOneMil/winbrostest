@@ -140,15 +140,18 @@ export async function GET(request: NextRequest) {
         if (!call.transcript || call.transcript.length < 50) continue
         if (!call.phone_number) continue
 
-        // Check if already scored
-        const { data: existing } = await client
+        // Check if already scored (must match full unique constraint including started_at)
+        const callStartedAt = call.started_at || call.date || call.created_at
+        let existingCheck = client
           .from('conversation_outcomes')
           .select('id')
           .eq('tenant_id', tenant.id)
           .eq('conversation_type', 'vapi_call')
           .eq('source_phone', call.phone_number)
-          .limit(1)
-          .maybeSingle()
+        if (callStartedAt) {
+          existingCheck = existingCheck.eq('conversation_started_at', callStartedAt)
+        }
+        const { data: existing } = await existingCheck.limit(1).maybeSingle()
 
         if (existing) continue
 
