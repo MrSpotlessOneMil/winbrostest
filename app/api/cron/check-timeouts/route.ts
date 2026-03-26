@@ -380,7 +380,7 @@ async function executeCheckTimeouts(request: NextRequest) {
         .from('customers')
         .select('id, phone_number, tenant_id')
         .eq('auto_response_paused', true)
-        .lt('manual_takeover_at', unpauseCutoff)
+        .or(`manual_takeover_at.lt.${unpauseCutoff},manual_takeover_at.is.null`)
         .limit(200)
 
       if (stale?.length) {
