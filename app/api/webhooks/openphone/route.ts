@@ -55,6 +55,19 @@ async function sendMultiPartSMS(
     } else {
       console.error(`[${tenant.slug}] Auto-response SMS failed for ${phone}: ${result.error}`)
       allSuccess = false
+      // Alert owner that customer is being ghosted — SMS delivery is broken
+      if (tenant.owner_phone && i === 0) {
+        import('@/lib/system-events').then(mod =>
+          mod.logSystemEvent({
+            tenant_id: tenant.id,
+            source: 'openphone',
+            event_type: 'SMS_DELIVERY_FAILED',
+            message: `ALERT: SMS to ${phone} failed: ${result.error}. Customer may not have received a response.`,
+            phone_number: phone,
+            metadata: { error: result.error, customerPhone: phone },
+          })
+        ).catch(() => {})
+      }
     }
 
     // Small delay between texts so they arrive in order
@@ -1365,10 +1378,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Quick check - skip obvious non-booking messages (don't waste the debounce delay)
+  // Quick check - skip obvious non-booking messages ONLY for cold first-contact
+  // If we've already been talking to this customer (any outbound exists), "ok"/"great"/etc
+  // are valid conversation replies — NEVER drop them mid-conversation
   if (isObviouslyNotBooking(messageContent)) {
-    console.log(`[OpenPhone] Message is obviously not booking intent (length=${messageContent.length})`)
-    return NextResponse.json({ success: true, intentAnalysis: "skipped" })
+    const { data: priorOutbound } = await client
+      .from("messages")
+      .select("id")
+      .eq("phone_number", phone)
+      .eq("tenant_id", tenant?.id)
+      .eq("direction", "outbound")
+      .limit(1)
+      .maybeSingle()
+
+    if (!priorOutbound) {
+      // True cold contact with a meaningless message — safe to skip
+      console.log(`[OpenPhone] Cold contact with non-booking message "${messageContent}" — skipping`)
+      return NextResponse.json({ success: true, intentAnalysis: "skipped" })
+    }
+    // Has prior conversation — let it through to AI, "ok" could mean anything
+    console.log(`[OpenPhone] Message "${messageContent}" looks trivial but customer has prior conversation — letting through`)
   }
 
   // ============================================
