@@ -301,25 +301,6 @@ async function processLeadFollowup(
   // Window cleaning tenants (use_hcp_mirror) use service type + sqft; others use bedrooms/bathrooms
   const isWinBros = tenant ? tenantUsesFeature(tenant, 'use_hcp_mirror') : false
 
-  // Build service-specific details request
-  const detailsRequest = isWinBros
-    ? `Just reply and let us know what service you're interested in and we'll get you set up with pricing!`
-    : serviceType === 'house cleaning'
-    ? `Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
-    : `Reply with your address and job details and we'll send you pricing right away!`
-
-  const quoteQuestion = isWinBros
-    ? `Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`
-    : serviceType === 'house cleaning'
-    ? `Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
-    : `Can you share your address and some details about the job?`
-
-  const lastChanceDetails = isWinBros
-    ? `Reply with what service you need and we'll get you a quick quote, or call us directly!`
-    : serviceType === 'house cleaning'
-    ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
-    : `Reply with your address and job details for an instant quote, or call us directly!`
-
   // Check if lead has already converted (responded, booked, etc.)
   const { data: lead } = await client
     .from('leads')
@@ -426,8 +407,34 @@ async function processLeadFollowup(
   // Check if this is a Spotless Scrubbers website lead — warmer, rapport-first messaging
   const isSpotlessWebLead = tenant?.slug === 'spotless-scrubbers' && lead.source === 'website'
   const serviceRequested = formData.service_type
-    ? String(formData.service_type).replace(/-/g, ' ')
+    ? String(formData.service_type).replace(/[-_]/g, ' ')
     : ''
+
+  // Build service-specific details request
+  // If the lead already told us the service type (e.g. from a VAPI call), use it instead of re-asking
+  const detailsRequest = isWinBros
+    ? (serviceRequested
+      ? `Just reply and we'll get your ${serviceRequested} estimate set up!`
+      : `Just reply and let us know what service you're interested in and we'll get you set up with pricing!`)
+    : serviceType === 'house cleaning'
+    ? `Reply with your home details (beds/baths/sqft) and we'll send you pricing right away!`
+    : `Reply with your address and job details and we'll send you pricing right away!`
+
+  const quoteQuestion = isWinBros
+    ? (serviceRequested
+      ? `We'd love to get your ${serviceRequested} estimate on the books — what does your schedule look like?`
+      : `Are you looking for Window Cleaning, Pressure Washing, or Gutter Cleaning today?`)
+    : serviceType === 'house cleaning'
+    ? `Can you share your address and number of bedrooms/bathrooms so we can give you an instant quote?`
+    : `Can you share your address and some details about the job?`
+
+  const lastChanceDetails = isWinBros
+    ? (serviceRequested
+      ? `Reply and we'll get your ${serviceRequested} estimate scheduled, or call us directly!`
+      : `Reply with what service you need and we'll get you a quick quote, or call us directly!`)
+    : serviceType === 'house cleaning'
+    ? `Reply with your address and beds/baths for an instant quote, or call us directly!`
+    : `Reply with your address and job details for an instant quote, or call us directly!`
 
   let message: string
 
@@ -451,12 +458,15 @@ async function processLeadFollowup(
         message = `Hey ${leadName}, Dominic from Spotless Scrubbers checking in! Let me know if you have any questions — happy to help however I can.`
     }
   } else {
+    // Use the lead's specific service type if known (e.g. "gutter cleaning" from a VAPI call),
+    // otherwise fall back to the tenant-level service description
+    const displayService = serviceRequested || serviceType
     switch (stage) {
       case 1:
-        message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceType} needs. ${quoteQuestion}`
+        message = `Hi ${leadName}! Thanks for reaching out to ${businessName}. We'd love to help with your ${displayService} needs. ${quoteQuestion}`
         break
       case 2:
-        message = `Just making sure you got our message — we have openings for ${serviceType} this week. ${detailsRequest}`
+        message = `Just making sure you got our message — we have openings for ${displayService} this week. ${detailsRequest}`
         break
       // Stage 3 is manual_call — handled above, never reaches here
       case 4:
@@ -466,7 +476,7 @@ async function processLeadFollowup(
         message = `Last check-in from me! Reply if you'd like to get on the schedule, otherwise no worries at all.`
         break
       default:
-        message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${serviceType} services. We're here to help!`
+        message = `Hi ${leadName}, just following up from ${businessName}! Let us know if you have any questions about our ${displayService} services. We're here to help!`
     }
   }
 
