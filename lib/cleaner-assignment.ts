@@ -323,7 +323,8 @@ export async function assignNextAvailableCleaner(
  */
 export async function triggerCleanerAssignment(
   jobId: string,
-  excludeCleanerIds?: string[]
+  excludeCleanerIds?: string[],
+  modeOverride?: 'broadcast' | 'ranked' | 'distance'
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Get the job details
@@ -395,7 +396,8 @@ export async function triggerCleanerAssignment(
     //
     // Do NOT merge these code paths or add cross-dependencies between them.
     // ──────────────────────────────────────────────────────────────────────
-    const assignmentMode = tenant?.workflow_config?.assignment_mode
+    const assignmentMode = modeOverride
+      || tenant?.workflow_config?.assignment_mode
       || (tenant && tenantUsesFeature(tenant, 'use_broadcast_assignment') ? 'broadcast' : 'distance')
 
     if (assignmentMode === 'ranked' && tenant) {

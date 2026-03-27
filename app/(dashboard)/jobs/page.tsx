@@ -87,7 +87,7 @@ type AddonOption = {
   minutes: number
 }
 
-type AssignmentMode = "auto_broadcast" | "unassigned" | "specific"
+type AssignmentMode = "auto_broadcast" | "ranked" | "unassigned" | "specific"
 
 type CreateForm = {
   customer_phone: string
@@ -1322,6 +1322,32 @@ export default function JobsPage() {
     }
   }
 
+  const [sendingRanked, setSendingRanked] = useState(false)
+  const [sendRankedResult, setSendRankedResult] = useState<string | null>(null)
+  const handleSendRanked = async () => {
+    if (!selectedEvent) return
+    setSendingRanked(true)
+    setSendRankedResult(null)
+    try {
+      const res = await fetch('/api/actions/assign-cleaner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: selectedEvent.jobId, mode: 'ranked' }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setSendRankedResult('Sent to #1 ranked cleaner — will cascade if no response in 20 min')
+        await refreshJobs()
+      } else {
+        setSendRankedResult(`Error: ${data.error || 'Failed'}`)
+      }
+    } catch {
+      setSendRankedResult('Error: Network request failed')
+    } finally {
+      setSendingRanked(false)
+    }
+  }
+
   const handleAddCharge = async () => {
     if (!selectedEvent || !addChargeType) return
     setAddChargeSaving(true)
@@ -2093,6 +2119,32 @@ export default function JobsPage() {
                       {sendToCleanerResult}
                     </div>
                   )}
+                  {/* Ranked dispatch button */}
+                  <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #333" }}>
+                    <button
+                      onClick={handleSendRanked}
+                      disabled={sendingRanked}
+                      style={{
+                        width: "100%",
+                        padding: "0.5rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        cursor: sendingRanked ? "not-allowed" : "pointer",
+                        opacity: sendingRanked ? 0.5 : 1,
+                      }}
+                    >
+                      {sendingRanked ? "Sending..." : "Send Ranked (Best → Worst)"}
+                    </button>
+                    {sendRankedResult && (
+                      <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendRankedResult.startsWith('Error') ? "#f87171" : "#fbbf24" }}>
+                        {sendRankedResult}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
@@ -2924,6 +2976,7 @@ export default function JobsPage() {
                       }}
                     >
                       <option value="auto_broadcast">Auto Broadcast</option>
+                      <option value="ranked">Ranked Priority</option>
                       <option value="unassigned">Unassigned</option>
                       <option value="specific">Pick Cleaners</option>
                     </select>

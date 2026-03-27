@@ -680,10 +680,11 @@ export async function POST(request: NextRequest) {
           if (logErr) console.error("[Jobs POST] Failed to log assignment message:", logErr)
         })
       }
-    } else if (assignmentMode === 'auto_broadcast' && tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
-      // Auto-broadcast to available cleaners
-      triggerCleanerAssignment(String(row.id)).catch((err) =>
-        console.error("[Jobs POST] Auto-broadcast failed:", err)
+    } else if ((assignmentMode === 'auto_broadcast' || assignmentMode === 'ranked') && tenantUsesFeature(tenant as any, 'use_cleaner_dispatch')) {
+      // Auto-dispatch: pass explicit mode override when ranked is selected from dropdown
+      const modeOverride = assignmentMode === 'ranked' ? 'ranked' as const : undefined
+      triggerCleanerAssignment(String(row.id), undefined, modeOverride).catch((err) =>
+        console.error("[Jobs POST] Auto-dispatch failed:", err)
       )
     }
     // assignmentMode === 'unassigned' → do nothing, job sits unassigned until manually picked

@@ -17,6 +17,7 @@ import {
 import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
+import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { jobId, cleanerId } = body
+    const { jobId, cleanerId, mode } = body
 
     if (!jobId) {
       return NextResponse.json(
@@ -41,6 +42,15 @@ export async function POST(request: NextRequest) {
         { error: 'Job not found' },
         { status: 404 }
       )
+    }
+
+    // Ranked/broadcast mode: delegate to triggerCleanerAssignment with override
+    if (mode === 'ranked' || mode === 'broadcast') {
+      const result = await triggerCleanerAssignment(String(jobId), undefined, mode)
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || 'Assignment failed' }, { status: 500 })
+      }
+      return NextResponse.json({ success: true, mode })
     }
 
     // Get customer details
