@@ -88,7 +88,9 @@ export async function generateQuoteInvoice(
     const tierDef = pricing.tiers.find(t => t.key === selectedTier)
     const tierPrice = pricing.tierPrices[selectedTier]
     const tierName = tierDef?.name || selectedTier
-    const tierAmount = tierPrice?.price || Number(quote.total) || 0
+    const tierAmount = quote.custom_base_price != null
+      ? Number(quote.custom_base_price)
+      : (tierPrice?.price || Number(quote.total) || 0)
 
     // Create invoice
     const businessName = tenant.business_name || tenant.name

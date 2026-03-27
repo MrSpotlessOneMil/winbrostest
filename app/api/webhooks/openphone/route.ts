@@ -303,8 +303,8 @@ export async function POST(request: NextRequest) {
         }
 
         // System-sent detection: check if we already have this message stored from our own system
-        // (AI response, scheduled task, retargeting, follow-up, etc.)
-        // If so, this is NOT a manual staff message — skip takeover
+        // ONLY match definitively automated sources — never skip takeover for ambiguous matches
+        const AUTOMATED_SOURCES = ['scheduled_task', 'retargeting', 'retargeting_catchup', 'lead_followup', 'mid_convo_nudge', 'stripe_deposit_paid', 'stripe_card_on_file', 'vapi_booking_confirmation']
         let isSystemSent = false
         if (!isBroadcast && !isAgentOutreach && !isRetargeting && toE164 && extracted.content) {
           const sysDedupCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 min window
@@ -316,13 +316,12 @@ export async function POST(request: NextRequest) {
             .eq("direction", "outbound")
             .eq("content", extracted.content)
             .gte("created_at", sysDedupCutoff)
-            .neq("source", "openphone_app")
+            .in("source", AUTOMATED_SOURCES)
             .limit(1)
             .maybeSingle()
           if (systemMsg) {
             isSystemSent = true
             console.log(`[OpenPhone] Outbound is system-sent (source: ${systemMsg.source}) for ${maskPhone(toPhone)} — skipping manual takeover`)
-            // Re-label the inserted message with correct source
             if (insertedMsg?.id) {
               await client.from("messages").update({ source: systemMsg.source }).eq("id", insertedMsg.id)
             }
