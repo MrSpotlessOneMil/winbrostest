@@ -69,6 +69,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/poll-meta-sheet",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/score-conversations",
       "schedule": "0 */6 * * *"
     },
