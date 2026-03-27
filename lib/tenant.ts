@@ -84,6 +84,7 @@ export interface WorkflowConfig {
   use_assistant_memory?: boolean     // OpenClaw-style memory system for dashboard assistant
   use_blog_generation?: boolean      // Weekly AI-generated SEO blog posts
   use_thumbtack?: boolean            // Thumbtack Partner API lead ingestion
+  use_google_lsa?: boolean           // Google Local Services Ads lead polling
 
   // Card-on-file auto-charge (replaces deposit flow for cleaning tenants)
   use_card_on_file?: boolean         // Save card at booking, charge on completion (no upfront deposit)
@@ -174,6 +175,12 @@ export interface Tenant {
   thumbtack_business_id: string | null
   thumbtack_user_id: string | null
   thumbtack_webhook_id: string | null
+
+  // Google LSA (per-tenant credentials for Local Services Ads polling)
+  google_lsa_client_id: string | null
+  google_lsa_client_secret: string | null
+  google_lsa_refresh_token: string | null
+  google_lsa_account_id: string | null
 
   // Gmail credentials (per-tenant email bot)
   gmail_user: string | null
@@ -432,6 +439,7 @@ export function tenantUsesFeature(
     | 'use_assistant_memory'
     | 'use_blog_generation'
     | 'use_thumbtack'
+    | 'use_google_lsa'
     | 'use_card_on_file'
   >
 ): boolean {
