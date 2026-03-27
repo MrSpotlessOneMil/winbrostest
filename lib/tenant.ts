@@ -56,6 +56,7 @@ export interface WorkflowConfig {
   deposit_percentage: number
   cleaner_pay_percentage?: number // % of job revenue paid to cleaner (e.g. 40 = 40%)
   use_broadcast_assignment?: boolean // Blast all cleaners at once, first to accept wins (vs distance-based routing)
+  assignment_mode?: 'broadcast' | 'ranked' | 'distance' // Explicit mode (overrides use_broadcast_assignment if set)
 
   // Route optimization (WinBros logistics engine)
   use_route_optimization: boolean

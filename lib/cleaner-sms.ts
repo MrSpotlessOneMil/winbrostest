@@ -126,9 +126,13 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay (their rate × hours) — never show the customer price
-  const rate = cleaner.hourly_rate || 25
-  if (job.hours) {
+  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
+  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+  if (payPercentage && job.price) {
+    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+    details.push(`Your pay: $${cleanerPay.toFixed(0)}`)
+  } else if (job.hours) {
+    const rate = cleaner.hourly_rate || 25
     details.push(`Your pay: $${(rate * Number(job.hours)).toFixed(0)}`)
   }
 
@@ -191,9 +195,16 @@ export async function notifyCleanerAwarded(
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
-  // Only show cleaner pay — never expose customer price
-  const rate = cleaner.hourly_rate || 25
-  const payStr = job.hours ? `\nYour pay: $${(rate * Number(job.hours)).toFixed(0)}` : ''
+  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
+  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+  let payStr = ''
+  if (payPercentage && job.price) {
+    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+    payStr = `\nYour pay: $${cleanerPay.toFixed(0)}`
+  } else if (job.hours) {
+    const rate = cleaner.hourly_rate || 25
+    payStr = `\nYour pay: $${(rate * Number(job.hours)).toFixed(0)}`
+  }
 
   let link = ''
   if (cleaner.portal_token && job.id) {
@@ -386,7 +397,12 @@ export async function sendCleanerPortalMessage(
   jobId: string | number,
   customerId?: string | number
 ): Promise<SendResult> {
-  const result = await sendSMS(tenant, customerPhone, content)
+  // Append cleaner identity tag so client knows who's texting
+  const firstName = cleaner.name.split(' ')[0]
+  const businessName = tenant.business_name_short || tenant.name
+  const taggedContent = `${content}\n\n— ${firstName} from ${businessName}, your cleaner`
+
+  const result = await sendSMS(tenant, customerPhone, taggedContent)
 
   if (result.success) {
     try {
@@ -426,15 +442,24 @@ export async function notifyCustomerStatus(
   tenant: Tenant,
   customerPhone: string,
   customerName: string | null,
-  status: 'omw' | 'arrived' | 'done'
+  status: 'omw' | 'arrived' | 'done',
+  cleanerName?: string | null
 ): Promise<SendResult> {
   const name = customerName || 'there'
+  const businessName = tenant.business_name_short || tenant.name
+  const cleanerFirst = cleanerName ? cleanerName.split(' ')[0] : null
 
-  const messages: Record<string, string> = {
-    omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
-    arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
-    done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
-  }
+  const messages: Record<string, string> = cleanerFirst
+    ? {
+        omw: `Hey ${name}! ${cleanerFirst} from ${businessName} is on the way and should be there shortly.`,
+        arrived: `${cleanerFirst} from ${businessName} has arrived! If you have any special instructions, let them know.`,
+        done: `Your cleaning is all done! We hope you love it. Thank you for choosing ${businessName}!`,
+      }
+    : {
+        omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
+        arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
+        done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
+      }
 
   return await sendSMS(tenant, customerPhone, messages[status])
 }
@@ -535,11 +560,18 @@ export async function processCleanerStatusUpdate(
 
   await client.from('jobs').update(updates).eq('id', jobId)
 
+  // Get cleaner name for customer notification
+  const { data: cleanerData } = await client
+    .from('cleaners')
+    .select('name')
+    .eq('id', cleanerId)
+    .maybeSingle()
+
   // Notify customer
   const customerPhone = customer?.phone_number || job?.phone_number
   if (customerPhone) {
     const statusMap = { omw: 'omw', here: 'arrived', done: 'done' } as const
-    await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[status])
+    await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[status], cleanerData?.name)
   }
 
   return { success: true, jobId }

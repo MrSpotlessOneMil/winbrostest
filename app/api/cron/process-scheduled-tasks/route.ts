@@ -237,6 +237,10 @@ async function processTask(task: ScheduledTask): Promise<void> {
       await processHotLeadFollowup(payload, tenant, tenant_id || null)
       break
 
+    case 'ranked_cascade':
+      await processRankedCascade(payload, tenant)
+      break
+
     case 'send_sms':
     case 'post_job_tip':
       // Generic SMS task: payload contains { phone, message }
@@ -564,6 +568,54 @@ async function processJobBroadcast(
       console.error(`[cleaner-retry] No tenant for job ${jobId} — cannot send escalation SMS`)
     }
   }
+}
+
+/**
+ * Process ranked cascade — auto-advance to next ranked cleaner if no response in 20 min
+ */
+async function processRankedCascade(
+  payload: Record<string, unknown>,
+  tenant: Awaited<ReturnType<typeof getTenantById>>
+): Promise<void> {
+  const { jobId, cleanerId, assignmentId } = payload as {
+    jobId: string
+    cleanerId: string
+    assignmentId: string
+  }
+
+  console.log(`[ranked-cascade] Checking assignment ${assignmentId} for job ${jobId}`)
+
+  const supabase = getSupabaseServiceClient()
+
+  // Check if assignment is still pending (cleaner hasn't responded)
+  const { data: assignment } = await supabase
+    .from('cleaner_assignments')
+    .select('id, status')
+    .eq('id', assignmentId)
+    .maybeSingle()
+
+  if (!assignment || assignment.status !== 'pending') {
+    console.log(`[ranked-cascade] Assignment ${assignmentId} is ${assignment?.status || 'not found'} — skipping cascade`)
+    return
+  }
+
+  // Expire the pending assignment
+  await supabase
+    .from('cleaner_assignments')
+    .update({ status: 'expired', responded_at: new Date().toISOString() })
+    .eq('id', assignmentId)
+
+  // Expire the pending SMS assignment too
+  await supabase
+    .from('pending_sms_assignments')
+    .update({ status: 'expired' })
+    .eq('assignment_id', assignmentId)
+    .eq('status', 'active')
+
+  console.log(`[ranked-cascade] Expired assignment ${assignmentId} for cleaner ${cleanerId}, cascading to next ranked cleaner`)
+
+  // Trigger assignment for the next ranked cleaner
+  await triggerCleanerAssignment(jobId)
 }
 
 /**

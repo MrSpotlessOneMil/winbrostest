@@ -42,14 +42,34 @@ import {
   Star,
   Timer,
   TrendingUp,
+  GripVertical,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CubeLoader from "@/components/ui/cube-loader"
 import { MessageBubble } from "@/components/message-bubble"
 import { Switch } from "@/components/ui/switch"
 import type { ApiResponse } from "@/lib/types"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 
 type EmployeeType = "technician" | "salesman"
+
+type AssignmentMode = "broadcast" | "ranked" | "distance"
 
 type CleanerDetail = {
   id: string
@@ -62,6 +82,7 @@ type CleanerDetail = {
   team_name?: string
   username?: string
   pin?: string
+  rank?: number | null
 }
 
 interface ChatMessage {
@@ -103,6 +124,95 @@ type EarningsSummary = {
 
 type EarningsPeriod = "week" | "month" | "custom"
 type ActiveTab = "overview" | "jobs" | "messages" | "sms"
+
+function SortableCleanerItem({
+  cleaner: c,
+  index,
+  isSelected,
+  onSelect,
+  onEdit,
+  onDelete,
+  onToggleActive,
+}: {
+  cleaner: CleanerDetail
+  index: number
+  isSelected: boolean
+  onSelect: () => void
+  onEdit: (e: React.MouseEvent) => void
+  onDelete: (e: React.MouseEvent) => void
+  onToggleActive: (checked: boolean) => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : undefined,
+    zIndex: isDragging ? 10 : undefined,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex items-center justify-between rounded-lg px-2 py-2.5 transition-colors cursor-pointer group",
+        isSelected
+          ? "bg-purple-500/10 border border-purple-500/30"
+          : "hover:bg-muted/50 border border-transparent",
+        !c.is_active && "opacity-50"
+      )}
+      onClick={onSelect}
+    >
+      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+        {/* Drag handle */}
+        <button
+          {...attributes}
+          {...listeners}
+          className="touch-none p-0.5 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        {/* Rank number */}
+        <span className="text-[10px] font-bold text-amber-400 w-5 text-center shrink-0">
+          {index + 1}
+        </span>
+        <div className={cn(
+          "h-2 w-2 rounded-full shrink-0",
+          c.is_active ? "bg-green-500" : "bg-zinc-500"
+        )} />
+        <div className="min-w-0">
+          <span className={cn(
+            "text-sm font-medium truncate block",
+            isSelected ? "text-purple-300" : "text-foreground"
+          )}>
+            {c.name}
+          </span>
+          {c.team_name && (
+            <span className="text-[10px] text-muted-foreground truncate block">{c.team_name}</span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit}>
+            <Pencil className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+        <Switch
+          checked={c.is_active}
+          onCheckedChange={onToggleActive}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Toggle ${c.name} active`}
+        />
+      </div>
+    </div>
+  )
+}
 
 export default function TeamsPage() {
   const [cleaners, setCleaners] = useState<CleanerDetail[]>([])
@@ -150,6 +260,10 @@ export default function TeamsPage() {
   // Credential sending state
   const [sendingCredentials, setSendingCredentials] = useState(false)
   const [credentialsSent, setCredentialsSent] = useState(false)
+
+  // Assignment mode state
+  const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("broadcast")
+  const [assignmentModeLoading, setAssignmentModeLoading] = useState(false)
 
   // Overview tab state
   const [earningsPeriod, setEarningsPeriod] = useState<EarningsPeriod>("week")
@@ -210,6 +324,7 @@ export default function TeamsPage() {
             team_name: String(team.name || ""),
             username: m.username || undefined,
             pin: m.pin || undefined,
+            rank: m.rank ?? null,
           })
         }
       }
@@ -229,11 +344,16 @@ export default function TeamsPage() {
           is_active: Boolean(c.is_active),
           username: (c as any).username || undefined,
           pin: (c as any).pin || undefined,
+          rank: (c as any).rank ?? null,
         })
       }
 
       roster.sort((a, b) => {
         if (a.is_active !== b.is_active) return a.is_active ? -1 : 1
+        // If both have ranks, sort by rank
+        if (a.rank != null && b.rank != null) return a.rank - b.rank
+        if (a.rank != null) return -1
+        if (b.rank != null) return 1
         return a.name.localeCompare(b.name)
       })
 
@@ -269,6 +389,69 @@ export default function TeamsPage() {
     if (selectedCleaner) localStorage.setItem("teams-selected-cleaner", JSON.stringify(selectedCleaner))
     else localStorage.removeItem("teams-selected-cleaner")
   }, [selectedCleaner])
+
+  // Load assignment mode from tenant settings
+  useEffect(() => {
+    fetch("/api/actions/settings").then(r => r.json()).then(json => {
+      if (json.success && json.assignment_mode) {
+        setAssignmentMode(json.assignment_mode)
+      }
+    }).catch(() => {})
+  }, [])
+
+  // dnd-kit sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+
+  async function handleAssignmentModeChange(mode: AssignmentMode) {
+    setAssignmentModeLoading(true)
+    setAssignmentMode(mode)
+    try {
+      await fetch("/api/actions/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignment_mode: mode }),
+      })
+      // If switching to ranked for the first time, auto-assign ranks
+      if (mode === "ranked" && cleaners.every(c => c.rank == null)) {
+        const ranked = cleaners.map((c, i) => ({ ...c, rank: i + 1 }))
+        setCleaners(ranked)
+        await fetch("/api/teams/reorder", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cleaners: ranked.map((c, i) => ({ id: Number(c.id), rank: i + 1 })) }),
+        })
+      }
+    } catch {} finally {
+      setAssignmentModeLoading(false)
+    }
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    setCleaners(prev => {
+      const oldIndex = prev.findIndex(c => c.id === active.id)
+      const newIndex = prev.findIndex(c => c.id === over.id)
+      if (oldIndex === -1 || newIndex === -1) return prev
+
+      const reordered = arrayMove(prev, oldIndex, newIndex)
+      // Update ranks
+      const withRanks = reordered.map((c, i) => ({ ...c, rank: i + 1 }))
+
+      // Persist to server (fire-and-forget)
+      fetch("/api/teams/reorder", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cleaners: withRanks.map(c => ({ id: Number(c.id), rank: c.rank })) }),
+      }).catch(() => {})
+
+      return withRanks
+    })
+  }
 
   // Load cleaner detail data when selection or tab changes
   const loadCleanerEarnings = useCallback(async (cleanerId: string, period: EarningsPeriod, start?: string, end?: string) => {
@@ -485,12 +668,23 @@ export default function TeamsPage() {
 
   // Filter cleaners by search
   const filteredCleaners = useMemo(() => {
-    if (!searchQuery.trim()) return cleaners
-    const q = searchQuery.toLowerCase()
-    return cleaners.filter((c) =>
-      c.name.toLowerCase().includes(q) || c.phone.includes(q)
-    )
-  }, [cleaners, searchQuery])
+    let list = cleaners
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      list = list.filter((c) =>
+        c.name.toLowerCase().includes(q) || c.phone.includes(q)
+      )
+    }
+    if (assignmentMode === "ranked") {
+      list = [...list].sort((a, b) => {
+        if (a.rank != null && b.rank != null) return a.rank - b.rank
+        if (a.rank != null) return -1
+        if (b.rank != null) return 1
+        return a.name.localeCompare(b.name)
+      })
+    }
+    return list
+  }, [cleaners, searchQuery, assignmentMode])
 
   function selectCleaner(c: CleanerDetail) {
     setSelectedCleaner(c)
@@ -542,6 +736,33 @@ export default function TeamsPage() {
           <p className="text-sm text-muted-foreground">Manage your cleaners and track performance</p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Assignment mode toggle */}
+          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+            <button
+              onClick={() => handleAssignmentModeChange("broadcast")}
+              disabled={assignmentModeLoading}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                assignmentMode === "broadcast"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Auto-Broadcast
+            </button>
+            <button
+              onClick={() => handleAssignmentModeChange("ranked")}
+              disabled={assignmentModeLoading}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+                assignmentMode === "ranked"
+                  ? "bg-amber-500/20 text-amber-400 shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              Ranked Priority
+            </button>
+          </div>
           {/* Employee type toggle */}
           <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
             <button
@@ -602,80 +823,111 @@ export default function TeamsPage() {
             {!loadError && filteredCleaners.length === 0 && (
               <p className="text-sm text-muted-foreground p-3">No cleaners found.</p>
             )}
-            {filteredCleaners.map((c) => {
-              const isSelected = selectedCleaner?.id === c.id
-              return (
-                <div
-                  key={c.id}
-                  className={cn(
-                    "flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors cursor-pointer group",
-                    isSelected
-                      ? "bg-purple-500/10 border border-purple-500/30"
-                      : "hover:bg-muted/50 border border-transparent",
-                    !c.is_active && "opacity-50"
-                  )}
-                  onClick={() => selectCleaner(c)}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <div className={cn(
-                      "h-2 w-2 rounded-full shrink-0",
-                      c.is_active ? "bg-green-500" : "bg-zinc-500"
-                    )} />
-                    <div className="min-w-0">
-                      <span className={cn(
-                        "text-sm font-medium truncate block",
-                        isSelected ? "text-purple-300" : "text-foreground"
-                      )}>
-                        {c.name}
-                      </span>
-                      {c.team_name && (
-                        <span className="text-[10px] text-muted-foreground truncate block">{c.team_name}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditingMember({
-                            id: c.id, name: c.name, phone: c.phone, email: "",
-                            is_team_lead: c.role === "lead",
-                            employee_type: c.employee_type || "technician",
-                            username: (c as any).username || c.name,
-                            pin: (c as any).pin || "",
-                          })
-                        }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive hover:text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleteTarget({ id: c.id, name: c.name })
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <Switch
-                      checked={c.is_active}
-                      onCheckedChange={(checked) => {
-                        toggleCleanerActive(c.id, checked)
+            {assignmentMode === "ranked" && !searchQuery.trim() ? (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={filteredCleaners.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                  {filteredCleaners.map((c, index) => (
+                    <SortableCleanerItem
+                      key={c.id}
+                      cleaner={c}
+                      index={index}
+                      isSelected={selectedCleaner?.id === c.id}
+                      onSelect={() => selectCleaner(c)}
+                      onEdit={(e) => {
+                        e.stopPropagation()
+                        setEditingMember({
+                          id: c.id, name: c.name, phone: c.phone, email: "",
+                          is_team_lead: c.role === "lead",
+                          employee_type: c.employee_type || "technician",
+                          username: (c as any).username || c.name,
+                          pin: (c as any).pin || "",
+                        })
                       }}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`Toggle ${c.name} active`}
+                      onDelete={(e) => {
+                        e.stopPropagation()
+                        setDeleteTarget({ id: c.id, name: c.name })
+                      }}
+                      onToggleActive={(checked) => toggleCleanerActive(c.id, checked)}
                     />
+                  ))}
+                </SortableContext>
+              </DndContext>
+            ) : (
+              filteredCleaners.map((c) => {
+                const isSelected = selectedCleaner?.id === c.id
+                return (
+                  <div
+                    key={c.id}
+                    className={cn(
+                      "flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors cursor-pointer group",
+                      isSelected
+                        ? "bg-purple-500/10 border border-purple-500/30"
+                        : "hover:bg-muted/50 border border-transparent",
+                      !c.is_active && "opacity-50"
+                    )}
+                    onClick={() => selectCleaner(c)}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <div className={cn(
+                        "h-2 w-2 rounded-full shrink-0",
+                        c.is_active ? "bg-green-500" : "bg-zinc-500"
+                      )} />
+                      <div className="min-w-0">
+                        <span className={cn(
+                          "text-sm font-medium truncate block",
+                          isSelected ? "text-purple-300" : "text-foreground"
+                        )}>
+                          {c.name}
+                        </span>
+                        {c.team_name && (
+                          <span className="text-[10px] text-muted-foreground truncate block">{c.team_name}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditingMember({
+                              id: c.id, name: c.name, phone: c.phone, email: "",
+                              is_team_lead: c.role === "lead",
+                              employee_type: c.employee_type || "technician",
+                              username: (c as any).username || c.name,
+                              pin: (c as any).pin || "",
+                            })
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleteTarget({ id: c.id, name: c.name })
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <Switch
+                        checked={c.is_active}
+                        onCheckedChange={(checked) => {
+                          toggleCleanerActive(c.id, checked)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Toggle ${c.name} active`}
+                      />
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })
+            )}
           </div>
 
           <div className="text-[10px] text-muted-foreground pt-2 text-center">

@@ -33,6 +33,7 @@ export type TaskType =
   | 'manual_call'
   | 'send_sms'
   | 'hot_lead_followup'
+  | 'ranked_cascade'
 
 export interface ScheduledTask {
   id: string

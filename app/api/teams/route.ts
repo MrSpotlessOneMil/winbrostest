@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
   // Load teams and their members (cleaners) including location fields
   let teamsQuery = client
     .from("teams")
-    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, username, pin, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
+    .select("id,name,active,created_at,team_members ( id, role, is_active, cleaners ( id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, username, pin, rank, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at ) )")
     .eq("active", true)
     .order("created_at", { ascending: true })
   if (tenant) teamsQuery = teamsQuery.eq("tenant_id", tenant.id)
@@ -106,6 +106,7 @@ export async function GET(request: NextRequest) {
           last_location_updated_at: c.last_location_updated_at ?? null,
           username: c.username || undefined,
           pin: c.pin || undefined,
+          rank: c.rank ?? null,
         } as any
       })
       .filter(Boolean)
@@ -138,7 +139,7 @@ export async function GET(request: NextRequest) {
   // Load unassigned cleaners (active cleaners not in any team)
   let unassignedQuery = client
     .from("cleaners")
-    .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, username, pin, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
+    .select("id, name, phone, telegram_id, telegram_username, active, is_team_lead, employee_type, username, pin, rank, last_location_lat, last_location_lng, last_location_accuracy_meters, last_location_updated_at")
     .is("deleted_at", null)
     .order("name")
   if (tenant) unassignedQuery = unassignedQuery.eq("tenant_id", tenant.id)

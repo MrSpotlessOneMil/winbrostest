@@ -15,6 +15,7 @@ import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
 import { getEstimateFromNotes } from '@/lib/pricing-config'
+import { getPricingAddons } from '@/lib/pricing-db'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
 
@@ -109,21 +110,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   // Inject add-on items that aren't already covered by the static checklist
   // e.g. "inside fridge" added to a standard cleaning should still appear
-  const ADDON_CHECKLIST_MAP: Record<string, string> = {
-    inside_fridge: 'Inside fridge',
-    inside_oven: 'Inside oven & microwave',
-    inside_cabinets: 'Inside all cabinets & drawers',
-    windows_interior: 'Interior windows washed',
-    windows_exterior: 'Exterior windows washed',
-    windows_both: 'Interior + exterior windows washed',
+  // Dynamic lookup from pricing_addons table so ALL tenant addons are covered
+  const tenantAddons = await getPricingAddons(tenant.id)
+  const addonLabelMap: Record<string, string> = {}
+  for (const a of tenantAddons) {
+    addonLabelMap[a.addon_key] = a.label
   }
   try {
-    const jobAddons: { key: string }[] = job.addons ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons) : []
+    const jobAddons: { key: string; label?: string; price?: number }[] = job.addons ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons) : []
     const existingTexts = new Set(checklist.map((c) => c.text.toLowerCase()))
     let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
     for (const addon of jobAddons) {
-      const label = ADDON_CHECKLIST_MAP[addon.key]
-      if (!label) continue
+      // Priority: stored label from job data → pricing_addons DB → humanize key
+      const label = addon.label || addonLabelMap[addon.key] || addon.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
       // Skip if the checklist already has this item (case-insensitive partial match)
       if ([...existingTexts].some((t) => t.includes(label.toLowerCase().split(' ')[0]) && t.includes(label.toLowerCase().split(' ').slice(-1)[0]))) continue
       checklist.push({
@@ -152,6 +151,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
+
+  // Cleaner pay: use PAY tag from notes, fallback to price × cleaner_pay_percentage
+  let cleanerPay = estimate.cleanerPay ?? null
+  if (cleanerPay == null && job.price) {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    if (payPercentage) {
+      cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+    }
+  }
 
   // Strip structured tags from notes so frontend only shows human-readable instructions
   const cleanedNotes = job.notes
@@ -183,7 +191,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       bathrooms: job.bathrooms,
       sqft: job.sqft,
       hours: job.hours,
-      cleaner_pay: estimate.cleanerPay ?? null,
+      cleaner_pay: cleanerPay,
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,
       num_cleaners: estimate.cleaners ?? null,
@@ -256,7 +264,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const customerPhone = customer?.phone_number || job.phone_number
     if (customerPhone && body.status !== 'done') {
       const statusMap = { omw: 'omw', here: 'arrived' } as const
-      await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap])
+      await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap], cleaner.name)
     }
 
     // On DONE: auto-charge card + single satisfaction check

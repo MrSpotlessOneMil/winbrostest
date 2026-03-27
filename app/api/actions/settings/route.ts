@@ -70,6 +70,7 @@ export async function GET(request: NextRequest) {
       owner_email: authTenant.owner_email || "",
       google_review_link: authTenant.google_review_link || "",
     },
+    assignment_mode: wc.assignment_mode ?? (wc.use_broadcast_assignment ? 'broadcast' : 'distance'),
     service_description: authTenant.service_description || null,
     tenant_name: authTenant.name,
     window_tiers: wc.window_tiers ?? null,
@@ -113,6 +114,18 @@ export async function POST(request: NextRequest) {
     if (field in body) {
       workflowUpdates[field] = body[field]
     }
+  }
+
+  // ── Assignment mode (workflow_config string field) ──
+  if ('assignment_mode' in body) {
+    const mode = body.assignment_mode
+    if (mode !== 'broadcast' && mode !== 'ranked' && mode !== 'distance') {
+      return NextResponse.json(
+        { success: false, error: 'Invalid assignment_mode — must be broadcast, ranked, or distance' },
+        { status: 400 }
+      )
+    }
+    workflowUpdates.assignment_mode = mode
   }
 
   // ── Tenant column updates (business info) ──

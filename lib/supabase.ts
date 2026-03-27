@@ -100,6 +100,7 @@ export interface Cleaner {
   home_lng?: number
   employee_type?: 'technician' | 'salesman'
   portal_token?: string | null
+  rank?: number | null
   created_at?: string
 }
 
