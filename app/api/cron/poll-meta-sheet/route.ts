@@ -3,19 +3,21 @@ import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { normalizePhoneNumber } from '@/lib/phone-utils'
 import { scheduleLeadFollowUp } from '@/lib/scheduler'
+import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getAllActiveTenants } from '@/lib/tenant'
+import { getAllActiveTenants, getTenantBusinessName, getTenantSdrName, type Tenant } from '@/lib/tenant'
 
 /**
  * Cron: Poll Google Sheets for Meta Lead Ad leads (multi-tenant)
- * Runs every 5 minutes. For each tenant with a meta_sheet_id in workflow_config,
- * fetches the sheet as CSV, deduplicates against existing leads, and ingests new ones.
+ * Runs every 2 minutes. For each tenant with a meta_sheet_id in workflow_config,
+ * fetches the sheet as CSV, deduplicates, and ingests new leads.
+ *
+ * NEW LEADS get an AI-personalized first SMS based on:
+ * - Their name, service type, notes/requests, address
+ * - Then stages 2-5 of the normal follow-up sequence are scheduled
  *
  * Sheet must be shared as "Anyone with the link can view".
  * Dedup key: source_id = 'meta-sheet-{meta_lead_id}'
- *
- * Expected columns (from Meta Lead Ads → Google Sheets integration):
- * id, created_time, ad_id, ad_name, ..., full_name, phone_number, email, street_address, ...
  */
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -45,7 +47,7 @@ export async function GET(request: NextRequest) {
       let errors = 0
 
       try {
-        // Fetch sheet as CSV (requires "Anyone with the link" sharing)
+        // Fetch sheet as CSV
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 15000)
 
@@ -91,16 +93,14 @@ export async function GET(request: NextRequest) {
           const row = rows[i]
           if (!row || row.length < 3) continue
 
-          // Extract and normalize phone — strip "p:" prefix from Meta export
           const rawPhone = (row[idxPhone] || '').replace(/^p:/, '').trim()
           const phone = normalizePhoneNumber(rawPhone)
           if (!phone) continue
 
-          // Build dedup key from Meta lead ID
           const metaId = (row[idxId] || '').replace(/^l:/, '').trim()
           const sourceId = metaId ? `meta-sheet-${metaId}` : `meta-sheet-${phone}-${i}`
 
-          // Check if already ingested
+          // Dedup by source_id
           const { data: existing } = await client
             .from('leads')
             .select('id')
@@ -114,50 +114,6 @@ export async function GET(request: NextRequest) {
             continue
           }
 
-          // Also check if this phone already has ANY lead for this tenant (prevent double-texting)
-          const { data: existingByPhone } = await client
-            .from('leads')
-            .select('id, status')
-            .eq('phone_number', phone)
-            .eq('tenant_id', tenant.id)
-            .limit(1)
-            .maybeSingle()
-
-          if (existingByPhone) {
-            // Phone already exists — still create the lead for tracking but DON'T schedule follow-up
-            const fullName = row[idxFullName] || ''
-            const nameParts = fullName.split(' ')
-            const firstName = nameParts[0] || ''
-            const lastName = nameParts.slice(1).join(' ') || ''
-
-            await client.from('leads').insert({
-              tenant_id: tenant.id,
-              source_id: sourceId,
-              phone_number: phone,
-              customer_id: existingByPhone.id ? undefined : null,
-              first_name: firstName || null,
-              last_name: lastName || null,
-              email: (row[idxEmail] || '').trim() || null,
-              source: 'meta',
-              status: existingByPhone.status || 'contacted',
-              form_data: {
-                meta_lead_id: metaId,
-                service_type: idxService >= 0 ? row[idxService] : null,
-                notes: idxNotes >= 0 ? row[idxNotes] : null,
-                address: idxAddress >= 0 ? row[idxAddress] : null,
-                ad_name: idxAdName >= 0 ? row[idxAdName] : null,
-                campaign: idxCampaign >= 0 ? row[idxCampaign] : null,
-                imported_from: 'google_sheet_poll',
-                skipped_followup: true,
-                reason: 'phone_already_exists',
-              },
-            })
-
-            skipped++
-            continue
-          }
-
-          // New lead — full ingest
           const fullName = row[idxFullName] || ''
           const nameParts = fullName.split(' ')
           const firstName = nameParts[0] || ''
@@ -168,7 +124,41 @@ export async function GET(request: NextRequest) {
           const notes = idxNotes >= 0 ? (row[idxNotes] || '').trim() : ''
           const createdTime = row[idxCreated] || new Date().toISOString()
 
-          // Upsert customer
+          // Check if phone already exists (prevent double-texting)
+          const { data: existingByPhone } = await client
+            .from('leads')
+            .select('id, status')
+            .eq('phone_number', phone)
+            .eq('tenant_id', tenant.id)
+            .limit(1)
+            .maybeSingle()
+
+          if (existingByPhone) {
+            await client.from('leads').insert({
+              tenant_id: tenant.id,
+              source_id: sourceId,
+              phone_number: phone,
+              first_name: firstName || null,
+              last_name: lastName || null,
+              email: email || null,
+              source: 'meta',
+              status: existingByPhone.status || 'contacted',
+              form_data: {
+                meta_lead_id: metaId,
+                service_type: serviceType,
+                notes,
+                address,
+                imported_from: 'google_sheet_poll',
+                skipped_followup: true,
+                reason: 'phone_already_exists',
+              },
+            })
+            skipped++
+            continue
+          }
+
+          // ── NEW LEAD: Full ingest + AI-personalized first message ──
+
           const { data: customer } = await client
             .from('customers')
             .upsert(
@@ -186,7 +176,6 @@ export async function GET(request: NextRequest) {
             .select('id')
             .single()
 
-          // Create lead
           const { data: newLead, error: leadError } = await client
             .from('leads')
             .insert({
@@ -209,7 +198,7 @@ export async function GET(request: NextRequest) {
                 created_time: createdTime,
                 imported_from: 'google_sheet_poll',
               },
-              followup_stage: 0,
+              followup_stage: 1,
               followup_started_at: new Date().toISOString(),
             })
             .select('id')
@@ -221,22 +210,46 @@ export async function GET(request: NextRequest) {
             continue
           }
 
-          // Schedule SMS follow-up
+          // Generate AI-personalized first SMS
+          const personalizedMsg = await generatePersonalizedSMS(tenant, firstName, serviceType, notes, address)
+
+          // Send immediately
+          const smsResult = await sendSMS(tenant, phone, personalizedMsg)
+          if (smsResult.success) {
+            // Update lead to contacted
+            await client.from('leads').update({
+              status: 'contacted',
+              followup_stage: 1,
+              last_contact_at: new Date().toISOString(),
+            }).eq('id', newLead!.id)
+
+            console.log(`[Meta Sheet] AI SMS sent to ${firstName || phone} (${tenant.slug})`)
+          }
+
+          // Schedule stages 2-5 only (stage 1 already sent as AI message)
           if (newLead?.id) {
             const leadName = fullName || 'Customer'
-            await scheduleLeadFollowUp(tenant.id, String(newLead.id), phone, leadName)
+            // Delays: skip stage 1 (0 min), start from stage 2 (day 1) onward
+            await scheduleLeadFollowUp(
+              tenant.id,
+              String(newLead.id),
+              phone,
+              leadName,
+              [1440, 4320, 10080, 20160] // day 1, day 3, day 7, day 14
+            )
           }
 
           await logSystemEvent({
             tenant_id: tenant.id,
             source: 'meta',
             event_type: 'META_SHEET_LEAD_INGESTED',
-            message: `New Meta lead from sheet: ${fullName || phone}`,
+            message: `New Meta lead from sheet: ${fullName || phone} — AI SMS sent`,
             phone_number: phone,
             metadata: {
               lead_id: newLead?.id,
               meta_lead_id: metaId,
               service_type: serviceType,
+              ai_message: personalizedMsg,
             },
           })
 
@@ -258,6 +271,76 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[Meta Sheet] Cron error:', message)
     return NextResponse.json({ success: false, error: message }, { status: 500 })
+  }
+}
+
+// ── AI Personalized SMS Generator ──
+
+async function generatePersonalizedSMS(
+  tenant: Tenant,
+  firstName: string,
+  serviceType: string,
+  notes: string,
+  address: string
+): Promise<string> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    // Fallback to template if no API key
+    const biz = getTenantBusinessName(tenant, true)
+    return `Hi ${firstName || 'there'}! Thanks for reaching out to ${biz}. We'd love to help with your cleaning needs. When works best for a quick call?`
+  }
+
+  const businessName = getTenantBusinessName(tenant)
+  const sdrName = getTenantSdrName(tenant)
+  const serviceLabel = serviceType
+    .replace(/_/g, ' ')
+    .replace(/clean$/, 'cleaning')
+    .replace(/^standard/, 'standard')
+    .replace(/^deep/, 'deep')
+
+  const prompt = `You are ${sdrName} from ${businessName}. A new customer just filled out a form on Facebook requesting cleaning services. Write a SHORT, warm, personalized first SMS (2-3 sentences max, under 300 chars).
+
+Customer info:
+- Name: ${firstName || 'unknown'}
+- Service requested: ${serviceLabel || 'cleaning'}
+- Their notes/requests: ${notes || 'none'}
+- Address: ${address || 'not provided'}
+
+Rules:
+- Use their first name naturally
+- Reference their specific service type or notes if they provided any (e.g. "I see you're looking for a deep clean" or "focusing on baseboards and fans sounds great")
+- End with a simple question to keep the conversation going (availability, number of rooms, etc.)
+- Sound human, warm, not salesy. Like a friendly text, not a marketing message.
+- NO emojis. NO exclamation marks overload. NO "we'd be honored" type fluff.
+- Do NOT mention discounts or deals.
+- Do NOT say "I'm an AI" or anything like that.
+- Just the message text, nothing else.`
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+
+  try {
+    const Anthropic = (await import('@anthropic-ai/sdk')).default
+    const client = new Anthropic({ apiKey })
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 150,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    clearTimeout(timeout)
+
+    const text = response.content[0]
+    if (text.type === 'text') {
+      return text.text.trim()
+    }
+
+    // Fallback
+    return `Hi ${firstName || 'there'}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceLabel || 'cleaning'}. When works best for a quick call?`
+  } catch (err) {
+    clearTimeout(timeout)
+    console.error('[Meta Sheet] AI message generation failed:', err)
+    return `Hi ${firstName || 'there'}! Thanks for reaching out to ${businessName}. We'd love to help with your ${serviceLabel || 'cleaning'}. When works best for a quick call?`
   }
 }
 
@@ -303,7 +386,6 @@ function parseCSV(text: string): string[][] {
     }
   }
 
-  // Last field/row
   current.push(field)
   if (current.length > 1 || current[0] !== '') {
     rows.push(current)

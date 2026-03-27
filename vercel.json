@@ -70,7 +70,7 @@
     },
     {
       "path": "/api/cron/poll-meta-sheet",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/2 * * * *"
     },
     {
       "path": "/api/cron/score-conversations",
