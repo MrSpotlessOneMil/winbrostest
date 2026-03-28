@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
   DollarSign, TrendingUp, Repeat, Users, Target,
   RefreshCcw, ArrowUpRight, ArrowDownRight, Minus,
-  Lightbulb, ChevronDown, ChevronUp, MapPin,
+  ChevronDown, ChevronUp, MapPin,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -155,6 +155,28 @@ export default function InsightsPage() {
           Refresh
         </Button>
       </div>
+
+      {/* ═══ AI RECOMMENDATIONS — hero position ═══ */}
+      {recommendations.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {recommendations.map((rec, i) => (
+            <div
+              key={i}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium",
+                rec.type === "up" && "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20",
+                rec.type === "down" && "bg-red-500/10 text-red-400 border border-red-500/20",
+                rec.type === "info" && "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+              )}
+            >
+              {rec.type === "up" && <ArrowUpRight className="h-4 w-4 shrink-0" />}
+              {rec.type === "down" && <ArrowDownRight className="h-4 w-4 shrink-0" />}
+              {rec.type === "info" && <Minus className="h-4 w-4 shrink-0" />}
+              {rec.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ═══ REVENUE CARDS (clickable to expand) ═══ */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -388,27 +410,7 @@ export default function InsightsPage() {
         </Card>
       )}
 
-      {/* ═══ AI RECOMMENDATIONS ═══ */}
-      {recommendations.length > 0 && (
-        <Card>
-          <CardContent className="p-5">
-            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-              <Lightbulb className="h-4 w-4 text-amber-400" />
-              What Knobs to Turn
-            </h3>
-            <div className="space-y-2">
-              {recommendations.map((rec, i) => (
-                <div key={i} className="flex items-start gap-3 py-2 px-3 rounded-lg bg-muted/30">
-                  {rec.type === "up" && <ArrowUpRight className="h-4 w-4 text-green-400 mt-0.5 shrink-0" />}
-                  {rec.type === "down" && <ArrowDownRight className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />}
-                  {rec.type === "info" && <Minus className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />}
-                  <span className="text-sm">{rec.text}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* AI recommendations moved to hero position above */}
     </div>
   )
 }

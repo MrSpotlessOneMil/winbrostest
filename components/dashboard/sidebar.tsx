@@ -26,13 +26,12 @@ import { useState, useRef, useEffect } from "react"
 
 const navigation = [
   { name: "Command Center", href: "/overview", icon: LayoutDashboard, adminOnly: false },
-  // { name: "Inbox", href: "/inbox", icon: Inbox, adminOnly: false }, // Hidden - revisit when message volume warrants a triage queue
-  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
-  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
-  { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
+  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
+  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
+  { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
+  { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
@@ -147,7 +146,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
         {!collapsed && (
           <Link href="/overview" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
-            <span className="font-semibold text-zinc-100 tracking-tight text-sm">CLEAN MACHINE</span>
+            <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">CLEAN MACHINE</span>
           </Link>
         )}
         {collapsed && (
@@ -170,8 +169,8 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
               onClick={onNavClick}
               className={`flex items-center ${collapsed ? "justify-center" : "gap-3 px-3"} py-2 rounded-md text-sm font-medium transition-all duration-150 min-h-[44px] ${
                 isActive
-                  ? "text-zinc-100 bg-white/[0.06] sidebar-active-border"
-                  : "text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.03]"
+                  ? "text-sidebar-foreground bg-white/[0.06] sidebar-active-border"
+                  : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"
               }`}
             >
               <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : ""}`} />
@@ -187,17 +186,17 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
           <div ref={dropdownRef} className="relative">
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
-              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-zinc-800/50 text-left transition-colors"
+              className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent text-left transition-colors"
             >
               <div className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
                 {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-zinc-200 truncate">
+                <div className="text-sm font-medium text-foreground truncate">
                   {user ? accountLabel(user) : "User"}
                 </div>
               </div>
-              <ChevronsUpDown className="w-4 h-4 text-zinc-600 shrink-0" />
+              <ChevronsUpDown className="w-4 h-4 text-muted-foreground shrink-0" />
             </button>
 
             {dropdownVisible && (
@@ -210,15 +209,15 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                 style={{ background: 'rgba(24, 24, 27, 0.85)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)', border: '1px solid rgba(255, 255, 255, 0.08)', boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)' }}
               >
                 {/* Current account indicator */}
-                <div className="px-3 py-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Current Account
                 </div>
-                <div className="flex items-center gap-2.5 px-3 py-2 bg-zinc-800/50">
+                <div className="flex items-center gap-2.5 px-3 py-2 bg-sidebar-accent">
                   <div className="w-7 h-7 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
                     {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-zinc-200 truncate">
+                    <div className="text-sm font-medium text-foreground truncate">
                       {user ? accountLabel(user) : "User"}
                     </div>
                   </div>
@@ -228,7 +227,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                 {/* Other accounts */}
                 {otherAccounts.length > 0 && (
                   <>
-                    <div className="px-3 py-1.5 mt-1 text-xs font-medium text-zinc-500 uppercase tracking-wider border-t border-zinc-800">
+                    <div className="px-3 py-1.5 mt-1 text-xs font-medium text-muted-foreground uppercase tracking-wider border-t border-sidebar-border">
                       Switch Account
                     </div>
                     {otherAccounts.map((account) => {
@@ -241,19 +240,19 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                           className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all duration-150 ${
                             isSwitching
                               ? "bg-purple-500/15 scale-[0.97]"
-                              : "hover:bg-zinc-800 scale-100"
+                              : "hover:bg-sidebar-accent scale-100"
                           }`}
                         >
                           <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 transition-colors duration-150 ${
                             isSwitching
                               ? "bg-purple-500/25 text-purple-300"
-                              : "bg-zinc-700/50 text-zinc-400"
+                              : "bg-sidebar-accent/50 text-muted-foreground"
                           }`}>
                             {accountLabel(account.user).charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className={`text-sm font-medium truncate transition-colors duration-150 ${
-                              isSwitching ? "text-purple-200" : "text-zinc-300"
+                              isSwitching ? "text-purple-200" : "text-foreground"
                             }`}>
                               {accountLabel(account.user)}
                             </div>
@@ -271,22 +270,22 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                 {!showAddAccount ? (
                   <button
                     onClick={() => setShowAddAccount(true)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left border-t border-zinc-800 mt-1"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent text-left border-t border-sidebar-border mt-1"
                   >
                     <Plus className="w-4 h-4" />
                     Add another account
                   </button>
                 ) : (
-                  <form onSubmit={handleAddAccount} className="px-3 py-2 border-t border-zinc-800 mt-1 space-y-2">
+                  <form onSubmit={handleAddAccount} className="px-3 py-2 border-t border-sidebar-border mt-1 space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-zinc-400">Sign in to account</span>
+                      <span className="text-xs font-medium text-muted-foreground">Sign in to account</span>
                       <button
                         type="button"
                         onClick={() => {
                           setShowAddAccount(false)
                           setLoginError("")
                         }}
-                        className="text-zinc-500 hover:text-zinc-300"
+                        className="text-muted-foreground hover:text-foreground"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -296,14 +295,14 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                       placeholder="Username"
                       value={loginUsername}
                       onChange={(e) => setLoginUsername(e.target.value)}
-                      className="w-full px-2 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                      className="w-full px-2 py-1.5 text-sm bg-sidebar-accent border border-sidebar-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:border-sidebar-ring"
                     />
                     <input
                       type="password"
                       placeholder="Password"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
-                      className="w-full px-2 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+                      className="w-full px-2 py-1.5 text-sm bg-sidebar-accent border border-sidebar-border rounded text-foreground placeholder-muted-foreground focus:outline-none focus:border-sidebar-ring"
                     />
                     {loginError && (
                       <p className="text-xs text-red-400">{loginError}</p>
@@ -311,7 +310,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                     <button
                       type="submit"
                       disabled={loggingIn || !loginUsername || !loginPassword}
-                      className="w-full py-1.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 disabled:bg-zinc-700 disabled:text-zinc-500 text-white rounded flex items-center justify-center gap-2"
+                      className="w-full py-1.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 disabled:bg-muted disabled:text-muted-foreground text-white rounded flex items-center justify-center gap-2"
                     >
                       {loggingIn ? (
                         <>
@@ -325,7 +324,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                   </form>
                 )}
 
-                <div className="border-t border-zinc-800 mt-1" />
+                <div className="border-t border-sidebar-border mt-1" />
 
                 {/* Settings */}
                 <button
@@ -333,7 +332,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                     closeDropdown()
                     onOpenSettings?.()
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent text-left"
                 >
                   <Settings className="w-3.5 h-3.5" />
                   Settings
@@ -345,7 +344,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                     closeDropdown()
                     logout()
                   }}
-                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 text-left"
+                  className="w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent text-left"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   Log out

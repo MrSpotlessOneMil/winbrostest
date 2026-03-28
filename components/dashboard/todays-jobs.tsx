@@ -150,7 +150,7 @@ export function TodaysJobs() {
                   "h-full w-1 self-stretch rounded-full",
                   job.status === "completed" && "bg-success",
                   job.status === "in-progress" && "bg-primary status-dot-pulse",
-                  job.status === "scheduled" && "bg-zinc-600"
+                  job.status === "scheduled" && "bg-muted-foreground"
                 )}
               />
 
@@ -163,10 +163,10 @@ export function TodaysJobs() {
                       {(statusConfig[job.status] || statusConfig.scheduled).label}
                     </Badge>
                   </div>
-                  <span className="text-xs font-mono text-zinc-600">{job.id}</span>
+                  <span className="text-xs font-mono text-muted-foreground/60">{job.id}</span>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-zinc-500">
+                <div className="flex flex-wrap items-center gap-3 md:gap-4 text-xs md:text-sm text-muted-foreground">
                   <div className="flex items-center gap-1 min-w-0">
                     <MapPin className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate max-w-[180px] sm:max-w-none">{job.address}</span>
@@ -177,7 +177,7 @@ export function TodaysJobs() {
                   </div>
                   <div className="flex items-center gap-1">
                     <DollarSign className="h-3.5 w-3.5" />
-                    <span className="text-zinc-300 font-medium">${job.value}</span>
+                    <span className="text-foreground font-medium">${job.value}</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <User className="h-3.5 w-3.5" />
@@ -219,11 +219,11 @@ export function TodaysJobs() {
           ))}
           {!loading && jobs.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800/60">
-                <CalendarCheck className="h-6 w-6 text-zinc-500" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <CalendarCheck className="h-6 w-6 text-muted-foreground" />
               </div>
-              <p className="mt-3 font-medium text-zinc-300">No jobs today</p>
-              <p className="text-sm text-zinc-500">Jobs will appear here when scheduled</p>
+              <p className="mt-3 font-medium text-foreground">No jobs today</p>
+              <p className="text-sm text-muted-foreground">Jobs will appear here when scheduled</p>
             </div>
           )}
         </div>

@@ -177,21 +177,21 @@ export function RecentLeads() {
                     </Badge>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-zinc-500">{lead.service}</span>
-                    <span className="font-semibold text-zinc-200">{lead.value}</span>
+                    <span className="text-muted-foreground">{lead.service}</span>
+                    <span className="font-semibold text-foreground">{lead.value}</span>
                   </div>
-                  <span className="text-xs text-zinc-600">{lead.time}</span>
+                  <span className="text-xs text-muted-foreground/60">{lead.time}</span>
                 </div>
               </Link>
             )
           })}
           {!loading && leads.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-800/60">
-                <Phone className="h-6 w-6 text-zinc-500" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <Phone className="h-6 w-6 text-muted-foreground" />
               </div>
-              <p className="mt-3 font-medium text-zinc-300">No recent leads</p>
-              <p className="text-sm text-zinc-500">New inquiries will show up here</p>
+              <p className="mt-3 font-medium text-foreground">No recent leads</p>
+              <p className="text-sm text-muted-foreground">New inquiries will show up here</p>
             </div>
           )}
         </div>

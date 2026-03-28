@@ -54,7 +54,7 @@ function ThemeToggle() {
   return (
     <button
       onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-zinc-800/50 dark:hover:bg-zinc-800/50 hover:bg-zinc-200 text-zinc-400 dark:text-zinc-400 text-zinc-600 transition-colors"
+      className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground transition-colors"
       title={isDark ? "Switch to light mode" : "Switch to dark mode"}
     >
       {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -230,7 +230,7 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
       {onToggleMobileMenu && (
         <button
           onClick={onToggleMobileMenu}
-          className="md:hidden w-9 h-9 flex items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="md:hidden w-9 h-9 flex items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         >
           <Menu className="w-5 h-5" />
         </button>
@@ -241,19 +241,19 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
         <>
           <button
             onClick={onToggleSidebar}
-            className="hidden md:flex w-7 h-7 items-center justify-center rounded-md hover:bg-zinc-800/50 text-zinc-400 hover:text-zinc-200 transition-colors"
+            className="hidden md:flex w-7 h-7 items-center justify-center rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
           >
             <PanelLeft className="w-4 h-4" />
           </button>
-          <div className="hidden md:block h-4 w-px bg-zinc-800" />
+          <div className="hidden md:block h-4 w-px bg-border" />
         </>
       )}
 
       {/* Search */}
       <div className="relative flex-1 max-w-md" ref={searchRef}>
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         {searchLoading && (
-          <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500 animate-spin" />
+          <Loader2 className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground animate-spin" />
         )}
         <Input
           ref={inputRef}
@@ -267,22 +267,22 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
             if (searchResults.length > 0) setSearchOpen(true)
           }}
           onKeyDown={handleKeyDown}
-          className="pl-10 bg-zinc-800/80 border-zinc-700/50 text-zinc-300 placeholder-zinc-600 focus:border-zinc-600 text-sm"
+          className="pl-10 bg-muted/80 border-border text-foreground placeholder-muted-foreground focus:border-ring text-sm"
         />
 
         {/* Search results dropdown */}
         {searchOpen && searchResults.length > 0 && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl overflow-hidden z-50 max-h-[70vh] overflow-y-auto">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden z-50 max-h-[70vh] overflow-y-auto">
             {Object.entries(grouped).map(([category, items]) => {
               const Icon = CATEGORY_ICONS[category] || Search
               return (
                 <div key={category}>
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-800/50 border-b border-zinc-800/60">
-                    <Icon className="w-3.5 h-3.5 text-zinc-500" />
-                    <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 border-b border-border">
+                    <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                       {category}
                     </span>
-                    <span className="text-[10px] text-zinc-600">{items.length}</span>
+                    <span className="text-[10px] text-muted-foreground/60">{items.length}</span>
                   </div>
                   {items.map((result) => {
                     const thisIndex = flatIndex++
@@ -293,14 +293,14 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
                         onClick={() => navigateToResult(result)}
                         onMouseEnter={() => setSelectedIndex(thisIndex)}
                         className={`w-full text-left px-3 py-2 flex items-start gap-2.5 transition-colors ${
-                          isSelected ? "bg-purple-500/10" : "hover:bg-zinc-800/50"
+                          isSelected ? "bg-purple-500/10" : "hover:bg-muted/50"
                         }`}
                       >
                         <div className="flex-1 min-w-0">
-                          <div className={`text-sm truncate ${isSelected ? "text-purple-200" : "text-zinc-200"}`}>
+                          <div className={`text-sm truncate ${isSelected ? "text-purple-200" : "text-foreground"}`}>
                             {result.title}
                           </div>
-                          <div className="text-[11px] text-zinc-500 truncate">
+                          <div className="text-[11px] text-muted-foreground truncate">
                             {result.subtitle}
                           </div>
                         </div>
@@ -314,7 +314,7 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
         )}
 
         {searchOpen && searchQuery.trim().length >= 2 && searchResults.length === 0 && !searchLoading && (
-          <div className="absolute top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700/60 rounded-xl shadow-2xl z-50 p-4 text-center text-sm text-zinc-500">
+          <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-xl shadow-2xl z-50 p-4 text-center text-sm text-muted-foreground">
             No results found
           </div>
         )}
@@ -324,7 +324,7 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
       <div className="flex items-center gap-1.5 shrink-0">
         {/* System Active Toggle — non-admin only */}
         {!isAdmin && tenantStatus && (
-          <div className="flex items-center gap-1.5 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-2 py-1">
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-popover/50 px-2 py-1">
             <div className={`p-1 rounded-md ${systemActive ? "bg-green-500/10" : "bg-red-500/10"}`}>
               {systemActive ? (
                 <Power className="h-3.5 w-3.5 text-green-500" />
@@ -332,7 +332,7 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
                 <PowerOff className="h-3.5 w-3.5 text-red-500" />
               )}
             </div>
-            <span className="hidden sm:inline text-xs font-medium text-zinc-300">
+            <span className="hidden sm:inline text-xs font-medium text-foreground">
               {systemActive ? "Active" : "Offline"}
             </span>
             <Switch
