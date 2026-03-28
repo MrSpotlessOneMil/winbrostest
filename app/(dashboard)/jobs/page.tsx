@@ -1762,6 +1762,13 @@ export default function JobsPage() {
                   ? { left: "prev,next", center: "title", right: "listMonth,dayGridMonth" }
                   : { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,listMonth" }
               }
+              slotMinTime="07:00:00"
+              slotMaxTime="21:00:00"
+              slotDuration="00:30:00"
+              allDaySlot={false}
+              expandRows
+              slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
+              dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric" }}
               events={baseEvents}
               editable
               selectable
@@ -1772,6 +1779,20 @@ export default function JobsPage() {
               snapDuration="00:15:00"
               dragRevertDuration={0}
               eventTimeFormat={timeFormat}
+              eventContent={(arg) => {
+                const price = arg.event.extendedProps.price
+                const view = arg.view.type
+                // Only customize for time grid views — month/list use defaults
+                if (view !== 'timeGridWeek' && view !== 'timeGridDay') return undefined
+                return {
+                  html: `
+                    <div style="padding:1px 3px;overflow:hidden;line-height:1.3">
+                      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</div>
+                      ${price ? `<div style="font-size:10px;opacity:0.85;font-weight:500">$${Number(price).toLocaleString()}</div>` : ''}
+                    </div>
+                  `
+                }
+              }}
               select={handleSelect}
               eventClick={handleEventClick}
               eventDrop={handleEventDrop}
