@@ -20,8 +20,10 @@ export async function GET(request: NextRequest) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
-  // 6 months ago for chart
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().slice(0, 10)
+  // Chart range: week (7d), month (30d), year (365d)
+  const chartRange = request.nextUrl.searchParams.get('chart_range') || 'month'
+  const chartDays = chartRange === 'week' ? 7 : chartRange === 'year' ? 365 : 30
+  const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   // ── Revenue Queries ──
   const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes] = await Promise.all([
@@ -62,12 +64,12 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenant.id)
       .gte('created_at', `${yearStart}T00:00:00Z`),
 
-    // Last 6 months of completed jobs for revenue chart
+    // Chart jobs: daily data points for revenue graph
     supabase.from('jobs')
-      .select('id, price, completed_at, service_type, phone_number, frequency')
+      .select('id, price, completed_at, service_type, phone_number, frequency, address')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
-      .gte('completed_at', `${sixMonthsAgo}T00:00:00Z`)
+      .gte('completed_at', `${chartStart}T00:00:00Z`)
       .not('price', 'is', null)
       .order('completed_at', { ascending: true }),
   ])
@@ -167,21 +169,32 @@ export async function GET(request: NextRequest) {
     }))
     .sort((a, b) => b.revenue - a.revenue)
 
-  // Build monthly revenue chart data (last 6 months)
-  const monthlyChart: { month: string; revenue: number; jobs: number }[] = []
-  const chartMap: Record<string, { revenue: number; jobs: number }> = {}
+  // Build DAILY revenue chart data (Stripe-style spikes)
+  const dailyMap: Record<string, { revenue: number; jobs: { id: number; price: number; service_type: string | null; phone_number: string | null; address: string | null }[] }> = {}
   for (const j of chartJobs) {
     if (!j.completed_at) continue
-    const m = new Date(j.completed_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-    if (!chartMap[m]) chartMap[m] = { revenue: 0, jobs: 0 }
-    chartMap[m].revenue += Number(j.price)
-    chartMap[m].jobs++
+    const day = new Date(j.completed_at).toISOString().slice(0, 10)
+    if (!dailyMap[day]) dailyMap[day] = { revenue: 0, jobs: [] }
+    dailyMap[day].revenue += Number(j.price)
+    dailyMap[day].jobs.push({ id: j.id, price: Number(j.price), service_type: j.service_type, phone_number: j.phone_number, address: j.address })
   }
-  // Ensure all 6 months are represented
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const key = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
-    monthlyChart.push({ month: key, revenue: chartMap[key]?.revenue || 0, jobs: chartMap[key]?.jobs || 0 })
+  // Fill in every day in the range (zeros for days with no jobs)
+  const dailyChart: { date: string; label: string; revenue: number; jobs: number; job_details: { id: number; price: number; service_type: string | null; phone_number: string | null; address: string | null }[] }[] = []
+  const labelFmt = chartRange === 'year'
+    ? { month: 'short' as const }
+    : { month: 'short' as const, day: 'numeric' as const }
+  for (let i = 0; i < chartDays; i++) {
+    const d = new Date(now.getTime() - (chartDays - 1 - i) * 24 * 60 * 60 * 1000)
+    const key = d.toISOString().slice(0, 10)
+    const label = d.toLocaleDateString('en-US', labelFmt)
+    const entry = dailyMap[key]
+    dailyChart.push({
+      date: key,
+      label,
+      revenue: entry?.revenue || 0,
+      jobs: entry?.jobs.length || 0,
+      job_details: entry?.jobs || [],
+    })
   }
 
   return NextResponse.json({
@@ -206,7 +219,8 @@ export async function GET(request: NextRequest) {
       margin_pct: monthlyRevenue > 0 ? Math.round((profitMargin / monthlyRevenue) * 100) : 0,
     },
     lead_sources: leadSources,
-    monthly_chart: monthlyChart,
+    chart: dailyChart,
+    chart_range: chartRange,
     month_name: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
   })
 }

@@ -1,19 +1,37 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import CubeLoader from "@/components/ui/cube-loader"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
   DollarSign, TrendingUp, Repeat, Users, Target,
   RefreshCcw, ArrowUpRight, ArrowDownRight, Minus,
-  Lightbulb,
+  Lightbulb, ChevronDown, ChevronUp, MapPin,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts"
+
+type ChartRange = "week" | "month" | "year"
+
+interface JobDetail {
+  id: number
+  price: number
+  service_type: string | null
+  phone_number: string | null
+  address: string | null
+}
+
+interface ChartPoint {
+  date: string
+  label: string
+  revenue: number
+  jobs: number
+  job_details: JobDetail[]
+}
 
 interface InsightsData {
   revenue: {
@@ -46,35 +64,18 @@ interface InsightsData {
     roi: number | null
     profit: number
   }[]
-  monthly_chart: { month: string; revenue: number; jobs: number }[]
+  chart: ChartPoint[]
+  chart_range: string
   month_name: string
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  phone: "Phone",
-  meta: "Meta Ads",
-  website: "Website",
-  vapi: "VAPI (AI)",
-  sms: "SMS",
-  google: "Google",
-  google_lsa: "Google LSA",
-  thumbtack: "Thumbtack",
-  angi: "Angi",
-  sam: "SAM",
-  ghl: "GoHighLevel",
-  housecall_pro: "HCP",
-  manual: "Manual",
-  email: "Email",
-  retargeting: "Retargeting",
-  unknown: "Unknown",
+  phone: "Phone", meta: "Meta Ads", website: "Website", vapi: "VAPI (AI)",
+  sms: "SMS", google: "Google", google_lsa: "Google LSA", thumbtack: "Thumbtack",
+  angi: "Angi", sam: "SAM", ghl: "GoHighLevel", housecall_pro: "HCP",
+  manual: "Manual", email: "Email", retargeting: "Retargeting", unknown: "Unknown",
 }
-
 const PIE_COLORS = ["#8b5cf6", "#06b6d4", "#f59e0b", "#10b981", "#ef4444", "#ec4899", "#6366f1", "#14b8a6"]
-
-function fmt(n: number): string {
-  if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}k`
-  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-}
 
 function fmtFull(n: number): string {
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
@@ -83,11 +84,15 @@ function fmtFull(n: number): string {
 export default function InsightsPage() {
   const [data, setData] = useState<InsightsData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [chartRange, setChartRange] = useState<ChartRange>("month")
+  const [expandedCard, setExpandedCard] = useState<string | null>(null)
+  const [expandedDay, setExpandedDay] = useState<string | null>(null)
 
-  async function load() {
+  const load = useCallback(async (range?: ChartRange) => {
     setLoading(true)
     try {
-      const res = await fetch("/api/actions/insights-v2", { cache: "no-store" })
+      const r = range || chartRange
+      const res = await fetch(`/api/actions/insights-v2?chart_range=${r}`, { cache: "no-store" })
       const json = await res.json()
       setData(json)
     } catch {
@@ -95,14 +100,21 @@ export default function InsightsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [chartRange])
 
   useEffect(() => { load() }, [])
 
-  if (loading) return <CubeLoader />
+  function switchRange(r: ChartRange) {
+    setChartRange(r)
+    setExpandedDay(null)
+    load(r)
+  }
+
+  if (loading && !data) return <CubeLoader />
   if (!data) return <div className="p-6 text-muted-foreground">Failed to load insights</div>
 
-  const { revenue, pnl, lead_sources, month_name } = data
+  const { revenue, pnl, lead_sources, chart, month_name } = data
+  const toggle = (key: string) => setExpandedCard(prev => prev === key ? null : key)
 
   // AI Recommendations
   const recommendations: { text: string; type: "up" | "down" | "info" }[] = []
@@ -118,12 +130,10 @@ export default function InsightsPage() {
     const recurringPct = revenue.monthly > 0 ? Math.round((revenue.monthly_recurring / revenue.monthly) * 100) : 0
     recommendations.push({ text: `${recurringPct}% of revenue is recurring from ${revenue.recurring_client_count} clients`, type: "info" })
   }
-  const avgJobValue = revenue.monthly > 0 && lead_sources.reduce((s, l) => s + l.booked, 0) > 0
-    ? Math.round(revenue.monthly / lead_sources.reduce((s, l) => s + l.booked, 0))
-    : 0
-  if (avgJobValue > 0) {
-    recommendations.push({ text: `Average job value: ${fmtFull(avgJobValue)}`, type: "info" })
-  }
+
+  // Chart period total
+  const chartTotal = chart.reduce((s, d) => s + d.revenue, 0)
+  const chartJobs = chart.reduce((s, d) => s + d.jobs, 0)
 
   return (
     <div className="p-6 space-y-6 animate-fade-in">
@@ -133,103 +143,152 @@ export default function InsightsPage() {
           <h1 className="text-2xl font-bold">Insights</h1>
           <p className="text-sm text-muted-foreground">{month_name} — Real numbers, no bullshit</p>
         </div>
-        <Button variant="outline" size="sm" onClick={load}>
+        <Button variant="outline" size="sm" onClick={() => load()}>
           <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />
           Refresh
         </Button>
       </div>
 
-      {/* ═══ SECTION 1: Revenue Overview (4 cards) ═══ */}
+      {/* ═══ REVENUE CARDS (clickable to expand) ═══ */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <RevenueCard
-          title="Monthly Revenue"
-          amount={revenue.monthly}
-          subtitle={`${fmtFull(revenue.monthly_recurring)} recurring / ${fmtFull(revenue.monthly_one_time)} one-time`}
-          icon={<DollarSign className="h-5 w-5" />}
-          color="text-green-400"
-          bg="bg-green-500/10"
+        <RevenueCard title="Monthly Revenue" amount={revenue.monthly} icon={<DollarSign className="h-5 w-5" />} color="text-green-400" bg="bg-green-500/10"
+          expanded={expandedCard === "monthly"} onToggle={() => toggle("monthly")}
+          detail={<><p className="text-xs text-muted-foreground">Recurring: {fmtFull(revenue.monthly_recurring)}</p><p className="text-xs text-muted-foreground">One-time: {fmtFull(revenue.monthly_one_time)}</p></>}
         />
-        <RevenueCard
-          title="Annual Revenue"
-          amount={revenue.annual}
-          subtitle={`${fmtFull(revenue.annual_recurring)} recurring / ${fmtFull(revenue.annual_one_time)} one-time`}
-          icon={<TrendingUp className="h-5 w-5" />}
-          color="text-blue-400"
-          bg="bg-blue-500/10"
+        <RevenueCard title="Annual Revenue" amount={revenue.annual} icon={<TrendingUp className="h-5 w-5" />} color="text-blue-400" bg="bg-blue-500/10"
+          expanded={expandedCard === "annual"} onToggle={() => toggle("annual")}
+          detail={<><p className="text-xs text-muted-foreground">Recurring: {fmtFull(revenue.annual_recurring)}</p><p className="text-xs text-muted-foreground">One-time: {fmtFull(revenue.annual_one_time)}</p></>}
         />
-        <RevenueCard
-          title="Recurring Revenue"
-          amount={revenue.monthly_recurring}
-          subtitle={`${revenue.recurring_client_count} recurring clients`}
-          icon={<Repeat className="h-5 w-5" />}
-          color="text-violet-400"
-          bg="bg-violet-500/10"
-          suffix="/mo"
+        <RevenueCard title="Recurring Revenue" amount={revenue.monthly_recurring} suffix="/mo" icon={<Repeat className="h-5 w-5" />} color="text-violet-400" bg="bg-violet-500/10"
+          expanded={expandedCard === "recurring"} onToggle={() => toggle("recurring")}
+          detail={<p className="text-xs text-muted-foreground">{revenue.recurring_client_count} active recurring clients</p>}
         />
-        <RevenueCard
-          title="Projected Annual"
-          amount={revenue.projected_annual}
-          subtitle="if retention holds"
-          icon={<Target className="h-5 w-5" />}
-          color="text-amber-400"
-          bg="bg-amber-500/10"
+        <RevenueCard title="Projected Annual" amount={revenue.projected_annual} icon={<Target className="h-5 w-5" />} color="text-amber-400" bg="bg-amber-500/10"
+          expanded={expandedCard === "projected"} onToggle={() => toggle("projected")}
+          detail={<p className="text-xs text-muted-foreground">= (recurring/mo × 12) + one-time YTD</p>}
         />
       </div>
 
-      {/* ═══ CHARTS: Revenue Trend + Lead Source Pie ═══ */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Revenue Area Chart (Stripe-style) */}
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-blue-400" />
-              Monthly Revenue — Last 6 Months
-            </h3>
-            {data.monthly_chart.length > 0 ? (
-              <ResponsiveContainer width="100%" height={240}>
-                <AreaChart data={data.monthly_chart}>
+      {/* ═══ REVENUE CHART (Stripe-style daily spikes) ═══ */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-semibold text-sm flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-blue-400" />
+                Revenue — {fmtFull(chartTotal)} from {chartJobs} jobs
+              </h3>
+            </div>
+            {/* Week / Month / Year toggle */}
+            <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
+              {(["week", "month", "year"] as ChartRange[]).map(r => (
+                <button key={r} onClick={() => switchRange(r)}
+                  className={cn("px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                    chartRange === r ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}>
+                  {r === "week" ? "7D" : r === "month" ? "30D" : "1Y"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {chart.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={chart} onClick={(e: any) => {
+                  if (e?.activePayload?.[0]?.payload?.date) {
+                    setExpandedDay(prev => prev === e.activePayload[0].payload.date ? null : e.activePayload[0].payload.date)
+                  }
+                }}>
                   <defs>
-                    <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                    <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.4} />
                       <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-                  <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="var(--muted-foreground)"
+                    interval={chartRange === "year" ? 29 : chartRange === "month" ? 4 : 0} />
+                  <YAxis tick={{ fontSize: 10 }} stroke="var(--muted-foreground)" width={50}
+                    tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
                   <Tooltip
                     contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    formatter={(value: number) => [`$${value.toLocaleString()}`, "Revenue"]}
+                    formatter={(value: number) => [`${fmtFull(value)}`, "Revenue"]}
+                    labelFormatter={(label: string) => label}
                   />
-                  <Area type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2.5} fill="url(#revenueGrad)" />
+                  <Area type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2} fill="url(#revGrad)" dot={false}
+                    activeDot={{ r: 5, stroke: "#8b5cf6", strokeWidth: 2, fill: "var(--background)" }} />
                 </AreaChart>
               </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground">No revenue data yet</p>
+              {/* Click-to-expand: show jobs for selected day */}
+              {expandedDay && (() => {
+                const dayData = chart.find(d => d.date === expandedDay)
+                if (!dayData || dayData.job_details.length === 0) return null
+                return (
+                  <div className="mt-3 rounded-lg border border-border bg-muted/30 p-3 animate-in slide-in-from-top-2 duration-200">
+                    <p className="text-xs font-semibold text-muted-foreground mb-2">
+                      {new Date(expandedDay + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} — {fmtFull(dayData.revenue)} from {dayData.jobs} job{dayData.jobs !== 1 ? 's' : ''}
+                    </p>
+                    <div className="space-y-1">
+                      {dayData.job_details.map(j => (
+                        <div key={j.id} className="flex items-center justify-between text-xs py-1.5 px-2 rounded hover:bg-muted/50">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-medium">#{j.id}</span>
+                            <span className="text-muted-foreground truncate">{j.service_type || 'Cleaning'}</span>
+                            {j.address && <span className="text-muted-foreground truncate flex items-center gap-0.5"><MapPin className="h-3 w-3" />{j.address.split(',')[0]}</span>}
+                          </div>
+                          <span className="font-semibold text-green-400 shrink-0">{fmtFull(j.price)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">No revenue data yet</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══ P&L + Lead Source Pie (side by side) ═══ */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Profit & Loss */}
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-green-400" />
+              Profit & Loss — {month_name}
+            </h3>
+            <div className="space-y-3">
+              <PnlRow label="Revenue" amount={pnl.revenue} color="text-green-400" />
+              <PnlRow label={`Cleaner Pay (${pnl.cleaner_pay_pct}%)`} amount={-pnl.cleaner_pay} color="text-red-400" />
+              <PnlRow label="Ad Spend" amount={-pnl.ad_spend} color="text-red-400" />
+              {pnl.other_expenses > 0 && <PnlRow label="Other Expenses" amount={-pnl.other_expenses} color="text-red-400" />}
+              <div className="border-t border-border pt-3 mt-3">
+                <PnlRow label={`Profit (${pnl.margin_pct}% margin)`} amount={pnl.profit} color={pnl.profit >= 0 ? "text-green-400" : "text-red-400"} bold />
+              </div>
+            </div>
+            {pnl.revenue > 0 && (
+              <div className="mt-4 flex h-3 rounded-full overflow-hidden bg-muted">
+                <div className="bg-green-500" style={{ width: `${Math.max(0, pnl.margin_pct)}%` }} />
+                <div className="bg-red-500/60" style={{ width: `${Math.min(100, 100 - Math.max(0, pnl.margin_pct))}%` }} />
+              </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Lead Source Pie Chart */}
+        {/* Lead Source Pie */}
         <Card>
           <CardContent className="p-5">
-            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+            <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
               <Users className="h-4 w-4 text-cyan-400" />
               Lead Sources
             </h3>
             {lead_sources.filter(s => s.leads > 0).length > 0 ? (
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={220}>
                 <PieChart>
-                  <Pie
-                    data={lead_sources.filter(s => s.leads > 0).slice(0, 8)}
-                    dataKey="leads"
-                    nameKey="source"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    label={({ source, leads }: { source: string; leads: number }) => `${SOURCE_LABELS[source] || source} (${leads})`}
-                    labelLine={false}
-                  >
+                  <Pie data={lead_sources.filter(s => s.leads > 0).slice(0, 8)} dataKey="leads" nameKey="source" cx="50%" cy="50%" outerRadius={75} innerRadius={40}
+                    label={({ source, leads }: { source: string; leads: number }) => `${SOURCE_LABELS[source] || source} (${leads})`} labelLine={false}>
                     {lead_sources.filter(s => s.leads > 0).slice(0, 8).map((_, i) => (
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
@@ -238,46 +297,13 @@ export default function InsightsPage() {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <p className="text-sm text-muted-foreground">No lead data yet</p>
+              <p className="text-sm text-muted-foreground">No lead data</p>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* ═══ SECTION 2: Profit & Loss ═══ */}
-      <Card>
-        <CardContent className="p-5">
-          <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-green-400" />
-            Profit & Loss — {month_name}
-          </h3>
-          <div className="space-y-3">
-            <PnlRow label="Revenue" amount={pnl.revenue} color="text-green-400" />
-            <PnlRow label={`Cleaner Pay (${pnl.cleaner_pay_pct}%)`} amount={-pnl.cleaner_pay} color="text-red-400" />
-            <PnlRow label="Ad Spend" amount={-pnl.ad_spend} color="text-red-400" />
-            {pnl.other_expenses > 0 && (
-              <PnlRow label="Other Expenses" amount={-pnl.other_expenses} color="text-red-400" />
-            )}
-            <div className="border-t border-border pt-3 mt-3">
-              <PnlRow
-                label={`Profit (${pnl.margin_pct}% margin)`}
-                amount={pnl.profit}
-                color={pnl.profit >= 0 ? "text-green-400" : "text-red-400"}
-                bold
-              />
-            </div>
-          </div>
-          {/* Visual bar */}
-          {pnl.revenue > 0 && (
-            <div className="mt-4 flex h-3 rounded-full overflow-hidden bg-muted">
-              <div className="bg-green-500" style={{ width: `${Math.max(0, pnl.margin_pct)}%` }} title={`Profit: ${pnl.margin_pct}%`} />
-              <div className="bg-red-500/60" style={{ width: `${Math.min(100, 100 - Math.max(0, pnl.margin_pct))}%` }} title="Costs" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ═══ SECTION 3: Lead Source Economics ═══ */}
+      {/* ═══ LEAD SOURCE ECONOMICS TABLE ═══ */}
       <Card>
         <CardContent className="p-5">
           <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
@@ -325,7 +351,7 @@ export default function InsightsPage() {
         </CardContent>
       </Card>
 
-      {/* ═══ SECTION 4: AI Recommendations ═══ */}
+      {/* ═══ AI RECOMMENDATIONS ═══ */}
       {recommendations.length > 0 && (
         <Card>
           <CardContent className="p-5">
@@ -350,28 +376,24 @@ export default function InsightsPage() {
   )
 }
 
-function RevenueCard({ title, amount, subtitle, icon, color, bg, suffix }: {
-  title: string
-  amount: number
-  subtitle: string
-  icon: React.ReactNode
-  color: string
-  bg: string
-  suffix?: string
+function RevenueCard({ title, amount, icon, color, bg, suffix, expanded, onToggle, detail }: {
+  title: string; amount: number; icon: React.ReactNode; color: string; bg: string
+  suffix?: string; expanded: boolean; onToggle: () => void; detail: React.ReactNode
 }) {
   return (
-    <Card>
+    <Card className="cursor-pointer transition-all hover:shadow-md" onClick={onToggle}>
       <CardContent className="p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <div className={cn("p-2 rounded-lg", bg)}>
-            <div className={color}>{icon}</div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className={cn("p-2 rounded-lg", bg)}><div className={color}>{icon}</div></div>
+            <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
           </div>
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{title}</span>
+          {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </div>
         <p className="text-2xl font-black">
           {fmtFull(amount)}{suffix && <span className="text-sm font-medium text-muted-foreground">{suffix}</span>}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+        {expanded && <div className="mt-3 pt-3 border-t border-border">{detail}</div>}
       </CardContent>
     </Card>
   )
