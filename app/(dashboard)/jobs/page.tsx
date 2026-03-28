@@ -398,6 +398,7 @@ export default function JobsPage() {
   const calendarRef = useRef<FullCalendar | null>(null)
   const [ganttView, setGanttView] = useState(getSavedIsGantt)
   const [activeFcView, setActiveFcView] = useState(getSavedView)
+  const [hiddenCleaners, setHiddenCleaners] = useState<Set<string>>(new Set())
   const [createForm, setCreateForm] = useState<CreateForm>({
     customer_phone: "",
     customer_name: "",
@@ -1725,19 +1726,33 @@ export default function JobsPage() {
 
         {loading ? <CubeLoader /> : <>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0, flexShrink: 0 }}>
-          {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
-            <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-              <span style={{
-                width: 12,
-                height: 12,
-                borderRadius: 3,
-                backgroundColor: color,
-                display: "inline-block",
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
-            </div>
-          ))}
+          {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => {
+            const isHidden = hiddenCleaners.has(name)
+            return (
+              <button
+                key={name}
+                className="animate-fade-in cursor-pointer"
+                style={{ display: "flex", alignItems: "center", gap: "0.375rem", opacity: isHidden ? 0.3 : 1, transition: "opacity 0.2s" }}
+                onClick={() => setHiddenCleaners(prev => {
+                  const next = new Set(prev)
+                  if (next.has(name)) next.delete(name)
+                  else next.add(name)
+                  return next
+                })}
+                title={isHidden ? `Show ${name}` : `Hide ${name}`}
+              >
+                <span style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  backgroundColor: color,
+                  display: "inline-block",
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: "0.8rem", color: isHidden ? "#52525b" : "#a1a1aa" }}>{name}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="calendar-card">
@@ -1769,7 +1784,7 @@ export default function JobsPage() {
               expandRows
               slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
               dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric" }}
-              events={baseEvents}
+              events={hiddenCleaners.size > 0 ? baseEvents.filter(e => !hiddenCleaners.has((e.extendedProps as any)?.cleanerName || '')) : baseEvents}
               editable
               selectable
               nowIndicator
@@ -1781,14 +1796,22 @@ export default function JobsPage() {
               eventTimeFormat={timeFormat}
               eventContent={(arg) => {
                 const price = arg.event.extendedProps.price
+                const status = arg.event.extendedProps.status
+                const service = arg.event.extendedProps.service
                 const view = arg.view.type
-                // Only customize for time grid views — month/list use defaults
                 if (view !== 'timeGridWeek' && view !== 'timeGridDay') return undefined
+                const dotColor = status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#f59e0b' : '#6366f1'
                 return {
                   html: `
                     <div style="padding:1px 3px;overflow:hidden;line-height:1.3">
-                      <div style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</div>
-                      ${price ? `<div style="font-size:10px;opacity:0.85;font-weight:500">$${Number(price).toLocaleString()}</div>` : ''}
+                      <div style="display:flex;align-items:center;gap:3px">
+                        <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+                        <span style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                      </div>
+                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px">
+                        ${price ? `<span style="font-weight:500">$${Number(price).toLocaleString()}</span>` : ''}
+                        ${service ? `<span style="opacity:0.7">${service}</span>` : ''}
+                      </div>
                     </div>
                   `
                 }

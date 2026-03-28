@@ -108,7 +108,9 @@
 }
 
 .fc .fc-day-today {
-  background: rgba(139, 92, 246, 0.05);
+  background: rgba(139, 92, 246, 0.08);
+  border-left: 2px solid rgba(139, 92, 246, 0.3);
+  border-right: 2px solid rgba(139, 92, 246, 0.3);
 }
 
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
