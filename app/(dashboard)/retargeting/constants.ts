@@ -39,6 +39,8 @@ export interface PipelineItem {
   lifecycle_stage?: string | null
   job_date?: string | null
   customer_id?: number | null
+  last_message?: string | null
+  next_action?: string | null
 }
 
 export interface PipelineStageData {

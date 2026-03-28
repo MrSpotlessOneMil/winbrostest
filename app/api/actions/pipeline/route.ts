@@ -202,6 +202,48 @@ export async function GET(request: NextRequest) {
     return Math.floor((Date.now() - new Date(timeStr).getTime()) / (1000 * 60 * 60 * 24))
   }
 
+  // Batch fetch last inbound message per phone number for pipeline cards
+  const allPhones = [
+    ...(newLeadsRes.data || []).map(l => l.phone_number),
+    ...(engagedRes.data || []).map(l => l.phone_number),
+    ...(quotesRes.data || []).map(q => q.customer_phone),
+    ...(paidRes.data || []).map(j => j.phone_number),
+    ...(bookedRes.data || []).map(j => j.phone_number),
+    ...(winBackRes.data || []).map(c => c.phone_number),
+  ].filter(Boolean) as string[]
+  const uniquePhones = [...new Set(allPhones)].slice(0, 100) // cap for performance
+
+  const lastMessageMap: Record<string, string> = {}
+  if (uniquePhones.length > 0) {
+    const { data: lastMsgs } = await supabase
+      .from('messages')
+      .select('phone_number, content')
+      .eq('tenant_id', tenant.id)
+      .eq('direction', 'inbound')
+      .in('phone_number', uniquePhones)
+      .order('timestamp', { ascending: false })
+      .limit(200)
+    if (lastMsgs) {
+      for (const m of lastMsgs) {
+        if (m.phone_number && !lastMessageMap[m.phone_number]) {
+          lastMessageMap[m.phone_number] = m.content?.slice(0, 80) || ''
+        }
+      }
+    }
+  }
+
+  // Compute next action based on stage
+  const nextAction = (stage: string, item: any): string => {
+    switch (stage) {
+      case 'new_lead': return 'Follow up'
+      case 'engaged': return item.status === 'quoted' ? 'Waiting for payment' : 'Send quote'
+      case 'paid': return 'Schedule job'
+      case 'booked': return item.cleaner_id ? 'Confirm with cleaner' : 'Assign cleaner'
+      case 'win_back': return item.retargeting_sequence ? `Step ${item.retargeting_step || 1} in progress` : 'Start sequence'
+      default: return ''
+    }
+  }
+
   // Build stages — use exact counts from count queries, not .length (which is capped by limit)
   const newLeads = newLeadsRes.data || []
   const engaged = engagedRes.data || []
@@ -226,6 +268,8 @@ export async function GET(request: NextRequest) {
       source_table: 'lead' as const,
       source: l.source || null,
       followup_stage: l.followup_stage || null,
+      last_message: l.phone_number ? lastMessageMap[l.phone_number] || null : null,
+      next_action: nextAction('engaged', l),
     })),
     ...filteredQuotes.map(q => ({
       id: `quote-${q.id}`,
@@ -241,6 +285,8 @@ export async function GET(request: NextRequest) {
       followup_stage: null as number | null,
       quote_token: q.token || null,
       customer_id: q.customer_id || null,
+      last_message: q.customer_phone ? lastMessageMap[q.customer_phone] || null : null,
+      next_action: 'Waiting for payment',
     })),
   ]
 
@@ -260,6 +306,8 @@ export async function GET(request: NextRequest) {
         source_table: 'lead',
         source: l.source || null,
         followup_stage: l.followup_stage || null,
+        last_message: l.phone_number ? lastMessageMap[l.phone_number] || null : null,
+        next_action: nextAction('new_lead', l),
       })),
     },
     engaged: {
@@ -287,6 +335,8 @@ export async function GET(request: NextRequest) {
         days_in_stage: daysInStage(j.created_at),
         source_table: 'job',
         customer_id: j.customer_id || null,
+        last_message: j.phone_number ? lastMessageMap[j.phone_number] || null : null,
+        next_action: nextAction('paid', j),
       })),
     },
     booked: {
@@ -305,6 +355,8 @@ export async function GET(request: NextRequest) {
         cleaner_id: j.cleaner_id || null,
         job_date: j.date || null,
         customer_id: j.customer_id || null,
+        last_message: j.phone_number ? lastMessageMap[j.phone_number] || null : null,
+        next_action: nextAction('booked', j),
       })),
     },
     completed: {
