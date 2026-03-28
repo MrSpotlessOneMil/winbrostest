@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenant.id)
       .in('status', ['scheduled', 'confirmed', 'in_progress'])
       .gte('date', new Date().toISOString().slice(0, 10))
-      .lte('date', new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+      .lte('date', new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
       .order('date', { ascending: true })
       .limit(200),
 
@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenant.id)
       .in('status', ['scheduled', 'confirmed', 'in_progress'])
       .gte('date', new Date().toISOString().slice(0, 10))
-      .lte('date', new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
+      .lte('date', new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
 
     supabase.from('jobs')
       .select('id', { count: 'exact', head: true })
