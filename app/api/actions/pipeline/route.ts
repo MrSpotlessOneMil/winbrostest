@@ -197,6 +197,11 @@ export async function GET(request: NextRequest) {
     return j.phone_number || 'Unknown'
   }
 
+  const daysInStage = (timeStr?: string | null) => {
+    if (!timeStr) return 0
+    return Math.floor((Date.now() - new Date(timeStr).getTime()) / (1000 * 60 * 60 * 24))
+  }
+
   // Build stages — use exact counts from count queries, not .length (which is capped by limit)
   const newLeads = newLeadsRes.data || []
   const engaged = engagedRes.data || []
@@ -204,6 +209,40 @@ export async function GET(request: NextRequest) {
   const booked = bookedRes.data || []
   const completed = completedRes.data || []
   const winBack = winBackRes.data || []
+
+  // Merge quoted items into engaged stage
+  const engagedItems = [
+    ...engaged.map(l => ({
+      id: `lead-${l.id}`,
+      name: buildName(l.first_name, l.last_name),
+      phone: l.phone_number || '',
+      value: 0,
+      status: l.status,
+      substatus: l.followup_stage
+        ? `Follow-up ${l.followup_stage}/5 sent`
+        : l.status.charAt(0).toUpperCase() + l.status.slice(1),
+      time: l.last_contact_at || l.created_at,
+      days_in_stage: daysInStage(l.last_contact_at || l.created_at),
+      source_table: 'lead' as const,
+      source: l.source || null,
+      followup_stage: l.followup_stage || null,
+    })),
+    ...filteredQuotes.map(q => ({
+      id: `quote-${q.id}`,
+      name: q.customer_name || 'Unknown',
+      phone: q.customer_phone || '',
+      value: Number(q.total) || 0,
+      status: 'quoted',
+      substatus: q.status === 'sent' ? 'Quote sent' : 'Quote pending',
+      time: q.created_at,
+      days_in_stage: daysInStage(q.created_at),
+      source_table: 'quote' as const,
+      source: null as string | null,
+      followup_stage: null as number | null,
+      quote_token: q.token || null,
+      customer_id: q.customer_id || null,
+    })),
+  ]
 
   const stages = {
     new_lead: {
@@ -217,44 +256,22 @@ export async function GET(request: NextRequest) {
         status: 'new',
         substatus: l.followup_stage ? `Follow-up ${l.followup_stage}/5` : 'Waiting',
         time: l.created_at,
+        days_in_stage: daysInStage(l.created_at),
         source_table: 'lead',
         source: l.source || null,
         followup_stage: l.followup_stage || null,
       })),
     },
     engaged: {
-      count: engagedCount.count ?? engaged.length,
-      value: 0,
-      items: engaged.map(l => ({
-        id: `lead-${l.id}`,
-        name: buildName(l.first_name, l.last_name),
-        phone: l.phone_number || '',
-        value: 0,
-        status: l.status,
-        substatus: l.followup_stage
-          ? `Follow-up ${l.followup_stage}/5 sent`
-          : l.status.charAt(0).toUpperCase() + l.status.slice(1),
-        time: l.last_contact_at || l.created_at,
-        source_table: 'lead',
-        source: l.source || null,
-        followup_stage: l.followup_stage || null,
-      })),
-    },
-    quoted: {
-      count: quotesCount.count ?? filteredQuotes.length,
+      count: (engagedCount.count ?? engaged.length) + (quotesCount.count ?? filteredQuotes.length),
       value: filteredQuotes.reduce((sum, q) => sum + (Number(q.total) || 0), 0),
-      items: filteredQuotes.map(q => ({
-        id: `quote-${q.id}`,
-        name: q.customer_name || 'Unknown',
-        phone: q.customer_phone || '',
-        value: Number(q.total) || 0,
-        status: q.status,
-        substatus: q.status === 'sent' ? 'Quote sent' : 'Quote pending',
-        time: q.created_at,
-        source_table: 'quote',
-        quote_token: q.token || null,
-        customer_id: q.customer_id || null,
-      })),
+      items: engagedItems,
+    },
+    // Quoted data merged into engaged above — keep key for backwards compat but empty
+    quoted: {
+      count: 0,
+      value: 0,
+      items: [],
     },
     paid: {
       count: paidCount.count ?? paid.length,
@@ -267,6 +284,7 @@ export async function GET(request: NextRequest) {
         status: 'deposit_paid',
         substatus: 'Waiting for scheduling',
         time: j.created_at,
+        days_in_stage: daysInStage(j.created_at),
         source_table: 'job',
         customer_id: j.customer_id || null,
       })),
@@ -282,6 +300,7 @@ export async function GET(request: NextRequest) {
         status: j.status,
         substatus: j.status.charAt(0).toUpperCase() + j.status.slice(1).replace('_', ' '),
         time: j.date || j.created_at,
+        days_in_stage: daysInStage(j.created_at),
         source_table: 'job',
         cleaner_id: j.cleaner_id || null,
         job_date: j.date || null,

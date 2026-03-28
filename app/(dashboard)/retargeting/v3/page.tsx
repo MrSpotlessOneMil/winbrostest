@@ -216,10 +216,11 @@ export default function PipelinePage() {
           </div>
 
           {/* Column headers */}
-          <div className="px-5 py-2 border-b border-zinc-800/40 grid grid-cols-[1fr_80px_180px_70px_120px] gap-4 text-[11px] text-zinc-500 uppercase tracking-wider font-medium">
+          <div className="px-5 py-2 border-b border-zinc-800/40 grid grid-cols-[1fr_80px_180px_50px_70px_120px] gap-4 text-[11px] text-zinc-500 uppercase tracking-wider font-medium">
             <span>Name</span>
             <span>Value</span>
             <span>Status</span>
+            <span>Days</span>
             <span>Time</span>
             <span className="text-right">Actions</span>
           </div>
@@ -235,7 +236,7 @@ export default function PipelinePage() {
                 {stages[expandedStage].items.map(item => (
                   <div
                     key={item.id}
-                    className="px-5 py-3 hover:bg-zinc-900/40 transition-colors grid grid-cols-[1fr_80px_180px_70px_120px] gap-4 items-center"
+                    className="px-5 py-3 hover:bg-zinc-900/40 transition-colors grid grid-cols-[1fr_80px_180px_50px_70px_120px] gap-4 items-center"
                   >
                     {/* Name + phone + source */}
                     <div className="min-w-0">
@@ -258,6 +259,11 @@ export default function PipelinePage() {
                     {/* Status / substatus */}
                     <div className="min-w-0">
                       {renderSubstatus(item, expandedStage)}
+                    </div>
+
+                    {/* Days in stage */}
+                    <div className={`text-xs font-medium ${(item.days_in_stage ?? 0) > 7 ? 'text-amber-400' : (item.days_in_stage ?? 0) > 14 ? 'text-red-400' : 'text-zinc-500'}`}>
+                      {item.days_in_stage != null ? `${item.days_in_stage}d` : '-'}
                     </div>
 
                     {/* Time */}

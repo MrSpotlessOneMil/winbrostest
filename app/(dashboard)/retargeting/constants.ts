@@ -26,6 +26,7 @@ export interface PipelineItem {
   status: string
   substatus: string
   time: string
+  days_in_stage?: number
   source_table: 'lead' | 'quote' | 'job' | 'customer'
   source?: string | null
   followup_stage?: number | null
@@ -82,22 +83,12 @@ export const PIPELINE_JOURNEY_STAGES: {
   {
     key: "engaged",
     label: "Engaged",
-    description: "In conversation, being qualified",
+    description: "In conversation, quoted, or being qualified",
     icon: MessageCircle,
     color: "text-cyan-400",
     bg: "bg-cyan-500/10",
     border: "border-cyan-500/30",
     gradient: "from-cyan-500/20 to-cyan-500/5",
-  },
-  {
-    key: "quoted",
-    label: "Quoted",
-    description: "Quote sent, waiting for decision",
-    icon: FileText,
-    color: "text-amber-400",
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/30",
-    gradient: "from-amber-500/20 to-amber-500/5",
   },
   {
     key: "paid",
@@ -118,16 +109,6 @@ export const PIPELINE_JOURNEY_STAGES: {
     bg: "bg-violet-500/10",
     border: "border-violet-500/30",
     gradient: "from-violet-500/20 to-violet-500/5",
-  },
-  {
-    key: "completed",
-    label: "Completed",
-    description: "Job done in the last 30 days",
-    icon: CircleCheck,
-    color: "text-emerald-400",
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/30",
-    gradient: "from-emerald-500/20 to-emerald-500/5",
   },
   {
     key: "win_back",
