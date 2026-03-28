@@ -5,6 +5,7 @@ import { RecentLeads } from "@/components/dashboard/recent-leads"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
 import { StatsCards } from "@/components/dashboard/stats-cards"
 import { AttentionNeeded } from "@/components/dashboard/attention-needed"
+import { GhostHealth } from "@/components/dashboard/ghost-health"
 
 export default function DashboardPage() {
   return (
@@ -31,8 +32,9 @@ export default function DashboardPage() {
         <StatsCards />
       </div>
 
-      {/* Needs Attention — the key section */}
-      <div className="stagger-3">
+      {/* SMS Health + Needs Attention */}
+      <div className="stagger-3 space-y-3">
+        <GhostHealth />
         <AttentionNeeded />
       </div>
 

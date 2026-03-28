@@ -12,6 +12,7 @@ import { parseFormData } from "@/lib/utils"
 import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
 import { analyzeSimpleSentiment, recordMessageSent, cancelPendingTasks } from "@/lib/lifecycle-engine"
 import { isKeywordOptOut, isStartRequest, detectOptOutIntent } from "@/lib/sms-opt-out"
+import { updateDisposition, type MessageDisposition } from "@/lib/message-disposition"
 
 export const maxDuration = 60 // Pro plan: prevent cold-start + debounce + AI from timing out
 
@@ -52,7 +53,13 @@ async function sendMultiPartSMS(
         ai_generated: true,
         timestamp: new Date(Date.now() + i).toISOString(), // offset by 1ms for ordering
         source: "openphone",
-        metadata: { ...metadata, part: i + 1, total_parts: parts.length, openphone_message_id: result.messageId || null },
+        metadata: {
+          ...metadata,
+          part: i + 1,
+          total_parts: parts.length,
+          openphone_message_id: result.messageId || null,
+          ...(metadata.received_at ? { response_time_ms: Date.now() - new Date(metadata.received_at).getTime() } : {}),
+        },
       })
     } else {
       console.error(`[${tenant.slug}] Auto-response SMS failed for ${phone}: ${result.error}`)
@@ -1231,7 +1238,7 @@ export async function POST(request: NextRequest) {
     timestamp: receivedAt,
     source: "openphone",
     external_message_id: opMessageId || null,
-    metadata: { ...payload, openphone_message_id: opMessageId || null },
+    metadata: { ...payload, openphone_message_id: opMessageId || null, disposition: 'pending' },
   }).select("id").single()
 
   if (msgErr) {
@@ -1330,6 +1337,7 @@ export async function POST(request: NextRequest) {
             })
 
             console.log(`[OpenPhone] Membership renewal reply processed: ${choice} for membership ${pendingMembership.id}`)
+            await updateDisposition(client, currentMsgId, 'responded_lifecycle')
             return NextResponse.json({ success: true, action: "membership_renewal_reply", choice })
           }
         }
@@ -1366,6 +1374,7 @@ export async function POST(request: NextRequest) {
 
             if (!updatedRows || updatedRows.length === 0) {
               // Another reply already processed — skip to avoid duplicate SMS
+              await updateDisposition(client, currentMsgId, 'filtered_dedup')
               return NextResponse.json({ success: true, action: "membership_renewal_already_processed" })
             }
 
@@ -1395,6 +1404,7 @@ export async function POST(request: NextRequest) {
             })
 
             console.log(`[OpenPhone] Single-visit re-enrollment request for completed membership ${completedMembership.id}`)
+            await updateDisposition(client, currentMsgId, 'responded_lifecycle')
             return NextResponse.json({ success: true, action: "membership_reenrollment_request" })
           }
         }
@@ -1450,6 +1460,7 @@ export async function POST(request: NextRequest) {
     if (!priorOutbound) {
       // True cold contact with a meaningless message — safe to skip
       console.log(`[OpenPhone] Cold contact with non-booking message "${messageContent}" — skipping`)
+      await updateDisposition(client, currentMsgId, 'filtered_cold_noop')
       return NextResponse.json({ success: true, intentAnalysis: "skipped" })
     }
     // Has prior conversation — let it through to AI, "ok" could mean anything
@@ -1483,6 +1494,7 @@ export async function POST(request: NextRequest) {
 
   if (newestInbound && newestInbound.id !== currentMsgId) {
     console.log(`[OpenPhone] Newer message arrived during debounce window, deferring to newer webhook`)
+    await updateDisposition(client, currentMsgId, 'filtered_debounce')
     return NextResponse.json({ success: true, action: "debounced_newer_message" })
   }
 
@@ -1501,6 +1513,7 @@ export async function POST(request: NextRequest) {
 
   if (recentOutbound && recentOutbound.length > 0) {
     console.log(`[OpenPhone] AI response already sent after this inbound message, skipping duplicate`)
+    await updateDisposition(client, currentMsgId, 'filtered_debounce')
     return NextResponse.json({ success: true, action: "debounced_recent_outbound" })
   }
 
@@ -1579,6 +1592,7 @@ export async function POST(request: NextRequest) {
           external_message_id: opMessageId || null,
           metadata: { filtered: "human_handled_resolved" },
         })
+        await updateDisposition(client, currentMsgId, 'filtered_human_handled')
         return NextResponse.json({ success: true, filtered: "human_handled_conversation" })
       }
     }
@@ -1745,6 +1759,7 @@ export async function POST(request: NextRequest) {
 
         if (existingAssignment) {
           console.log(`[OpenPhone] Estimate job ${jobId} already has assignment ${existingAssignment.id} — skipping duplicate`)
+          await updateDisposition(client, currentMsgId, 'responded_ai')
           return NextResponse.json({ success: true, flow: "phone_call_estimate_already_confirmed", leadId: bookedLead.id })
         }
 
@@ -1879,6 +1894,7 @@ export async function POST(request: NextRequest) {
           metadata: { lead_id: bookedLead.id, job_id: jobId, email: providedEmail },
         })
 
+        await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_estimate_confirmed", leadId: bookedLead.id })
       }
 
@@ -1906,6 +1922,7 @@ export async function POST(request: NextRequest) {
           client,
         })
         if (depositFlowResult.success) {
+          await updateDisposition(client, currentMsgId, 'responded_ai')
           return NextResponse.json({ success: true, flow: "phone_call_deposit_flow", leadId: bookedLead.id })
         }
         // If deposit flow failed, fall through to card-on-file as fallback
@@ -2004,6 +2021,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          await updateDisposition(client, currentMsgId, 'responded_ai')
           return NextResponse.json({ success: true, flow: "phone_call_card_on_file", leadId: bookedLead.id })
         } else {
           console.error("[OpenPhone] Card-on-file link creation failed:", cardResult.error)
@@ -2032,6 +2050,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      await updateDisposition(client, currentMsgId, 'responded_ai')
       return NextResponse.json({ success: true, flow: "phone_call_email_capture", leadId: bookedLead.id })
 
     } else {
@@ -2137,6 +2156,7 @@ export async function POST(request: NextRequest) {
           console.error("[OpenPhone] Post-booking AI response error:", err)
         }
 
+        await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_post_booking_ai", leadId: bookedLead.id })
       }
 
@@ -2163,6 +2183,7 @@ export async function POST(request: NextRequest) {
 
         if (existingAssignment) {
           console.log(`[OpenPhone] Estimate job ${job.id} already has assignment — skipping`)
+          await updateDisposition(client, currentMsgId, 'responded_ai')
           return NextResponse.json({ success: true, flow: "phone_call_estimate_already_confirmed", leadId: bookedLead.id })
         }
 
@@ -2233,6 +2254,7 @@ export async function POST(request: NextRequest) {
         await logSystemEvent({ tenant_id: tenant.id, source: "openphone", event_type: "SMS_ESTIMATE_BOOKED",
           message: `Estimate confirmed for ${phone} — job ${job.id}, salesman assignment triggered`,
           phone_number: phone, metadata: { lead_id: bookedLead.id, job_id: job.id } })
+        await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_estimate_confirmed", leadId: bookedLead.id })
       }
 
@@ -2268,6 +2290,7 @@ export async function POST(request: NextRequest) {
         console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
         const fallbackMsg = `Thanks for confirming! We'll be in touch with your quote shortly.`
         await sendSMS(tenant!, phone, fallbackMsg)
+        await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_quote_fallback", leadId: bookedLead.id })
       }
 
@@ -2328,6 +2351,7 @@ export async function POST(request: NextRequest) {
         console.error("[OpenPhone] Error extracting corrections:", extractErr)
       }
 
+      await updateDisposition(client, currentMsgId, 'responded_ai')
       return NextResponse.json({ success: true, flow: "phone_call_quote_sent", leadId: bookedLead.id })
     }
   }
@@ -2447,6 +2471,7 @@ export async function POST(request: NextRequest) {
         console.error("[OpenPhone] Fallback post-booking AI error:", err)
       }
 
+      await updateDisposition(client, currentMsgId, 'responded_ai')
       return NextResponse.json({ success: true, flow: "fallback_post_booking_ai" })
     }
   }
@@ -2489,6 +2514,7 @@ export async function POST(request: NextRequest) {
           await client.from("leads").update({ form_data: { ...staleFd, followup_paused: false } }).eq("id", assignedLead.id)
         } else {
           console.log(`[OpenPhone] Auto-response paused for assigned lead ${assignedLead.id}, skipping`)
+          await updateDisposition(client, currentMsgId, 'skipped_lead_paused')
           return NextResponse.json({ success: true, autoResponsePaused: true, leadId: assignedLead.id })
         }
       }
@@ -2560,6 +2586,7 @@ export async function POST(request: NextRequest) {
             assigned_lead_id: assignedLead.id,
             job_id: assignedJob?.id || null,
             reason: "post_booking_assigned",
+            received_at: receivedAt,
           })
 
           // Sync customer name to DB + OpenPhone as soon as we have it
@@ -2754,6 +2781,7 @@ export async function POST(request: NextRequest) {
         metadata: { lead_id: assignedLead.id, job_id: assignedJob?.id },
       })
 
+      await updateDisposition(client, currentMsgId, 'responded_ai')
       return NextResponse.json({
         success: true,
         flow: "assigned_lead_post_booking",
@@ -2802,6 +2830,7 @@ export async function POST(request: NextRequest) {
         // Continue to AI response below
       } else {
         console.log(`[OpenPhone] Auto-response paused for phone ${maskPhone(phone)} (most recent lead ${existingLead.id}), skipping auto-response`)
+        await updateDisposition(client, currentMsgId, 'skipped_lead_paused')
         return NextResponse.json({ success: true, autoResponsePaused: true, leadId: existingLead.id })
       }
     }
@@ -2877,6 +2906,7 @@ export async function POST(request: NextRequest) {
               existing_lead_id: existingLead.id,
               reason: autoResponse.reason,
               combined_message: combinedMessage,
+              received_at: receivedAt,
             })
 
             // Sync customer name to DB + OpenPhone as soon as we have it
@@ -3022,6 +3052,7 @@ export async function POST(request: NextRequest) {
 
             if (alreadySentPayment) {
               console.log(`[OpenPhone] Payment link already sent for ${maskPhone(phone)}, skipping duplicate booking completion (lead ${existingLead.id})`)
+              await updateDisposition(client, currentMsgId, 'responded_ai')
               return NextResponse.json({
                 success: true,
                 flow: "sms_booking_already_complete",
@@ -3180,6 +3211,7 @@ export async function POST(request: NextRequest) {
                 console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
                 console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
                 // Don't proceed with Stripe link — we need a valid job first
+                await updateDisposition(client, currentMsgId, 'error_ai')
                 return NextResponse.json({
                   success: false,
                   error: "job_creation_failed",
@@ -3258,6 +3290,7 @@ export async function POST(request: NextRequest) {
                   // Fall back to a simple confirmation if quote creation fails
                   const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
                   await sendSMS(tenant as any, phone, fallbackMsg)
+                  await updateDisposition(client, currentMsgId, 'responded_ai')
                   return NextResponse.json({
                     success: true,
                     flow: "sms_booking_quote_fallback",
@@ -3348,6 +3381,7 @@ export async function POST(request: NextRequest) {
                   },
                 })
 
+                await updateDisposition(client, currentMsgId, 'responded_ai')
                 return NextResponse.json({
                   success: true,
                   flow: "sms_booking_quote_sent",
@@ -3473,6 +3507,7 @@ export async function POST(request: NextRequest) {
                 console.error("[OpenPhone] Failed to process estimate booking:", estimateErr)
               }
 
+              await updateDisposition(client, currentMsgId, 'responded_ai')
               return NextResponse.json({
                 success: true,
                 flow: "sms_estimate_booked",
@@ -3489,6 +3524,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    await updateDisposition(client, currentMsgId, smsEnabled ? 'responded_ai' : 'skipped_lead_paused')
     return NextResponse.json({ success: true, existingLeadId: existingLead.id, autoResponseSent: smsEnabled })
   }
 
@@ -3547,6 +3583,7 @@ export async function POST(request: NextRequest) {
             reason: autoResponse.reason,
             intent_analysis: intentResult,
             combined_message: combinedMessage,
+            received_at: receivedAt,
           })
 
           // Sync customer name to DB + OpenPhone as soon as we have it
@@ -3825,6 +3862,7 @@ export async function POST(request: NextRequest) {
         console.error("[OpenPhone] Failed to schedule follow-up:", scheduleErr)
       }
 
+      await updateDisposition(client, currentMsgId, 'responded_ai')
       return NextResponse.json({
         success: true,
         leadCreated: true,
@@ -3834,6 +3872,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  await updateDisposition(client, currentMsgId, smsEnabled ? 'responded_ai' : 'filtered_cold_noop')
   return NextResponse.json({
     success: true,
     intentAnalysis: intentResult,

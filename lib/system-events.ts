@@ -26,6 +26,7 @@ export type SystemEventSource =
   | 'google_lsa'
   | 'lifecycle'
   | 'offers'
+  | 'ghost_watchdog'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -185,6 +186,10 @@ export type SystemEventType =
   | 'CARD_ON_FILE_TERMS_SENT'
   // Post Booking
   | 'POST_BOOKING_MESSAGE_HANDLED'
+  // Ghost Watchdog Events
+  | 'GHOST_WATCHDOG_CATCH'
+  | 'GHOST_WATCHDOG_RESPONSE'
+  | 'SMS_DELIVERY_FAILED'
 
 export interface SystemEventInput {
   tenant_id?: string
