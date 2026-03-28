@@ -82,21 +82,21 @@ export default function PipelinePage() {
   const winBackData = stages.win_back || { count: 0, value: 0, items: [] }
 
   return (
-    <div className="p-6 space-y-5 h-full overflow-hidden flex flex-col">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-5 h-full overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold">Pipeline</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <h1 className="text-xl md:text-2xl font-bold">Pipeline</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
             {tab === "funnel"
               ? `${funnelCount} people — ${formatCurrency(funnelValue)} in pipeline`
-              : `${winBackData.count} customers to win back — ${formatCurrency(winBackData.value)} potential`
+              : `${winBackData.count} to win back — ${formatCurrency(winBackData.value)} potential`
             }
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-3 py-1 rounded-md flex items-center gap-2 text-sm">
+            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-2 py-1 rounded-md flex items-center gap-1.5 text-xs">
               {error}
               <button onClick={clearError}><X className="h-3 w-3" /></button>
             </div>
@@ -104,21 +104,21 @@ export default function PipelinePage() {
           {/* Tabs */}
           <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
             <button onClick={() => setTab("funnel")}
-              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+              className={cn("px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-medium rounded-md transition-colors",
                 tab === "funnel" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}>
-              Sales Funnel
+              Sales
             </button>
             <button onClick={() => setTab("winback")}
-              className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+              className={cn("px-2 md:px-3 py-1 md:py-1.5 text-[11px] md:text-xs font-medium rounded-md transition-colors",
                 tab === "winback" ? "bg-orange-500/20 text-orange-400 shadow-sm" : "text-muted-foreground hover:text-foreground")}>
               Win-Back ({winBackData.count})
             </button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowImportModal(true)}>
-            <Upload className="h-3.5 w-3.5 mr-1.5" /> Import
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowImportModal(true)}>
+            <Upload className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Import</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchPipeline}>
-            <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={fetchPipeline}>
+            <RefreshCw className="h-3 w-3 mr-1" /> <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
       </div>
@@ -133,7 +133,7 @@ export default function PipelinePage() {
             const Icon = stageDef.icon
 
             return (
-              <div key={stageKey} className="flex-1 min-w-[260px] max-w-[340px] flex flex-col min-h-0">
+              <div key={stageKey} className="flex-1 min-w-[220px] sm:min-w-[260px] max-w-[340px] flex flex-col min-h-0">
                 {/* Column header */}
                 <div className={cn("rounded-t-xl px-4 py-3 border-2 border-b-0", stageDef.border, `bg-gradient-to-b ${stageDef.gradient}`)}>
                   <div className="flex items-center gap-2">

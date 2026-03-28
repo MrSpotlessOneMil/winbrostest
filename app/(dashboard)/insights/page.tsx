@@ -136,7 +136,7 @@ export default function InsightsPage() {
   const chartJobs = chart.reduce((s, d) => s + d.jobs, 0)
 
   return (
-    <div className="p-6 space-y-6 animate-fade-in">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -172,7 +172,7 @@ export default function InsightsPage() {
       {/* ═══ REVENUE CHART (Stripe-style daily spikes) ═══ */}
       <Card>
         <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
             <div>
               <h3 className="font-semibold text-sm flex items-center gap-2">
                 <TrendingUp className="h-4 w-4 text-blue-400" />

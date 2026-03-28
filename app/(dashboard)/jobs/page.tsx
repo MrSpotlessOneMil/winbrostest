@@ -1712,14 +1712,14 @@ export default function JobsPage() {
   return (
     <>
       <div className="calendar-shell animate-fade-in">
-        <div className="mb-3 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
+        <div className="mb-3 stagger-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ flexShrink: 0 }}>
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
-            <p className="text-sm text-muted-foreground">
-              Schedule and manage all service appointments
+            <h1 className="text-xl md:text-2xl font-semibold text-foreground">Calendar</h1>
+            <p className="text-xs md:text-sm text-muted-foreground">
+              Schedule and manage appointments
             </p>
           </div>
-          <button className="rain-day-btn" onClick={openRainDay}>
+          <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
             Rainy Day Reschedule
           </button>
         </div>

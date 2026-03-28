@@ -730,12 +730,12 @@ export default function TeamsPage() {
   return (
     <div className="flex flex-col h-full gap-4 overflow-hidden animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0 stagger-1">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0 stagger-1">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Team Management</h1>
-          <p className="text-sm text-muted-foreground">Manage your cleaners and track performance</p>
+          <h1 className="text-xl md:text-2xl font-semibold text-foreground">Teams</h1>
+          <p className="text-xs md:text-sm text-muted-foreground">Manage cleaners and performance</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Assignment mode toggle */}
           <div className="flex items-center rounded-lg border border-border bg-muted/50 p-0.5">
             <button
