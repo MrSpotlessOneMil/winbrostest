@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   // ── Revenue Queries ──
-  const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes] = await Promise.all([
+  const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
     // Monthly completed jobs
     supabase.from('jobs')
       .select('id, price, frequency, customer_id')
@@ -72,6 +72,12 @@ export async function GET(request: NextRequest) {
       .gte('completed_at', `${chartStart}T00:00:00Z`)
       .not('price', 'is', null)
       .order('completed_at', { ascending: true }),
+
+    // Retargeting stats
+    supabase.from('customers')
+      .select('id, retargeting_sequence, retargeting_step, retargeting_stopped_reason, lifecycle_stage')
+      .eq('tenant_id', tenant.id)
+      .not('retargeting_sequence', 'is', null),
   ])
 
   const monthJobs = monthJobsRes.data || []
@@ -80,6 +86,7 @@ export async function GET(request: NextRequest) {
   const expenses = expensesRes.data || []
   const leads = leadsRes.data || []
   const chartJobs = chartJobsRes.data || []
+  const retargetingCustomers = retargetingRes.data || []
 
   // ── Revenue Calculations ──
   const monthlyRevenue = monthJobs.reduce((sum, j) => sum + Number(j.price), 0)
@@ -197,6 +204,12 @@ export async function GET(request: NextRequest) {
     })
   }
 
+  // Retargeting stats
+  const activeSequences = retargetingCustomers.filter((c: any) => !c.retargeting_stopped_reason).length
+  const converted = retargetingCustomers.filter((c: any) => c.retargeting_stopped_reason === 'converted').length
+  const completed = retargetingCustomers.filter((c: any) => c.retargeting_stopped_reason === 'completed').length
+  const totalRetargeted = retargetingCustomers.length
+
   return NextResponse.json({
     revenue: {
       monthly: monthlyRevenue,
@@ -221,6 +234,13 @@ export async function GET(request: NextRequest) {
     lead_sources: leadSources,
     chart: dailyChart,
     chart_range: chartRange,
+    retargeting: {
+      active_sequences: activeSequences,
+      converted: converted,
+      completed: completed,
+      total_retargeted: totalRetargeted,
+      conversion_rate: totalRetargeted > 0 ? Math.round((converted / totalRetargeted) * 100) : 0,
+    },
     month_name: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
   })
 }

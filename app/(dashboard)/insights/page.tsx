@@ -66,6 +66,13 @@ interface InsightsData {
   }[]
   chart: ChartPoint[]
   chart_range: string
+  retargeting: {
+    active_sequences: number
+    converted: number
+    completed: number
+    total_retargeted: number
+    conversion_rate: number
+  }
   month_name: string
 }
 
@@ -350,6 +357,36 @@ export default function InsightsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ═══ RETARGETING STATS ═══ */}
+      {data.retargeting.total_retargeted > 0 && (
+        <Card>
+          <CardContent className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <Repeat className="h-4 w-4 text-orange-400" />
+              Retargeting (runs automatically)
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-2xl font-bold">{data.retargeting.active_sequences}</p>
+                <p className="text-[11px] text-muted-foreground">Active sequences</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-green-400">{data.retargeting.converted}</p>
+                <p className="text-[11px] text-muted-foreground">Converted back</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{data.retargeting.completed}</p>
+                <p className="text-[11px] text-muted-foreground">Sequences completed</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold">{data.retargeting.conversion_rate}%</p>
+                <p className="text-[11px] text-muted-foreground">Conversion rate</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ═══ AI RECOMMENDATIONS ═══ */}
       {recommendations.length > 0 && (

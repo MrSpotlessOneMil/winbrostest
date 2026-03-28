@@ -76,11 +76,13 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(200),
 
-    // 5. Booked: scheduled / confirmed / in progress
+    // 5. Booked: scheduled / confirmed / in progress — next 14 days only (not entire recurring series)
     supabase.from('jobs')
       .select('id, phone_number, price, status, date, cleaner_id, created_at, customer_id')
       .eq('tenant_id', tenant.id)
       .in('status', ['scheduled', 'confirmed', 'in_progress'])
+      .gte('date', new Date().toISOString().slice(0, 10))
+      .lte('date', new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
       .order('date', { ascending: true })
       .limit(200),
 
@@ -134,7 +136,9 @@ export async function GET(request: NextRequest) {
     supabase.from('jobs')
       .select('id', { count: 'exact', head: true })
       .eq('tenant_id', tenant.id)
-      .in('status', ['scheduled', 'confirmed', 'in_progress']),
+      .in('status', ['scheduled', 'confirmed', 'in_progress'])
+      .gte('date', new Date().toISOString().slice(0, 10))
+      .lte('date', new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
 
     supabase.from('jobs')
       .select('id', { count: 'exact', head: true })
