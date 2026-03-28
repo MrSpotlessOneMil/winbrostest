@@ -1099,23 +1099,62 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
 
     if (recentManualOutbound) {
-      // Staff was recently texting this customer - keep paused, just store the message
-      console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — recent manual activity, storing message, skipping AI`)
-      await client.from("messages").insert({
-        tenant_id: tenant?.id,
-        customer_id: customer.id,
-        phone_number: phone,
-        role: "client",
-        content: extracted.content,
-        direction: extracted.direction || "inbound",
-        message_type: "sms",
-        ai_generated: false,
-        timestamp: new Date().toISOString(),
-        source: "openphone",
-        external_message_id: opMessageId || null,
-        metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "customer_paused" },
-      })
-      return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
+      // Staff was recently texting — but check if it was a "fire and forget" message
+      // (payment link, review link, portal link). If so, customer's reply shouldn't be ghosted.
+      const { data: lastManualMsg } = await client
+        .from("messages")
+        .select("content")
+        .eq("phone_number", phone)
+        .eq("tenant_id", tenant?.id)
+        .eq("source", "openphone_app")
+        .eq("direction", "outbound")
+        .gt("created_at", unpauseCutoff)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      const lastManualContent = lastManualMsg?.content || ''
+      const isLinkMessage = /https?:\/\//.test(lastManualContent)
+
+      if (isLinkMessage) {
+        // Staff sent a link (Stripe, review, portal) and moved on — auto-unpause so AI can respond
+        console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — last manual outbound was a link, staff sent and moved on`)
+        await client.from("customers").update({ auto_response_paused: false, manual_takeover_at: null }).eq("id", customer.id)
+        // Also unpause the lead so followup_paused doesn't block AI downstream
+        const { data: linkPausedLead } = await client
+          .from("leads")
+          .select("id, form_data")
+          .eq("phone_number", phone)
+          .eq("tenant_id", tenant?.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (linkPausedLead) {
+          const fd = typeof linkPausedLead.form_data === 'object' && linkPausedLead.form_data ? linkPausedLead.form_data : {}
+          if (fd.followup_paused) {
+            await client.from("leads").update({ form_data: { ...fd, followup_paused: false } }).eq("id", linkPausedLead.id)
+          }
+        }
+        // Fall through to normal processing
+      } else {
+        // Staff is actively conversing (not just a link) — keep paused
+        console.log(`[OpenPhone] Auto-response paused for customer ${customer.id} (${maskPhone(phone)}) — recent manual activity (active conversation), storing message, skipping AI`)
+        await client.from("messages").insert({
+          tenant_id: tenant?.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "client",
+          content: extracted.content,
+          direction: extracted.direction || "inbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "openphone",
+          external_message_id: opMessageId || null,
+          metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "customer_paused" },
+        })
+        return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
+      }
     } else {
       // No recent manual activity - auto-unpause and clear manual takeover
       console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 15min, staff moved on`)
@@ -1492,7 +1531,7 @@ export async function POST(request: NextRequest) {
   // are provided early but extractBookingData runs at the end after 15-20+ messages)
   const { data: recentMessages } = await client
     .from("messages")
-    .select("role, content, source, direction")
+    .select("role, content, source, direction, timestamp")
     .eq("phone_number", phone)
     .eq("tenant_id", tenant?.id)
     .order("timestamp", { ascending: false })
@@ -1506,7 +1545,9 @@ export async function POST(request: NextRequest) {
   // ============================================
   // HUMAN-HANDLED CONVERSATION DETECTION
   // If the last 2+ outbound messages were from a human (openphone_app), and
-  // the conversation looks resolved, don't jump in — human has it handled.
+  // the conversation looks resolved AND was recent (<30 min), don't jump in.
+  // Without the time check, a staff message from hours/days ago with "Wednesday"
+  // would permanently block the AI from ever responding to this customer.
   // ============================================
   if (recentMessages && recentMessages.length >= 3) {
     const lastOutbounds = recentMessages
@@ -1514,11 +1555,15 @@ export async function POST(request: NextRequest) {
       .slice(-3) // last 3 outbound messages (already reversed, so these are most recent)
     const humanOutbounds = lastOutbounds.filter(m => m.source === 'openphone_app')
     if (humanOutbounds.length >= 2) {
-      // Last 2+ outbound messages were from a human — check if conversation looks resolved
-      const lastHumanMsg = humanOutbounds[humanOutbounds.length - 1]?.content?.toLowerCase() || ''
+      const lastHumanMsg = humanOutbounds[humanOutbounds.length - 1]
+      const lastHumanContent = lastHumanMsg?.content?.toLowerCase() || ''
+      const lastHumanTime = lastHumanMsg?.timestamp ? new Date(lastHumanMsg.timestamp).getTime() : 0
+      const thirtyMinAgo = Date.now() - 30 * 60 * 1000
+      const isRecent = lastHumanTime > thirtyMinAgo
+
       const resolvedSignals = /see you|confirmed|scheduled|all set|sounds good|perfect|we('ll| will) be there|appointment|booked|monday|tuesday|wednesday|thursday|friday|saturday|sunday/
-      if (resolvedSignals.test(lastHumanMsg)) {
-        console.log(`[OpenPhone] Human-handled conversation detected for ${maskPhone(phone)} — last human msg looks resolved, skipping AI`)
+      if (isRecent && resolvedSignals.test(lastHumanContent)) {
+        console.log(`[OpenPhone] Human-handled conversation detected for ${maskPhone(phone)} — last human msg looks resolved (${Math.round((Date.now() - lastHumanTime) / 60000)}min ago), skipping AI`)
         // Store the inbound message but don't generate AI response
         await client.from("messages").insert({
           tenant_id: tenant?.id,
@@ -2437,8 +2482,15 @@ export async function POST(request: NextRequest) {
       // Check if auto-response is paused for this lead
       const assignedFormData = parseFormData(assignedLead.form_data)
       if (assignedFormData.followup_paused === true) {
-        console.log(`[OpenPhone] Auto-response paused for assigned lead ${assignedLead.id}, skipping`)
-        return NextResponse.json({ success: true, autoResponsePaused: true, leadId: assignedLead.id })
+        // Safety net: if customer is unpaused but lead is stale-paused, force-unpause
+        if (customer?.auto_response_paused === false) {
+          console.log(`[OpenPhone] Assigned lead ${assignedLead.id} has stale followup_paused=true but customer is unpaused — force-unpausing`)
+          const staleFd = typeof assignedLead.form_data === 'object' && assignedLead.form_data ? assignedLead.form_data : {}
+          await client.from("leads").update({ form_data: { ...staleFd, followup_paused: false } }).eq("id", assignedLead.id)
+        } else {
+          console.log(`[OpenPhone] Auto-response paused for assigned lead ${assignedLead.id}, skipping`)
+          return NextResponse.json({ success: true, autoResponsePaused: true, leadId: assignedLead.id })
+        }
       }
 
       // Load the linked job
@@ -2740,8 +2792,18 @@ export async function POST(request: NextRequest) {
   if (existingLead) {
     const formData = parseFormData(existingLead.form_data)
     if (formData.followup_paused === true) {
-      console.log(`[OpenPhone] Auto-response paused for phone ${maskPhone(phone)} (most recent lead ${existingLead.id}), skipping auto-response`)
-      return NextResponse.json({ success: true, autoResponsePaused: true, leadId: existingLead.id })
+      // Safety net: if the CUSTOMER is already unpaused (auto_response_paused=false)
+      // but the lead is still paused, the lead is stale from a failed auto-unpause.
+      // Force-unpause the lead and continue instead of ghosting the customer.
+      if (customer?.auto_response_paused === false) {
+        console.log(`[OpenPhone] Lead ${existingLead.id} has stale followup_paused=true but customer is unpaused — force-unpausing lead`)
+        const staleFd = typeof existingLead.form_data === 'object' && existingLead.form_data ? existingLead.form_data : {}
+        await client.from("leads").update({ form_data: { ...staleFd, followup_paused: false } }).eq("id", existingLead.id)
+        // Continue to AI response below
+      } else {
+        console.log(`[OpenPhone] Auto-response paused for phone ${maskPhone(phone)} (most recent lead ${existingLead.id}), skipping auto-response`)
+        return NextResponse.json({ success: true, autoResponsePaused: true, leadId: existingLead.id })
+      }
     }
   }
 
