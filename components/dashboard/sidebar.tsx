@@ -140,7 +140,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       onWheel={handleWheel}
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
-      } bg-zinc-950/80 backdrop-blur-xl border-r border-white/[0.06] h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
+      } bg-sidebar backdrop-blur-xl border-r border-sidebar-border h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
     >
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">

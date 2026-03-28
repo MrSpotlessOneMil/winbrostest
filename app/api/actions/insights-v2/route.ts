@@ -20,8 +20,11 @@ export async function GET(request: NextRequest) {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
+  // 6 months ago for chart
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1).toISOString().slice(0, 10)
+
   // ── Revenue Queries ──
-  const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes] = await Promise.all([
+  const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes] = await Promise.all([
     // Monthly completed jobs
     supabase.from('jobs')
       .select('id, price, frequency, customer_id')
@@ -58,6 +61,15 @@ export async function GET(request: NextRequest) {
       .select('id, source, status, phone_number, created_at')
       .eq('tenant_id', tenant.id)
       .gte('created_at', `${yearStart}T00:00:00Z`),
+
+    // Last 6 months of completed jobs for revenue chart
+    supabase.from('jobs')
+      .select('id, price, completed_at, service_type, phone_number, frequency')
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'completed')
+      .gte('completed_at', `${sixMonthsAgo}T00:00:00Z`)
+      .not('price', 'is', null)
+      .order('completed_at', { ascending: true }),
   ])
 
   const monthJobs = monthJobsRes.data || []
@@ -65,6 +77,7 @@ export async function GET(request: NextRequest) {
   const recurringJobs = recurringJobsRes.data || []
   const expenses = expensesRes.data || []
   const leads = leadsRes.data || []
+  const chartJobs = chartJobsRes.data || []
 
   // ── Revenue Calculations ──
   const monthlyRevenue = monthJobs.reduce((sum, j) => sum + Number(j.price), 0)
@@ -154,6 +167,23 @@ export async function GET(request: NextRequest) {
     }))
     .sort((a, b) => b.revenue - a.revenue)
 
+  // Build monthly revenue chart data (last 6 months)
+  const monthlyChart: { month: string; revenue: number; jobs: number }[] = []
+  const chartMap: Record<string, { revenue: number; jobs: number }> = {}
+  for (const j of chartJobs) {
+    if (!j.completed_at) continue
+    const m = new Date(j.completed_at).toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    if (!chartMap[m]) chartMap[m] = { revenue: 0, jobs: 0 }
+    chartMap[m].revenue += Number(j.price)
+    chartMap[m].jobs++
+  }
+  // Ensure all 6 months are represented
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const key = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    monthlyChart.push({ month: key, revenue: chartMap[key]?.revenue || 0, jobs: chartMap[key]?.jobs || 0 })
+  }
+
   return NextResponse.json({
     revenue: {
       monthly: monthlyRevenue,
@@ -176,6 +206,7 @@ export async function GET(request: NextRequest) {
       margin_pct: monthlyRevenue > 0 ? Math.round((profitMargin / monthlyRevenue) * 100) : 0,
     },
     lead_sources: leadSources,
+    monthly_chart: monthlyChart,
     month_name: now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
   })
 }

@@ -83,6 +83,28 @@
   --warning-foreground: oklch(0.15 0 0);
 }
 
+/*
+ * Light mode zinc overrides — the dashboard uses hundreds of hardcoded zinc-* classes.
+ * Instead of replacing every one, we override zinc colors at the Tailwind theme level
+ * so they invert automatically when :root is light (no .dark class).
+ */
+:root:not(.dark) {
+  /* Swap zinc scale: dark backgrounds become light, light text becomes dark */
+  --color-zinc-950: oklch(0.985 0 0);       /* was near-black → now near-white (main bg) */
+  --color-zinc-900: oklch(0.967 0.001 286);  /* was very dark → now very light (card bg) */
+  --color-zinc-800: oklch(0.88 0.006 286);   /* was dark → now light border */
+  --color-zinc-700: oklch(0.80 0.006 286);   /* was dark border → now medium border */
+  --color-zinc-600: oklch(0.55 0.013 286);   /* was muted → stays muted-ish */
+  --color-zinc-500: oklch(0.45 0.017 286);   /* was mid → stays mid */
+  --color-zinc-400: oklch(0.40 0.016 286);   /* was light muted → now darker muted */
+  --color-zinc-300: oklch(0.32 0.006 286);   /* was lighter → now darker */
+  --color-zinc-200: oklch(0.21 0.006 286);   /* was near-white → now near-dark (text) */
+  --color-zinc-100: oklch(0.18 0.006 286);   /* was white → now very dark (headings) */
+  --color-zinc-50: oklch(0.15 0.004 286);    /* was white → now near-black (bold text) */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --color-white: oklch(1 0 0);
+}
+
 /* Light theme override for customer-facing pages (quotes, tips) */
 .light {
   --background: oklch(1 0 0);
@@ -169,7 +191,7 @@
 
 /* Glassmorphism card foundation */
 .glass-card {
-  background: rgba(24, 24, 27, 0.6);
+  background: var(--glass-bg, rgba(24, 24, 27, 0.6));
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgba(255, 255, 255, 0.06);

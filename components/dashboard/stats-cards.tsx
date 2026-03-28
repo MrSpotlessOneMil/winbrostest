@@ -173,16 +173,6 @@ export function StatsCards() {
         icon: Users,
         progress: prevLeadsIn > 0 ? pct(leadsIn, prevLeadsIn) : (leadsIn > 0 ? 100 : 0),
       },
-      {
-        key: "calls",
-        name: "Calls Handled",
-        numericValue: callsHandled,
-        numericTarget: callsHandled,
-        change: callsChange.change,
-        trend: callsChange.trend,
-        icon: Phone,
-        progress: callsHandled ? 100 : 0,
-      },
     ]
   }, [metrics, prevMetrics])
 
@@ -190,7 +180,7 @@ export function StatsCards() {
 
   return (
     <>
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {stats.map((stat, i) => {
         const isExpanded = expanded === stat.key
         return (

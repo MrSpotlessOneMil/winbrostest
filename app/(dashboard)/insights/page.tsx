@@ -10,6 +10,10 @@ import {
   Lightbulb,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, PieChart, Pie, Cell, Legend,
+} from "recharts"
 
 interface InsightsData {
   revenue: {
@@ -42,6 +46,7 @@ interface InsightsData {
     roi: number | null
     profit: number
   }[]
+  monthly_chart: { month: string; revenue: number; jobs: number }[]
   month_name: string
 }
 
@@ -63,6 +68,8 @@ const SOURCE_LABELS: Record<string, string> = {
   retargeting: "Retargeting",
   unknown: "Unknown",
 }
+
+const PIE_COLORS = ["#8b5cf6", "#06b6d4", "#f59e0b", "#10b981", "#ef4444", "#ec4899", "#6366f1", "#14b8a6"]
 
 function fmt(n: number): string {
   if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}k`
@@ -167,6 +174,74 @@ export default function InsightsPage() {
           color="text-amber-400"
           bg="bg-amber-500/10"
         />
+      </div>
+
+      {/* ═══ CHARTS: Revenue Trend + Lead Source Pie ═══ */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        {/* Revenue Area Chart (Stripe-style) */}
+        <Card className="lg:col-span-2">
+          <CardContent className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-blue-400" />
+              Monthly Revenue — Last 6 Months
+            </h3>
+            {data.monthly_chart.length > 0 ? (
+              <ResponsiveContainer width="100%" height={240}>
+                <AreaChart data={data.monthly_chart}>
+                  <defs>
+                    <linearGradient id="revenueGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    formatter={(value: number) => [`$${value.toLocaleString()}`, "Revenue"]}
+                  />
+                  <Area type="monotone" dataKey="revenue" stroke="#8b5cf6" strokeWidth={2.5} fill="url(#revenueGrad)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground">No revenue data yet</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Lead Source Pie Chart */}
+        <Card>
+          <CardContent className="p-5">
+            <h3 className="font-semibold text-sm mb-4 flex items-center gap-2">
+              <Users className="h-4 w-4 text-cyan-400" />
+              Lead Sources
+            </h3>
+            {lead_sources.filter(s => s.leads > 0).length > 0 ? (
+              <ResponsiveContainer width="100%" height={240}>
+                <PieChart>
+                  <Pie
+                    data={lead_sources.filter(s => s.leads > 0).slice(0, 8)}
+                    dataKey="leads"
+                    nameKey="source"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    label={({ source, leads }: { source: string; leads: number }) => `${SOURCE_LABELS[source] || source} (${leads})`}
+                    labelLine={false}
+                  >
+                    {lead_sources.filter(s => s.leads > 0).slice(0, 8).map((_, i) => (
+                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number, name: string) => [value, SOURCE_LABELS[name] || name]} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground">No lead data yet</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* ═══ SECTION 2: Profit & Loss ═══ */}

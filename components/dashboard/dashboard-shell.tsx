@@ -41,7 +41,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
   return (
     <AuthProvider>
-      <div className="flex h-[100dvh] overflow-hidden bg-zinc-950">
+      <div className="flex h-[100dvh] overflow-hidden bg-background">
         {/* Desktop sidebar */}
         <div className="hidden md:block">
           <Sidebar collapsed={sidebarCollapsed} onNavClick={() => setSettingsOpen(false)} onOpenSettings={() => setSettingsOpen(true)} />
@@ -62,7 +62,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
           </div>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0 m-1 md:m-2 md:ml-0 rounded-xl bg-zinc-900/80 border border-zinc-800/60 overflow-hidden relative">
+        <div className="flex-1 flex flex-col min-w-0 m-1 md:m-2 md:ml-0 rounded-xl bg-card border border-border overflow-hidden relative">
           {settingsOpen ? (
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           ) : (
