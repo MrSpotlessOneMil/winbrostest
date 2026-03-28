@@ -15,10 +15,13 @@ import {
   Users,
   Target,
   Loader2,
+  Sun,
+  Moon,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/lib/auth-context"
+import { useTheme } from "next-themes"
 
 interface TopNavProps {
   onToggleSidebar?: () => void
@@ -40,6 +43,23 @@ const CATEGORY_ICONS: Record<string, typeof UserCircle> = {
   Calendar: CalendarDays,
   Teams: Users,
   Retargeting: Target,
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  if (!mounted) return <div className="w-8 h-8" />
+  const isDark = theme === "dark"
+  return (
+    <button
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-zinc-800/50 dark:hover:bg-zinc-800/50 hover:bg-zinc-200 text-zinc-400 dark:text-zinc-400 text-zinc-600 transition-colors"
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
+  )
 }
 
 export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
@@ -205,7 +225,7 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
   const colors = colorMap[status.color] || colorMap.emerald
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-zinc-800/60 bg-zinc-900/80 px-3 md:px-4">
+    <header className="flex h-14 items-center gap-3 border-b border-border bg-card/80 backdrop-blur-sm px-3 md:px-4">
       {/* Mobile hamburger menu */}
       {onToggleMobileMenu && (
         <button
@@ -321,6 +341,9 @@ export function TopNav({ onToggleSidebar, onToggleMobileMenu }: TopNavProps) {
             />
           </div>
         )}
+
+        {/* Theme toggle */}
+        <ThemeToggle />
 
         {/* Status Indicator */}
         <div className={`hidden sm:flex items-center gap-2 rounded-lg ${colors.bg} px-3 py-1.5`}>

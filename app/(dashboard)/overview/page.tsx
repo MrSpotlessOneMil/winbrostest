@@ -6,6 +6,7 @@ import { ActivityFeed } from "@/components/dashboard/activity-feed"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
 import { RightNow } from "@/components/dashboard/right-now"
 import { StatsCards } from "@/components/dashboard/stats-cards"
+import { RevenueGoalRing } from "@/components/dashboard/revenue-goal-ring"
 
 export default function DashboardPage() {
   return (
@@ -27,10 +28,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Live pulse + today's scorecard */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      {/* Live pulse + Revenue Goal + today's scorecard */}
+      <div className="grid gap-4 lg:grid-cols-4">
         <div className="lg:col-span-1">
           <RightNow />
+        </div>
+        <div className="lg:col-span-1">
+          <RevenueGoalRing />
         </div>
         <div className="lg:col-span-2">
           <StatsCards />
