@@ -1085,7 +1085,7 @@ export async function POST(request: NextRequest) {
     } else {
     // Check if the last manual outbound was more than 15 min ago - if so, auto-unpause
     // 15 min = staff moved on. 2 hours was WAY too long and caused ghosting.
-    const ACTIVE_CONVERSATION_MS = 10 * 60 * 1000 // 10 minutes — if staff hasn't replied in 10min, they moved on
+    const ACTIVE_CONVERSATION_MS = 15 * 60 * 1000 // 15 minutes — if staff hasn't replied in 15min, they moved on
     const unpauseCutoff = new Date(Date.now() - ACTIVE_CONVERSATION_MS).toISOString()
     const { data: recentManualOutbound } = await client
       .from("messages")
@@ -1118,7 +1118,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, stored: true, filtered: "customer_auto_response_paused" })
     } else {
       // No recent manual activity - auto-unpause and clear manual takeover
-      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 10min, staff moved on`)
+      console.log(`[OpenPhone] Auto-unpausing customer ${customer.id} (${maskPhone(phone)}) — no manual outbound in 15min, staff moved on`)
       await client.from("customers").update({ auto_response_paused: false, manual_takeover_at: null }).eq("id", customer.id)
       // Also unpause the lead if one exists
       const { data: pausedLead } = await client

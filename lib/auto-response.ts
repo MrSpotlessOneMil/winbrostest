@@ -843,6 +843,26 @@ async function generateWinBrosResponse(
 
     // If the AI says it's ready to schedule, call the estimate scheduler
     // and append the available time options to the response
+    // BUT: if times were already offered in conversation, skip re-scheduling
+    if (isScheduleReady) {
+      const timesAlreadyOffered = conversationHistory?.some(m =>
+        m.role === 'assistant' &&
+        /\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b.*\b(AM|PM)\b/i.test(m.content) &&
+        /\b\d{1,2}:\d{2}\s*(AM|PM)\b/i.test(m.content)
+      )
+      if (timesAlreadyOffered) {
+        console.log('[WinBros AI] Times already offered in conversation — skipping re-schedule, letting AI confirm')
+        isScheduleReady = false
+        // Strip the "Let me check..." preamble since we're not re-scheduling
+        if (cleanResponse.includes('Let me check what times')) {
+          cleanResponse = cleanResponse.replace(/Let me check what times.*$/i, '').trim()
+        }
+        // If the AI response is now empty or just the schedule text, let it confirm the booking
+        if (!cleanResponse || cleanResponse.length < 10) {
+          cleanResponse = `Perfect! We'll get that on the calendar for you.`
+        }
+      }
+    }
     if (isScheduleReady) {
       const timeOptions = await getEstimateTimeOptions(tenant, conversationHistory, knownCustomerInfo)
       if (timeOptions) {

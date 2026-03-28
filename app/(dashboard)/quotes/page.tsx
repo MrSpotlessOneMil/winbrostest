@@ -466,7 +466,7 @@ export default function QuotesPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="customer_phone">Phone Number</Label>
+                    <Label htmlFor="customer_phone">Phone Number <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <Input
                       id="customer_phone"
                       placeholder="+1 (555) 123-4567"
@@ -477,7 +477,7 @@ export default function QuotesPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="customer_email">Email</Label>
+                    <Label htmlFor="customer_email">Email <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <Input
                       id="customer_email"
                       type="email"
@@ -489,7 +489,7 @@ export default function QuotesPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="customer_address">Address</Label>
+                    <Label htmlFor="customer_address">Address <span className="text-muted-foreground font-normal">(optional)</span></Label>
                     <Input
                       id="customer_address"
                       placeholder="123 Main St, City, ST"
