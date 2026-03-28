@@ -9,46 +9,48 @@ import { GhostHealth } from "@/components/dashboard/ghost-health"
 
 export default function DashboardPage() {
   return (
-    <div className="animate-fade-in space-y-5">
-      {/* Header — compact, date on same line */}
-      <div className="flex items-baseline justify-between gap-3 stagger-1">
-        <h1 className="text-xl md:text-2xl font-bold text-foreground">Command Center</h1>
-        <p className="text-sm text-muted-foreground font-medium hidden sm:block">
-          {new Date().toLocaleDateString("en-US", {
-            weekday: "short",
-            month: "short",
-            day: "numeric",
-          })}
-        </p>
+    <div className="space-y-4 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between gap-3 stagger-1">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-bold text-foreground truncate">Command Center</h1>
+        </div>
+        <div className="text-right hidden md:block">
+          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Today</p>
+          <p className="text-base font-semibold text-foreground">
+            {new Date().toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
       </div>
 
-      {/* HERO: Attention + Ghost Health — what needs you RIGHT NOW */}
-      <div className="stagger-2 space-y-3">
-        <AttentionNeeded />
+      {/* Today's scorecard: Revenue, Jobs, New Leads */}
+      <div className="stagger-2">
+        <StatsCards />
+      </div>
+
+      {/* SMS Health + Needs Attention */}
+      <div className="stagger-3 space-y-3">
         <GhostHealth />
+        <AttentionNeeded />
       </div>
 
-      {/* Desktop: 2-column layout. Mobile: stacked. */}
-      <div className="grid gap-5 lg:grid-cols-[5fr_3fr]">
-        {/* LEFT COLUMN — operational: schedule + leads */}
-        <div className="space-y-5">
-          <div className="stagger-3">
-            <TodaysJobs />
-          </div>
-          <div className="stagger-5">
-            <RecentLeads />
-          </div>
+      {/* Today's Jobs + Call Checklist */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-4">
+        <div className="md:col-span-2 lg:col-span-2">
+          <TodaysJobs />
         </div>
+        <div>
+          <CallChecklist />
+        </div>
+      </div>
 
-        {/* RIGHT COLUMN — metrics + calls */}
-        <div className="space-y-5">
-          <div className="stagger-3">
-            <StatsCards />
-          </div>
-          <div className="stagger-4">
-            <CallChecklist />
-          </div>
-        </div>
+      {/* Recent Leads */}
+      <div className="stagger-5">
+        <RecentLeads />
       </div>
     </div>
   )
