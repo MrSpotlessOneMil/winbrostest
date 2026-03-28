@@ -4,6 +4,7 @@ import { TodaysJobs } from "@/components/dashboard/todays-jobs"
 import { RecentLeads } from "@/components/dashboard/recent-leads"
 import { CallChecklist } from "@/components/dashboard/call-checklist"
 import { StatsCards } from "@/components/dashboard/stats-cards"
+import { AttentionNeeded } from "@/components/dashboard/attention-needed"
 
 export default function DashboardPage() {
   return (
@@ -30,8 +31,13 @@ export default function DashboardPage() {
         <StatsCards />
       </div>
 
+      {/* Needs Attention — the key section */}
+      <div className="stagger-3">
+        <AttentionNeeded />
+      </div>
+
       {/* Today's Jobs + Call Checklist */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 stagger-4">
         <div className="md:col-span-2 lg:col-span-2">
           <TodaysJobs />
         </div>
@@ -41,7 +47,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Recent Leads */}
-      <div className="stagger-4">
+      <div className="stagger-5">
         <RecentLeads />
       </div>
     </div>
