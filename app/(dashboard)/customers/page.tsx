@@ -182,6 +182,19 @@ interface ServicePlan {
   discount_per_visit: number
 }
 
+interface SystemLog {
+  id: number
+  source: string
+  event_type: string
+  message: string | null
+  phone_number: string | null
+  job_id: string | null
+  lead_id: string | null
+  cleaner_id: string | null
+  metadata: Record<string, unknown> | null
+  created_at: string
+}
+
 interface TimelineItem {
   type: "message" | "call"
   timestamp: string
@@ -264,6 +277,10 @@ export default function CustomersPage() {
     if (tab === "quotes" && selectedCustomer) {
       fetchCustomerQuotes(selectedCustomer.id, selectedCustomer.phone_number)
     }
+    // Lazy-fetch logs when switching to info tab
+    if (tab === "info" && selectedCustomer) {
+      fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+    }
   }
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
@@ -273,6 +290,9 @@ export default function CustomersPage() {
   const [deletingCustomer, setDeletingCustomer] = useState(false)
   const deletingRef = useRef(false) // ref to skip polling during delete
   const [copied, setCopied] = useState(false)
+  const [customerLogs, setCustomerLogs] = useState<SystemLog[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+  const [logsCopied, setLogsCopied] = useState(false)
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
   const [savingCustomer, setSavingCustomer] = useState(false)
   const [editingJob, setEditingJob] = useState<Job | null>(null)
@@ -517,6 +537,30 @@ export default function CustomersPage() {
       }
     }
   }, [selectedCustomer?.id])
+
+  // Fetch activity logs for a customer (lazy — only when Info tab is opened)
+  const fetchCustomerLogs = async (phone: string, custId: number) => {
+    setLogsLoading(true)
+    try {
+      const res = await fetch(`/api/actions/customer-logs?phone=${encodeURIComponent(phone)}&customer_id=${custId}`)
+      const data = await res.json()
+      setCustomerLogs(data.data || [])
+    } catch {
+      setCustomerLogs([])
+    } finally {
+      setLogsLoading(false)
+    }
+  }
+
+  // Reset + re-fetch logs when selected customer changes while on info tab
+  useEffect(() => {
+    if (activeTab === "info" && selectedCustomer) {
+      fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+    }
+    if (activeTab !== "info") {
+      setCustomerLogs([]) // clear when leaving tab
+    }
+  }, [selectedCustomer?.id, activeTab])
 
   // Fetch invoice details for selected customer (lazy — only when Invoices tab is opened)
   const fetchInvoiceDetails = async (custId: number) => {

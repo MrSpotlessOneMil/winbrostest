@@ -840,6 +840,33 @@ export async function POST(request: NextRequest) {
         .maybeSingle()
 
       if (recentJob) {
+        // Store inbound message FIRST (before any response) so timestamps are correct
+        // and the unique index on external_message_id catches duplicate webhooks
+        const satOpMessageId = payload?.data?.object?.id || payload?.data?.id || payload?.id || null
+        const { error: satInsertErr } = await client.from("messages").insert({
+          tenant_id: tenant.id,
+          customer_id: customer.id,
+          phone_number: phone,
+          role: "client",
+          content: extracted.content,
+          direction: extracted.direction || "inbound",
+          message_type: "sms",
+          ai_generated: false,
+          timestamp: new Date().toISOString(),
+          source: "openphone",
+          external_message_id: satOpMessageId || null,
+          metadata: { ...payload, openphone_message_id: satOpMessageId || null, disposition: 'responded_lifecycle' },
+        })
+
+        // Duplicate webhook — already handled, bail out
+        if (satInsertErr) {
+          if (satInsertErr.code === '23505' && satOpMessageId) {
+            console.log(`[OpenPhone] Duplicate satisfaction reply blocked by unique index for customer ${customer.id} (msgId: ${satOpMessageId})`)
+            return NextResponse.json({ success: true, action: "duplicate_satisfaction_blocked" })
+          }
+          console.error("[OpenPhone] Failed to insert satisfaction inbound message:", satInsertErr.message)
+        }
+
         if (sentiment === "positive") {
           // Immediately send review link + recurring offer (no tip — strike while iron is hot)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
@@ -938,6 +965,19 @@ export async function POST(request: NextRequest) {
           const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
           await sendSMS(tenant, phone, neutralMsg)
 
+          await client.from("messages").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            role: "assistant",
+            content: neutralMsg,
+            direction: "outbound",
+            message_type: "sms",
+            ai_generated: false,
+            timestamp: new Date().toISOString(),
+            source: "post_job_satisfaction_neutral",
+          })
+
           await client.from("customers").update({
             post_job_stage: "recurring_offered",
             post_job_stage_updated_at: new Date().toISOString(),
@@ -950,35 +990,16 @@ export async function POST(request: NextRequest) {
           }).eq("id", recentJob.id)
         }
 
-        // ALL sentiments: store the inbound message and return early (never fall through to AI)
-        {
-          // Store inbound message (it hasn't been stored yet at this point)
-          const opMessageId = payload?.data?.object?.id || payload?.data?.id || payload?.id || null
-          await client.from("messages").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            role: "client",
-            content: extracted.content,
-            direction: extracted.direction || "inbound",
-            message_type: "sms",
-            ai_generated: false,
-            timestamp: new Date().toISOString(),
-            source: "openphone",
-            metadata: { ...payload, openphone_message_id: opMessageId },
-          })
+        await logSystemEvent({
+          tenant_id: tenant.id,
+          source: "openphone",
+          event_type: sentiment === "negative" ? "POST_JOB_SATISFACTION_NEGATIVE" : "POST_JOB_SATISFACTION_POSITIVE",
+          message: `Customer ${customer.id} replied ${sentiment} to satisfaction check`,
+          phone_number: phone,
+          metadata: { job_id: recentJob.id, sentiment, reply: inboundContent.slice(0, 200) },
+        })
 
-          await logSystemEvent({
-            tenant_id: tenant.id,
-            source: "openphone",
-            event_type: sentiment === "negative" ? "POST_JOB_SATISFACTION_NEGATIVE" : "POST_JOB_SATISFACTION_POSITIVE",
-            message: `Customer ${customer.id} replied ${sentiment} to satisfaction check`,
-            phone_number: phone,
-            metadata: { job_id: recentJob.id, sentiment, reply: inboundContent.slice(0, 200) },
-          })
-
-          return NextResponse.json({ success: true, action: `satisfaction_reply_${sentiment}` })
-        }
+        return NextResponse.json({ success: true, action: `satisfaction_reply_${sentiment}` })
       }
     }
 
@@ -1192,12 +1213,12 @@ export async function POST(request: NextRequest) {
   let existingDup = null
 
   if (opMessageId) {
-    // Primary dedup: check for exact OpenPhone message ID in metadata
+    // Primary dedup: check indexed external_message_id column (fast, reliable)
     const { data: idMatch } = await client
       .from("messages")
       .select("id")
       .eq("tenant_id", tenant?.id)
-      .contains("metadata", { openphone_message_id: opMessageId })
+      .eq("external_message_id", opMessageId)
       .limit(1)
       .maybeSingle()
     existingDup = idMatch
