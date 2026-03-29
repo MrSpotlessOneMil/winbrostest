@@ -9,6 +9,7 @@ import OpenAI from 'openai'
 import { Customer, Job, Cleaner } from './supabase'
 import { SMS_TEMPLATES } from './openphone'
 import { getClientConfig } from './client-config'
+import { queryBrain } from './brain'
 
 interface ResponseContext {
   customerInfo: Partial<Customer>
@@ -196,8 +197,26 @@ async function generateClaudeResponse(context: ResponseContext): Promise<AIRespo
   try {
     const client = new Anthropic({ apiKey })
 
-    const systemPrompt = buildSystemPrompt()
+    let systemPrompt = buildSystemPrompt()
     const userPrompt = buildUserPrompt(context)
+
+    // Consult the Brain for relevant industry knowledge
+    try {
+      const brainResult = await queryBrain({
+        question: `Customer said: "${context.incomingMessage}". What's the best approach to respond to maximize booking conversion for a cleaning business?`,
+        tenantId: (context.customerInfo as Record<string, unknown>).tenant_id as string | undefined,
+        domain: 'sales',
+        maxChunks: 3,
+        minSimilarity: 0.5,
+        triggeredBy: 'sms',
+        decisionType: 'sms_response',
+      })
+      if (brainResult.confidence > 0.3 && brainResult.answer) {
+        systemPrompt += `\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your tone and approach, do NOT quote directly):\n${brainResult.answer}`
+      }
+    } catch {
+      // Brain unavailable — proceed without it
+    }
 
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',

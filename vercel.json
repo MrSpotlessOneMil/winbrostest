@@ -79,6 +79,14 @@
     {
       "path": "/api/cron/ghost-watchdog",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/brain-ingest",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/brain-embed",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
