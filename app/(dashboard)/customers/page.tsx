@@ -1417,26 +1417,93 @@ export default function CustomersPage() {
   const handleCopyTranscript = () => {
     if (!selectedCustomer) return
     const customerName = getCustomerName(selectedCustomer)
+    const lead = leads.find((l) => normalizePhone(l.phone_number) === normalizePhone(selectedCustomer.phone_number))
+    const formData = lead?.form_data
+      ? (typeof lead.form_data === "string" ? (() => { try { return JSON.parse(lead.form_data) } catch { return {} } })() : lead.form_data)
+      : {}
+    const custJobs = getCustomerJobs(selectedCustomer.phone_number)
+    const custCalls = getCustomerCalls(selectedCustomer.phone_number)
+
+    // === SECTION 1: Customer Info ===
+    const infoLines = [
+      `=== CUSTOMER INFO ===`,
+      `Name: ${customerName}`,
+      `Phone: ${selectedCustomer.phone_number}`,
+      `Email: ${selectedCustomer.email || "—"}`,
+      `Address: ${selectedCustomer.address || "—"}`,
+      `Lead Source: ${selectedCustomer.lead_source || lead?.source || "—"}`,
+      `Lead Status: ${lead?.status || "—"}`,
+      `Lifecycle Stage: ${selectedCustomer.lifecycle_stage || "—"}`,
+      `Created: ${selectedCustomer.created_at ? new Date(selectedCustomer.created_at).toISOString() : "—"}`,
+      `Card on File: ${selectedCustomer.card_on_file_at ? "Yes" : "No"}`,
+      `Stripe Customer: ${selectedCustomer.stripe_customer_id || "—"}`,
+      `SMS Opt-Out: ${selectedCustomer.sms_opt_out ? "Yes" : "No"}`,
+      `Commercial: ${selectedCustomer.is_commercial ? "Yes" : "No"}`,
+      `Auto-Response Paused: ${selectedCustomer.auto_response_paused ? "Yes" : "No"}`,
+      `Preferred Frequency: ${selectedCustomer.preferred_frequency || "—"}`,
+      `Preferred Day: ${selectedCustomer.preferred_day || "—"}`,
+      `Total Jobs: ${custJobs.length}`,
+      `Total Revenue: $${getCustomerRevenue(selectedCustomer.phone_number).toLocaleString()}`,
+      `Total Paid: $${getCustomerPaid(selectedCustomer.phone_number).toLocaleString()}`,
+      `Total Calls: ${custCalls.length}`,
+    ]
+    if (selectedCustomer.notes) infoLines.push(`Notes: ${selectedCustomer.notes}`)
+    if (selectedCustomer.recurring_notes) infoLines.push(`Recurring Notes: ${selectedCustomer.recurring_notes}`)
+
+    // HCP data
+    if (formData.hcp_lead_id || formData.hcp_work_requested) {
+      infoLines.push(``, `--- HouseCall Pro ---`)
+      if (formData.hcp_lead_id) infoLines.push(`HCP Lead ID: ${formData.hcp_lead_id}`)
+      if (formData.hcp_lead_source) infoLines.push(`HCP Lead Source: ${formData.hcp_lead_source}`)
+      if (formData.hcp_work_requested) infoLines.push(`HCP Work Requested: ${formData.hcp_work_requested}`)
+      if (formData.hcp_job_id) infoLines.push(`HCP Job ID: ${formData.hcp_job_id}`)
+    }
+
+    // Raw form data
+    if (Object.keys(formData).length > 0) {
+      infoLines.push(``, `--- Raw Lead Data ---`, JSON.stringify(formData, null, 2))
+    }
+
+    // === SECTION 2: Conversation (messages + calls) ===
     const timeline = getCustomerTimeline(selectedCustomer)
-    const lines = timeline.map((item) => {
+    const convoLines = [``, `=== CONVERSATION (${timeline.length} items) ===`]
+    timeline.forEach((item) => {
       if (item.type === "message") {
         const msg = item.data as Message
         let sender: string
         if (msg.role === "client") sender = customerName
-        else if (msg.role === "assistant") sender = "Mary (AI)"
-        else if (msg.role === "business") sender = "WinBros"
+        else if (msg.role === "assistant") sender = "OSIRIS (AI)"
+        else if (msg.role === "business") sender = "Staff"
         else sender = "System"
-        return `${sender}: ${msg.content}`
+        const ts = new Date(msg.timestamp).toISOString()
+        convoLines.push(`[${ts}] ${sender} (${msg.direction}): ${msg.content}`)
       } else {
         const call = item.data as Call
         const dir = call.direction === "inbound" ? "Inbound" : "Outbound"
         const dur = call.duration_seconds ? ` (${Math.floor(call.duration_seconds / 60)}m ${call.duration_seconds % 60}s)` : ""
-        let text = `[${dir} Call${dur}]`
-        if (call.transcript) text += `\n${call.transcript}`
-        return text
+        const ts = new Date(call.created_at).toISOString()
+        convoLines.push(`[${ts}] [${dir} Call${dur}] outcome=${call.outcome || "unknown"}`)
+        if (call.transcript) convoLines.push(call.transcript)
       }
     })
-    navigator.clipboard.writeText(lines.join("\n\n"))
+
+    // === SECTION 3: Jobs ===
+    const jobLines = [``, `=== JOBS (${custJobs.length}) ===`]
+    custJobs.forEach((j) => {
+      jobLines.push(`Job #${j.id} | ${j.service_type || "—"} | ${j.status || "—"} | ${j.date || "—"} | $${j.price || 0} | paid=${j.paid ? "yes" : "no"} | ${j.address || "—"}`)
+      if (j.notes) jobLines.push(`  Notes: ${j.notes}`)
+    })
+
+    // === SECTION 4: Activity Logs ===
+    const logLines = [``, `=== ACTIVITY LOGS (${customerLogs.length}) ===`]
+    customerLogs.forEach((log) => {
+      const ts = new Date(log.created_at).toISOString()
+      const meta = log.metadata ? JSON.stringify(log.metadata) : ""
+      logLines.push(`[${ts}] [${log.source}] ${log.event_type}: ${log.message || "—"}${log.job_id ? ` | job=${log.job_id}` : ""}${log.lead_id ? ` | lead=${log.lead_id}` : ""}${log.cleaner_id ? ` | cleaner=${log.cleaner_id}` : ""}${meta ? `\n  metadata: ${meta}` : ""}`)
+    })
+
+    const fullText = [...infoLines, ...convoLines, ...jobLines, ...logLines].join("\n")
+    navigator.clipboard.writeText(fullText)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -2814,6 +2881,102 @@ export default function CustomersPage() {
                               </pre>
                             </details>
                           )}
+
+                          {/* Activity Logs */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-medium text-amber-400 uppercase tracking-wider">
+                                Activity Logs {!logsLoading && customerLogs.length > 0 && <span className="text-zinc-500 normal-case">({customerLogs.length})</span>}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)}
+                                  className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+                                  title="Refresh logs"
+                                >
+                                  <RefreshCw className={`w-3 h-3 ${logsLoading ? "animate-spin" : ""}`} />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    // Copy everything: customer info + conversation + logs
+                                    handleCopyTranscript()
+                                    setLogsCopied(true)
+                                    setTimeout(() => setLogsCopied(false), 2000)
+                                  }}
+                                  className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-zinc-100 border border-zinc-700 transition-colors"
+                                  title="Copy all customer info, conversation, and logs"
+                                >
+                                  {logsCopied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+                                  {logsCopied ? "Copied!" : "Copy All"}
+                                </button>
+                              </div>
+                            </div>
+
+                            {logsLoading ? (
+                              <div className="flex items-center justify-center py-6">
+                                <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+                              </div>
+                            ) : customerLogs.length === 0 ? (
+                              <p className="text-xs text-zinc-600 py-3 text-center">No activity logs</p>
+                            ) : (
+                              <div className="max-h-[320px] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/50">
+                                {customerLogs.map((log, idx) => {
+                                  const ts = new Date(log.created_at)
+                                  const timeStr = ts.toLocaleString("en-US", {
+                                    month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
+                                  })
+                                  // Color-code by source
+                                  const sourceColors: Record<string, string> = {
+                                    openphone: "text-cyan-400",
+                                    stripe: "text-purple-400",
+                                    vapi: "text-blue-400",
+                                    telegram: "text-sky-400",
+                                    cron: "text-yellow-400",
+                                    system: "text-zinc-400",
+                                    actions: "text-green-400",
+                                    housecall_pro: "text-teal-400",
+                                    housecall_pro_webhook: "text-teal-400",
+                                    ghl: "text-indigo-400",
+                                    lead_followup: "text-orange-400",
+                                    scheduler: "text-amber-400",
+                                    lifecycle: "text-emerald-400",
+                                    dashboard: "text-violet-400",
+                                    complete_job: "text-lime-400",
+                                    "complete-job": "text-lime-400",
+                                    tip: "text-pink-400",
+                                    offers: "text-rose-400",
+                                  }
+                                  const sourceColor = sourceColors[log.source] || "text-zinc-400"
+
+                                  return (
+                                    <details key={log.id} className={`group ${idx > 0 ? "border-t border-zinc-800/50" : ""}`}>
+                                      <summary className="flex items-start gap-2 px-3 py-2 cursor-pointer hover:bg-zinc-800/40 transition-colors text-[11px] leading-tight">
+                                        <span className="text-zinc-600 shrink-0 w-[110px]">{timeStr}</span>
+                                        <span className={`shrink-0 font-mono font-medium ${sourceColor}`}>{log.source}</span>
+                                        <span className="text-zinc-500 shrink-0">›</span>
+                                        <span className="text-zinc-300 truncate">{log.event_type}{log.message ? `: ${log.message}` : ""}</span>
+                                      </summary>
+                                      <div className="px-3 pb-2 pl-[130px] space-y-1">
+                                        <div className="text-[10px] text-zinc-400 space-y-0.5">
+                                          <p><span className="text-zinc-600">Event:</span> {log.event_type}</p>
+                                          <p><span className="text-zinc-600">Source:</span> {log.source}</p>
+                                          {log.message && <p><span className="text-zinc-600">Message:</span> {log.message}</p>}
+                                          {log.job_id && <p><span className="text-zinc-600">Job ID:</span> {log.job_id}</p>}
+                                          {log.lead_id && <p><span className="text-zinc-600">Lead ID:</span> {log.lead_id}</p>}
+                                          {log.cleaner_id && <p><span className="text-zinc-600">Cleaner ID:</span> {log.cleaner_id}</p>}
+                                          {log.metadata && Object.keys(log.metadata).length > 0 && (
+                                            <pre className="mt-1 text-[10px] text-zinc-500 bg-zinc-800/60 rounded p-2 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap break-all">
+                                              {JSON.stringify(log.metadata, null, 2)}
+                                            </pre>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </details>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )
                     })()}
