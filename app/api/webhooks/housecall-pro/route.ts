@@ -331,7 +331,7 @@ export async function POST(request: NextRequest) {
             status: "quoted",
             booked: false,
             housecall_pro_job_id: hcpJobId || null,
-            price: (job as any)?.total_amount ?? null,
+            price: (job as any)?.total_amount != null ? Number((job as any).total_amount) / 100 : null,
             hours: jobHours,
             notes: jobNotes || null,
             job_type: jobType,
@@ -445,7 +445,7 @@ export async function POST(request: NextRequest) {
                 const diffMs = new Date(updScheduledEnd).getTime() - new Date(updScheduledStart).getTime()
                 if (diffMs > 0) updates.hours = Math.round((diffMs / 3_600_000) * 100) / 100
               }
-              if (updPrice !== undefined && updPrice !== null) updates.price = updPrice
+              if (updPrice !== undefined && updPrice !== null) updates.price = Number(updPrice) / 100
               if (updLineItemName) updates.service_type = updLineItemName
 
               // Only write if there are meaningful updates beyond just updated_at

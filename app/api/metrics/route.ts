@@ -32,7 +32,7 @@ function safePct(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 100)
 }
 
-type DbJob = { id?: number; date: string | null; status: string | null; price: number | null; service_type?: string | null; address?: string | null; phone_number?: string | null }
+type DbJob = { id?: number; date: string | null; completed_at?: string | null; status: string | null; price: number | null; service_type?: string | null; address?: string | null; phone_number?: string | null }
 type DbLead = { id?: number; created_at: string; status: string | null; source?: string | null; phone_number?: string | null; form_data?: any }
 type DbCall = { id?: number; created_at: string | null; date: string | null; started_at: string | null; phone_number?: string | null; caller_name?: string | null; direction?: string | null; duration_seconds?: number | null }
 
@@ -55,7 +55,12 @@ function computeDayMetrics(params: {
   const { day, activeCrews, jobs, leads, calls } = params
 
   const jobsForDay = jobs.filter((j) => String(j.date || "") === day)
-  const completedJobs = jobsForDay.filter((j) => String(j.status || "") === "completed")
+  // Revenue: count completed jobs by their actual completion date (fall back to scheduled date)
+  const completedJobs = jobs.filter((j) => {
+    if (String(j.status || "") !== "completed") return false
+    const completionDay = j.completed_at ? bucketIso(j.completed_at) : String(j.date || "")
+    return completionDay === day
+  })
   const scheduledJobs = jobsForDay.filter((j) => {
     const s = String(j.status || "")
     return s === "scheduled" || s === "in_progress" || s === "completed"
@@ -127,13 +132,13 @@ export async function GET(request: NextRequest) {
     endDate = today
   }
 
-  const jobFields = includeDetails ? "id,date,status,price,service_type,address,phone_number" : "date,status,price"
+  const jobFields = includeDetails ? "id,date,completed_at,status,price,service_type,address,phone_number" : "date,completed_at,status,price"
+  // Fetch jobs by scheduled date OR completed_at in range (so completed jobs show on the right day)
   let jobsQuery = client
     .from("jobs")
     .select(jobFields)
-    .gte("date", startDate)
-    .lte("date", endDate)
     .neq("status", "cancelled")
+    .or(`and(date.gte.${startDate},date.lte.${endDate}),and(completed_at.gte.${startOfDayUTC(startDate)},completed_at.lte.${endOfDayUTC(endDate)})`)
   if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
   const jobsRes = await jobsQuery
 

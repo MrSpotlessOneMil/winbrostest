@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
+import { getSupabaseServiceClient } from '@/lib/supabase'
+import { getAllActiveTenants } from '@/lib/tenant'
 
 /**
  * Unified daily cron endpoint that consolidates daily cron jobs
@@ -38,10 +40,45 @@ export async function GET(request: NextRequest) {
 
   try {
     const results = {
+      auto_complete: { success: false, error: null as string | null, count: 0 },
       monthly_followup: { success: false, error: null as string | null },
       logistics_rain_day: { success: false, error: null as string | null },
       crew_briefing: { success: false, error: null as string | null },
       timestamp: new Date().toISOString(),
+    }
+
+    // 0. Auto-complete past-dated scheduled/in_progress jobs (for tenants without HCP)
+    try {
+      console.log('[unified-daily] Auto-completing past-dated jobs...')
+      const client = getSupabaseServiceClient()
+      const yesterday = new Date()
+      yesterday.setDate(yesterday.getDate() - 1)
+      const yesterdayISO = yesterday.toISOString().split('T')[0]
+
+      const { data: staleJobs, error: staleErr } = await client
+        .from('jobs')
+        .select('id, date, tenant_id')
+        .in('status', ['scheduled', 'in_progress'])
+        .lt('date', yesterdayISO)
+        .not('date', 'is', null)
+
+      if (staleErr) throw staleErr
+
+      if (staleJobs && staleJobs.length > 0) {
+        const now = new Date().toISOString()
+        const { error: updateErr } = await client
+          .from('jobs')
+          .update({ status: 'completed', completed_at: now, updated_at: now })
+          .in('id', staleJobs.map(j => j.id))
+
+        if (updateErr) throw updateErr
+        results.auto_complete.count = staleJobs.length
+        console.log(`[unified-daily] Auto-completed ${staleJobs.length} past-dated jobs`)
+      }
+      results.auto_complete.success = true
+    } catch (error) {
+      results.auto_complete.error = String(error)
+      console.error('[unified-daily] auto-complete error:', error)
     }
 
     const domain = process.env.NEXT_PUBLIC_DOMAIN || process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
@@ -121,7 +158,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if any sub-cron failed
-    const allSucceeded = results.monthly_followup.success &&
+    const allSucceeded = results.auto_complete.success &&
+      results.monthly_followup.success &&
       results.logistics_rain_day.success &&
       results.crew_briefing.success
 

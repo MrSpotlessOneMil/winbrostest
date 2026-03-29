@@ -15,9 +15,14 @@ export async function GET(request: NextRequest) {
   const { tenant } = authResult
 
   const supabase = getSupabaseServiceClient()
-  const now = new Date()
+  const tz = tenant.timezone || 'America/Chicago'
+  // Use tenant timezone for "now" — compute local date boundaries
+  const nowUtc = new Date()
+  // For simplicity, compute month/year boundaries in UTC (completed_at is timestamptz)
+  const now = nowUtc
   const yearStart = `${now.getFullYear()}-01-01`
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
   // Chart range: week (7d), month (30d), year (365d)
@@ -27,20 +32,20 @@ export async function GET(request: NextRequest) {
 
   // ── Revenue Queries ──
   const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
-    // Monthly completed jobs
+    // Monthly completed jobs (use completed_at with upper bound, fall back to date for NULL completed_at)
     supabase.from('jobs')
-      .select('id, price, frequency, customer_id')
+      .select('id, price, frequency, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
-      .gte('completed_at', `${monthStart}T00:00:00Z`)
+      .or(`and(completed_at.gte.${monthStart}T00:00:00Z,completed_at.lte.${monthEnd}T23:59:59Z),and(completed_at.is.null,date.gte.${monthStart},date.lte.${monthEnd})`)
       .not('price', 'is', null),
 
     // Annual completed jobs
     supabase.from('jobs')
-      .select('id, price, frequency, customer_id')
+      .select('id, price, frequency, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
-      .gte('completed_at', `${yearStart}T00:00:00Z`)
+      .or(`and(completed_at.gte.${yearStart}T00:00:00Z),and(completed_at.is.null,date.gte.${yearStart})`)
       .not('price', 'is', null),
 
     // Active recurring jobs (for projection)
