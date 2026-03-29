@@ -22,7 +22,17 @@ export async function GET(request: NextRequest) {
   }
 
   const tag = '[Follow-Up Quoted]'
-  console.log(`${tag} Starting follow-up check...`)
+
+  // GUARD: Only send between 9 AM and 7 PM in each tenant's timezone
+  // Default to Pacific Time for safety
+  const pacificHour = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hour12: false })
+  const currentHourPT = parseInt(pacificHour)
+  if (currentHourPT < 9 || currentHourPT >= 19) {
+    console.log(`${tag} Outside business hours (${currentHourPT}:00 PT) — skipping`)
+    return NextResponse.json({ success: true, skipped: 'outside_business_hours', currentHourPT })
+  }
+
+  console.log(`${tag} Starting follow-up check (${currentHourPT}:00 PT)...`)
 
   const client = getSupabaseServiceClient()
   const tenants = await getAllActiveTenants()
@@ -59,26 +69,32 @@ export async function GET(request: NextRequest) {
 
     for (const job of quotedJobs) {
       checked++
-      const hoursSinceCreated = (Date.now() - new Date(job.created_at).getTime()) / (1000 * 60 * 60)
       const followupCount = job.quote_followup_count || 0
       const phone = job.phone_number
 
       if (!phone) continue
 
-      // Determine which follow-up to send based on time elapsed and count
+      // Use time since LAST follow-up (not creation) to prevent rapid-fire on old jobs
+      const lastAction = job.last_quote_followup_at || job.created_at
+      const hoursSinceLastAction = (Date.now() - new Date(lastAction).getTime()) / (1000 * 60 * 60)
+
+      // Determine which follow-up to send — each step requires minimum gap since LAST action
       let templateFn: ((name: string, url: string) => string) | null = null
       let followupStep = 0
 
-      if (followupCount === 0 && hoursSinceCreated >= 1) {
+      if (followupCount === 0 && hoursSinceLastAction >= 1) {
         templateFn = SMS_TEMPLATES.quoteFollowUp1hr
         followupStep = 1
-      } else if (followupCount === 1 && hoursSinceCreated >= 4) {
+      } else if (followupCount === 1 && hoursSinceLastAction >= 3) {
+        // 3 hours after first follow-up (not 4 hours after creation)
         templateFn = SMS_TEMPLATES.quoteFollowUp4hr
         followupStep = 2
-      } else if (followupCount === 2 && hoursSinceCreated >= 24) {
+      } else if (followupCount === 2 && hoursSinceLastAction >= 20) {
+        // ~20 hours after second follow-up (next day)
         templateFn = SMS_TEMPLATES.quoteFollowUp24hr
         followupStep = 3
-      } else if (followupCount === 3 && hoursSinceCreated >= 72) {
+      } else if (followupCount === 3 && hoursSinceLastAction >= 48) {
+        // 2 days after third follow-up
         templateFn = SMS_TEMPLATES.quoteFollowUp3day
         followupStep = 4
       }
@@ -94,8 +110,7 @@ export async function GET(request: NextRequest) {
 
       const name = customer?.first_name || ''
 
-      // Find or create a quote URL for this job
-      let quoteUrl = `${appDomain}/quote`
+      // Find existing quote URL — if no quote exists, skip this job (nothing to link to)
       const { data: existingQuote } = await client
         .from('quotes')
         .select('token')
@@ -104,9 +119,12 @@ export async function GET(request: NextRequest) {
         .limit(1)
         .single()
 
-      if (existingQuote?.token) {
-        quoteUrl = `${appDomain}/quote/${existingQuote.token}`
+      if (!existingQuote?.token) {
+        console.log(`${tag} No quote found for job ${job.id} — skipping follow-up (no link to send)`)
+        continue
       }
+
+      const quoteUrl = `${appDomain}/quote/${existingQuote.token}`
 
       const message = templateFn(name, quoteUrl)
 
