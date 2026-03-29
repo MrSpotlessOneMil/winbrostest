@@ -765,12 +765,18 @@ export async function POST(request: NextRequest) {
             )
 
             // If an existing lead was found, store the HCP source ID on it for reference
+            // and upgrade source to "housecall_pro" if it was "sms" — HCP just confirmed this is their lead
             const matchedLead = recentLead || existingLead
             if (matchedLead && hcpSourceId) {
+              const existingFd = (await client.from("leads").select("form_data").eq("id", matchedLead.id).single()).data?.form_data || {}
+              const sourceUpgrade = matchedLead.source === 'sms' ? { source: 'housecall_pro' as const } : {}
               await client
                 .from("leads")
-                .update({ form_data: { ...((await client.from("leads").select("form_data").eq("id", matchedLead.id).single()).data?.form_data || {}), hcp_lead_id: String(hcpSourceId) } })
+                .update({ ...sourceUpgrade, form_data: { ...existingFd, hcp_lead_id: String(hcpSourceId) } })
                 .eq("id", matchedLead.id)
+              if (matchedLead.source === 'sms') {
+                console.log(`[OSIRIS] HCP Webhook: Upgraded lead ${matchedLead.id} source from "sms" to "housecall_pro"`)
+              }
             }
 
             await client.from("system_events").insert({
