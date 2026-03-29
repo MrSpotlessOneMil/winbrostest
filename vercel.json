@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/brain-embed",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/brain-learn",
+      "schedule": "0 9 * * *"
     }
   ]
 }
