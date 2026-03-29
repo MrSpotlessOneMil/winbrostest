@@ -34,12 +34,35 @@ export async function queryBrain(opts: BrainQueryOptions): Promise<BrainAnswer> 
 
   // 2. Retrieve relevant knowledge chunks
   const client = getSupabaseServiceClient()
-  const { data: matches, error } = await client.rpc('match_brain_chunks', {
+
+  // Try hybrid search (vector + keyword) first, fall back to vector-only
+  let matches: unknown[] | null = null
+  let error: { message: string } | null = null
+
+  const hybridResult = await client.rpc('match_brain_chunks_hybrid', {
+    query_text: question,
     query_embedding: JSON.stringify(embedding),
-    match_threshold: minSimilarity,
     match_count: maxChunks,
     filter_domain: domain || null,
+    keyword_weight: 0.3,
+    semantic_weight: 0.7,
   })
+
+  if (hybridResult.error) {
+    // Hybrid RPC might not exist yet — fall back to vector-only
+    console.warn('[Brain] Hybrid search unavailable, using vector-only:', hybridResult.error.message)
+    const vectorResult = await client.rpc('match_brain_chunks', {
+      query_embedding: JSON.stringify(embedding),
+      match_threshold: minSimilarity,
+      match_count: maxChunks,
+      filter_domain: domain || null,
+    })
+    matches = vectorResult.data
+    error = vectorResult.error
+  } else {
+    matches = hybridResult.data
+    error = hybridResult.error
+  }
 
   if (error) {
     console.error('[Brain] Similarity search failed:', error.message)

@@ -303,7 +303,174 @@ export async function discoverNewContent(): Promise<number> {
   return discovered
 }
 
+// ── VAPI & SMS Transcript Ingestion ─────────────────────────────────
+
+/**
+ * Ingest successful VAPI call transcripts as Brain knowledge.
+ * These are gold — 40% conversion rate. The Brain should learn
+ * exactly what the AI says on calls that lead to bookings.
+ */
+export async function ingestVapiTranscripts(): Promise<number> {
+  const client = getSupabaseServiceClient()
+  let ingested = 0
+
+  // Get VAPI call messages that resulted in booked jobs
+  // Look for conversations where we have both the transcript and a positive outcome
+  const { data: winningCalls } = await client
+    .from('conversation_outcomes')
+    .select('id, conversation_text, conversation_summary, patterns, revenue, source_phone, scored_at')
+    .eq('conversation_type', 'vapi_call')
+    .eq('outcome', 'won')
+    .order('scored_at', { ascending: false })
+    .limit(50)
+
+  for (const call of winningCalls || []) {
+    if (!call.conversation_text || call.conversation_text.length < 100) continue
+
+    const title = `vapi_winning_call_${call.id}`
+
+    // Check if already ingested
+    const { data: existing } = await client
+      .from('brain_sources')
+      .select('id')
+      .eq('title', title)
+      .maybeSingle()
+
+    if (existing) continue
+
+    // Create source
+    const { data: source, error: srcErr } = await client
+      .from('brain_sources')
+      .insert({
+        source_type: 'manual',
+        title,
+        author: 'Spotless Scrubbers VAPI (real call)',
+        status: 'completed',
+        transcript_raw: call.conversation_text,
+        metadata: {
+          type: 'vapi_winning_call',
+          revenue: call.revenue,
+          phone: call.source_phone,
+          patterns: call.patterns,
+          summary: call.conversation_summary,
+        },
+      })
+      .select('id')
+      .single()
+
+    if (srcErr || !source) continue
+
+    // Chunk the transcript (VAPI transcripts can be long)
+    const chunks = chunkText(call.conversation_text, 3000, 300)
+    const enrichedChunks = chunks.map((text, i) => ({
+      source_id: source.id,
+      chunk_index: i,
+      chunk_text: `[REAL WINNING VAPI CALL — This exact conversation led to a booking${call.revenue ? ` worth $${call.revenue}` : ''}]\n${call.conversation_summary ? `Summary: ${call.conversation_summary}\n` : ''}Transcript:\n${text}`,
+      token_count: Math.ceil(text.length / 4),
+      domain: 'sales' as const,
+      sub_topics: ['vapi', 'phone_sales', 'winning_call', 'real_data'],
+    }))
+
+    const { error: chunkErr } = await client
+      .from('brain_chunks')
+      .insert(enrichedChunks)
+
+    if (!chunkErr) {
+      ingested++
+      console.log(`[Brain:Learn] Ingested winning VAPI call ${call.id}`)
+    }
+  }
+
+  console.log(`[Brain:Learn] Ingested ${ingested} VAPI winning call transcripts`)
+  return ingested
+}
+
+/**
+ * Ingest winning SMS conversation threads as Brain knowledge.
+ * These show exactly what text messaging approach books customers.
+ */
+export async function ingestWinningSmsConversations(): Promise<number> {
+  const client = getSupabaseServiceClient()
+  let ingested = 0
+
+  const { data: winningConvos } = await client
+    .from('conversation_outcomes')
+    .select('id, conversation_text, conversation_summary, patterns, revenue, source_phone, scored_at')
+    .eq('conversation_type', 'sms')
+    .eq('outcome', 'won')
+    .order('scored_at', { ascending: false })
+    .limit(50)
+
+  for (const convo of winningConvos || []) {
+    if (!convo.conversation_text || convo.conversation_text.length < 50) continue
+
+    const title = `sms_winning_convo_${convo.id}`
+
+    const { data: existing } = await client
+      .from('brain_sources')
+      .select('id')
+      .eq('title', title)
+      .maybeSingle()
+
+    if (existing) continue
+
+    const { data: source, error: srcErr } = await client
+      .from('brain_sources')
+      .insert({
+        source_type: 'manual',
+        title,
+        author: 'Spotless Scrubbers SMS (real conversation)',
+        status: 'completed',
+        transcript_raw: convo.conversation_text,
+        metadata: {
+          type: 'sms_winning_conversation',
+          revenue: convo.revenue,
+          phone: convo.source_phone,
+          patterns: convo.patterns,
+          summary: convo.conversation_summary,
+        },
+      })
+      .select('id')
+      .single()
+
+    if (srcErr || !source) continue
+
+    const chunkText_content = `[REAL WINNING SMS CONVERSATION — This exact text thread led to a booking${convo.revenue ? ` worth $${convo.revenue}` : ''}]\n${convo.conversation_summary ? `Summary: ${convo.conversation_summary}\nWinning tactics: ${JSON.stringify(convo.patterns?.winning_tactics || [])}\n` : ''}Full conversation:\n${convo.conversation_text}`
+
+    const { error: chunkErr } = await client
+      .from('brain_chunks')
+      .insert({
+        source_id: source.id,
+        chunk_index: 0,
+        chunk_text: chunkText_content,
+        token_count: Math.ceil(chunkText_content.length / 4),
+        domain: 'sales',
+        sub_topics: ['sms', 'text_sales', 'winning_conversation', 'real_data'],
+      })
+
+    if (!chunkErr) {
+      ingested++
+      console.log(`[Brain:Learn] Ingested winning SMS convo ${convo.id}`)
+    }
+  }
+
+  console.log(`[Brain:Learn] Ingested ${ingested} winning SMS conversations`)
+  return ingested
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
+
+/** Simple text chunker for long transcripts */
+function chunkText(text: string, maxChars: number = 3000, overlap: number = 300): string[] {
+  if (text.length <= maxChars) return [text]
+  const chunks: string[] = []
+  let start = 0
+  while (start < text.length) {
+    chunks.push(text.slice(start, start + maxChars))
+    start += maxChars - overlap
+  }
+  return chunks
+}
 
 /**
  * Store an operational insight as a brain_source + brain_chunk.
@@ -376,6 +543,7 @@ async function upsertOperationalInsight(
       token_count: Math.ceil(content.length / 4),
       domain,
       sub_topics: [slug],
+      is_operational: true,
       // embedded_at left null — the brain-embed cron will pick it up
     })
 
