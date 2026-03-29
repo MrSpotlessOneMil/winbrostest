@@ -22,7 +22,7 @@ describe('Cron: idempotency', () => {
     resetMockClient(seed)
 
     // RPC that simulates atomic claim — second call returns empty
-    mockClient.registerRpc('claim_jobs_for_followup', (params: any) => {
+    mockClient.registerRpc('claim_jobs_for_satisfaction_check', (params: any) => {
       claimCount++
       if (params.p_tenant_id !== CEDAR_RAPIDS_ID) return { data: [], error: null }
 
