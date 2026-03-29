@@ -148,7 +148,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   console.log(`${tag} Call direction detected: ${direction} (callType: ${callType}, hasLeadId: ${!!metadata.leadId})`)
 
   // Insert call row
-  const { error: callErr } = await client.from("calls").insert({
+  const { data: callRecord, error: callErr } = await client.from("calls").insert({
     tenant_id: tenant.id,
     customer_id: customerId,
     phone_number: phone,
@@ -165,14 +165,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
     date: nowIso,
     created_at: nowIso,
     lead_id: metadata.leadId ? Number(metadata.leadId) : null,
-  })
+  }).select("id").single()
 
   if (callErr) {
     console.error(`${tag} Failed to insert call:`, callErr.message)
     return NextResponse.json({ success: false, error: `Failed to insert call: ${callErr.message}` }, { status: 500 })
   }
 
-  console.log(`${tag} Call inserted successfully for ${maskPhone(phone)} (callId: ${providerCallId})`)
+  const callId = callRecord?.id
+  console.log(`${tag} Call inserted successfully for ${maskPhone(phone)} (callId: ${providerCallId}, dbId: ${callId})`)
 
   // Log the call event
   await logSystemEvent({
@@ -342,6 +343,14 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
           } else if (lead?.id) {
             console.log(`${tag} Lead created: ${lead.id}`)
 
+            // Link call record to lead immediately
+            if (callId) {
+              await client
+                .from("calls")
+                .update({ lead_id: lead.id })
+                .eq("id", callId)
+            }
+
             // Create lead in HousecallPro for two-way sync (pass tenant directly)
             const hcpResult = await createLeadInHCP({
               firstName: firstName || undefined,
@@ -382,20 +391,25 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               },
             })
 
-            // Treat as booked ONLY if we have real booking evidence — not just AI saying "booked"
-            // The AI sometimes marks calls as "booked" when they aren't (e.g. caller barely spoke)
-            const hasAppointmentData = !!(structuredData.appointment_date && structuredData.appointment_time) ||
+            // Treat as booked if we have appointment data from VAPI structured output OR our transcript parser
+            const hasAppointmentFromVapi = !!(structuredData.appointment_date && structuredData.appointment_time) ||
               !!(structuredData.confirmed_datetime) ||
               !!(structuredData.date && structuredData.time && structuredData.address)
-            const transcriptLooksBooked = data.transcript && data.transcript.length > 200 &&
-              hasAppointmentData
-            const isBooked = transcriptLooksBooked ||
-              (data.outcome === "booked" && hasAppointmentData)
+            const hasAppointmentFromParser = !!(bookingInfo.requestedDate && bookingInfo.requestedTime) ||
+              !!(bookingInfo.requestedDate && bookingInfo.address) ||
+              !!(bookingInfo.requestedTime && bookingInfo.address)
+            const hasAppointmentData = hasAppointmentFromVapi || hasAppointmentFromParser
+            // Also allow booking when AI says booked AND we have enough customer info (address or name)
+            // even without a specific date — the follow-up SMS will collect the date
+            const hasEnoughForQuote = data.outcome === "booked" &&
+              data.transcript && data.transcript.length > 200 &&
+              !!(bookingInfo.address || bookingInfo.firstName || address)
+            const isBooked = hasAppointmentData || hasEnoughForQuote
 
             if (!isBooked) {
               // Not really booked — schedule SMS follow-up so we don't lose the lead
-              if (data.outcome === "booked" && !hasAppointmentData) {
-                console.warn(`${tag} AI reported 'booked' but no appointment data found — treating as NOT booked, scheduling follow-up`)
+              if (data.outcome === "booked") {
+                console.warn(`${tag} AI reported 'booked' but insufficient data — scheduling follow-up (has address: ${!!bookingInfo.address}, has name: ${!!bookingInfo.firstName}, transcript length: ${data.transcript?.length})`)
               }
               try {
                 await scheduleLeadFollowUp(
@@ -580,6 +594,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   .eq("id", lead.id)
                 console.log(`${tag} Lead ${lead.id} status set to "qualified"`)
 
+                // Link call record to lead and job
+                if (callId) {
+                  await client
+                    .from("calls")
+                    .update({ lead_id: lead.id, job_id: job.id })
+                    .eq("id", callId)
+                  console.log(`${tag} Call ${callId} linked to lead ${lead.id} + job ${job.id}`)
+                }
+
                 // Send booking confirmation text
                 const dateTimeStr = formatDateTimeForSMS(appointmentDate, appointmentTime)
                 const confirmationMsg = SMS_TEMPLATES.vapiConfirmation(
@@ -643,16 +666,21 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
         } else {
           console.log(`${tag} Lead already exists for ${maskPhone(phone)} (id: ${existingLead.id})`)
 
-          // Only treat as booked if we have real appointment data — not just AI saying "booked"
-          const existingHasAppointment = !!(structuredData.appointment_date && structuredData.appointment_time) ||
+          // Treat as booked if we have appointment data from VAPI OR our transcript parser
+          const existingHasAppointmentVapi = !!(structuredData.appointment_date && structuredData.appointment_time) ||
             !!(structuredData.confirmed_datetime) ||
             !!(structuredData.date && structuredData.time && structuredData.address)
-          const existingTranscriptBooked = data.transcript && data.transcript.length > 200 && existingHasAppointment
-          const existingLeadIsBooked = existingTranscriptBooked ||
-            (data.outcome === "booked" && existingHasAppointment)
+          const existingHasAppointmentParser = !!(bookingInfo.requestedDate && bookingInfo.requestedTime) ||
+            !!(bookingInfo.requestedDate && bookingInfo.address) ||
+            !!(bookingInfo.requestedTime && bookingInfo.address)
+          const existingHasAppointment = existingHasAppointmentVapi || existingHasAppointmentParser
+          const existingHasEnoughForQuote = data.outcome === "booked" &&
+            data.transcript && data.transcript.length > 200 &&
+            !!(bookingInfo.address || bookingInfo.firstName || address)
+          const existingLeadIsBooked = existingHasAppointment || existingHasEnoughForQuote
 
           if (!existingLeadIsBooked && data.outcome === "booked") {
-            console.warn(`${tag} AI reported 'booked' for existing lead ${existingLead.id} but no appointment data — scheduling follow-up`)
+            console.warn(`${tag} AI reported 'booked' for existing lead ${existingLead.id} but insufficient data — scheduling follow-up`)
             try {
               await scheduleLeadFollowUp(tenant.id, String(existingLead.id), phone, fullName || "there")
             } catch (err) {
@@ -807,6 +835,15 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                   last_contact_at: nowIso,
                 })
                 .eq("id", existingLead.id)
+
+              // Link call record to lead and job
+              if (callId) {
+                await client
+                  .from("calls")
+                  .update({ lead_id: existingLead.id, job_id: job.id })
+                  .eq("id", callId)
+                console.log(`${tag} Call ${callId} linked to lead ${existingLead.id} + job ${job.id}`)
+              }
 
               // Cancel any pending follow-up tasks for this lead
               try {

@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/brain-learn",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/follow-up-quoted",
+      "schedule": "0 * * * *"
     }
   ]
 }

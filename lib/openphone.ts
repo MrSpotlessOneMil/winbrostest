@@ -257,6 +257,22 @@ export const SMS_TEMPLATES = {
     const linkLine = invoiceUrl ? `\nInvoice link: ${invoiceUrl}` : ''
     return `Thanks! I'm sending everything now (and this will be in your email too if you prefer)!${linkLine}`
   },
+  quoteFollowUp1hr: (name: string, quoteUrl: string): string => {
+    const greeting = name ? `Hey ${name}!` : `Hey!`
+    return `${greeting} Did you get a chance to look at that quote? Tap here to book your spot → ${quoteUrl}`
+  },
+  quoteFollowUp4hr: (name: string, quoteUrl: string): string => {
+    const greeting = name ? `Hey ${name}` : `Hey`
+    return `${greeting} — still have your time slot held! Book before it fills up → ${quoteUrl}`
+  },
+  quoteFollowUp24hr: (name: string, quoteUrl: string): string => {
+    const greeting = name ? `Hey ${name}` : `Hey`
+    return `${greeting}, any questions about the quote? Happy to help! Book here → ${quoteUrl}`
+  },
+  quoteFollowUp3day: (name: string, quoteUrl: string): string => {
+    const greeting = name ? `Hey ${name}` : `Hey`
+    return `${greeting} — last chance! We'd love to get you on the schedule. Your quote → ${quoteUrl}`
+  },
   footer: '',
 }
 

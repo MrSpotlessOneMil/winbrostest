@@ -104,6 +104,10 @@ When the customer says "tomorrow", "next week", "next Monday", etc., calculate t
 
 CRITICAL: If the customer mentions MULTIPLE dates or changes their mind during the call, use ONLY the FINAL/LAST date they confirmed. Look for phrases like "actually", "wait", "change that", "no make it", "instead" - these indicate the customer is correcting themselves. Always extract the most recent date mentioned at the end of the conversation.
 
+CRITICAL: Even if the date/time is vague (like "this week", "sometime Thursday", "in the morning"), STILL extract your best guess. "Thursday" = the upcoming Thursday from today. "Morning" = "09:00 AM". "Afternoon" = "01:00 PM". "This week" = the next available weekday. DO NOT leave requestedDate or requestedTime as null if the customer mentioned ANY time preference, even loosely.
+
+CRITICAL: Extract the address even if incomplete. "Calabasas" is a valid address. "on Elm Street" is a valid address. Partial is better than null.
+
 Return a JSON object with these fields (use null for missing info):
 - firstName: customer's first name
 - lastName: customer's last name
@@ -292,6 +296,75 @@ function parseWithRegex(transcript: string): BookingInfo {
 
   if (notes.length > 0) {
     info.notes = notes.join(', ')
+  }
+
+  // Date extraction — convert spoken dates to YYYY-MM-DD
+  const today = new Date()
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+  // "tomorrow"
+  if (/\btomorrow\b/i.test(transcript)) {
+    const d = new Date(today)
+    d.setDate(d.getDate() + 1)
+    info.requestedDate = d.toISOString().split('T')[0]
+  }
+
+  // "next Monday", "this Thursday", etc.
+  if (!info.requestedDate) {
+    const dayMatch = transcript.match(/\b(?:next|this|coming)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)
+    if (dayMatch) {
+      const targetDay = dayNames.indexOf(dayMatch[1].toLowerCase())
+      if (targetDay >= 0) {
+        const d = new Date(today)
+        const currentDay = d.getDay()
+        let diff = targetDay - currentDay
+        if (diff <= 0) diff += 7
+        d.setDate(d.getDate() + diff)
+        info.requestedDate = d.toISOString().split('T')[0]
+      }
+    }
+  }
+
+  // "March 15", "March 15th", "3/15"
+  if (!info.requestedDate) {
+    const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+    const monthMatch = transcript.match(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i)
+    if (monthMatch) {
+      const month = monthNames.indexOf(monthMatch[1].toLowerCase())
+      const day = parseInt(monthMatch[2])
+      const d = new Date(today.getFullYear(), month, day)
+      if (d < today) d.setFullYear(d.getFullYear() + 1)
+      info.requestedDate = d.toISOString().split('T')[0]
+    }
+  }
+
+  // Time extraction — "2pm", "2:00 PM", "at 10", "morning", "afternoon"
+  const timeMatch = transcript.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b/i)
+  if (timeMatch) {
+    let h = parseInt(timeMatch[1])
+    const m = timeMatch[2] || '00'
+    const period = timeMatch[3].replace(/\./g, '').toUpperCase()
+    if (period === 'PM' && h < 12) h += 12
+    if (period === 'AM' && h === 12) h = 0
+    info.requestedTime = `${String(h).padStart(2, '0')}:${m}`
+  } else if (/\bmorning\b/i.test(lowerTranscript)) {
+    info.requestedTime = '09:00'
+  } else if (/\bafternoon\b/i.test(lowerTranscript)) {
+    info.requestedTime = '13:00'
+  } else if (/\bevening\b/i.test(lowerTranscript)) {
+    info.requestedTime = '17:00'
+  }
+
+  // Name extraction — "my name is X" or "I'm X"
+  const nameMatch = transcript.match(/(?:my name is|I'm|I am|this is)\s+([A-Z][a-z]+)/i)
+  if (nameMatch && !info.firstName) {
+    info.firstName = nameMatch[1]
+  }
+
+  // Address extraction — street number + street name pattern
+  const addrMatch = transcript.match(/\b(\d{2,5}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Lane|Ln|Road|Rd|Way|Court|Ct|Place|Pl|Circle|Cir))\b/i)
+  if (addrMatch && !info.address) {
+    info.address = addrMatch[1]
   }
 
   const couchRequest = detectFreeCouchCleaningRequest(transcript)
