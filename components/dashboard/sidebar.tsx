@@ -26,9 +26,9 @@ import { useState, useRef, useEffect } from "react"
 
 const navigation = [
   { name: "Command Center", href: "/overview", icon: LayoutDashboard, adminOnly: false },
-  { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
-  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
+  { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
+  { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },

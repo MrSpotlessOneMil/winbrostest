@@ -197,35 +197,12 @@ export function StatsCards() {
                 onClick={() => toggle(stat.key)}
                 className="w-full p-4 text-left cursor-pointer"
               >
-                <div className="flex items-start justify-between">
+                <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <p className="text-sm font-medium text-zinc-400">{stat.name}</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-2xl font-bold text-violet-300 flex items-center">
-                        {stat.prefix}<SlidingNumber value={stat.numericValue} useCommas={stat.useCommas} />{stat.suffix}
-                      </span>
-                      <span className="text-sm text-zinc-500 flex items-center">
-                        / {stat.prefix}<SlidingNumber value={stat.numericTarget} useCommas={stat.useCommas} />{stat.suffix}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {stat.trend === "up" && (
-                        <TrendingUp className="h-4 w-4 text-success" />
-                      )}
-                      {stat.trend === "down" && (
-                        <TrendingDown className="h-4 w-4 text-destructive" />
-                      )}
-                      <span
-                        className={cn(
-                          "text-sm font-medium",
-                          stat.trend === "up" && "text-success",
-                          stat.trend === "down" && "text-destructive",
-                          stat.trend === "neutral" && "text-zinc-500"
-                        )}
-                      >
-                        {stat.change}
-                      </span>
-                    </div>
+                    <span className="text-2xl font-bold text-violet-300 flex items-center">
+                      {stat.prefix}<SlidingNumber value={stat.numericValue} useCommas={stat.useCommas} />{stat.suffix}
+                    </span>
                   </div>
                   <div className="flex flex-col items-center gap-1.5">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 icon-glow text-primary">
@@ -240,13 +217,9 @@ export function StatsCards() {
                   </div>
                 </div>
 
-                {/* Progress bar */}
-                <div className="mt-3">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800/60">
-                    <div
-                      className="h-full rounded-full progress-bar-glow transition-all duration-700 ease-out"
-                      style={{ width: `${Math.min(stat.progress, 100)}%` }}
-                    />
+                {/* Simplified — no progress bar, no trend text */}
+                <div className="mt-1">
+                  <div className="h-0" />
                   </div>
                 </div>
               </button>

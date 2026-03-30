@@ -132,11 +132,15 @@ export async function GET(request: NextRequest) {
 
     for (const job of unassigned || []) {
       const customer = (job as any).customers
+      const jobDate = job.date ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD'
+      const jobTime = job.scheduled_at ? new Date(job.scheduled_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : ''
+      const service = job.service_type ? job.service_type.replace(/_/g, ' ') : 'Job'
+      const timeStr = [jobDate, jobTime].filter(Boolean).join(' at ')
       items.push({
         id: `unassigned-${job.id}`,
         type: 'unassigned',
         priority: job.date === today ? 'high' : 'medium',
-        title: `No cleaner — ${customer?.first_name || 'Job'} on ${job.date}`,
+        title: `${customer?.first_name || 'Customer'} — ${service} — ${timeStr} — No cleaner assigned`,
         action: 'Assign cleaner',
         customer_name: customer?.first_name || null,
         phone: job.phone_number,
@@ -169,11 +173,12 @@ export async function GET(request: NextRequest) {
       if (!count || count === 0) {
         const job = (d as any).jobs
         const customer = job?.customers
+        const jobDate = job?.date ? new Date(job.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''
         items.push({
           id: `declined-${d.id}`,
           type: 'cleaner',
           priority: 'high',
-          title: `Cleaner declined — ${customer?.first_name || 'Job'} #${d.job_id}`,
+          title: `${customer?.first_name || 'Customer'} — ${jobDate ? jobDate + ' — ' : ''}Cleaner declined, needs reassignment`,
           action: 'Reassign cleaner',
           customer_name: customer?.first_name || null,
           phone: job?.phone_number || null,
