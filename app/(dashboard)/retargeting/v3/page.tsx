@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import {
   Phone, X, Loader2, RefreshCw,
-  Upload, ArrowRight, RotateCcw, XCircle, Ban,
+  Upload, ArrowRight, RotateCcw, XCircle, Ban, Play,
 } from "lucide-react"
 import { ImportModal } from "@/components/pipeline/import-modal"
 import CubeLoader from "@/components/ui/cube-loader"
@@ -35,7 +35,7 @@ const SOURCE_COLORS: Record<string, string> = {
 type Tab = "sales" | "winback"
 
 export default function PipelinePage() {
-  const { stages, loading, error, clearError, fetchPipeline, enrollSequence, cancelRetargeting, markAsLost, enrolling, cancelling } = usePipeline()
+  const { stages, loading, error, clearError, fetchPipeline, enrollSequence, cancelRetargeting, markAsLost, unmarkLost, enrolling, cancelling, markingLost, unmarkingLost } = usePipeline()
   const [showImportModal, setShowImportModal] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>("sales")
   const [activeMobileStage, setActiveMobileStage] = useState<PipelineStageKey>("new_lead")
@@ -208,8 +208,11 @@ export default function PipelinePage() {
                   onEnroll={(customerId) => enrollSequence(item.retargeting_sequence || "one_time", [customerId])}
                   onCancel={(customerId) => cancelRetargeting([customerId])}
                   onMarkLost={(customerId) => markAsLost([customerId])}
+                  onUnmarkLost={(customerId) => unmarkLost([customerId])}
                   enrolling={enrolling}
                   cancelling={cancelling}
+                  markingLost={markingLost}
+                  unmarkingLost={unmarkingLost}
                 />
               ))}
             </div>
@@ -274,28 +277,37 @@ function PipelineCard({ item }: { item: PipelineItem }) {
 
 /* ─── Win-Back Card ────────────────────────────────────────────────────── */
 
-function WinBackCard({ item, onEnroll, onCancel, onMarkLost, enrolling, cancelling }: {
+function WinBackCard({ item, onEnroll, onCancel, onMarkLost, onUnmarkLost, enrolling, cancelling, markingLost, unmarkingLost }: {
   item: PipelineItem
   onEnroll: (customerId: number) => void
   onCancel: (customerId: number) => void
   onMarkLost: (customerId: number) => void
+  onUnmarkLost: (customerId: number) => void
   enrolling: string | null
   cancelling: boolean
+  markingLost: number | null
+  unmarkingLost: number | null
 }) {
   const customerId = item.customer_id || parseInt(item.id)
   const isInSequence = !!item.retargeting_sequence && (item.retargeting_step || 0) > 0
+  const isLost = item.lifecycle_stage === "lost"
+  const isMarkingThis = markingLost === customerId
+  const isUnmarkingThis = unmarkingLost === customerId
   const sequenceLabel = item.retargeting_sequence
     ? `Step ${item.retargeting_step || 1} \u2014 ${item.retargeting_sequence.replace(/_/g, " ")}`
     : null
 
   return (
-    <Card>
+    <Card className={cn(isLost && "opacity-60")}>
       <CardContent className="p-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           {/* Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-sm font-semibold truncate">{item.name}</span>
+              {isLost && (
+                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Customer Lost</Badge>
+              )}
               {item.phone && (
                 <a href={`tel:${item.phone}`} className="shrink-0" onClick={e => e.stopPropagation()}>
                   <Phone className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground transition-colors" />
@@ -303,7 +315,7 @@ function WinBackCard({ item, onEnroll, onCancel, onMarkLost, enrolling, cancelli
               )}
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-              {item.lifecycle_stage && (
+              {item.lifecycle_stage && !isLost && (
                 <Badge variant="outline" className="text-[10px] capitalize">{item.lifecycle_stage.replace(/_/g, " ")}</Badge>
               )}
               {item.value > 0 && <span className="text-emerald-500 font-medium">{formatCurrency(item.value)} lifetime</span>}
@@ -324,43 +336,68 @@ function WinBackCard({ item, onEnroll, onCancel, onMarkLost, enrolling, cancelli
 
           {/* Actions */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {!isInSequence ? (
-              <Button
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => onEnroll(customerId)}
-                disabled={!!enrolling || cancelling}
-              >
-                {enrolling ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
-                Start Sequence
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                onClick={() => onCancel(customerId)}
-                disabled={!!enrolling || cancelling}
-              >
-                <XCircle className="h-3 w-3 mr-1" />
-                Stop
-              </Button>
+            {!isLost && (
+              <>
+                {!isInSequence ? (
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => onEnroll(customerId)}
+                    disabled={!!enrolling || cancelling}
+                  >
+                    {enrolling ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <RotateCcw className="h-3 w-3 mr-1" />}
+                    Start Sequence
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => onCancel(customerId)}
+                    disabled={!!enrolling || cancelling}
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Stop
+                  </Button>
+                )}
+              </>
             )}
             <TooltipProvider delayDuration={600}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                    onClick={() => onMarkLost(customerId)}
-                    disabled={!!enrolling || cancelling}
-                  >
-                    <Ban className="h-3 w-3" />
-                  </Button>
+                  {isLost ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground hover:text-emerald-500"
+                      onClick={() => onUnmarkLost(customerId)}
+                      disabled={isUnmarkingThis}
+                    >
+                      {isUnmarkingThis
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Play className="h-3 w-3" />
+                      }
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                      onClick={() => onMarkLost(customerId)}
+                      disabled={isMarkingThis}
+                    >
+                      {isMarkingThis
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Ban className="h-3 w-3" />
+                      }
+                    </Button>
+                  )}
                 </TooltipTrigger>
                 <TooltipContent side="left">
-                  Mark as lost — permanently removes this customer from the win-back pipeline
+                  {isLost
+                    ? "Restore customer — removes the lost status and makes them eligible for win-back"
+                    : "Mark as lost — permanently removes this customer from the win-back pipeline"
+                  }
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>

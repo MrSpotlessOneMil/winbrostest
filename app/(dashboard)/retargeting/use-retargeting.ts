@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import type {
   PipelineStage,
   PipelineCustomer,
+  PipelineItem,
   StageKey,
   PipelineStageKey,
   PipelineStageData,
@@ -22,8 +23,11 @@ interface UsePipelineReturn {
   enrollSequence: (segment: string, customerIds?: number[]) => Promise<{ enrolled: number } | null>
   cancelRetargeting: (customerIds: number[]) => Promise<boolean>
   markAsLost: (customerIds: number[]) => Promise<boolean>
+  unmarkLost: (customerIds: number[]) => Promise<boolean>
   enrolling: string | null
   cancelling: boolean
+  markingLost: number | null
+  unmarkingLost: number | null
 }
 
 export function usePipeline(): UsePipelineReturn {
@@ -32,6 +36,26 @@ export function usePipeline(): UsePipelineReturn {
   const [error, setError] = useState<string | null>(null)
   const [enrolling, setEnrolling] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [markingLost, setMarkingLost] = useState<number | null>(null)
+  const [unmarkingLost, setUnmarkingLost] = useState<number | null>(null)
+
+  // Helper to optimistically update a win_back item's lifecycle_stage
+  const updateWinBackItem = useCallback((customerId: number, updates: Partial<PipelineItem>) => {
+    setStages(prev => {
+      const winBack = prev.win_back
+      if (!winBack) return prev
+      return {
+        ...prev,
+        win_back: {
+          ...winBack,
+          items: winBack.items.map(item => {
+            const itemCustId = item.customer_id || parseInt(item.id)
+            return itemCustId === customerId ? { ...item, ...updates } : item
+          }),
+        },
+      }
+    })
+  }, [])
 
   const fetchPipeline = useCallback(async () => {
     setLoading(true)
@@ -101,7 +125,8 @@ export function usePipeline(): UsePipelineReturn {
 
   const markAsLost = useCallback(async (customerIds: number[]) => {
     if (customerIds.length === 0) return false
-    setCancelling(true)
+    const customerId = customerIds[0]
+    setMarkingLost(customerId)
     try {
       const res = await fetch("/api/actions/retargeting-pipeline", {
         method: "PATCH",
@@ -110,7 +135,11 @@ export function usePipeline(): UsePipelineReturn {
       })
       const json = await res.json()
       if (json.success) {
-        await fetchPipeline()
+        updateWinBackItem(customerId, {
+          lifecycle_stage: "lost",
+          retargeting_sequence: null,
+          retargeting_step: null,
+        })
         return true
       }
       setError(json.error || "Failed to mark as lost")
@@ -119,9 +148,34 @@ export function usePipeline(): UsePipelineReturn {
       setError("Failed to mark as lost")
       return false
     } finally {
-      setCancelling(false)
+      setMarkingLost(null)
     }
-  }, [fetchPipeline])
+  }, [updateWinBackItem])
+
+  const unmarkLost = useCallback(async (customerIds: number[]) => {
+    if (customerIds.length === 0) return false
+    const customerId = customerIds[0]
+    setUnmarkingLost(customerId)
+    try {
+      const res = await fetch("/api/actions/retargeting-pipeline", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_ids: customerIds, override: null }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        updateWinBackItem(customerId, { lifecycle_stage: "one_time" })
+        return true
+      }
+      setError(json.error || "Failed to restore customer")
+      return false
+    } catch {
+      setError("Failed to restore customer")
+      return false
+    } finally {
+      setUnmarkingLost(null)
+    }
+  }, [updateWinBackItem])
 
   const clearError = useCallback(() => setError(null), [])
 
@@ -136,8 +190,11 @@ export function usePipeline(): UsePipelineReturn {
     enrollSequence,
     cancelRetargeting,
     markAsLost,
+    unmarkLost,
     enrolling,
     cancelling,
+    markingLost,
+    unmarkingLost,
   }
 }
 
