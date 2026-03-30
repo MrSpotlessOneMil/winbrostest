@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import {
-  Phone, X, Loader2, RefreshCw,
+  Phone, X, Loader2, RefreshCw, Search,
   Upload, ArrowRight, RotateCcw, XCircle, Ban, Play,
 } from "lucide-react"
+import { Input } from "@/components/ui/input"
 import { ImportModal } from "@/components/pipeline/import-modal"
 import CubeLoader from "@/components/ui/cube-loader"
 import { usePipeline } from "../use-retargeting"
@@ -37,8 +39,16 @@ type Tab = "sales" | "winback"
 export default function PipelinePage() {
   const { stages, loading, error, clearError, fetchPipeline, enrollSequence, cancelRetargeting, markAsLost, unmarkLost, enrolling, cancelling, markingLost, unmarkingLost } = usePipeline()
   const [showImportModal, setShowImportModal] = useState(false)
-  const [activeTab, setActiveTab] = useState<Tab>("sales")
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const activeTab = (searchParams.get("tab") === "winback" ? "winback" : "sales") as Tab
+  const setActiveTab = (tab: Tab) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("tab", tab)
+    router.replace(`?${params.toString()}`, { scroll: false })
+  }
   const [activeMobileStage, setActiveMobileStage] = useState<PipelineStageKey>("new_lead")
+  const [winBackSearch, setWinBackSearch] = useState("")
   const isMobile = useIsMobile()
 
   if (loading) return <div className="flex items-center justify-center h-64"><CubeLoader /></div>
@@ -46,6 +56,15 @@ export default function PipelinePage() {
   const funnelCount = SALES_STAGES.reduce((s, k) => s + (stages[k]?.count || 0), 0)
   const funnelValue = SALES_STAGES.reduce((s, k) => s + (stages[k]?.value || 0), 0)
   const winBackData = stages["win_back"] || { count: 0, value: 0, items: [] }
+  const filteredWinBack = useMemo(() => {
+    if (!winBackSearch.trim()) return winBackData.items
+    const q = winBackSearch.toLowerCase()
+    return winBackData.items.filter(item =>
+      item.name?.toLowerCase().includes(q) ||
+      item.phone?.includes(q) ||
+      item.lifecycle_stage?.toLowerCase().includes(q)
+    )
+  }, [winBackData.items, winBackSearch])
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-5 h-full overflow-hidden flex flex-col">
@@ -190,33 +209,51 @@ export default function PipelinePage() {
         )
       ) : (
         /* ===== WIN-BACK TAB ===== */
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {winBackData.items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <RotateCcw className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm font-medium text-foreground">No win-back candidates</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                One-time customers, lapsed regulars, and unresponsive leads will appear here when eligible for re-engagement
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {winBackData.items.map((item) => (
-                <WinBackCard
-                  key={item.id}
-                  item={item}
-                  onEnroll={(customerId) => enrollSequence(item.retargeting_sequence || "one_time", [customerId])}
-                  onCancel={(customerId) => cancelRetargeting([customerId])}
-                  onMarkLost={(customerId) => markAsLost([customerId])}
-                  onUnmarkLost={(customerId) => unmarkLost([customerId])}
-                  enrolling={enrolling}
-                  cancelling={cancelling}
-                  markingLost={markingLost}
-                  unmarkingLost={unmarkingLost}
-                />
-              ))}
-            </div>
-          )}
+        <div className="flex-1 min-h-0 flex flex-col">
+          {/* Search bar */}
+          <div className="relative shrink-0 mb-3">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, phone, or status..."
+              value={winBackSearch}
+              onChange={(e) => setWinBackSearch(e.target.value)}
+              className="pl-8 h-8 text-xs"
+            />
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {winBackData.items.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <RotateCcw className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                <p className="text-sm font-medium text-foreground">No win-back candidates</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                  One-time customers, lapsed regulars, and unresponsive leads will appear here when eligible for re-engagement
+                </p>
+              </div>
+            ) : filteredWinBack.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Search className="h-8 w-8 text-muted-foreground/30 mb-2" />
+                <p className="text-sm text-muted-foreground">No customers match &ldquo;{winBackSearch}&rdquo;</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredWinBack.map((item) => (
+                  <WinBackCard
+                    key={item.id}
+                    item={item}
+                    onEnroll={(customerId) => enrollSequence(item.retargeting_sequence || "one_time", [customerId])}
+                    onCancel={(customerId) => cancelRetargeting([customerId])}
+                    onMarkLost={(customerId) => markAsLost([customerId])}
+                    onUnmarkLost={(customerId) => unmarkLost([customerId])}
+                    enrolling={enrolling}
+                    cancelling={cancelling}
+                    markingLost={markingLost}
+                    unmarkingLost={unmarkingLost}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
