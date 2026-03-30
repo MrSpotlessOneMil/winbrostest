@@ -494,7 +494,10 @@ export function parseNaturalDate(input: string): { date: string | null; time: st
       const day = parseInt(slashMatch[2])
       if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
         targetDate = new Date(centralNow.getFullYear(), month - 1, day)
-        if (targetDate < centralNow) {
+        // Compare dates only — "3/30" on March 30 should stay in current year
+        const slashDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate())
+        const slashTodayOnly = new Date(centralNow.getFullYear(), centralNow.getMonth(), centralNow.getDate())
+        if (slashDateOnly < slashTodayOnly) {
           targetDate.setFullYear(targetDate.getFullYear() + 1)
         }
       }
@@ -510,7 +513,10 @@ export function parseNaturalDate(input: string): { date: string | null; time: st
       const day = parseInt(monthMatch[2])
       if (monthIdx >= 0 && day >= 1 && day <= 31) {
         targetDate = new Date(centralNow.getFullYear(), monthIdx, day)
-        if (targetDate < centralNow) {
+        // Compare dates only — "March 30" on March 30 should stay in current year
+        const monthDateOnly = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate())
+        const monthTodayOnly = new Date(centralNow.getFullYear(), centralNow.getMonth(), centralNow.getDate())
+        if (monthDateOnly < monthTodayOnly) {
           targetDate.setFullYear(targetDate.getFullYear() + 1)
         }
       }
