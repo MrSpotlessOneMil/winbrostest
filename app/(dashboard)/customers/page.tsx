@@ -2307,7 +2307,7 @@ export default function CustomersPage() {
                   </div>
 
                   {/* Tab content */}
-                  <div className="p-5 flex-1 overflow-hidden flex flex-col">
+                  <div className="p-5 flex-1 min-h-0 overflow-hidden flex flex-col">
                     {/* Messages + Calls Timeline */}
                     {activeTab === "messages" && (
                       <div className="flex flex-col flex-1 min-h-0">
@@ -2847,7 +2847,7 @@ export default function CustomersPage() {
                       const notes = selectedCustomer.notes || selectedCustomer.recurring_notes
 
                       return (
-                        <div className="space-y-4 p-1">
+                        <div className="space-y-4 p-1 flex-1 overflow-y-auto min-h-0">
                           {/* Core Info */}
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Customer Details</p>
@@ -2929,7 +2929,7 @@ export default function CustomersPage() {
                             ) : customerLogs.length === 0 ? (
                               <p className="text-xs text-zinc-600 py-3 text-center">No activity logs</p>
                             ) : (
-                              <div className="max-h-[320px] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900/50">
+                              <div className="rounded-lg border border-zinc-800 bg-zinc-900/50">
                                 {customerLogs.map((log, idx) => {
                                   const ts = new Date(log.created_at)
                                   const timeStr = ts.toLocaleString("en-US", {
@@ -2964,13 +2964,13 @@ export default function CustomersPage() {
                                         <span className="text-zinc-600 shrink-0 w-[110px]">{timeStr}</span>
                                         <span className={`shrink-0 font-mono font-medium ${sourceColor}`}>{log.source}</span>
                                         <span className="text-zinc-500 shrink-0">›</span>
-                                        <span className="text-zinc-300 truncate">{log.event_type}{log.message ? `: ${log.message}` : ""}</span>
+                                        <span className="text-zinc-300 break-words min-w-0">{log.event_type}{log.message ? `: ${log.message}` : ""}</span>
                                       </summary>
-                                      <div className="px-3 pb-2 pl-[130px] space-y-1">
-                                        <div className="text-[10px] text-zinc-400 space-y-0.5">
+                                      <div className="px-3 pb-2 md:pl-[130px] space-y-1 overflow-hidden">
+                                        <div className="text-[10px] text-zinc-400 space-y-0.5 break-words">
                                           <p><span className="text-zinc-600">Event:</span> {log.event_type}</p>
                                           <p><span className="text-zinc-600">Source:</span> {log.source}</p>
-                                          {log.message && <p><span className="text-zinc-600">Message:</span> {log.message}</p>}
+                                          {log.message && <p className="break-words"><span className="text-zinc-600">Message:</span> {log.message}</p>}
                                           {log.job_id && <p><span className="text-zinc-600">Job ID:</span> {log.job_id}</p>}
                                           {log.lead_id && <p><span className="text-zinc-600">Lead ID:</span> {log.lead_id}</p>}
                                           {log.cleaner_id && <p><span className="text-zinc-600">Cleaner ID:</span> {log.cleaner_id}</p>}
