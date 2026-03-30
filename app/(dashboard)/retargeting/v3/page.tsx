@@ -59,10 +59,6 @@ function PipelinePageInner() {
   const [winBackSearch, setWinBackSearch] = useState("")
   const isMobile = useIsMobile()
 
-  if (loading) return <div className="flex items-center justify-center h-64"><CubeLoader /></div>
-
-  const funnelCount = SALES_STAGES.reduce((s, k) => s + (stages[k]?.count || 0), 0)
-  const funnelValue = SALES_STAGES.reduce((s, k) => s + (stages[k]?.value || 0), 0)
   const winBackData = stages["win_back"] || { count: 0, value: 0, items: [] }
   const filteredWinBack = useMemo(() => {
     if (!winBackSearch.trim()) return winBackData.items
@@ -73,6 +69,11 @@ function PipelinePageInner() {
       item.lifecycle_stage?.toLowerCase().includes(q)
     )
   }, [winBackData.items, winBackSearch])
+
+  if (loading) return <div className="flex items-center justify-center h-64"><CubeLoader /></div>
+
+  const funnelCount = SALES_STAGES.reduce((s, k) => s + (stages[k]?.count || 0), 0)
+  const funnelValue = SALES_STAGES.reduce((s, k) => s + (stages[k]?.value || 0), 0)
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-5 h-full overflow-hidden flex flex-col">
