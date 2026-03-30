@@ -40,7 +40,12 @@ export async function GET(request: NextRequest) {
 
   const summary: Array<{ tenant: string; checked: number; nudged: number; abandoned: number }> = []
 
+  // WinBros does NOT use automated quote follow-up — Jack handles his own outreach
+  const EXCLUDED_TENANTS = ['winbros']
+
   for (const tenant of tenants) {
+    if (EXCLUDED_TENANTS.includes(tenant.slug)) continue
+
     let checked = 0
     let nudged = 0
     let abandoned = 0
