@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import {
   Phone, X, Loader2, RefreshCw,
   Upload, ArrowRight, RotateCcw, XCircle, Ban,
@@ -345,15 +346,24 @@ function WinBackCard({ item, onEnroll, onCancel, onMarkLost, enrolling, cancelli
                 Stop
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs text-muted-foreground hover:text-destructive"
-              onClick={() => onMarkLost(customerId)}
-              disabled={!!enrolling || cancelling}
-            >
-              <Ban className="h-3 w-3" />
-            </Button>
+            <TooltipProvider delayDuration={600}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground hover:text-destructive"
+                    onClick={() => onMarkLost(customerId)}
+                    disabled={!!enrolling || cancelling}
+                  >
+                    <Ban className="h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  Mark as lost — permanently removes this customer from the win-back pipeline
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
       </CardContent>
