@@ -3,7 +3,7 @@ import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
+import { getAllActiveTenants, getCleanerPhoneSet } from '@/lib/tenant'
 
 // route-check:no-vercel-cron
 
@@ -72,12 +72,34 @@ export async function GET(request: NextRequest) {
 
     console.log(`${tag} Found ${quotedJobs.length} quoted jobs for ${tenant.slug}`)
 
+    // Build cleaner phone set to skip cleaner numbers
+    const cleanerPhones = await getCleanerPhoneSet(tenant.id)
+
     for (const job of quotedJobs) {
       checked++
       const followupCount = job.quote_followup_count || 0
       const phone = job.phone_number
 
       if (!phone) continue
+
+      // Skip cleaner phone numbers
+      const phoneDigits = phone.replace(/\D/g, '').slice(-10)
+      if (cleanerPhones.has(phone) || cleanerPhones.has(phoneDigits) || cleanerPhones.has(`+1${phoneDigits}`)) {
+        console.log(`${tag} Skipping job ${job.id} — phone ${phone} belongs to a cleaner`)
+        continue
+      }
+
+      // Skip customers with auto_response_paused or sms_opt_out
+      const { data: customer } = await client
+        .from('customers')
+        .select('first_name, auto_response_paused, sms_opt_out')
+        .eq('id', job.customer_id)
+        .single()
+
+      if (customer?.auto_response_paused || customer?.sms_opt_out) {
+        console.log(`${tag} Skipping job ${job.id} — customer paused/opted out`)
+        continue
+      }
 
       // Use time since LAST follow-up (not creation) to prevent rapid-fire on old jobs
       const lastAction = job.last_quote_followup_at || job.created_at
@@ -105,13 +127,6 @@ export async function GET(request: NextRequest) {
       }
 
       if (!templateFn) continue
-
-      // Get customer name
-      const { data: customer } = await client
-        .from('customers')
-        .select('first_name')
-        .eq('id', job.customer_id)
-        .single()
 
       const name = customer?.first_name || ''
 
