@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -37,6 +37,14 @@ const SOURCE_COLORS: Record<string, string> = {
 type Tab = "sales" | "winback"
 
 export default function PipelinePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><CubeLoader /></div>}>
+      <PipelinePageInner />
+    </Suspense>
+  )
+}
+
+function PipelinePageInner() {
   const { stages, loading, error, clearError, fetchPipeline, enrollSequence, cancelRetargeting, markAsLost, unmarkLost, enrolling, cancelling, markingLost, unmarkingLost } = usePipeline()
   const [showImportModal, setShowImportModal] = useState(false)
   const searchParams = useSearchParams()
