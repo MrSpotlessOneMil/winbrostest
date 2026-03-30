@@ -1414,7 +1414,7 @@ export default function CustomersPage() {
     }
   }
 
-  const handleCopyTranscript = () => {
+  const handleCopyTranscript = async () => {
     if (!selectedCustomer) return
     const customerName = getCustomerName(selectedCustomer)
     const lead = leads.find((l) => normalizePhone(l.phone_number) === normalizePhone(selectedCustomer.phone_number))
@@ -1494,9 +1494,19 @@ export default function CustomersPage() {
       if (j.notes) jobLines.push(`  Notes: ${j.notes}`)
     })
 
-    // === SECTION 4: Activity Logs ===
-    const logLines = [``, `=== ACTIVITY LOGS (${customerLogs.length}) ===`]
-    customerLogs.forEach((log) => {
+    // === SECTION 4: Activity Logs (fetch on-demand if not already loaded) ===
+    let logs = customerLogs
+    if (logs.length === 0) {
+      try {
+        const res = await fetch(`/api/actions/customer-logs?phone=${encodeURIComponent(selectedCustomer.phone_number)}&customer_id=${selectedCustomer.id}`)
+        const data = await res.json()
+        logs = data.data || []
+      } catch {
+        logs = []
+      }
+    }
+    const logLines = [``, `=== ACTIVITY LOGS (${logs.length}) ===`]
+    logs.forEach((log: SystemLog) => {
       const ts = new Date(log.created_at).toISOString()
       const meta = log.metadata ? JSON.stringify(log.metadata) : ""
       logLines.push(`[${ts}] [${log.source}] ${log.event_type}: ${log.message || "—"}${log.job_id ? ` | job=${log.job_id}` : ""}${log.lead_id ? ` | lead=${log.lead_id}` : ""}${log.cleaner_id ? ` | cleaner=${log.cleaner_id}` : ""}${meta ? `\n  metadata: ${meta}` : ""}`)
