@@ -66,12 +66,16 @@ export async function GET(request: NextRequest) {
 
       if (staleJobs && staleJobs.length > 0) {
         const now = new Date().toISOString()
-        const { error: updateErr } = await client
-          .from('jobs')
-          .update({ status: 'completed', completed_at: now, updated_at: now })
-          .in('id', staleJobs.map(j => j.id))
+        // Set completed_at to end-of-day on the job's actual date, not today.
+        // Using NOW() would trick the satisfaction cron into texting about months-old jobs.
+        for (const job of staleJobs) {
+          const completedAt = job.date ? `${job.date}T23:59:59.000Z` : now
+          await client
+            .from('jobs')
+            .update({ status: 'completed', completed_at: completedAt, updated_at: now })
+            .eq('id', job.id)
+        }
 
-        if (updateErr) throw updateErr
         results.auto_complete.count = staleJobs.length
         console.log(`[unified-daily] Auto-completed ${staleJobs.length} past-dated jobs`)
       }
