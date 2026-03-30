@@ -127,7 +127,7 @@ export async function embedPendingChunks(limit: number = 200): Promise<number> {
       const { error: updateErr } = await client
         .from('brain_chunks')
         .update({
-          embedding: JSON.stringify(embeddings[j]),
+          embedding: embeddings[j] as any,
           embedded_at: new Date().toISOString(),
         })
         .eq('id', batch[j].id)

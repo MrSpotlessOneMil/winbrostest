@@ -41,7 +41,7 @@ export async function queryBrain(opts: BrainQueryOptions): Promise<BrainAnswer> 
 
   const hybridResult = await client.rpc('match_brain_chunks_hybrid', {
     query_text: question,
-    query_embedding: JSON.stringify(embedding),
+    query_embedding: embedding,
     match_count: maxChunks,
     filter_domain: domain || null,
     keyword_weight: 0.3,
@@ -52,7 +52,7 @@ export async function queryBrain(opts: BrainQueryOptions): Promise<BrainAnswer> 
     // Hybrid RPC might not exist yet — fall back to vector-only
     console.warn('[Brain] Hybrid search unavailable, using vector-only:', hybridResult.error.message)
     const vectorResult = await client.rpc('match_brain_chunks', {
-      query_embedding: JSON.stringify(embedding),
+      query_embedding: embedding,
       match_threshold: minSimilarity,
       match_count: maxChunks,
       filter_domain: domain || null,
