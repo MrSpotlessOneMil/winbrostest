@@ -8,6 +8,7 @@
 import { createHmac } from 'crypto'
 import { toE164, normalizePhoneNumber } from './phone-utils'
 import type { Tenant } from './tenant'
+import { getCleanerPhoneSet } from './tenant'
 import { getSupabaseServiceClient } from './supabase'
 
 // Re-export for dashboard compatibility
@@ -29,7 +30,7 @@ export async function sendSMS(
   tenant: Tenant,
   to: string,
   message: string,
-  options?: { skipThrottle?: boolean; skipDedup?: boolean }
+  options?: { skipThrottle?: boolean; skipDedup?: boolean; bypassFilters?: boolean }
 ): Promise<SendSMSResponse> {
 
   if (!tenant) {
@@ -62,27 +63,47 @@ export async function sendSMS(
     return { success: false, error: `Invalid phone number: ${to}` }
   }
 
-  // ── SMS Opt-Out Check ──
-  // Block automated SMS to customers who texted STOP. Safe for cleaners (cleaners table, not customers).
-  try {
-    const optOutClient = getSupabaseServiceClient()
-    const { data: optedOut } = await optOutClient
-      .from('customers')
-      .select('id')
-      .eq('phone_number', toE164Format)
-      .eq('tenant_id', tenant.id)
-      .eq('sms_opt_out', true)
-      .limit(1)
-      .maybeSingle()
+  // ── Contact Safety Checks (skip with bypassFilters for cleaner-sms and manual sends) ──
+  if (!options?.bypassFilters) {
+    // 1. SMS Opt-Out Check — block customers who texted STOP
+    try {
+      const safetyClient = getSupabaseServiceClient()
+      const { data: customer } = await safetyClient
+        .from('customers')
+        .select('id, sms_opt_out, auto_response_paused')
+        .eq('phone_number', toE164Format)
+        .eq('tenant_id', tenant.id)
+        .limit(1)
+        .maybeSingle()
 
-    if (optedOut) {
-      console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} opted out`)
-      return { success: false, error: 'Customer opted out of SMS' }
+      if (customer?.sms_opt_out) {
+        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} opted out`)
+        return { success: false, error: 'Customer opted out of SMS' }
+      }
+
+      // 2. Auto-Response Paused Check — block customers with paused auto-texts
+      if (customer?.auto_response_paused) {
+        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} has auto_response_paused`)
+        return { success: false, error: 'Customer auto-response paused' }
+      }
+    } catch (optOutErr) {
+      // FAIL CLOSED: if we can't verify status, don't send — TCPA compliance
+      console.error(`[${tenant.slug}] SMS safety check failed — blocking send:`, optOutErr)
+      return { success: false, error: 'Safety check failed — blocked for compliance' }
     }
-  } catch (optOutErr) {
-    // FAIL CLOSED: if we can't verify opt-out status, don't send — TCPA compliance
-    console.error(`[${tenant.slug}] SMS opt-out check failed — blocking send for safety:`, optOutErr)
-    return { success: false, error: 'Opt-out check failed — blocked for TCPA compliance' }
+
+    // 3. Cleaner Phone Check — don't send customer-facing SMS to cleaner numbers
+    try {
+      const cleanerPhones = await getCleanerPhoneSet(tenant.id)
+      const phoneDigits = toE164Format.replace(/\D/g, '').slice(-10)
+      if (cleanerPhones.has(toE164Format) || cleanerPhones.has(phoneDigits) || cleanerPhones.has(`+1${phoneDigits}`)) {
+        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} belongs to a cleaner`)
+        return { success: false, error: 'Phone belongs to cleaner' }
+      }
+    } catch (cleanerErr) {
+      // Non-blocking — if cleaner check fails, still send (cleaners are a small list)
+      console.error(`[${tenant.slug}] Cleaner phone check failed (non-blocking):`, cleanerErr)
+    }
   }
 
   // ── Content dedup (skip when caller pre-inserted the DB record) ──
