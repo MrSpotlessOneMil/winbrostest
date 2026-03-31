@@ -217,11 +217,6 @@ export function StatsCards() {
                   </div>
                 </div>
 
-                {/* Simplified — no progress bar, no trend text */}
-                <div className="mt-1">
-                  <div className="h-0" />
-                  </div>
-                </div>
               </button>
 
               {/* Expanded detail list */}
