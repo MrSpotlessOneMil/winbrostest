@@ -108,13 +108,18 @@ export default function ScheduleGantt({ jobs, cleanerColorMap, onJobClick, initi
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
 
-  // Unique employees from jobs in this week range
+  // Unique employees from jobs in this week range (+ "Unassigned" row for jobs without a cleaner)
+  const UNASSIGNED_ID = "__unassigned__"
   const employees = useMemo(() => {
     const weekEnd = addDays(weekStart, 7)
     const map = new Map<string, { id: string; name: string; color: string }>()
+    let hasUnassigned = false
     for (const j of jobs) {
-      if (!j.cleanerName || !j.cleanerId) continue
       if (j.start >= weekEnd || j.end <= weekStart) continue
+      if (!j.cleanerName || !j.cleanerId) {
+        hasUnassigned = true
+        continue
+      }
       if (!map.has(j.cleanerId)) {
         map.set(j.cleanerId, {
           id: j.cleanerId,
@@ -123,19 +128,23 @@ export default function ScheduleGantt({ jobs, cleanerColorMap, onJobClick, initi
         })
       }
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+    const sorted = [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+    if (hasUnassigned) {
+      sorted.push({ id: UNASSIGNED_ID, name: "Unassigned", color: "#ef4444" })
+    }
+    return sorted
   }, [jobs, weekStart, cleanerColorMap])
 
-  // Jobs indexed by cleanerId
+  // Jobs indexed by cleanerId (unassigned jobs go under UNASSIGNED_ID)
   const jobsByEmployee = useMemo(() => {
     const weekEnd = addDays(weekStart, 7)
     const m = new Map<string, GanttJob[]>()
     for (const j of jobs) {
-      if (!j.cleanerId) continue
       if (j.start >= weekEnd || j.end <= weekStart) continue
-      const list = m.get(j.cleanerId) || []
+      const key = j.cleanerId || UNASSIGNED_ID
+      const list = m.get(key) || []
       list.push(j)
-      m.set(j.cleanerId, list)
+      m.set(key, list)
     }
     return m
   }, [jobs, weekStart])
@@ -194,9 +203,11 @@ export default function ScheduleGantt({ jobs, cleanerColorMap, onJobClick, initi
     const width = Math.max((clampedEnd - clampedStart) * HOUR_W, 40)
 
     const statusColor =
-      j.status === "completed" ? "#22c55e" :
-      j.status === "in_progress" ? "#3b82f6" :
-      j.status === "cancelled" ? "#ef4444" :
+      j.status === "completed" ? "#22c55e" :   // green — done
+      j.status === "in_progress" ? "#eab308" : // yellow — ongoing
+      j.status === "cancelled" ? "#71717a" :   // grey — cancelled
+      j.status === "pending" || j.status === "quoted" ? "#a855f7" : // purple — needs action
+      j.status === "scheduled" || j.status === "confirmed" ? "#3b82f6" : // blue — upcoming
       empColor
 
     return (

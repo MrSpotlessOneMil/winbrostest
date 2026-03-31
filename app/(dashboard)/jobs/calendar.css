@@ -130,22 +130,50 @@
   font-weight: 400 !important;
 }
 
-.fc .event-pending,
+/* Status-specific event colors — solid, distinct, scannable */
+.fc .event-completed {
+  background: rgba(34, 197, 94, 0.9);  /* green — done */
+  border-left: 3px solid #16a34a;
+}
+
+.fc .event-in-progress {
+  background: rgba(234, 179, 8, 0.9);  /* yellow — ongoing */
+  border-left: 3px solid #ca8a04;
+  color: #000 !important;
+}
+
+.fc .event-in-progress *,
+.fc .event-in-progress .fc-event-time,
+.fc .event-in-progress .fc-event-title {
+  color: #000 !important;
+}
+
 .fc .event-scheduled,
-.fc .event-confirmed,
-.fc .event-in-progress,
-.fc .event-completed,
-.fc .event-rescheduled,
+.fc .event-confirmed {
+  background: rgba(59, 130, 246, 0.9);  /* blue — upcoming */
+  border-left: 3px solid #2563eb;
+}
+
+.fc .event-pending,
 .fc .event-quoted {
-  background: rgba(16, 185, 129, 0.7);
+  background: rgba(139, 92, 246, 0.9);  /* purple — needs action */
+  border-left: 3px solid #7c3aed;
+}
+
+.fc .event-rescheduled {
+  background: rgba(245, 158, 11, 0.85);  /* amber — rescheduled */
+  border-left: 3px solid #d97706;
 }
 
 .fc .event-membership {
-  border: 1.5px solid rgba(255, 215, 0, 0.7) !important;
+  border: 1.5px solid rgba(255, 215, 0, 0.8) !important;
 }
 
 .fc .event-cancelled {
-  background: rgba(113, 113, 122, 0.7);
+  background: rgba(113, 113, 122, 0.6);  /* grey — cancelled */
+  border-left: 3px solid #71717a;
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 
 .fc .fc-list-event-title a,
