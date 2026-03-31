@@ -581,6 +581,52 @@ select.cal-form-control {
   to { transform: rotate(360deg); }
 }
 
+/* ── Mobile responsiveness ─────────────────────────────── */
+
+@media (max-width: 767px) {
+  .fc .fc-toolbar {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .fc .fc-toolbar-title {
+    font-size: 0.95rem;
+  }
+
+  .fc .fc-button {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .fc .fc-event {
+    font-size: 0.7rem;
+    min-height: 28px;
+  }
+
+  .gantt-view-switcher {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-bottom: 0.5rem;
+    justify-content: center;
+  }
+
+  .gantt-view-btn {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+  }
+
+  /* List view on mobile — larger tap targets */
+  .fc .fc-list-event {
+    min-height: 44px;
+  }
+
+  .fc .fc-list-event-title a {
+    padding: 0.5rem 0;
+    display: block;
+  }
+}
+
 /* Hover lift effect — visual feedback for clickable events */
 .fc .fc-daygrid-event-harness:hover {
   z-index: 10 !important;

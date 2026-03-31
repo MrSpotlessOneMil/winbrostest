@@ -237,9 +237,9 @@ export default function CrewsPage() {
         </div>
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col lg:flex-row gap-4">
         {/* Left sidebar — worker roster */}
-        <div className="w-48 shrink-0 space-y-3">
+        <div className="lg:w-48 shrink-0 space-y-3">
           {/* Team Leads */}
           <div>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Team Leads</p>
@@ -297,7 +297,7 @@ export default function CrewsPage() {
 
         {/* Main grid — 7 day columns */}
         <div className="flex-1 overflow-x-auto">
-          <div className="grid grid-cols-7 gap-2 min-w-[700px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
             {weekDays.map(day => {
               const dateStr = toDateStr(day)
               const dayAssigns = getDateAssignments(dateStr)
