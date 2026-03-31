@@ -21,6 +21,7 @@ import {
   Lightbulb,
   Settings,
   Inbox,
+  Clock,
 } from "lucide-react"
 import { useState, useRef, useEffect } from "react"
 
@@ -30,7 +31,8 @@ const navigation = [
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Crews", href: "/crews", icon: Users, adminOnly: false },
+  { name: "Crews", href: "/crews", icon: Users, adminOnly: true },
+  { name: "My Schedule", href: "/my-schedule", icon: Clock, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },

@@ -1725,6 +1725,53 @@ export default function JobsPage() {
         </div>
 
         {loading ? <CubeLoader /> : <>
+        {/* Schedule monitoring strip — at-a-glance daily summary */}
+        {(() => {
+          const today = new Date().toISOString().split("T")[0]
+          const todayJobs = jobs.filter(j => {
+            const jobDate = j.date || j.scheduled_date || ""
+            return jobDate.startsWith(today)
+          })
+          const totalScheduled = todayJobs.length
+          const completed = todayJobs.filter(j => j.status === "completed").length
+          const inProgress = todayJobs.filter(j => j.status === "in_progress").length
+          const unassigned = todayJobs.filter(j => !j.cleaner_id).length
+          const totalRevenue = todayJobs.reduce((sum, j) => sum + (Number(j.price) || Number(j.estimated_value) || 0), 0)
+
+          return totalScheduled > 0 ? (
+            <div className="flex items-center gap-4 mb-3 px-3 py-2 rounded-xl border border-border/30 bg-card/30 text-sm" style={{ flexShrink: 0 }}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Today:</span>
+                <span className="font-semibold text-foreground">{totalScheduled} jobs</span>
+              </div>
+              <div className="h-4 w-px bg-border/50" />
+              {completed > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-green-400">{completed} done</span>
+                </div>
+              )}
+              {inProgress > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <span className="text-yellow-400">{inProgress} active</span>
+                </div>
+              )}
+              {unassigned > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-red-400">{unassigned} unassigned</span>
+                </div>
+              )}
+              <div className="h-4 w-px bg-border/50" />
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Revenue:</span>
+                <span className="font-semibold text-violet-400">${totalRevenue.toLocaleString()}</span>
+              </div>
+            </div>
+          ) : null
+        })()}
+
         <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0, flexShrink: 0 }}>
           {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => {
             const isHidden = hiddenCleaners.has(name)
