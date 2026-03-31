@@ -3363,52 +3363,77 @@ export default function JobsPage() {
                       borderRadius: 8,
                       border: "1px solid rgba(63, 63, 70, 0.4)",
                       padding: "0.5rem",
-                      maxHeight: isHouseCleaning ? 300 : 150,
+                      maxHeight: isHouseCleaning ? 300 : 250,
                       overflowY: "auto",
                     }}>
-                      {derivedAddonsList.map((addon) => {
-                        const st = (createForm.service_type || "").toLowerCase()
-                        const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
-                        const isIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
-                        return (
-                        <label
-                          key={addon.addon_key}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            cursor: "pointer",
-                            padding: "0.35rem 0.4rem",
-                            borderRadius: 4,
-                            fontSize: "0.8rem",
-                            color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
-                            background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={createForm.selected_addons.includes(addon.addon_key)}
-                            onChange={(e) => {
-                              setCreateForm((prev) => ({
-                                ...prev,
-                                selected_addons: e.target.checked
-                                  ? [...prev.selected_addons, addon.addon_key]
-                                  : prev.selected_addons.filter((k) => k !== addon.addon_key),
-                              }))
-                            }}
-                            style={{ accentColor: "#8b5cf6" }}
-                          />
-                          <span style={{ flex: 1 }}>{addon.label}</span>
-                          <span style={{
-                            color: isIncluded ? "#4ade80" : addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                          }}>
-                            {isIncluded ? "INCLUDED" : addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
-                          </span>
-                        </label>
-                        )
-                      })}
+                      {/* Group add-ons by category */}
+                      {(() => {
+                        const groups = new Map<string, typeof derivedAddonsList>()
+                        for (const addon of derivedAddonsList) {
+                          const group = (addon as any).group || "Other"
+                          if (!groups.has(group)) groups.set(group, [])
+                          groups.get(group)!.push(addon)
+                        }
+                        return [...groups.entries()].map(([groupName, addons]) => (
+                          <div key={groupName}>
+                            <div style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              color: "#71717a",
+                              padding: "0.4rem 0.4rem 0.15rem",
+                              borderTop: groupName !== [...groups.keys()][0] ? "1px solid rgba(63,63,70,0.3)" : "none",
+                              marginTop: groupName !== [...groups.keys()][0] ? "0.25rem" : 0,
+                            }}>
+                              {groupName}
+                            </div>
+                            {addons.map((addon) => {
+                              const st = (createForm.service_type || "").toLowerCase()
+                              const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+                              const isIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
+                              return (
+                              <label
+                                key={addon.addon_key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "0.5rem",
+                                  cursor: "pointer",
+                                  padding: "0.3rem 0.4rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.8rem",
+                                  color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
+                                  background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={createForm.selected_addons.includes(addon.addon_key)}
+                                  onChange={(e) => {
+                                    setCreateForm((prev) => ({
+                                      ...prev,
+                                      selected_addons: e.target.checked
+                                        ? [...prev.selected_addons, addon.addon_key]
+                                        : prev.selected_addons.filter((k) => k !== addon.addon_key),
+                                    }))
+                                  }}
+                                  style={{ accentColor: "#8b5cf6" }}
+                                />
+                                <span style={{ flex: 1 }}>{addon.label}</span>
+                                <span style={{
+                                  color: isIncluded ? "#4ade80" : addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
+                                  fontSize: "0.75rem",
+                                  fontWeight: 600,
+                                }}>
+                                  {isIncluded ? "INCLUDED" : addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
+                                </span>
+                              </label>
+                              )
+                            })}
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
                 )}
