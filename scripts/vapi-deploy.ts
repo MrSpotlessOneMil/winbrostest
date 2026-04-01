@@ -20,7 +20,7 @@ const VAPI_BASE = 'https://api.vapi.ai';
 const ASSISTANT_MAP: Record<string, string> = {
   // Active assistants
   'spotless-inbound': 'e3ed2426-dc28-4046-a5e9-0fbb945ff706', // V2 Sarah - Spotless (Optimized)
-  'spotless-inbound-west': '81cee3b3-324f-4d05-900e-ac0f57ed283f', // V2 Sarah - West Niagara
+  'spotless-inbound-west': '81cee3b3-324f-4d05-900e-ac0f57ed283f', // Mary - West Niagara
   'winbros-inbound': '74ba08ba-0b42-4186-8d15-1ea45cdeb368', // Mary - WinBros Bot
   'cedar-inbound': '4c673d16-436d-42ae-bf51-10b2c2d30fa0', // Mary - Cedar Rapids
   // Legacy (not actively used but listed)
