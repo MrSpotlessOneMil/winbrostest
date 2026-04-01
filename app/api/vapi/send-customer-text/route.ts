@@ -146,7 +146,8 @@ export async function POST(request: NextRequest) {
   if (bedrooms !== null && bathrooms !== null) {
     const lookedUp = lookupPrice(bedrooms, bathrooms)
     if (lookedUp !== null) {
-      finalPrice = String(lookedUp)
+      // Round to nearest dollar to match what the bot says on the call
+      finalPrice = String(Math.round(lookedUp))
     } else if (modelPrice) {
       finalPrice = modelPrice
     }
