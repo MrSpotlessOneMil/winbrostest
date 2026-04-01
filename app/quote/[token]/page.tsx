@@ -85,6 +85,7 @@ export default function QuotePage() {
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
   const [customerNotes, setCustomerNotes] = useState("")
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -798,9 +799,41 @@ export default function QuotePage() {
                 <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
               </div>
             ) : selectedTier && selectedTierPrice ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">{selectedTier.name}</span>
-                <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="w-full flex justify-between items-center text-sm group"
+                >
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    {selectedTier.name}
+                    {summaryExpanded ? <ChevronUp className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                  </span>
+                  <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
+                </button>
+                {summaryExpanded && (
+                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-blue-100 space-y-1.5">
+                    {selectedTierPrice.breakdown.filter(item => item.service !== selectedTier.name && !item.service.includes('(base)')).map((item) => (
+                      <div key={item.service} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-500">{item.service}</span>
+                      </div>
+                    ))}
+                    {selectedTier.included.filter(key => !selectedTierPrice.breakdown.some(b => b.service.toLowerCase().includes(key.replace(/_/g, ' ')))).length > 0 && selectedTier.included.map((key) => {
+                      const alreadyShown = selectedTierPrice.breakdown.some(b =>
+                        b.service.toLowerCase().includes(key.replace(/_/g, ' ').toLowerCase())
+                      )
+                      if (alreadyShown) return null
+                      const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                      return (
+                        <div key={key} className="flex items-start gap-2">
+                          <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                          <span className="text-xs text-slate-500">{label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             ) : null}
 
