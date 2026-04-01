@@ -232,9 +232,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       payment_method: job.payment_method,
       card_on_file: hasCardOnFile,
     },
-    assignment: {
+    assignment: assignment ? {
       id: assignment.id,
       status: assignment.status,
+    } : {
+      id: null,
+      status: 'confirmed', // crew board assignments are implicitly confirmed
     },
     customer: customerData,
     checklist,
@@ -431,6 +434,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const { cleaner, assignment, job, tenant, client } = ctx
+
+  // Accept/decline/cancel only works for broadcast assignments, not crew board
+  if (!assignment) {
+    return NextResponse.json({ error: 'Crew board assignments cannot be accepted/declined here' }, { status: 400 })
+  }
 
   // Handle cancel after accepting — cleaner backs out of an accepted/confirmed job
   if (action === 'cancel_accepted') {
