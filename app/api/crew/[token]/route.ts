@@ -118,8 +118,90 @@ export async function GET(
     }
   }
 
+  // ── Also fetch jobs via crew_day_members (crew board assignments) ──
+  // If this cleaner is assigned to a TL for a day, show that TL's jobs
+  const { data: crewMemberships } = await client
+    .from('crew_day_members')
+    .select('crew_day_id, role, crew_days!inner(id, date, team_lead_id)')
+    .eq('cleaner_id', cleaner.id)
+
+  // If this cleaner IS a team lead, fetch their crew_days directly
+  const { data: tlCrewDays } = cleaner.is_team_lead
+    ? await client
+        .from('crew_days')
+        .select('id, date, team_lead_id')
+        .eq('team_lead_id', cleaner.id)
+        .eq('tenant_id', tenantId)
+        .gte('date', rangeStart)
+        .lte('date', rangeEnd)
+    : { data: [] }
+
+  // Collect TL IDs + dates to fetch jobs for
+  const tlJobQueries: { date: string; tlId: number }[] = []
+  const seenJobIds = new Set(allJobs.map((j: any) => j.id))
+
+  for (const cm of crewMemberships || []) {
+    const cd = (cm as any).crew_days
+    if (cd && cd.date >= rangeStart && cd.date <= rangeEnd) {
+      tlJobQueries.push({ date: cd.date, tlId: cd.team_lead_id })
+    }
+  }
+  // TL sees their own jobs
+  for (const cd of tlCrewDays || []) {
+    tlJobQueries.push({ date: cd.date, tlId: cd.team_lead_id })
+  }
+
+  // Also fetch directly assigned jobs (cleaner_id on jobs table, not via cleaner_assignments)
+  const { data: directJobs } = await client
+    .from('jobs')
+    .select('id, date, scheduled_at, address, service_type, status, notes, job_type, hours, price, cleaner_omw_at, cleaner_arrived_at, payment_method, phone_number, customers(first_name, last_name, address)')
+    .eq('cleaner_id', cleaner.id)
+    .eq('tenant_id', tenantId)
+    .gte('date', rangeStart)
+    .lte('date', rangeEnd)
+    .neq('status', 'cancelled')
+
+  for (const job of directJobs || []) {
+    if (seenJobIds.has(job.id)) continue
+    seenJobIds.add(job.id)
+    allJobs.push({
+      id: job.id, date: job.date, scheduled_at: job.scheduled_at,
+      address: job.address, service_type: job.service_type, status: job.status,
+      job_type: job.job_type || null, hours: job.hours ? Number(job.hours) : null,
+      price: job.price ? Number(job.price) : null, assignment_status: 'confirmed',
+      assignment_id: null, customer_first_name: (job as any).customers?.first_name || null,
+      cleaner_omw_at: job.cleaner_omw_at, cleaner_arrived_at: job.cleaner_arrived_at,
+      payment_method: job.payment_method,
+    })
+  }
+
+  // Fetch TL jobs for crew members
+  for (const { date, tlId } of tlJobQueries) {
+    const { data: tlJobs } = await client
+      .from('jobs')
+      .select('id, date, scheduled_at, address, service_type, status, notes, job_type, hours, price, cleaner_omw_at, cleaner_arrived_at, payment_method, phone_number, customers(first_name, last_name, address)')
+      .eq('cleaner_id', tlId)
+      .eq('tenant_id', tenantId)
+      .eq('date', date)
+      .neq('status', 'cancelled')
+
+    for (const job of tlJobs || []) {
+      if (seenJobIds.has(job.id)) continue
+      seenJobIds.add(job.id)
+      allJobs.push({
+        id: job.id, date: job.date, scheduled_at: job.scheduled_at,
+        address: job.address, service_type: job.service_type, status: job.status,
+        job_type: job.job_type || null, hours: job.hours ? Number(job.hours) : null,
+        price: job.price ? Number(job.price) : null, assignment_status: 'confirmed',
+        assignment_id: null, customer_first_name: (job as any).customers?.first_name || null,
+        cleaner_omw_at: job.cleaner_omw_at, cleaner_arrived_at: job.cleaner_arrived_at,
+        payment_method: job.payment_method,
+      })
+    }
+  }
+
   // Sort by date then time
-  allJobs.sort((a, b) => a.date.localeCompare(b.date) || (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
+  allJobs.sort((a: any, b: any) => a.date.localeCompare(b.date) || (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
 
   // Fetch time-off for current + next month
   const currentMonth = today.slice(0, 7)
