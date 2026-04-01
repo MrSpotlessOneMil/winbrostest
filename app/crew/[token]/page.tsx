@@ -29,33 +29,43 @@ interface JobCard {
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null; payment_method: string | null
 }
 interface TimeOffEntry { id: number; date: string; reason: string | null }
+interface WeeklyDay { available: boolean; start?: string; end?: string }
+interface WeeklySchedule { [day: string]: WeeklyDay }
 interface PortalData {
-  cleaner: { id: number; name: string; phone: string; availability: any; employee_type?: string }
+  cleaner: { id: number; name: string; phone: string; availability: { weekly?: WeeklySchedule } | null; employee_type?: string }
   tenant: { name: string; slug: string }
   todaysJobs: JobCard[]; upcomingJobs: JobCard[]; pendingJobs: JobCard[]; pastJobs: JobCard[]
   timeOff: TimeOffEntry[]
 }
 
 // Tenant color themes
-const THEMES: Record<string, { gradient: string; gradientDark: string; accent: string; accentLight: string; avatarGradient: string; avatarText: string; ring: string }> = {
+const THEMES: Record<string, { gradient: string; accent: string; accentLight: string; avatarGradient: string; avatarText: string }> = {
   winbros: {
     gradient: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
-    gradientDark: "#0d9488",
     accent: "#14b8a6",
     accentLight: "#5eead4",
     avatarGradient: "linear-gradient(135deg, #99f6e4, #5eead4)",
     avatarText: "#0f766e",
-    ring: "#14b8a6",
   },
 }
 const DEFAULT_THEME = {
   gradient: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)",
-  gradientDark: "#58cc02",
   accent: "#58cc02",
   accentLight: "#89e219",
   avatarGradient: "linear-gradient(135deg, #d4fc79, #96e6a1)",
   avatarText: "#2b9348",
-  ring: "#58cc02",
+}
+
+const DAYS_OF_WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+const TIME_OPTIONS = [
+  "06:00","07:00","08:00","09:00","10:00","11:00","12:00",
+  "13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00",
+]
+
+function localToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 function formatDate(d: string) {
@@ -65,7 +75,15 @@ function formatTime(t: string | null) {
   if (!t) return "TBD"
   try { const [h, m] = t.split(":").map(Number); return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` } catch { return t }
 }
+function formatHour(t: string) {
+  const [h] = t.split(":").map(Number)
+  return `${h % 12 || 12} ${h >= 12 ? "PM" : "AM"}`
+}
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
+
+const DEFAULT_WEEKLY: WeeklySchedule = Object.fromEntries(
+  DAYS_OF_WEEK.map(d => [d, { available: true, start: "08:00", end: "18:00" }])
+)
 
 export default function CrewPortalPage() {
   const params = useParams()
@@ -78,6 +96,10 @@ export default function CrewPortalPage() {
   const [calMonth, setCalMonth] = useState(() => { const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() } })
   const [offDays, setOffDays] = useState<Set<string>>(new Set())
   const [togglingDate, setTogglingDate] = useState<string | null>(null)
+  const [weekly, setWeekly] = useState<WeeklySchedule>(DEFAULT_WEEKLY)
+  const [savingWeekly, setSavingWeekly] = useState(false)
+  const [weeklyDirty, setWeeklyDirty] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
 
   useEffect(() => {
     fetch(`/api/crew/${token}`)
@@ -85,6 +107,9 @@ export default function CrewPortalPage() {
       .then(d => {
         setData(d)
         setOffDays(new Set((d.timeOff || []).map((t: TimeOffEntry) => t.date)))
+        if (d.cleaner.availability?.weekly) {
+          setWeekly({ ...DEFAULT_WEEKLY, ...d.cleaner.availability.weekly })
+        }
       })
       .catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [token])
@@ -112,6 +137,24 @@ export default function CrewPortalPage() {
     } catch {}
     setTogglingDate(null)
   }, [token, togglingDate])
+
+  const updateWeeklyDay = (day: string, updates: Partial<WeeklyDay>) => {
+    setWeekly(prev => ({ ...prev, [day]: { ...prev[day], ...updates } }))
+    setWeeklyDirty(true)
+  }
+
+  const saveWeekly = async () => {
+    setSavingWeekly(true)
+    try {
+      await fetch(`/api/crew/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ availability: { ...(data?.cleaner.availability || {}), weekly } }),
+      })
+      setWeeklyDirty(false)
+    } catch {}
+    setSavingWeekly(false)
+  }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {})
@@ -152,18 +195,25 @@ export default function CrewPortalPage() {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
 
-  // Calendar helpers
+  // Calendar helpers — use local date, not UTC
+  const todayStr = localToday()
   const calDate = new Date(calMonth.year, calMonth.month, 1)
   const monthName = calDate.toLocaleString("en-US", { month: "long", year: "numeric" })
   const daysInMonth = new Date(calMonth.year, calMonth.month + 1, 0).getDate()
-  const firstDow = calDate.getDay() // 0=Sun
-  const todayStr = new Date().toISOString().split("T")[0]
+  const firstDow = calDate.getDay()
   const calDays: (number | null)[] = []
   for (let i = 0; i < firstDow; i++) calDays.push(null)
   for (let d = 1; d <= daysInMonth; d++) calDays.push(d)
 
   const prevMonth = () => setCalMonth(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 })
   const nextMonth = () => setCalMonth(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 })
+
+  // Check if a day is a recurring off day
+  const isRecurringOff = (dayNum: number) => {
+    const d = new Date(calMonth.year, calMonth.month, dayNum)
+    const dayName = DAYS_OF_WEEK[d.getDay()]
+    return weekly[dayName]?.available === false
+  }
 
   return (
     <div className="min-h-screen pb-8" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
@@ -235,62 +285,143 @@ export default function CrewPortalPage() {
       </div>
 
       <div className="px-4 space-y-6 max-w-lg mx-auto">
-        {/* ═══ AVAILABILITY CALENDAR ═══ */}
+
+        {/* ═══ MY AVAILABILITY ═══ */}
         <div className="slide-up" style={{ animationDelay: "0.05s" }}>
           <div className="flex items-center gap-2 mb-3">
             <div className="size-7 rounded-lg flex items-center justify-center" style={{ background: `${theme.accent}20`, color: theme.accent }}>
               <Calendar className="size-4" />
             </div>
             <h2 className="text-sm font-bold text-slate-800 flex-1">My Availability</h2>
+            <button
+              onClick={() => setShowSchedule(!showSchedule)}
+              className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
+              style={{ background: showSchedule ? `${theme.accent}15` : "#f1f0eb", color: showSchedule ? theme.accent : "#64748b" }}
+            >
+              {showSchedule ? "Calendar" : "Weekly Hours"}
+            </button>
           </div>
-          <div className="rounded-2xl p-4" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
-            {/* Month nav */}
-            <div className="flex items-center justify-between mb-3">
-              <button onClick={prevMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
-                <ChevronLeft className="size-4 text-slate-500" />
-              </button>
-              <span className="text-sm font-bold text-slate-700">{monthName}</span>
-              <button onClick={nextMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
-                <ChevronRight className="size-4 text-slate-500" />
-              </button>
-            </div>
-            {/* Day headers */}
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {["S","M","T","W","T","F","S"].map((d, i) => (
-                <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
-              ))}
-            </div>
-            {/* Day cells */}
-            <div className="grid grid-cols-7 gap-1">
-              {calDays.map((day, i) => {
-                if (day === null) return <div key={`e${i}`} />
-                const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-                const isOff = offDays.has(dateStr)
-                const isToday = dateStr === todayStr
-                const isPast = dateStr < todayStr
-                const isToggling = togglingDate === dateStr
+
+          {showSchedule ? (
+            /* ── Weekly Schedule ── */
+            <div className="rounded-2xl p-4 space-y-2" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
+              <p className="text-[11px] text-slate-400 mb-2">Set your regular weekly hours. Admin sees this when scheduling.</p>
+              {DAYS_OF_WEEK.map((day, i) => {
+                const info = weekly[day] || { available: true, start: "08:00", end: "18:00" }
                 return (
-                  <button
-                    key={dateStr}
-                    onClick={() => !isPast && toggleDay(dateStr)}
-                    disabled={isPast || isToggling}
-                    className="relative size-9 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-center"
-                    style={{
-                      background: isOff ? "#ef444420" : isToday ? `${theme.accent}15` : "transparent",
-                      color: isPast ? "#cbd5e1" : isOff ? "#ef4444" : isToday ? theme.accent : "#475569",
-                      border: isToday ? `2px solid ${theme.accent}` : isOff ? "2px solid #ef444440" : "2px solid transparent",
-                      opacity: isToggling ? 0.5 : 1,
-                      cursor: isPast ? "default" : "pointer",
-                    }}
-                  >
-                    {day}
-                    {isOff && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-400" />}
-                  </button>
+                  <div key={day} className="flex items-center gap-2 py-1.5" style={{ borderBottom: i < 6 ? "1px solid #f1f0eb" : "none" }}>
+                    {/* Toggle */}
+                    <button
+                      onClick={() => updateWeeklyDay(day, { available: !info.available })}
+                      className="size-7 rounded-lg text-[10px] font-bold flex items-center justify-center shrink-0 transition-all"
+                      style={{
+                        background: info.available ? `${theme.accent}15` : "#fee2e2",
+                        color: info.available ? theme.accent : "#ef4444",
+                        border: `2px solid ${info.available ? `${theme.accent}40` : "#fca5a540"}`,
+                      }}
+                    >
+                      {DAY_LABELS[i]}
+                    </button>
+
+                    {info.available ? (
+                      <div className="flex items-center gap-1.5 flex-1">
+                        <select
+                          value={info.start || "08:00"}
+                          onChange={e => updateWeeklyDay(day, { start: e.target.value })}
+                          className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600 cursor-pointer"
+                        >
+                          {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
+                        </select>
+                        <span className="text-[10px] text-slate-400">to</span>
+                        <select
+                          value={info.end || "18:00"}
+                          onChange={e => updateWeeklyDay(day, { end: e.target.value })}
+                          className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600 cursor-pointer"
+                        >
+                          {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-red-400 font-medium">Off</span>
+                    )}
+                  </div>
                 )
               })}
+              {weeklyDirty && (
+                <button
+                  onClick={saveWeekly}
+                  disabled={savingWeekly}
+                  className="w-full mt-2 py-2 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity"
+                  style={{ background: theme.accent, opacity: savingWeekly ? 0.6 : 1 }}
+                >
+                  {savingWeekly ? <><Loader2 className="size-4 animate-spin" /> Saving...</> : "Save Schedule"}
+                </button>
+              )}
             </div>
-            <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to mark yourself unavailable</p>
-          </div>
+          ) : (
+            /* ── Month Calendar ── */
+            <div className="rounded-2xl p-4" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
+              {/* Month nav */}
+              <div className="flex items-center justify-between mb-3">
+                <button onClick={prevMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
+                  <ChevronLeft className="size-4 text-slate-500" />
+                </button>
+                <span className="text-sm font-bold text-slate-700">{monthName}</span>
+                <button onClick={nextMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
+                  <ChevronRight className="size-4 text-slate-500" />
+                </button>
+              </div>
+              {/* Day headers */}
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {DAY_LABELS.map((d, i) => (
+                  <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
+                ))}
+              </div>
+              {/* Day cells */}
+              <div className="grid grid-cols-7 gap-1">
+                {calDays.map((day, i) => {
+                  if (day === null) return <div key={`e${i}`} />
+                  const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                  const isOff = offDays.has(dateStr)
+                  const isRecOff = isRecurringOff(day)
+                  const isToday = dateStr === todayStr
+                  const isPast = dateStr < todayStr
+                  const isToggling = togglingDate === dateStr
+                  const dayOff = isOff || isRecOff
+                  return (
+                    <button
+                      key={dateStr}
+                      onClick={() => !isPast && toggleDay(dateStr)}
+                      disabled={isPast || isToggling}
+                      className="relative size-9 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-center"
+                      style={{
+                        background: isOff ? "#ef444420" : isRecOff ? "#ef444410" : isToday ? `${theme.accent}15` : "transparent",
+                        color: isPast ? "#cbd5e1" : dayOff ? "#ef4444" : isToday ? theme.accent : "#475569",
+                        border: isToday ? `2px solid ${theme.accent}` : dayOff ? "2px solid #ef444440" : "2px solid transparent",
+                        opacity: isToggling ? 0.5 : 1,
+                        cursor: isPast ? "default" : "pointer",
+                      }}
+                    >
+                      {day}
+                      {isOff && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-400" />}
+                      {isRecOff && !isOff && <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-2 h-0.5 rounded-full bg-red-300" />}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex items-center gap-3 mt-3 justify-center">
+                <div className="flex items-center gap-1">
+                  <span className="size-2 rounded-full bg-red-400" />
+                  <span className="text-[10px] text-slate-400">Day off</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-0.5 rounded-full bg-red-300" />
+                  <span className="text-[10px] text-slate-400">Weekly off</span>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-2 text-center">Tap a day to request off. Use &ldquo;Weekly Hours&rdquo; for recurring days.</p>
+            </div>
+          )}
         </div>
 
         {/* ═══ NEW QUOTE CTA ═══ */}
@@ -320,8 +451,8 @@ export default function CrewPortalPage() {
           </Section>
         )}
 
-        {/* ═══ TODAY'S MISSIONS ═══ */}
-        <Section title="Today's Missions" icon={<Zap className="size-4" />} color={theme.accent} count={todaysJobs.length} empty={todaysJobs.length === 0 ? "No missions today — rest up!" : undefined}>
+        {/* ═══ TODAY'S HOUSES ═══ */}
+        <Section title="Today's Houses" icon={<Zap className="size-4" />} color={theme.accent} count={todaysJobs.length} empty={todaysJobs.length === 0 ? "No houses today — rest up!" : undefined}>
           {todaysJobs.map((job, i) => (
             <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} />
           ))}
