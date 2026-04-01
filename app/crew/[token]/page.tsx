@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
   Loader2, AlertCircle, ChevronRight, ChevronLeft, MapPin, Clock,
-  Calendar, Sparkles, Zap, PlusCircle, LogOut, CheckCircle2,
-  AlertTriangle, Navigation, ExternalLink, X,
+  Calendar, PlusCircle, LogOut,
+  AlertTriangle, ExternalLink, X,
 } from "lucide-react"
 import {
   Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose,
@@ -133,16 +133,14 @@ export default function CrewPortalPage() {
     } catch (e: any) { setError(e.message) }
   }, [token])
 
-  // Initial load
+  // Fetch on mount + refetch when date/view changes
   useEffect(() => {
     fetchJobs(currentDate, viewMode).finally(() => setLoading(false))
-    fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {})
-  }, [])
-
-  // Refetch when date or view changes
-  useEffect(() => {
-    if (!loading) fetchJobs(currentDate, viewMode)
   }, [currentDate, viewMode])
+
+  useEffect(() => {
+    fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {})
+  }, [token])
 
   // Nav handlers
   const navigate = (dir: -1 | 1) => {
@@ -224,7 +222,7 @@ export default function CrewPortalPage() {
   // Group jobs by date
   const jobsByDate = useMemo(() => {
     const m: Record<string, Job[]> = {}
-    for (const j of jobs) { (m[j.date] ||= []).push(j) }
+    for (const j of jobs) { if (!m[j.date]) m[j.date] = []; m[j.date].push(j) }
     return m
   }, [jobs])
 
