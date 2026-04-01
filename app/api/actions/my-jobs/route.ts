@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
     .from('jobs')
     .select(`
       id, date, scheduled_at, service_type, address, status, price,
-      hours, phone_number, job_type, notes, cleaner_id, frequency,
+      hours, phone_number, job_type, notes, cleaner_id, frequency, customer_id,
       customers (first_name, last_name)
     `)
     .eq('tenant_id', tenant.id)

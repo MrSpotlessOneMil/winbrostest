@@ -29,7 +29,7 @@ type Job = {
   id: number; date: string; scheduled_at: string | null; service_type: string | null
   address: string | null; status: string; price: number | null; hours: number | null
   cleaner_id: number | null; job_type: string | null; cleaner_name: string | null
-  phone_number?: string | null; notes?: string | null; frequency?: string | null
+  phone_number?: string | null; notes?: string | null; frequency?: string | null; customer_id?: number | null
   customers?: { first_name: string | null; last_name: string | null } | null
 }
 
@@ -813,6 +813,12 @@ export default function CrewAssignmentPage() {
                                         <span className="inline-block text-[8px] font-semibold text-blue-400 bg-blue-400/10 px-1 py-0.5 rounded uppercase">{job.frequency.replace(/_/g, " ")}</span>
                                       )}
                                       {job.price ? <p className="text-[9px] font-semibold text-green-400">${Number(job.price).toLocaleString()}</p> : null}
+                                      {job.customer_id && (
+                                        <a href={`/customers?customerId=${job.customer_id}`}
+                                          className="inline-flex items-center gap-1 text-[9px] font-semibold text-primary hover:underline cursor-pointer mt-0.5">
+                                          See More →
+                                        </a>
+                                      )}
                                     </div>
                                   )}
                                 </div>
