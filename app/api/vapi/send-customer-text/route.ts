@@ -10,13 +10,10 @@ import { PRICING_TABLE } from '@/lib/pricing-config'
 /**
  * VAPI function tool endpoint — sends an SMS to a customer mid-call or post-call.
  *
- * Called by the VAPI `send-customer-text` function tool.
- * VAPI sends: { message: { type: "function-call", call: {...}, functionCall: { name, parameters } } }
- * The caller's phone is extracted from call.customer.number.
- * The tenant is resolved from the assistantId on the call.
+ * For price_quote: creates a quote in the DB with a public link where the customer
+ * can review pricing, add extras, and pay. SMS includes the price AND the link.
  *
- * Price is calculated SERVER-SIDE from bedrooms + bathrooms using pricing-data.json.
- * This removes dependency on GPT-4o passing the price correctly.
+ * For booking_followup: sends a thank-you text after booking is confirmed.
  */
 
 // Map VAPI assistant IDs → tenant slugs
@@ -40,14 +37,12 @@ async function resolveTenantSlugFromAssistant(assistantId: string): Promise<stri
 
 /**
  * Look up the standard cleaning price from pricing-data.json.
- * Matches exact bedrooms + closest bathrooms (rounds up to nearest .5 or whole).
- * Returns null if no match found.
+ * Matches exact bedrooms + closest bathrooms (rounds up).
  */
 function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string): number | null {
   const table = PRICING_TABLE.standard
   if (!table || !Array.isArray(table)) return null
 
-  // Try exact match first
   const exact = table.find(r => r.bedrooms === bedrooms && r.bathrooms === bathrooms)
   if (exact) {
     const base = exact.price
@@ -56,7 +51,6 @@ function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string):
     return base
   }
 
-  // Fallback: same bedrooms, closest bathrooms (round up)
   const sameBed = table
     .filter(r => r.bedrooms === bedrooms && r.bathrooms >= bathrooms)
     .sort((a, b) => a.bathrooms - b.bathrooms)
@@ -67,7 +61,6 @@ function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string):
     return base
   }
 
-  // Last resort: closest bedrooms >= requested, then closest bathrooms
   const higher = table
     .filter(r => r.bedrooms >= bedrooms && r.bathrooms >= bathrooms)
     .sort((a, b) => a.bedrooms - b.bedrooms || a.bathrooms - b.bathrooms)
@@ -81,7 +74,6 @@ function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string):
   return null
 }
 
-/** Safely extract a number from a string or number value */
 function toNumber(val: unknown): number | null {
   if (typeof val === 'number' && !isNaN(val)) return val
   if (typeof val === 'string') {
@@ -89,6 +81,41 @@ function toNumber(val: unknown): number | null {
     if (!isNaN(n)) return n
   }
   return null
+}
+
+/**
+ * Create a quote in the DB and return its public URL.
+ * Returns null if creation fails (non-blocking — SMS still sends).
+ */
+async function createQuoteAndGetLink(
+  tenantId: string,
+  phone: string,
+  bedrooms: number,
+  bathrooms: number,
+  customerName: string | null,
+  domain: string,
+): Promise<string | null> {
+  const supabase = getSupabaseServiceClient()
+  const { data: quote, error } = await supabase
+    .from('quotes')
+    .insert({
+      tenant_id: tenantId,
+      customer_name: customerName || null,
+      customer_phone: phone,
+      bedrooms,
+      bathrooms,
+      service_category: 'standard',
+      notes: 'Created from VAPI voice call',
+    })
+    .select('token')
+    .single()
+
+  if (error || !quote?.token) {
+    console.error('[send-customer-text] Failed to create quote:', error?.message)
+    return null
+  }
+
+  return `${domain}/quote/${quote.token}`
 }
 
 export async function POST(request: NextRequest) {
@@ -99,8 +126,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Parse VAPI function-call envelope
-  // Format: { message: { type: "function-call", call: {...}, functionCall: { name, parameters } } }
   const message = body.message as Record<string, unknown> | undefined
   const call = message?.call as Record<string, unknown> | undefined
   const functionCall = message?.functionCall as Record<string, unknown> | undefined
@@ -108,8 +133,7 @@ export async function POST(request: NextRequest) {
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
   const assistantId = call?.assistantId as string | undefined
 
-  // Single combined diagnostic log (Vercel only captures first log per invocation)
-  console.log(`[send-customer-text] DIAG | keys=${Object.keys(body).join(',')} | msg_type=${message?.type} | fc_name=${functionCall?.name} | fc_params=${JSON.stringify(params).slice(0, 300)} | customer_num=${customerNumber} | assistant=${assistantId} | raw_keys=${message ? Object.keys(message).join(',') : 'no-msg'}`)
+  console.log(`[send-customer-text] DIAG | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId}`)
 
   const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
   const phone = customerNumber || phoneFromParams
@@ -131,11 +155,9 @@ export async function POST(request: NextRequest) {
   const customerName = typeof params.customer_name === 'string' ? params.customer_name.trim() : ''
   const messageType = typeof params.message_type === 'string' ? params.message_type.trim() : 'price_quote'
 
-  // Extract bedrooms/bathrooms (handle both string and number from GPT-4o)
   const bedrooms = toNumber(params.bedrooms)
   const bathrooms = toNumber(params.bathrooms)
 
-  // Price: prefer server-side lookup, fall back to model-provided value
   const modelPrice = typeof params.price === 'string'
     ? params.price.replace('$', '').trim()
     : typeof params.price === 'number'
@@ -146,7 +168,6 @@ export async function POST(request: NextRequest) {
   if (bedrooms !== null && bathrooms !== null) {
     const lookedUp = lookupPrice(bedrooms, bathrooms)
     if (lookedUp !== null) {
-      // Round to nearest dollar to match what the bot says on the call
       finalPrice = String(Math.round(lookedUp))
     } else if (modelPrice) {
       finalPrice = modelPrice
@@ -157,6 +178,7 @@ export async function POST(request: NextRequest) {
 
   const normalizedPhone = toE164(phone)
   const businessName = tenant.business_name || tenant.slug
+  const domain = tenant.website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
 
   let smsMessage: string
   if (messageType === 'booking_followup') {
@@ -164,18 +186,27 @@ export async function POST(request: NextRequest) {
       ? `Hey ${customerName}, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
       : `Hey, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
   } else {
+    // price_quote: create quote in DB and include payment link
+    let quoteLink: string | null = null
+    if (bedrooms !== null && bathrooms !== null) {
+      quoteLink = await createQuoteAndGetLink(
+        tenant.id, normalizedPhone, bedrooms, bathrooms,
+        customerName || null, domain,
+      )
+    }
+
     const priceDisplay = finalPrice ? `$${finalPrice.replace('$', '')}` : null
     const sizeInfo = bedrooms !== null && bathrooms !== null ? `${bedrooms} bed / ${bathrooms} bath` : ''
+    const namePrefix = customerName ? `Hi ${customerName}! ` : 'Hi! '
 
-    if (priceDisplay) {
-      smsMessage = customerName
-        ? `Hi ${customerName}! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
-        : `Hi! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
+    if (priceDisplay && quoteLink) {
+      smsMessage = `${namePrefix}Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. Review your quote and book here: ${quoteLink}`
+    } else if (priceDisplay) {
+      smsMessage = `${namePrefix}Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full details shortly!`
+    } else if (quoteLink) {
+      smsMessage = `${namePrefix}Thanks for your interest in ${businessName}! Review your custom quote here: ${quoteLink}`
     } else {
-      // No price available — don't say TBD, send a softer message
-      smsMessage = customerName
-        ? `Hi ${customerName}! Thanks for your interest in ${businessName}. We'll follow up shortly with your exact cleaning quote!`
-        : `Hi! Thanks for your interest in ${businessName}. We'll follow up shortly with your exact cleaning quote!`
+      smsMessage = `${namePrefix}Thanks for your interest in ${businessName}. We'll follow up shortly with your exact cleaning quote!`
     }
   }
 
