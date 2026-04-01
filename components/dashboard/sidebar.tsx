@@ -32,6 +32,7 @@ const navigation = [
   { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
   { name: "Crews", href: "/crews", icon: Users, adminOnly: true },
+  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: true },
   { name: "My Schedule", href: "/my-schedule", icon: Clock, adminOnly: false },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },

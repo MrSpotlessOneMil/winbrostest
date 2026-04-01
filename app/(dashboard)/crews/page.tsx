@@ -211,7 +211,12 @@ export default function CrewsPage() {
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Crew Assignment</h1>
+        <div>
+          <h1 className="text-xl font-bold">Crew Assignment</h1>
+          <p className="text-sm text-muted-foreground">
+            {weekStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setWeekStart(prev => addDays(prev, -7))}
