@@ -31,9 +31,9 @@ const navigation = [
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Crews", href: "/crews", icon: Users, adminOnly: true },
-  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: true },
-  { name: "My Schedule", href: "/my-schedule", icon: Clock, adminOnly: false },
+  { name: "Crews", href: "/crews", icon: Users, adminOnly: true, tenantOnly: "winbros" },
+  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: true, tenantOnly: "winbros" },
+  { name: "My Schedule", href: "/my-schedule", icon: Clock, adminOnly: false, tenantOnly: "winbros" },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
   { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
@@ -48,7 +48,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps) {
   const pathname = usePathname()
-  const { isAdmin, user, logout, accounts, addAccount, switchAccount } = useAuth()
+  const { isAdmin, user, logout, accounts, addAccount, switchAccount, tenant } = useAuth()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [dropdownVisible, setDropdownVisible] = useState(false)
   const [showAddAccount, setShowAddAccount] = useState(false)
@@ -131,7 +131,12 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
     })
 
   // Filter navigation items based on admin status
-  const filteredNavigation = navigation.filter(item => !item.adminOnly || isAdmin)
+  const tenantSlug = tenant?.slug || user?.tenantSlug || ''
+  const filteredNavigation = navigation.filter(item => {
+    if (item.adminOnly && !isAdmin) return false
+    if ((item as any).tenantOnly && (item as any).tenantOnly !== tenantSlug) return false
+    return true
+  })
 
   // Prevent scroll events on sidebar from scrolling the main content
   const handleWheel = (e: React.WheelEvent) => {
