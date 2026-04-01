@@ -44,29 +44,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Log raw payload to understand VAPI's format
-  console.log(`[send-customer-text] RAW BODY KEYS: ${Object.keys(body).join(', ')}`)
-  console.log(`[send-customer-text] RAW BODY: ${JSON.stringify(body).slice(0, 2000)}`)
-
-  // Parse VAPI function-call envelope
+  // Parse VAPI function-call envelope — VAPI sends { message: { type, call, functionCall } }
   const message = body.message as Record<string, unknown> | undefined
   const call = message?.call as Record<string, unknown> | undefined
   const functionCall = message?.functionCall as Record<string, unknown> | undefined
   const params = (functionCall?.parameters || body) as Record<string, unknown>
-
-  console.log(`[send-customer-text] Parsed params: ${JSON.stringify(params).slice(0, 500)}`)
-
-  // Extract phone from call metadata (caller's number)
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
+  const assistantId = call?.assistantId as string | undefined
+
+  // Single combined log line (Vercel only captures first log per invocation)
+  console.log(`[send-customer-text] DIAG | keys=${Object.keys(body).join(',')} | msg_type=${message?.type} | fc_name=${functionCall?.name} | fc_params=${JSON.stringify(functionCall?.parameters).slice(0,300)} | customer_num=${customerNumber} | assistant=${assistantId} | raw=${JSON.stringify(body).slice(0,800)}`)
+
   const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
   const phone = customerNumber || phoneFromParams
-
-  // Extract tenant from assistant ID or params
-  const assistantId = call?.assistantId as string | undefined
   const tenantSlugFromParams = typeof params.tenant_slug === 'string' ? params.tenant_slug.trim() : ''
   const tenantSlug = (assistantId ? await resolveTenantSlugFromAssistant(assistantId) : null) || tenantSlugFromParams
-
-  console.log(`[send-customer-text] phone=${phone}, assistantId=${assistantId}, tenantSlug=${tenantSlug}`)
 
   if (!phone) {
     console.error('[send-customer-text] No phone found. Full body:', JSON.stringify(body).slice(0, 1000))
