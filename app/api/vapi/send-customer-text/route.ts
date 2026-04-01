@@ -210,7 +210,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipDedup: true, bypassFilters: true })
+  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipThrottle: true, skipDedup: true, bypassFilters: true })
 
   if (!result.success) {
     return NextResponse.json(
