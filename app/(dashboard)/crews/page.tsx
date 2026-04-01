@@ -1,432 +1,497 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import {
-  ChevronLeft, ChevronRight, Save, Users, UserX, Calendar,
-  Loader2, Check, X, Clock,
+  ChevronLeft, ChevronRight, Users, Loader2, Plus, MapPin,
+  Clock, X as XIcon, ChevronDown, GripVertical,
 } from "lucide-react"
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable,
+  PointerSensor, TouchSensor, useSensor, useSensors,
+  type DragStartEvent, type DragEndEvent,
+} from "@dnd-kit/core"
 
+/* ─── Types ─── */
 type Cleaner = {
-  id: number
-  name: string
-  phone: string
-  is_team_lead: boolean
-  employee_type: string | null
-  active: boolean
+  id: number; name: string; phone: string
+  is_team_lead: boolean; employee_type: string | null; active: boolean
 }
-
 type CrewDay = {
-  id: number
-  date: string
-  team_lead_id: number
+  id: number; date: string; team_lead_id: number
   crew_day_members: { cleaner_id: number; role: string }[]
 }
-
-type TimeOffEntry = {
-  cleaner_id: number
-  date: string
+type TimeOffEntry = { cleaner_id: number; date: string }
+type Job = {
+  id: number; date: string; scheduled_at: string | null; service_type: string | null
+  address: string | null; status: string; price: number | null; hours: number | null
+  cleaner_id: number | null; job_type: string | null; cleaner_name: string | null
+  customers?: { first_name: string | null; last_name: string | null }
 }
 
-type DayAssignment = {
-  team_lead_id: number
-  members: { cleaner_id: number; role: string }[]
-}
-
+/* ─── Helpers ─── */
 function getMonday(d: Date): Date {
-  const dt = new Date(d)
-  const day = dt.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  dt.setDate(dt.getDate() + diff)
-  dt.setHours(0, 0, 0, 0)
-  return dt
+  const dt = new Date(d); const day = dt.getDay()
+  dt.setDate(dt.getDate() + (day === 0 ? -6 : 1 - day)); dt.setHours(0,0,0,0); return dt
 }
-
-function addDays(d: Date, n: number): Date {
-  const r = new Date(d)
-  r.setDate(r.getDate() + n)
-  return r
-}
-
-function formatDateShort(d: Date): string {
-  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
-}
-
+function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate()+n); return r }
 function toDateStr(d: Date): string {
-  return d.toISOString().split("T")[0]
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+}
+function formatTime12(t: string | null) {
+  if (!t) return "TBD"
+  const [h, m] = t.split(":").map(Number)
+  return `${h%12||12}:${String(m||0).padStart(2,"0")} ${h>=12?"PM":"AM"}`
+}
+function getEndTime(start: string | null, hours: number | null): string | null {
+  if (!start || !hours) return null
+  const [h,m] = start.split(":").map(Number)
+  const total = h*60+(m||0)+hours*60
+  return `${String(Math.floor(total/60)%24).padStart(2,"0")}:${String(Math.round(total%60)).padStart(2,"0")}`
+}
+function humanize(v: string) { return v.replace(/_/g," ").replace(/\b\w/g,c=>c.toUpperCase()) }
+
+const STATUS_BG: Record<string,string> = {
+  completed: "bg-green-500/15 border-green-500/30",
+  in_progress: "bg-amber-500/15 border-amber-500/30",
+  scheduled: "bg-blue-500/15 border-blue-500/30",
+  confirmed: "bg-blue-500/15 border-blue-500/30",
+  pending: "bg-purple-500/15 border-purple-500/30",
+  quoted: "bg-purple-500/15 border-purple-500/30",
 }
 
-export default function CrewsPage() {
-  const { tenant, isAdmin } = useAuth()
+const ROLE_BADGE: Record<string, { label: string; color: string }> = {
+  team_lead: { label: "TL", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  technician: { label: "T", color: "bg-green-500/20 text-green-400 border-green-500/30" },
+  salesman: { label: "S", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
+}
+
+/* ─── Draggable Worker Chip ─── */
+function DraggableWorker({ cleaner, compact }: { cleaner: Cleaner; compact?: boolean }) {
+  const role = cleaner.is_team_lead ? "team_lead" : (cleaner.employee_type || "technician")
+  const badge = ROLE_BADGE[role] || ROLE_BADGE.technician
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `worker-${cleaner.id}`, data: { cleaner } })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium cursor-grab active:cursor-grabbing transition-opacity ${badge.color} ${isDragging ? "opacity-30" : ""} ${compact ? "py-0.5 text-[10px]" : ""}`}
+    >
+      <GripVertical className="size-3 opacity-40 shrink-0" />
+      <span className="font-bold text-[10px]">{badge.label}</span>
+      <span className="truncate">{cleaner.name.split(" ")[0]}</span>
+    </div>
+  )
+}
+
+/* ─── Droppable Team Lead Cell ─── */
+function DroppableTeamLeadCell({ id, children }: { id: string; children: React.ReactNode }) {
+  const { isOver, setNodeRef } = useDroppable({ id })
+  return (
+    <div ref={setNodeRef} className={`rounded-md transition-colors min-h-[2rem] ${isOver ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}>
+      {children}
+    </div>
+  )
+}
+
+/* ═══ MAIN PAGE ═══ */
+export default function CrewAssignmentPage() {
+  const { isAdmin } = useAuth()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  // Data
   const [cleaners, setCleaners] = useState<Cleaner[]>([])
   const [crewDays, setCrewDays] = useState<CrewDay[]>([])
   const [timeOff, setTimeOff] = useState<TimeOffEntry[]>([])
-  const [assignments, setAssignments] = useState<Map<string, DayAssignment[]>>(new Map())
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState<string | null>(null)
-  const [savedDays, setSavedDays] = useState<Set<string>>(new Set())
+  const [jobs, setJobs] = useState<Job[]>([])
+
+  // UI state
+  const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
+  const [expandedTs, setExpandedTs] = useState<Set<string>>(new Set())
+  const [expandedSs, setExpandedSs] = useState<Set<string>>(new Set())
   const [dragItem, setDragItem] = useState<Cleaner | null>(null)
 
-  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  // Local assignment changes (pending save)
+  const [localAssignments, setLocalAssignments] = useState<Map<string, { team_lead_id: number; members: { cleaner_id: number; role: string }[] }[]>>(new Map())
+  const [dirty, setDirty] = useState<Set<string>>(new Set())
 
-  const teamLeads = cleaners.filter(c => c.is_team_lead)
-  const technicians = cleaners.filter(c => !c.is_team_lead && c.employee_type !== "salesman")
-  const salesmen = cleaners.filter(c => c.employee_type === "salesman")
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
+  )
 
-  // Load data
-  const loadData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const dateStr = toDateStr(weekStart)
-      const res = await fetch(`/api/actions/crews?date=${dateStr}&week=true`)
-      const data = await res.json()
+  // Week days
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
+  const todayStr = toDateStr(new Date())
 
-      setCleaners(data.cleaners || [])
-      setCrewDays(data.crewDays || [])
-      setTimeOff((data.timeOff || []).map((t: any) => ({ cleaner_id: t.cleaner_id, date: t.date })))
+  // Categorize cleaners
+  const teamLeads = useMemo(() => cleaners.filter(c => c.is_team_lead && c.active), [cleaners])
+  const technicians = useMemo(() => cleaners.filter(c => !c.is_team_lead && c.employee_type !== "salesman" && c.active), [cleaners])
+  const salesmen = useMemo(() => cleaners.filter(c => c.employee_type === "salesman" && !c.is_team_lead && c.active), [cleaners])
 
-      // Build assignment map from existing data
-      const map = new Map<string, DayAssignment[]>()
-      for (const cd of data.crewDays || []) {
-        const existing = map.get(cd.date) || []
-        existing.push({
-          team_lead_id: cd.team_lead_id,
-          members: (cd.crew_day_members || []).map((m: any) => ({
-            cleaner_id: m.cleaner_id,
-            role: m.role,
-          })),
-        })
-        map.set(cd.date, existing)
-      }
-      setAssignments(map)
-    } catch (err) {
-      console.error("Failed to load crew data:", err)
+  // Time-off set for quick lookup
+  const timeOffSet = useMemo(() => {
+    const s = new Set<string>()
+    for (const t of timeOff) s.add(`${t.cleaner_id}-${t.date}`)
+    return s
+  }, [timeOff])
+
+  const isOff = (cleanerId: number, date: string) => timeOffSet.has(`${cleanerId}-${date}`)
+
+  // Jobs grouped by date → cleaner_id
+  const jobsByDateCleaner = useMemo(() => {
+    const m: Record<string, Record<number, Job[]>> = {}
+    for (const j of jobs) {
+      if (j.status === "cancelled") continue
+      if (!m[j.date]) m[j.date] = {}
+      const cid = j.cleaner_id || 0
+      if (!m[j.date][cid]) m[j.date][cid] = []
+      m[j.date][cid].push(j)
     }
+    return m
+  }, [jobs])
+
+  // Get assignments for a date (local or from server)
+  const getAssignments = useCallback((dateStr: string) => {
+    if (localAssignments.has(dateStr)) return localAssignments.get(dateStr)!
+    return crewDays
+      .filter(cd => cd.date === dateStr)
+      .map(cd => ({ team_lead_id: cd.team_lead_id, members: cd.crew_day_members || [] }))
+  }, [localAssignments, crewDays])
+
+  // Get members assigned to a team lead on a date
+  const getMembersForTL = useCallback((dateStr: string, tlId: number) => {
+    const dayAsn = getAssignments(dateStr)
+    const tlAsn = dayAsn.find(a => a.team_lead_id === tlId)
+    return (tlAsn?.members || []).map(m => cleaners.find(c => c.id === m.cleaner_id)).filter(Boolean) as Cleaner[]
+  }, [getAssignments, cleaners])
+
+  // Available team leads for a date (not off)
+  const getAvailableTLs = useCallback((dateStr: string) => teamLeads.filter(tl => !isOff(tl.id, dateStr)), [teamLeads, isOff])
+  const getAvailableTs = useCallback((dateStr: string) => technicians.filter(t => !isOff(t.id, dateStr)), [technicians, isOff])
+  const getAvailableSs = useCallback((dateStr: string) => salesmen.filter(s => !isOff(s.id, dateStr)), [salesmen, isOff])
+
+  // Fetch data
+  const fetchData = useCallback(async () => {
+    const dateStr = toDateStr(weekStart)
+    try {
+      const [crewRes, jobsRes] = await Promise.all([
+        fetch(`/api/actions/crews?date=${dateStr}&week=true`).then(r => r.json()),
+        fetch(`/api/actions/my-jobs?date=${dateStr}&range=week`).then(r => r.json()),
+      ])
+      setCleaners(crewRes.cleaners || [])
+      setCrewDays(crewRes.crewDays || [])
+      setTimeOff(crewRes.timeOff || [])
+      setJobs(jobsRes.jobs || [])
+      setLocalAssignments(new Map())
+      setDirty(new Set())
+    } catch {}
     setLoading(false)
   }, [weekStart])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
-  // Check if a cleaner has time off on a specific date
-  const isOffOnDate = (cleanerId: number, dateStr: string) => {
-    return timeOff.some(t => t.cleaner_id === cleanerId && t.date === dateStr)
+  // Navigate
+  const prevWeek = () => setWeekStart(addDays(weekStart, -7))
+  const nextWeek = () => setWeekStart(addDays(weekStart, 7))
+  const goToday = () => { setWeekStart(getMonday(new Date())); setSelectedDay(toDateStr(new Date())) }
+
+  // Drag handlers
+  const handleDragStart = (e: DragStartEvent) => {
+    setDragItem((e.active.data.current as any)?.cleaner || null)
   }
 
-  // Get assignments for a specific date
-  const getDateAssignments = (dateStr: string): DayAssignment[] => {
-    return assignments.get(dateStr) || []
-  }
+  const handleDragEnd = (e: DragEndEvent) => {
+    setDragItem(null)
+    if (!e.over) return
+    const cleaner = (e.active.data.current as any)?.cleaner as Cleaner
+    if (!cleaner) return
 
-  // Check if cleaner is already assigned on this date
-  const isAssignedOnDate = (cleanerId: number, dateStr: string): boolean => {
-    const dayAssigns = getDateAssignments(dateStr)
-    return dayAssigns.some(a =>
-      a.team_lead_id === cleanerId ||
-      a.members.some(m => m.cleaner_id === cleanerId)
-    )
-  }
+    // Droppable ID format: "tl-{date}-{teamLeadId}"
+    const [, dateStr, tlIdStr] = (e.over.id as string).split("-")
+    if (!dateStr || !tlIdStr) return
+    const tlId = Number(tlIdStr)
 
-  // Add a cleaner to a team lead's crew on a date
-  const addToCrew = (dateStr: string, teamLeadId: number, cleaner: Cleaner) => {
-    if (isOffOnDate(cleaner.id, dateStr) || isAssignedOnDate(cleaner.id, dateStr)) return
-
-    setAssignments(prev => {
-      const map = new Map(prev)
-      const dayAssigns = [...(map.get(dateStr) || [])]
-
-      // Find or create crew for this team lead
-      let crew = dayAssigns.find(a => a.team_lead_id === teamLeadId)
-      if (!crew) {
-        crew = { team_lead_id: teamLeadId, members: [] }
-        dayAssigns.push(crew)
+    // Add member to local assignments
+    setLocalAssignments(prev => {
+      const next = new Map(prev)
+      const dayAsn = [...(next.get(dateStr) || getAssignments(dateStr))]
+      let tlAsn = dayAsn.find(a => a.team_lead_id === tlId)
+      if (!tlAsn) {
+        tlAsn = { team_lead_id: tlId, members: [] }
+        dayAsn.push(tlAsn)
       }
-
-      const role = cleaner.employee_type === "salesman" ? "salesman" : "technician"
-      crew.members = [...crew.members, { cleaner_id: cleaner.id, role }]
-      map.set(dateStr, dayAssigns)
-      return map
-    })
-    setSavedDays(prev => { const s = new Set(prev); s.delete(dateStr); return s })
-  }
-
-  // Remove a cleaner from a crew on a date
-  const removeFromCrew = (dateStr: string, teamLeadId: number, cleanerId: number) => {
-    setAssignments(prev => {
-      const map = new Map(prev)
-      const dayAssigns = [...(map.get(dateStr) || [])]
-      const crew = dayAssigns.find(a => a.team_lead_id === teamLeadId)
-      if (crew) {
-        crew.members = crew.members.filter(m => m.cleaner_id !== cleanerId)
+      // Don't add duplicates
+      if (!tlAsn.members.find(m => m.cleaner_id === cleaner.id)) {
+        tlAsn.members = [...tlAsn.members, { cleaner_id: cleaner.id, role: cleaner.employee_type || "technician" }]
       }
-      map.set(dateStr, dayAssigns)
-      return map
+      next.set(dateStr, dayAsn)
+      return next
     })
-    setSavedDays(prev => { const s = new Set(prev); s.delete(dateStr); return s })
+    setDirty(prev => new Set(prev).add(dateStr))
   }
 
-  // Save a day's assignments
+  // Save assignments for a date
   const saveDay = async (dateStr: string) => {
-    setSaving(dateStr)
+    setSaving(true)
+    const dayAsn = localAssignments.get(dateStr)
+    if (!dayAsn) { setSaving(false); return }
+
     try {
-      const dayAssigns = getDateAssignments(dateStr)
       await fetch("/api/actions/crews", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: dateStr, assignments: dayAssigns }),
+        body: JSON.stringify({ date: dateStr, assignments: dayAsn }),
       })
-      setSavedDays(prev => new Set(prev).add(dateStr))
-    } catch (err) {
-      console.error("Failed to save:", err)
-    }
-    setSaving(null)
+      setDirty(prev => { const n = new Set(prev); n.delete(dateStr); return n })
+      fetchData()
+    } catch {}
+    setSaving(false)
   }
 
-  // Drag handlers
-  const handleDragStart = (cleaner: Cleaner) => {
-    setDragItem(cleaner)
+  // Remove member from TL
+  const removeMember = (dateStr: string, tlId: number, cleanerId: number) => {
+    setLocalAssignments(prev => {
+      const next = new Map(prev)
+      const dayAsn = [...(next.get(dateStr) || getAssignments(dateStr))]
+      const tlAsn = dayAsn.find(a => a.team_lead_id === tlId)
+      if (tlAsn) {
+        tlAsn.members = tlAsn.members.filter(m => m.cleaner_id !== cleanerId)
+      }
+      next.set(dateStr, dayAsn)
+      return next
+    })
+    setDirty(prev => new Set(prev).add(dateStr))
   }
 
-  const handleDrop = (dateStr: string, teamLeadId: number) => {
-    if (dragItem) {
-      addToCrew(dateStr, teamLeadId, dragItem)
-      setDragItem(null)
-    }
-  }
+  // Toggle expand
+  const toggleTL = (key: string) => setExpandedTLs(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const toggleT = (key: string) => setExpandedTs(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+  const toggleS = (key: string) => setExpandedSs(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+  // Weekly revenue
+  const weeklyTotal = useMemo(() => jobs.reduce((s, j) => s + (j.status !== "cancelled" ? (j.price || 0) : 0), 0), [jobs])
 
-  const isToday = (d: Date) => {
-    const now = new Date()
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  )
+
+  const daysToShow = viewMode === "week" ? weekDays : [weekDays.find(d => toDateStr(d) === selectedDay) || weekDays[0]]
+  const monthName = weekStart.toLocaleString("en-US", { month: "long" })
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">Crew Assignment</h1>
-          <p className="text-sm text-muted-foreground">
-            {weekStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </p>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <div className="h-full flex flex-col">
+        {/* ═══ HEADER ═══ */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+          <div>
+            <h1 className="text-lg font-bold text-foreground">Crew Assignment</h1>
+            <p className="text-xs text-muted-foreground">{monthName} {weekStart.getFullYear()}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={goToday} className="text-xs text-primary font-medium hover:underline">Today</button>
+            <div className="flex items-center gap-1">
+              <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronLeft className="size-4" /></button>
+              <button onClick={nextWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronRight className="size-4" /></button>
+            </div>
+            <div className="flex rounded-md border border-border overflow-hidden">
+              {(["day", "week"] as const).map(v => (
+                <button key={v} onClick={() => setViewMode(v)}
+                  className={`px-3 py-1 text-[10px] font-bold uppercase ${viewMode === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+                >{v}</button>
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setWeekStart(prev => addDays(prev, -7))}
-            className="p-2 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => setWeekStart(getMonday(new Date()))}
-            className="px-3 py-1.5 text-sm rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            Today
-          </button>
-          <button
-            onClick={() => setWeekStart(prev => addDays(prev, 7))}
-            className="p-2 rounded-lg border border-border/50 hover:bg-muted/50 transition-colors"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          <span className="text-sm text-muted-foreground ml-2">
-            {formatDateShort(weekStart)} — {formatDateShort(addDays(weekStart, 6))}
+
+        {/* ═══ CALENDAR GRID ═══ */}
+        <div className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border`}>
+          {daysToShow.map(day => {
+            const dateStr = toDateStr(day)
+            const isToday = dateStr === todayStr
+            const dayTLs = getAvailableTLs(dateStr)
+            const dayTs = getAvailableTs(dateStr)
+            const daySs = getAvailableSs(dateStr)
+            const dayJobs = jobsByDateCleaner[dateStr] || {}
+            const dayTotal = Object.values(dayJobs).flat().reduce((s, j) => s + (j.price || 0), 0)
+            const isDirty = dirty.has(dateStr)
+            const tKey = `t-${dateStr}`
+            const sKey = `s-${dateStr}`
+
+            return (
+              <div key={dateStr} className={`bg-background flex flex-col ${isToday ? "ring-1 ring-primary/30 ring-inset" : ""}`}>
+                {/* Day header */}
+                <div className={`px-2 py-1.5 border-b border-border flex items-center justify-between shrink-0 ${isToday ? "bg-primary/5" : ""}`}>
+                  <div>
+                    <span className="text-[10px] font-medium text-muted-foreground">
+                      {day.toLocaleDateString("en-US", { weekday: "short" })}
+                    </span>
+                    <span className={`ml-1 text-sm font-bold ${isToday ? "text-primary" : "text-foreground"}`}>
+                      {day.getDate()}
+                    </span>
+                  </div>
+                  {isDirty && (
+                    <button onClick={() => saveDay(dateStr)} disabled={saving}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                      {saving ? "..." : "Save"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Day content */}
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+                  {/* Team Leads */}
+                  {dayTLs.map(tl => {
+                    const tlKey = `${dateStr}-${tl.id}`
+                    const isExpanded = expandedTLs.has(tlKey)
+                    const tlJobs = (dayJobs[tl.id] || []).sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
+                    const members = getMembersForTL(dateStr, tl.id)
+                    const tlTotal = tlJobs.reduce((s, j) => s + (j.price || 0), 0)
+
+                    return (
+                      <DroppableTeamLeadCell key={tlKey} id={`tl-${dateStr}-${tl.id}`}>
+                        {/* TL Header */}
+                        <button onClick={() => toggleTL(tlKey)}
+                          className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left">
+                          <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
+                          <span className="text-[11px] font-semibold text-foreground truncate flex-1">{tl.name.split(" ")[0]}</span>
+                          {tlJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{tlJobs.length}</span>}
+                          <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                        </button>
+
+                        {/* Expanded: TL Schedule + Members */}
+                        {isExpanded && (
+                          <div className="ml-1 pl-2 border-l border-border space-y-1 mt-1">
+                            {/* Job time blocks */}
+                            {tlJobs.map(job => {
+                              const isComplete = job.status === "completed"
+                              const statusClass = STATUS_BG[job.status] || STATUS_BG.scheduled
+                              return (
+                                <div key={job.id} className={`rounded px-1.5 py-1 border text-[10px] relative ${statusClass}`}>
+                                  {isComplete && <span className="absolute top-0.5 right-1 text-green-500 font-bold text-[10px]">✕</span>}
+                                  <div className="font-bold text-foreground">
+                                    {formatTime12(job.scheduled_at)}
+                                    {job.hours ? ` – ${formatTime12(getEndTime(job.scheduled_at, job.hours))}` : ""}
+                                  </div>
+                                  <div className="text-muted-foreground truncate">
+                                    {job.service_type ? humanize(job.service_type) : "Job"}
+                                    {job.address ? `, ${job.address.split(",")[0]}` : ""}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                            {tlJobs.length === 0 && (
+                              <p className="text-[9px] text-muted-foreground italic px-1">No jobs</p>
+                            )}
+
+                            {/* Assigned members */}
+                            {members.length > 0 && (
+                              <div className="space-y-0.5 pt-1 border-t border-border/50">
+                                {members.map(m => {
+                                  const role = m.employee_type || "technician"
+                                  const badge = ROLE_BADGE[role] || ROLE_BADGE.technician
+                                  return (
+                                    <div key={m.id} className="flex items-center gap-1 text-[10px]">
+                                      <span className={`px-1 rounded text-[8px] font-bold ${badge.color}`}>{badge.label}</span>
+                                      <span className="truncate text-foreground">{m.name.split(" ")[0]}</span>
+                                      <button onClick={() => removeMember(dateStr, tl.id, m.id)}
+                                        className="ml-auto size-4 flex items-center justify-center rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive">
+                                        <XIcon className="size-2.5" />
+                                      </button>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+
+                            {tlTotal > 0 && (
+                              <p className="text-[9px] font-medium text-muted-foreground pt-1">${Math.round(tlTotal).toLocaleString()} scheduled</p>
+                            )}
+                          </div>
+                        )}
+                      </DroppableTeamLeadCell>
+                    )
+                  })}
+
+                  {dayTLs.length === 0 && (
+                    <p className="text-[10px] text-muted-foreground italic text-center py-2">No team leads available</p>
+                  )}
+
+                  {/* Technicians dropdown */}
+                  {dayTs.length > 0 && (
+                    <div>
+                      <button onClick={() => toggleT(tKey)}
+                        className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left">
+                        <span className="text-[9px] font-bold text-green-400 bg-green-500/15 px-1 rounded">T</span>
+                        <span className="text-[10px] text-muted-foreground flex-1">Technicians</span>
+                        <span className="text-[9px] text-muted-foreground">{dayTs.length}</span>
+                        <ChevronDown className={`size-3 text-muted-foreground transition-transform ${expandedTs.has(tKey) ? "rotate-180" : ""}`} />
+                      </button>
+                      {expandedTs.has(tKey) && (
+                        <div className="ml-1 pl-2 border-l border-green-500/20 space-y-1 mt-1">
+                          {dayTs.map(t => <DraggableWorker key={t.id} cleaner={t} compact />)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Salesmen dropdown */}
+                  {daySs.length > 0 && (
+                    <div>
+                      <button onClick={() => toggleS(sKey)}
+                        className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left">
+                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1 rounded">S</span>
+                        <span className="text-[10px] text-muted-foreground flex-1">Salesmen</span>
+                        <span className="text-[9px] text-muted-foreground">{daySs.length}</span>
+                        <ChevronDown className={`size-3 text-muted-foreground transition-transform ${expandedSs.has(sKey) ? "rotate-180" : ""}`} />
+                      </button>
+                      {expandedSs.has(sKey) && (
+                        <div className="ml-1 pl-2 border-l border-amber-500/20 space-y-1 mt-1">
+                          {daySs.map(s => <DraggableWorker key={s.id} cleaner={s} compact />)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Day total */}
+                {dayTotal > 0 && (
+                  <div className="px-2 py-1 border-t border-border text-[10px] font-medium text-muted-foreground shrink-0">
+                    ${Math.round(dayTotal).toLocaleString()} scheduled
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ═══ BOTTOM BAR ═══ */}
+        <div className="px-4 py-2.5 border-t border-border flex items-center justify-between shrink-0">
+          <span className="text-sm font-bold text-foreground">
+            ${Math.round(weeklyTotal).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">this week</span>
           </span>
         </div>
+
+        {/* ═══ DRAG OVERLAY ═══ */}
+        <DragOverlay>
+          {dragItem && (
+            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-xs font-medium shadow-lg ${ROLE_BADGE[dragItem.employee_type || "technician"]?.color || ROLE_BADGE.technician.color}`}>
+              <GripVertical className="size-3 opacity-40" />
+              <span className="font-bold text-[10px]">{ROLE_BADGE[dragItem.employee_type || "technician"]?.label || "T"}</span>
+              <span>{dragItem.name.split(" ")[0]}</span>
+            </div>
+          )}
+        </DragOverlay>
       </div>
-
-      <div className="flex flex-col lg:flex-row gap-4">
-        {/* Left sidebar — worker roster */}
-        <div className="lg:w-48 shrink-0 space-y-3">
-          {/* Team Leads */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Team Leads</p>
-            <div className="space-y-1">
-              {teamLeads.map(c => (
-                <div
-                  key={c.id}
-                  draggable
-                  onDragStart={() => handleDragStart(c)}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm cursor-grab active:cursor-grabbing hover:bg-blue-500/20 transition-colors"
-                >
-                  <span className="text-[10px] font-bold text-blue-400">TL</span>
-                  <span className="truncate text-foreground">{c.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Technicians */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Technicians</p>
-            <div className="space-y-1">
-              {technicians.map(c => (
-                <div
-                  key={c.id}
-                  draggable
-                  onDragStart={() => handleDragStart(c)}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-green-500/10 border border-green-500/20 text-sm cursor-grab active:cursor-grabbing hover:bg-green-500/20 transition-colors"
-                >
-                  <span className="text-[10px] font-bold text-green-400">T</span>
-                  <span className="truncate text-foreground">{c.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Salesmen */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Salesmen</p>
-            <div className="space-y-1">
-              {salesmen.map(c => (
-                <div
-                  key={c.id}
-                  draggable
-                  onDragStart={() => handleDragStart(c)}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm cursor-grab active:cursor-grabbing hover:bg-amber-500/20 transition-colors"
-                >
-                  <span className="text-[10px] font-bold text-amber-400">S</span>
-                  <span className="truncate text-foreground">{c.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Main grid — 7 day columns */}
-        <div className="flex-1 overflow-x-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
-            {weekDays.map(day => {
-              const dateStr = toDateStr(day)
-              const dayAssigns = getDateAssignments(dateStr)
-              const isSaved = savedDays.has(dateStr)
-              const isSavingDay = saving === dateStr
-              const today = isToday(day)
-
-              return (
-                <div
-                  key={dateStr}
-                  className={`rounded-xl border p-2 min-h-[300px] transition-colors ${
-                    today
-                      ? "border-primary/30 bg-primary/5"
-                      : "border-border/30 bg-card/30"
-                  }`}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => {
-                    // If dropping on column without a specific team lead, assign to first TL
-                    if (dragItem && teamLeads.length > 0) {
-                      const firstTL = teamLeads[0]
-                      handleDrop(dateStr, firstTL.id)
-                    }
-                  }}
-                >
-                  {/* Day header */}
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-xs font-semibold ${today ? "text-primary" : "text-muted-foreground"}`}>
-                      {day.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
-                    </span>
-                    <button
-                      onClick={() => saveDay(dateStr)}
-                      disabled={isSavingDay || isSaved}
-                      className={`p-1 rounded transition-colors ${
-                        isSaved
-                          ? "text-green-400"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                      title={isSaved ? "Saved" : "Save"}
-                    >
-                      {isSavingDay ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : isSaved ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Crew assignments for this day */}
-                  <div className="space-y-2">
-                    {teamLeads.map(tl => {
-                      const crew = dayAssigns.find(a => a.team_lead_id === tl.id)
-                      const tlOff = isOffOnDate(tl.id, dateStr)
-
-                      if (tlOff) {
-                        return (
-                          <div key={tl.id} className="opacity-40">
-                            <div className="flex items-center gap-1 text-[11px] text-muted-foreground line-through">
-                              <UserX className="h-3 w-3" />
-                              {tl.name} — OFF
-                            </div>
-                          </div>
-                        )
-                      }
-
-                      return (
-                        <div
-                          key={tl.id}
-                          className="rounded-lg border border-border/20 bg-card/50 p-1.5"
-                          onDragOver={(e) => e.preventDefault()}
-                          onDrop={(e) => {
-                            e.stopPropagation()
-                            handleDrop(dateStr, tl.id)
-                          }}
-                        >
-                          {/* Team lead name */}
-                          <div className="text-[11px] font-semibold text-blue-400 mb-1 truncate">
-                            {tl.name}
-                          </div>
-
-                          {/* Crew members */}
-                          {crew && crew.members.length > 0 ? (
-                            <div className="space-y-0.5">
-                              {crew.members.map(m => {
-                                const worker = cleaners.find(c => c.id === m.cleaner_id)
-                                const isOff = isOffOnDate(m.cleaner_id, dateStr)
-                                return (
-                                  <div
-                                    key={m.cleaner_id}
-                                    className={`flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded ${
-                                      isOff ? "opacity-40 line-through" : ""
-                                    } ${
-                                      m.role === "salesman"
-                                        ? "bg-amber-500/10 text-amber-300"
-                                        : "bg-green-500/10 text-green-300"
-                                    }`}
-                                  >
-                                    <span className="truncate">{worker?.name || `#${m.cleaner_id}`}</span>
-                                    <button
-                                      onClick={() => removeFromCrew(dateStr, tl.id, m.cleaner_id)}
-                                      className="ml-1 hover:text-red-400 transition-colors shrink-0"
-                                    >
-                                      <X className="h-2.5 w-2.5" />
-                                    </button>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-muted-foreground/50 italic py-1">
-                              Drop workers here
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
+    </DndContext>
   )
 }
