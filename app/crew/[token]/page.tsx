@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import {
   Loader2, AlertCircle, ChevronRight, ChevronLeft, MapPin, Clock,
   Calendar, Sparkles, Zap, PlusCircle, LogOut, CheckCircle2,
-  AlertTriangle, Navigation, Settings2, ExternalLink, X,
+  AlertTriangle, Navigation, ExternalLink, X,
 } from "lucide-react"
 import {
   Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose,
@@ -317,8 +317,9 @@ export default function CrewPortalPage() {
         </div>
 
         {/* Availability */}
-        <button onClick={() => setShowAvail(true)} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
-          <Settings2 className="size-4 text-slate-400" />
+        <button onClick={() => setShowAvail(true)} className="rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 hover:bg-slate-100 transition-colors" style={{ border: "1px solid #e2ddd5" }}>
+          <Calendar className="size-3.5" style={{ color: theme.accent }} />
+          <span className="text-[10px] font-bold text-slate-600">Availability</span>
         </button>
       </div>
 
