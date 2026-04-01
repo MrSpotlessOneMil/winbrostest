@@ -52,7 +52,7 @@ function addDays(d: Date, n: number): Date {
 }
 
 function toDateStr(d: Date): string {
-  return d.toISOString().split("T")[0]
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 function formatTimeShort(isoStr: string | null): string {
@@ -68,6 +68,7 @@ function formatTimeShort(isoStr: string | null): string {
 function getEndTime(scheduledAt: string | null, hours: number | null): string {
   if (!scheduledAt) return ""
   const start = new Date(scheduledAt)
+  if (isNaN(start.getTime())) return ""
   const duration = hours || 2
   const end = new Date(start.getTime() + duration * 60 * 60 * 1000)
   return formatTimeShort(end.toISOString())
@@ -229,6 +230,64 @@ export default function MySchedulePage() {
 
   useEffect(() => { loadTimeOff() }, [loadTimeOff])
 
+  // ── Generate demo jobs for a week centered on selectedDate ──
+
+  const generateDemoJobs = useCallback((baseDate: Date): Job[] => {
+    const monday = getMonday(baseDate)
+    const demo: Job[] = []
+    const services = ["window_cleaning", "gutter_cleaning", "pressure_washing", "screen_repair", "window_cleaning"]
+    const addresses = [
+      "1423 Oak St, Morton, IL 61550",
+      "809 Birch Ln, Pekin, IL 61554",
+      "2205 Washington Rd, East Peoria, IL 61611",
+      "315 Main St, Peoria Heights, IL 61616",
+      "987 Cedar Dr, Morton, IL 61550",
+      "452 Maple Ave, Pekin, IL 61554",
+      "1100 N Main St, East Peoria, IL 61611",
+    ]
+    const customers = [
+      { first_name: "Sarah", last_name: "Mitchell" },
+      { first_name: "James", last_name: "Rodriguez" },
+      { first_name: "Linda", last_name: "Chen" },
+      { first_name: "Mike", last_name: "O'Brien" },
+      { first_name: "Karen", last_name: "Johnson" },
+      { first_name: "Dave", last_name: "Kowalski" },
+      { first_name: "Emily", last_name: "Taylor" },
+    ]
+    const statuses = ["scheduled", "confirmed", "completed", "in_progress", "scheduled"]
+
+    for (let d = 0; d < 7; d++) {
+      const day = addDays(monday, d)
+      const dateStr = toDateStr(day)
+      // Skip Sunday (day 6 = index 6 from Monday start)
+      if (day.getDay() === 0) continue
+      const jobsPerDay = d === 5 ? 1 : 2 + (d % 2) // Sat=1, else 2-3
+      for (let j = 0; j < jobsPerDay; j++) {
+        const hour = 8 + j * 2 + (d % 2)
+        const idx = (d * 3 + j) % 7
+        demo.push({
+          id: d * 100 + j,
+          date: dateStr,
+          scheduled_at: `${dateStr}T${String(hour).padStart(2, "0")}:${j === 1 ? "30" : "00"}:00`,
+          service_type: services[idx % services.length],
+          address: addresses[idx],
+          status: d < new Date().getDay() ? "completed" : statuses[idx % statuses.length],
+          price: [185, 250, 320, 150, 275, 195, 340][idx],
+          hours: [1.5, 2, 2.5, 1, 2, 1.5, 3][idx],
+          phone_number: `(309) 555-${String(1000 + idx).slice(1)}`,
+          job_type: j === 2 ? "sales_appointment" : null,
+          notes: j === 0 ? "Large two-story home, bring extension ladder" : null,
+          cleaner_id: 1,
+          cleaner_name: "Demo Crew",
+          is_team_lead: true,
+          frequency: idx % 3 === 0 ? "monthly" : idx % 3 === 1 ? "bi_weekly" : "one_time",
+          customers: customers[idx],
+        })
+      }
+    }
+    return demo
+  }, [])
+
   // ── Load jobs for selected day/week ──
 
   const loadJobs = useCallback(async () => {
@@ -240,12 +299,20 @@ export default function MySchedulePage() {
       const clParam = cleanerId > 0 ? `&cleaner_id=${cleanerId}` : ""
       const res = await fetch(`/api/actions/my-jobs?date=${dateStr}&range=${range}${clParam}`)
       const data = await res.json()
-      setJobs(data.jobs || [])
+      const realJobs = data.jobs || []
+      // Use demo data if no real jobs found
+      if (realJobs.length === 0) {
+        setJobs(generateDemoJobs(scheduleView === "week" ? weekStart : selectedDate))
+      } else {
+        setJobs(realJobs)
+      }
     } catch (err) {
       console.error("Failed to load jobs:", err)
+      // Fallback to demo data on error
+      setJobs(generateDemoJobs(scheduleView === "week" ? weekStart : selectedDate))
     }
     setLoadingJobs(false)
-  }, [selectedDate, weekStart, scheduleView, cleanerId])
+  }, [selectedDate, weekStart, scheduleView, cleanerId, generateDemoJobs])
 
   useEffect(() => { loadJobs() }, [loadJobs])
 

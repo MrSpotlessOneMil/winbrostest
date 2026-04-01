@@ -178,6 +178,56 @@ export default function CrewAssignmentPage() {
   const getAvailableTs = useCallback((dateStr: string) => technicians.filter(t => !isOff(t.id, dateStr)), [technicians, isOff])
   const getAvailableSs = useCallback((dateStr: string) => salesmen.filter(s => !isOff(s.id, dateStr)), [salesmen, isOff])
 
+  // Demo data generator for when no real data exists
+  const generateDemoData = useCallback((monday: Date) => {
+    const demoCleaners: Cleaner[] = [
+      { id: 101, name: "Jack Rivera", phone: "(309) 555-0101", is_team_lead: true, employee_type: "team_lead", active: true },
+      { id: 102, name: "Marcus Hall", phone: "(309) 555-0102", is_team_lead: true, employee_type: "team_lead", active: true },
+      { id: 103, name: "Tyler Brooks", phone: "(309) 555-0103", is_team_lead: false, employee_type: "technician", active: true },
+      { id: 104, name: "Noah Patel", phone: "(309) 555-0104", is_team_lead: false, employee_type: "technician", active: true },
+      { id: 105, name: "Ryan Garcia", phone: "(309) 555-0105", is_team_lead: false, employee_type: "technician", active: true },
+      { id: 106, name: "Derek Shaw", phone: "(309) 555-0106", is_team_lead: false, employee_type: "salesman", active: true },
+      { id: 107, name: "Chris Wen", phone: "(309) 555-0107", is_team_lead: false, employee_type: "salesman", active: true },
+    ]
+    const demoJobs: Job[] = []
+    const services = ["window_cleaning", "gutter_cleaning", "pressure_washing", "screen_repair"]
+    const addresses = [
+      "1423 Oak St, Morton, IL",
+      "809 Birch Ln, Pekin, IL",
+      "2205 Washington Rd, East Peoria, IL",
+      "315 Main St, Peoria Heights, IL",
+    ]
+    for (let d = 0; d < 6; d++) {
+      const day = addDays(monday, d)
+      const dateStr = toDateStr(day)
+      const leadId = d % 2 === 0 ? 101 : 102
+      for (let j = 0; j < 2 + (d % 2); j++) {
+        const hour = 8 + j * 2
+        demoJobs.push({
+          id: d * 100 + j, date: dateStr, scheduled_at: `${String(hour).padStart(2, "0")}:00`,
+          service_type: services[(d + j) % 4], address: addresses[(d + j) % 4],
+          status: d < 2 ? "completed" : "scheduled", price: [185, 250, 320, 150][(d + j) % 4],
+          hours: [1.5, 2, 2.5, 1][(d + j) % 4], cleaner_id: leadId, job_type: null, cleaner_name: null,
+        })
+      }
+    }
+    const demoCrewDays: CrewDay[] = []
+    for (let d = 0; d < 5; d++) {
+      const dateStr = toDateStr(addDays(monday, d))
+      demoCrewDays.push({
+        id: d + 1, date: dateStr, team_lead_id: d % 2 === 0 ? 101 : 102,
+        crew_day_members: [
+          { cleaner_id: 103 + (d % 3), role: "technician" },
+          ...(d % 2 === 0 ? [{ cleaner_id: 106, role: "salesman" }] : []),
+        ],
+      })
+    }
+    const demoTimeOff: TimeOffEntry[] = [
+      { cleaner_id: 105, date: toDateStr(addDays(monday, 3)) },
+    ]
+    return { cleaners: demoCleaners, crewDays: demoCrewDays, timeOff: demoTimeOff, jobs: demoJobs }
+  }, [])
+
   // Fetch data
   const fetchData = useCallback(async () => {
     const dateStr = toDateStr(weekStart)
@@ -186,15 +236,32 @@ export default function CrewAssignmentPage() {
         fetch(`/api/actions/crews?date=${dateStr}&week=true`).then(r => r.json()),
         fetch(`/api/actions/my-jobs?date=${dateStr}&range=week`).then(r => r.json()),
       ])
-      setCleaners(crewRes.cleaners || [])
-      setCrewDays(crewRes.crewDays || [])
-      setTimeOff(crewRes.timeOff || [])
-      setJobs(jobsRes.jobs || [])
+      const realCleaners = crewRes.cleaners || []
+      if (realCleaners.length === 0) {
+        // No crew data — seed with demo
+        const demo = generateDemoData(weekStart)
+        setCleaners(demo.cleaners)
+        setCrewDays(demo.crewDays)
+        setTimeOff(demo.timeOff)
+        setJobs(demo.jobs)
+      } else {
+        setCleaners(realCleaners)
+        setCrewDays(crewRes.crewDays || [])
+        setTimeOff(crewRes.timeOff || [])
+        setJobs(jobsRes.jobs || [])
+      }
       setLocalAssignments(new Map())
       setDirty(new Set())
-    } catch {}
+    } catch {
+      // Fallback to demo on error
+      const demo = generateDemoData(weekStart)
+      setCleaners(demo.cleaners)
+      setCrewDays(demo.crewDays)
+      setTimeOff(demo.timeOff)
+      setJobs(demo.jobs)
+    }
     setLoading(false)
-  }, [weekStart])
+  }, [weekStart, generateDemoData])
 
   useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
