@@ -54,7 +54,6 @@ const navigation = [
   { name: "Calendar", href: "/jobs", icon: CalendarDays, adminOnly: false },
   { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
-  { name: "Crew Board", href: "/crews", icon: Users, adminOnly: true, tenantOnly: "winbros" },
   { name: "Crew Assignment", href: "/my-schedule", icon: Clock, adminOnly: false, tenantOnly: "winbros" },
   { name: "Insights", href: "/insights", icon: Lightbulb, adminOnly: false },
   { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
