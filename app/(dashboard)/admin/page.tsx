@@ -2601,12 +2601,9 @@ export default function AdminPage() {
                           <div className="flex gap-2">
                             <textarea
                               className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                              value={(() => {
-                                const v = getFieldValue(currentTenant, "gmail_service_account_json")
-                                return v.startsWith("****") ? "" : v
-                              })()}
+                              value={getFieldValue(currentTenant, "gmail_service_account_json")}
                               onChange={(e) => setFieldValue("gmail_service_account_json", e.target.value)}
-                              placeholder={currentTenant.gmail_service_account_json ? "Service account JSON configured (hidden). Paste new value to replace." : "Paste the full JSON key from Google Cloud Console"}
+                              placeholder="Paste the full JSON key from Google Cloud Console"
                               rows={3}
                             />
                           </div>

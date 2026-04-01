@@ -135,7 +135,6 @@ export async function GET(request: NextRequest) {
     'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
     'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret', 'gmail_app_password',
-    'gmail_service_account_json',
   ]
   function maskSecret(val: string | null): string | null {
     if (!val) return null
@@ -361,7 +360,6 @@ export async function PATCH(request: NextRequest) {
     'openphone_api_key', 'vapi_api_key', 'stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret',
     'housecall_pro_api_key', 'housecall_pro_webhook_secret', 'ghl_webhook_secret',
     'telegram_bot_token', 'wave_api_token', 'openphone_webhook_secret', 'gmail_app_password',
-    'gmail_service_account_json',
   ])
   const updates: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(rawUpdates || {})) {
