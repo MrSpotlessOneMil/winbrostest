@@ -453,7 +453,10 @@ export default function CrewAssignmentPage() {
   /* ════════════════════════════════════════════════════════════════════════
      WORKER VIEW — Days off calendar + time block schedule
      ════════════════════════════════════════════════════════════════════════ */
-  if (!isAdmin) {
+  // Workers access their schedule via the crew portal, not the dashboard.
+  // All dashboard users see the admin crew board.
+  const showWorkerView = false
+  if (showWorkerView) {
     const workerOffSet = new Set(workerTimeOff.map(t => t.date))
     const calYear = calendarMonth.getFullYear()
     const calMonth = calendarMonth.getMonth()
