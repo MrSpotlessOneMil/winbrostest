@@ -64,6 +64,18 @@ export async function POST(request: NextRequest) {
     if (cleaner) {
       const token = await createEmployeeSession(cleaner.id)
 
+      // Look up tenant slug for employee
+      let employeeTenantSlug: string | null = null
+      if (cleaner.tenant_id) {
+        const client = getSupabaseServiceClient()
+        const { data: tenant } = await client
+          .from('tenants')
+          .select('slug')
+          .eq('id', cleaner.tenant_id)
+          .single()
+        if (tenant) employeeTenantSlug = tenant.slug
+      }
+
       const response = NextResponse.json({
         success: true,
         data: {
@@ -72,6 +84,7 @@ export async function POST(request: NextRequest) {
             id: -cleaner.id,
             username: cleaner.username,
             display_name: cleaner.name,
+            tenantSlug: employeeTenantSlug,
           },
           portalToken: cleaner.portal_token,
           sessionToken: token,

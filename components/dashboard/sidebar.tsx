@@ -23,7 +23,30 @@ import {
   Inbox,
   Clock,
 } from "lucide-react"
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
+
+// Tenant-specific accent colors
+const TENANT_COLORS: Record<string, { active: string; bg: string; bgStrong: string; text: string; textLight: string; btn: string; btnHover: string }> = {
+  winbros: {
+    active: "text-teal-400",
+    bg: "bg-teal-500/15",
+    bgStrong: "bg-teal-500/25",
+    text: "text-teal-300",
+    textLight: "text-teal-200",
+    btn: "bg-teal-500",
+    btnHover: "hover:bg-teal-600",
+  },
+}
+
+const DEFAULT_COLORS = {
+  active: "text-purple-400",
+  bg: "bg-purple-500/15",
+  bgStrong: "bg-purple-500/25",
+  text: "text-purple-300",
+  textLight: "text-purple-200",
+  btn: "bg-purple-500",
+  btnHover: "hover:bg-purple-600",
+}
 
 const navigation = [
   { name: "Command Center", href: "/overview", icon: LayoutDashboard, adminOnly: false },
@@ -49,6 +72,8 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps) {
   const pathname = usePathname()
   const { isAdmin, user, logout, accounts, addAccount, switchAccount, tenant } = useAuth()
+  const tenantSlug = tenant?.slug || user?.tenantSlug || ''
+  const c = useMemo(() => TENANT_COLORS[tenantSlug] || DEFAULT_COLORS, [tenantSlug])
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [dropdownVisible, setDropdownVisible] = useState(false)
   const [showAddAccount, setShowAddAccount] = useState(false)
@@ -131,7 +156,6 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
     })
 
   // Filter navigation items based on admin status
-  const tenantSlug = tenant?.slug || user?.tenantSlug || ''
   const filteredNavigation = navigation.filter(item => {
     if (item.adminOnly && !isAdmin) return false
     if ((item as any).tenantOnly && (item as any).tenantOnly !== tenantSlug) return false
@@ -146,6 +170,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
   return (
     <aside
       onWheel={handleWheel}
+      data-tenant={tenantSlug || undefined}
       className={`${
         collapsed ? "w-[3.5rem]" : "w-64"
       } bg-sidebar backdrop-blur-xl border-r border-sidebar-border h-full flex-shrink-0 flex flex-col transition-all duration-200 overflow-hidden`}
@@ -182,7 +207,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                   : "text-muted-foreground hover:text-foreground hover:bg-white/[0.03]"
               }`}
             >
-              <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-purple-400" : ""}`} />
+              <Icon className={`w-4 h-4 shrink-0 ${isActive ? c.active : ""}`} />
               {!collapsed && <span>{item.name}</span>}
             </Link>
           )
@@ -197,7 +222,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
               className="w-full flex items-center gap-2.5 px-2 py-2 rounded-md hover:bg-sidebar-accent text-left transition-colors"
             >
-              <div className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
+              <div className={`w-8 h-8 rounded-md ${c.bg} flex items-center justify-center text-xs font-semibold ${c.text} shrink-0`}>
                 {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
               </div>
               <div className="flex-1 min-w-0">
@@ -222,7 +247,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                   Current Account
                 </div>
                 <div className="flex items-center gap-2.5 px-3 py-2 bg-sidebar-accent">
-                  <div className="w-7 h-7 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300 shrink-0">
+                  <div className={`w-7 h-7 rounded-md ${c.bg} flex items-center justify-center text-xs font-semibold ${c.text} shrink-0`}>
                     {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -230,7 +255,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                       {user ? accountLabel(user) : "User"}
                     </div>
                   </div>
-                  <Check className="w-4 h-4 text-purple-400" />
+                  <Check className={`w-4 h-4 ${c.active}`} />
                 </div>
 
                 {/* Other accounts */}
@@ -248,26 +273,26 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                           disabled={switchingTo !== null}
                           className={`w-full flex items-center gap-2.5 px-3 py-2 text-left transition-all duration-150 ${
                             isSwitching
-                              ? "bg-purple-500/15 scale-[0.97]"
+                              ? `${c.bg} scale-[0.97]`
                               : "hover:bg-sidebar-accent scale-100"
                           }`}
                         >
                           <div className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0 transition-colors duration-150 ${
                             isSwitching
-                              ? "bg-purple-500/25 text-purple-300"
+                              ? `${c.bgStrong} ${c.text}`
                               : "bg-sidebar-accent/50 text-muted-foreground"
                           }`}>
                             {accountLabel(account.user).charAt(0).toUpperCase()}
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className={`text-sm font-medium truncate transition-colors duration-150 ${
-                              isSwitching ? "text-purple-200" : "text-foreground"
+                              isSwitching ? c.textLight : "text-foreground"
                             }`}>
                               {accountLabel(account.user)}
                             </div>
                           </div>
                           {isSwitching && (
-                            <Loader2 className="w-3.5 h-3.5 text-purple-400 animate-spin shrink-0" />
+                            <Loader2 className={`w-3.5 h-3.5 ${c.active} animate-spin shrink-0`} />
                           )}
                         </button>
                       )
@@ -319,7 +344,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
                     <button
                       type="submit"
                       disabled={loggingIn || !loginUsername || !loginPassword}
-                      className="w-full py-1.5 text-sm font-medium bg-purple-500 hover:bg-purple-600 disabled:bg-muted disabled:text-muted-foreground text-white rounded flex items-center justify-center gap-2"
+                      className={`w-full py-1.5 text-sm font-medium ${c.btn} ${c.btnHover} disabled:bg-muted disabled:text-muted-foreground text-white rounded flex items-center justify-center gap-2`}
                     >
                       {loggingIn ? (
                         <>
@@ -366,7 +391,7 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
             <button
               onClick={() => dropdownOpen ? closeDropdown() : setDropdownOpen(true)}
               title={user ? accountLabel(user) : "User"}
-              className="w-8 h-8 rounded-md bg-purple-500/15 flex items-center justify-center text-xs font-semibold text-purple-300"
+              className={`w-8 h-8 rounded-md ${c.bg} flex items-center justify-center text-xs font-semibold ${c.text}`}
             >
               {user ? accountLabel(user).charAt(0).toUpperCase() : "U"}
             </button>

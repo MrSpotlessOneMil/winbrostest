@@ -7,6 +7,18 @@ export async function GET(request: NextRequest) {
     // Check for employee session first
     const cleaner = await getAuthCleaner(request)
     if (cleaner) {
+      // Look up tenant slug for employee
+      let employeeTenantSlug: string | null = null
+      if (cleaner.tenant_id) {
+        const client = getSupabaseServiceClient()
+        const { data: tenant } = await client
+          .from('tenants')
+          .select('slug')
+          .eq('id', cleaner.tenant_id)
+          .single()
+        if (tenant) employeeTenantSlug = tenant.slug
+      }
+
       return NextResponse.json({
         success: true,
         data: {
@@ -16,6 +28,7 @@ export async function GET(request: NextRequest) {
             username: cleaner.username,
             display_name: cleaner.name,
             email: null,
+            tenantSlug: employeeTenantSlug,
           },
           portalToken: cleaner.portal_token,
           sessionToken: request.cookies.get(SESSION_COOKIE_NAME)?.value,

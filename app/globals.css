@@ -253,7 +253,11 @@
   bottom: 4px;
   width: 3px;
   border-radius: 0 3px 3px 0;
-  background: linear-gradient(180deg, #7c3aed, #4f46e5);
+  background: var(--sidebar-active-gradient, linear-gradient(180deg, #7c3aed, #4f46e5));
+}
+
+[data-tenant="winbros"] .sidebar-active-border::before {
+  background: linear-gradient(180deg, #14b8a6, #0d9488);
 }
 
 /* Logo glow effect */
