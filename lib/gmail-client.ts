@@ -1,5 +1,25 @@
 import nodemailer from 'nodemailer'
+import { google } from 'googleapis'
 import type { Job, Customer } from './supabase'
+
+// ---------------------------------------------------------------------------
+// Tenant type used by email functions
+// ---------------------------------------------------------------------------
+
+interface GmailTenant {
+  gmail_user?: string | null
+  gmail_app_password?: string | null
+  gmail_service_account_json?: string | null
+  gmail_impersonated_user?: string | null
+  business_name_short?: string | null
+  name?: string | null
+  openphone_phone_number?: string | null
+  owner_phone?: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Credential resolution
+// ---------------------------------------------------------------------------
 
 /** Format E.164 phone like (319) 261-9670 */
 function formatPhoneForDisplay(phone: string): string {
@@ -12,15 +32,19 @@ function formatPhoneForDisplay(phone: string): string {
 }
 
 /**
- * Resolve Gmail credentials: tenant-specific first, then env var fallback.
- * Tenant object needs gmail_user + gmail_app_password columns.
+ * Check if tenant has Gmail Service Account credentials (domain-wide delegation).
  */
-function getGmailCreds(tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }) {
-  // Tenant-specific creds take priority
+function hasServiceAccountCreds(tenant?: GmailTenant | null): boolean {
+  return !!(tenant?.gmail_service_account_json && tenant?.gmail_impersonated_user)
+}
+
+/**
+ * Resolve Gmail app-password credentials: tenant-specific first, then env var fallback.
+ */
+function getGmailCreds(tenant?: GmailTenant | null) {
   if (tenant?.gmail_user && tenant?.gmail_app_password) {
     return { user: tenant.gmail_user, pass: tenant.gmail_app_password }
   }
-  // Fallback to global env vars
   const user = process.env.GMAIL_USER
   const pass = process.env.GMAIL_APP_PASSWORD
   if (user && pass) return { user, pass }
@@ -34,13 +58,109 @@ function createTransporter(creds: { user: string; pass: string }) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Gmail API (Service Account) helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an authenticated Gmail API client using a service account JSON key
+ * with domain-wide delegation impersonating the given user.
+ */
+function getGmailApiClient(serviceAccountJson: string, impersonatedUser: string) {
+  const key = JSON.parse(serviceAccountJson)
+  const auth = new google.auth.JWT({
+    email: key.client_email,
+    key: key.private_key,
+    scopes: ['https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.readonly'],
+    subject: impersonatedUser,
+  })
+  return google.gmail({ version: 'v1', auth })
+}
+
+/**
+ * Build a RFC 2822 MIME message and Base64url-encode it for the Gmail API.
+ */
+function buildRawEmail(params: {
+  from: string
+  to: string
+  subject: string
+  html: string
+  inReplyTo?: string
+  references?: string[]
+}): string {
+  const boundary = `boundary_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const lines: string[] = [
+    `From: ${params.from}`,
+    `To: ${params.to}`,
+    `Subject: ${params.subject}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ]
+  if (params.inReplyTo) lines.push(`In-Reply-To: ${params.inReplyTo}`)
+  if (params.references && params.references.length > 0) lines.push(`References: ${params.references.join(' ')}`)
+
+  lines.push('', `--${boundary}`, 'Content-Type: text/html; charset="UTF-8"', 'Content-Transfer-Encoding: 7bit', '', params.html, '', `--${boundary}--`)
+
+  const raw = lines.join('\r\n')
+  return Buffer.from(raw).toString('base64url')
+}
+
+/**
+ * Send an email via the Gmail API (service account path).
+ */
+async function sendViaGmailApi(
+  tenant: GmailTenant,
+  params: {
+    to: string
+    subject: string
+    html: string
+    fromName?: string
+    inReplyTo?: string
+    references?: string[]
+  }
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    const gmail = getGmailApiClient(tenant.gmail_service_account_json!, tenant.gmail_impersonated_user!)
+    const fromAddr = tenant.gmail_impersonated_user!
+    const from = params.fromName ? `"${params.fromName}" <${fromAddr}>` : fromAddr
+
+    const raw = buildRawEmail({
+      from,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
+    })
+
+    const res = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw },
+    })
+
+    const messageId = res.data.id || ''
+    console.log(`[Gmail API] Email sent to ${params.to} from ${fromAddr}, ID: ${messageId}`)
+    return { success: true, messageId }
+  } catch (error) {
+    console.error('[Gmail API] Send error:', error)
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown Gmail API error',
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public email functions
+// ---------------------------------------------------------------------------
+
 interface ConfirmationEmailParams {
   customer: Customer
   job: Job
   waveInvoiceUrl?: string
   stripeDepositUrl: string
   cleanerName?: string
-  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null; business_name_short?: string | null; name?: string | null; openphone_phone_number?: string | null; owner_phone?: string | null }
+  tenant?: GmailTenant
   // Threading headers — keep confirmation in the same email thread
   inReplyTo?: string
   references?: string[]
@@ -51,13 +171,6 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
   success: boolean
   error?: string
 }> {
-  const creds = getGmailCreds(params.tenant)
-  if (!creds) {
-    console.error('Gmail credentials not configured')
-    return { success: false, error: 'Gmail credentials not configured' }
-  }
-
-  const transporter = createTransporter(creds)
   const { customer, job, waveInvoiceUrl, stripeDepositUrl, cleanerName } = params
 
   if (!customer.email) {
@@ -80,7 +193,7 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
   // Build service description for the email
   let serviceDescriptionHtml = ''
   try {
-    const { buildStaticCleaningDescription, buildPropertyLine } = await import('./invoices')
+    const { buildStaticCleaningDescription } = await import('./invoices')
     const desc = buildStaticCleaningDescription(job, customer)
     if (desc) {
       serviceDescriptionHtml = `<h3>What's Included:</h3><pre style="font-family: inherit; white-space: pre-wrap;">${desc}</pre>`
@@ -99,12 +212,10 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
        <p><strong>Pay Deposit:</strong> <a href="${stripeDepositUrl}">${stripeDepositUrl}</a></p>`
 
   const businessName = params.tenant?.name || params.tenant?.business_name_short || 'Our Team'
-  // Use the customer-facing phone number (OpenPhone) for email signature, fall back to owner phone
   const contactPhone = params.tenant?.openphone_phone_number || params.tenant?.owner_phone || null
   const formattedPhone = contactPhone ? formatPhoneForDisplay(contactPhone) : null
   const signatureLine = formattedPhone ? `${businessName}: ${formattedPhone}` : businessName
 
-  // Build email HTML
   const htmlBody = `
     <p>Congrats ${customer.first_name || 'there'}, we can confirm for ${dateStr} at ${timeStr}</p>
 
@@ -124,12 +235,30 @@ export async function sendConfirmationEmail(params: ConfirmationEmailParams): Pr
     ${signatureLine}</p>
   `.trim()
 
-  const fromName = params.tenant?.business_name_short || params.tenant?.name || undefined
-  const from = fromName
-    ? `"${fromName}" <${creds.user}>`
-    : creds.user
-
   const subject = params.subjectOverride || `Booking Confirmed - ${job.service_type || 'Cleaning'} on ${dateStr}`
+
+  // --- Service Account path ---
+  if (hasServiceAccountCreds(params.tenant)) {
+    return sendViaGmailApi(params.tenant!, {
+      to: customer.email,
+      subject,
+      html: htmlBody,
+      fromName: params.tenant?.business_name_short || params.tenant?.name || undefined,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
+    })
+  }
+
+  // --- App Password / SMTP path ---
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
+    console.error('Gmail credentials not configured')
+    return { success: false, error: 'Gmail credentials not configured' }
+  }
+
+  const transporter = createTransporter(creds)
+  const fromName = params.tenant?.business_name_short || params.tenant?.name || undefined
+  const from = fromName ? `"${fromName}" <${creds.user}>` : creds.user
 
   try {
     await transporter.sendMail({
@@ -165,26 +294,19 @@ export async function sendReplyEmail(params: {
   fromName?: string
   inReplyTo?: string  // Message-ID of the email being replied to
   references?: string[] // Reference chain for threading
-  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }
+  tenant?: GmailTenant
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const creds = getGmailCreds(params.tenant)
-  if (!creds) {
-    return { success: false, error: 'Gmail credentials not configured' }
-  }
-
-  const transporter = createTransporter(creds)
-
   // Strip any markdown formatting that the AI might include
   const cleanedBody = params.body
-    .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
-    .replace(/\*(.+?)\*/g, '$1')       // *italic* → italic
-    .replace(/__(.+?)__/g, '$1')       // __bold__ → bold
-    .replace(/_(.+?)_/g, '$1')         // _italic_ → italic
-    .replace(/^#{1,6}\s+/gm, '')       // # headers → plain text
-    .replace(/\[(.+?)\]\(.+?\)/g, '$1') // [text](url) → text
-    .replace(/`(.+?)`/g, '$1')         // `code` → code
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\[(.+?)\]\(.+?\)/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
 
-  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
+  // Convert plain text to clean HTML
   const htmlBody = cleanedBody
     .split(/\n{2,}/)
     .map(para => para.trim())
@@ -192,6 +314,25 @@ export async function sendReplyEmail(params: {
     .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
+  // --- Service Account path ---
+  if (hasServiceAccountCreds(params.tenant)) {
+    return sendViaGmailApi(params.tenant!, {
+      to: params.to,
+      subject: params.subject,
+      html: htmlBody,
+      fromName: params.fromName,
+      inReplyTo: params.inReplyTo,
+      references: params.references,
+    })
+  }
+
+  // --- App Password / SMTP path ---
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
+    return { success: false, error: 'Gmail credentials not configured' }
+  }
+
+  const transporter = createTransporter(creds)
   const from = params.fromName
     ? `"${params.fromName}" <${creds.user}>`
     : creds.user
@@ -229,17 +370,9 @@ export async function sendCustomEmail(params: {
   subject: string
   body: string
   fromName?: string
-  tenant?: { gmail_user?: string | null; gmail_app_password?: string | null }
+  tenant?: GmailTenant
 }): Promise<{ success: boolean; error?: string }> {
-  const creds = getGmailCreds(params.tenant)
-  if (!creds) {
-    console.error('Gmail credentials not configured')
-    return { success: false, error: 'Gmail credentials not configured' }
-  }
-
-  const transporter = createTransporter(creds)
-
-  // Convert plain text to clean HTML: paragraphs on blank lines, <br> for single newlines
+  // Convert plain text to clean HTML
   const htmlBody = params.body
     .split(/\n{2,}/)
     .map(para => para.trim())
@@ -247,6 +380,24 @@ export async function sendCustomEmail(params: {
     .map(para => `<p style="margin:0 0 12px 0">${para.replace(/\n/g, '<br>')}</p>`)
     .join('\n')
 
+  // --- Service Account path ---
+  if (hasServiceAccountCreds(params.tenant)) {
+    return sendViaGmailApi(params.tenant!, {
+      to: params.to,
+      subject: params.subject,
+      html: htmlBody,
+      fromName: params.fromName,
+    })
+  }
+
+  // --- App Password / SMTP path ---
+  const creds = getGmailCreds(params.tenant)
+  if (!creds) {
+    console.error('Gmail credentials not configured')
+    return { success: false, error: 'Gmail credentials not configured' }
+  }
+
+  const transporter = createTransporter(creds)
   const from = params.fromName
     ? `"${params.fromName}" <${creds.user}>`
     : creds.user
@@ -269,3 +420,7 @@ export async function sendCustomEmail(params: {
     }
   }
 }
+
+// Re-export for use by gmail-imap.ts and other modules
+export { getGmailApiClient, hasServiceAccountCreds }
+export type { GmailTenant }

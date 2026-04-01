@@ -147,6 +147,9 @@ interface Tenant {
   // Gmail (Email Bot)
   gmail_user: string | null
   gmail_app_password: string | null
+  // Gmail (Service Account)
+  gmail_service_account_json: string | null
+  gmail_impersonated_user: string | null
   // Webhook registration timestamps
   telegram_webhook_registered_at: string | null
   stripe_webhook_registered_at: string | null
@@ -229,6 +232,8 @@ export default function AdminPage() {
     ghl_location_id: "",
     gmail_user: "",
     gmail_app_password: "",
+    gmail_service_account_json: "",
+    gmail_impersonated_user: "",
     seed_pricing: "default" as "default" | "skip",
   })
   const [onboarding, setOnboarding] = useState(false)
@@ -423,6 +428,8 @@ export default function AdminPage() {
       ghl_location_id: "",
       gmail_user: "",
       gmail_app_password: "",
+      gmail_service_account_json: "",
+      gmail_impersonated_user: "",
       seed_pricing: "default",
     })
     setOnboarding(false)
@@ -451,6 +458,8 @@ export default function AdminPage() {
       tests.push({ service: "wave", credentials: { wave_api_token: onboardForm.wave_api_token, wave_business_id: onboardForm.wave_business_id } })
     if (onboardForm.gmail_user && onboardForm.gmail_app_password)
       tests.push({ service: "gmail", credentials: { gmail_user: onboardForm.gmail_user, gmail_app_password: onboardForm.gmail_app_password } })
+    if (onboardForm.gmail_service_account_json && onboardForm.gmail_impersonated_user)
+      tests.push({ service: "gmail-service-account", credentials: { gmail_service_account_json: onboardForm.gmail_service_account_json, gmail_impersonated_user: onboardForm.gmail_impersonated_user } })
     if (tests.length === 0) return
     setWizardTesting("all")
     const results = await Promise.allSettled(
@@ -701,6 +710,8 @@ export default function AdminPage() {
       { label: "Wave Income Account ID", value: currentTenant.wave_income_account_id },
       { label: "Gmail User", value: currentTenant.gmail_user },
       { label: "Gmail App Password", value: currentTenant.gmail_app_password },
+      { label: "Gmail Service Account JSON", value: currentTenant.gmail_service_account_json },
+      { label: "Gmail Impersonated User", value: currentTenant.gmail_impersonated_user },
     ]
 
     const text = credentialFields
@@ -2529,44 +2540,86 @@ export default function AdminPage() {
                         <MessageSquare className="h-4 w-4" />
                         Gmail (Email Bot)
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                      {/* App Password method */}
+                      <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Option A: App Password (SMTP)</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label className="text-sm">Gmail Address</Label>
+                            <Input
+                              value={getFieldValue(currentTenant, "gmail_user")}
+                              onChange={(e) => setFieldValue("gmail_user", e.target.value)}
+                              placeholder="business@gmail.com"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-sm">App Password</Label>
+                            <div className="flex gap-2">
+                              <Input
+                                type={revealedFields.has("gmail_app_password") ? "text" : "password"}
+                                value={getFieldValue(currentTenant, "gmail_app_password")}
+                                onChange={(e) => setFieldValue("gmail_app_password", e.target.value)}
+                                placeholder={currentTenant.gmail_app_password ? maskKey(currentTenant.gmail_app_password) : "Enter app password"}
+                              />
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => toggleReveal("gmail_app_password")}
+                              >
+                                {revealedFields.has("gmail_app_password") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Button variant="outline" size="sm" onClick={() => testConnection("gmail")} disabled={testingService === "gmail" || !currentTenant.gmail_user || !currentTenant.gmail_app_password}>
+                            {testingService === "gmail" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                            Test SMTP
+                          </Button>
+                          {testResults["gmail"] && (
+                            <span className="inline-flex cursor-pointer" title={testResults["gmail"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["gmail"].message)}>
+                              {testResults["gmail"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Service Account method */}
+                      <div className="space-y-3 pt-3 border-t border-border/50">
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Option B: Service Account (Gmail API)</p>
                         <div className="space-y-2">
-                          <Label className="text-sm">Gmail Address</Label>
+                          <Label className="text-sm">Impersonated User (send-as email)</Label>
                           <Input
-                            value={getFieldValue(currentTenant, "gmail_user")}
-                            onChange={(e) => setFieldValue("gmail_user", e.target.value)}
-                            placeholder="business@gmail.com"
+                            value={getFieldValue(currentTenant, "gmail_impersonated_user")}
+                            onChange={(e) => setFieldValue("gmail_impersonated_user", e.target.value)}
+                            placeholder="mary@westniagaracleaning.com"
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label className="text-sm">App Password</Label>
+                          <Label className="text-sm">Service Account JSON Key</Label>
                           <div className="flex gap-2">
-                            <Input
-                              type={revealedFields.has("gmail_app_password") ? "text" : "password"}
-                              value={getFieldValue(currentTenant, "gmail_app_password")}
-                              onChange={(e) => setFieldValue("gmail_app_password", e.target.value)}
-                              placeholder={currentTenant.gmail_app_password ? maskKey(currentTenant.gmail_app_password) : "Enter app password"}
+                            <textarea
+                              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              value={getFieldValue(currentTenant, "gmail_service_account_json")}
+                              onChange={(e) => setFieldValue("gmail_service_account_json", e.target.value)}
+                              placeholder={currentTenant.gmail_service_account_json ? "••••••••" + (currentTenant.gmail_service_account_json.slice(-4) || "") : 'Paste the full JSON key from Google Cloud Console'}
+                              rows={3}
                             />
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              onClick={() => toggleReveal("gmail_app_password")}
-                            >
-                              {revealedFields.has("gmail_app_password") ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                            </Button>
                           </div>
+                          <p className="text-xs text-muted-foreground">Requires domain-wide delegation enabled in Google Admin Console</p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3 pt-2 border-t border-border/50 flex-wrap">
-                        <Button variant="outline" size="sm" onClick={() => testConnection("gmail")} disabled={testingService === "gmail" || !currentTenant.gmail_user || !currentTenant.gmail_app_password}>
-                          {testingService === "gmail" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
-                          Test Connection
-                        </Button>
-                        {testResults["gmail"] && (
-                          <span className="inline-flex cursor-pointer" title={testResults["gmail"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["gmail"].message)}>
-                            {testResults["gmail"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                          </span>
-                        )}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Button variant="outline" size="sm" onClick={() => testConnection("gmail-service-account")} disabled={testingService === "gmail-service-account" || !currentTenant.gmail_service_account_json || !currentTenant.gmail_impersonated_user}>
+                            {testingService === "gmail-service-account" ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />}
+                            Test Gmail API
+                          </Button>
+                          {testResults["gmail-service-account"] && (
+                            <span className="inline-flex cursor-pointer" title={testResults["gmail-service-account"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(testResults["gmail-service-account"].message)}>
+                              {testResults["gmail-service-account"].success ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" /> : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </TabsContent>
@@ -2607,8 +2660,8 @@ export default function AdminPage() {
                             },
                             {
                               label: "Gmail (Email Bot)",
-                              description: "Gmail address, app password",
-                              ok: !!(currentTenant.gmail_user && currentTenant.gmail_app_password),
+                              description: "App password or service account",
+                              ok: !!(currentTenant.gmail_user && currentTenant.gmail_app_password) || !!(currentTenant.gmail_service_account_json && currentTenant.gmail_impersonated_user),
                               optional: true,
                             },
                             {
@@ -3442,25 +3495,65 @@ export default function AdminPage() {
                     <div className="flex items-center gap-2 mb-1.5">
                       <Label className="font-semibold text-sm">Gmail (Email Bot)</Label>
                       <span className="text-xs text-muted-foreground">Automated email sending</span>
-                      <div className="flex-1" />
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
-                        disabled={!onboardForm.gmail_user || !onboardForm.gmail_app_password || !!wizardTesting}
-                        onClick={() => testConnectionDirect("gmail", { gmail_user: onboardForm.gmail_user, gmail_app_password: onboardForm.gmail_app_password })}
-                      >
-                        {wizardTesting === "gmail" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
-                      </Button>
-                      {wizardTestResults.gmail && (
-                        <span className="inline-flex cursor-pointer" title={wizardTestResults.gmail.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.gmail.message)}>
-                          {wizardTestResults.gmail.success
-                            ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                            : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
-                        </span>
-                      )}
                     </div>
-                    <div className="space-y-1.5">
-                      <Input className="h-8 text-sm" type="email" placeholder="Gmail address (e.g. business@gmail.com)" value={onboardForm.gmail_user} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_user: e.target.value })} />
-                      <Input className="h-8 text-sm" type="password" placeholder="App Password (not regular password)" value={onboardForm.gmail_app_password} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_app_password: e.target.value })} />
-                      <p className="text-xs text-muted-foreground">Use a Gmail App Password — generate one at Google Account → Security → App Passwords</p>
+
+                    {/* Option A: App Password */}
+                    <div className="space-y-1.5 mb-2">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Option A: App Password</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 space-y-1.5">
+                          <Input className="h-8 text-sm" type="email" placeholder="Gmail address (e.g. business@gmail.com)" value={onboardForm.gmail_user} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_user: e.target.value })} />
+                          <Input className="h-8 text-sm" type="password" placeholder="App Password (not regular password)" value={onboardForm.gmail_app_password} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_app_password: e.target.value })} />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                            disabled={!onboardForm.gmail_user || !onboardForm.gmail_app_password || !!wizardTesting}
+                            onClick={() => testConnectionDirect("gmail", { gmail_user: onboardForm.gmail_user, gmail_app_password: onboardForm.gmail_app_password })}
+                          >
+                            {wizardTesting === "gmail" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                          </Button>
+                          {wizardTestResults.gmail && (
+                            <span className="inline-flex cursor-pointer" title={wizardTestResults.gmail.message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults.gmail.message)}>
+                              {wizardTestResults.gmail.success
+                                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Option B: Service Account */}
+                    <div className="space-y-1.5 pt-2 border-t border-zinc-700">
+                      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Option B: Service Account (Gmail API)</p>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 space-y-1.5">
+                          <Input className="h-8 text-sm" type="email" placeholder="Impersonated user (e.g. mary@westniagaracleaning.com)" value={onboardForm.gmail_impersonated_user} onChange={(e) => setOnboardForm({ ...onboardForm, gmail_impersonated_user: e.target.value })} />
+                          <textarea
+                            className="flex min-h-[60px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                            placeholder="Paste full service account JSON key"
+                            value={onboardForm.gmail_service_account_json}
+                            onChange={(e) => setOnboardForm({ ...onboardForm, gmail_service_account_json: e.target.value })}
+                            rows={2}
+                          />
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-xs shrink-0"
+                            disabled={!onboardForm.gmail_service_account_json || !onboardForm.gmail_impersonated_user || !!wizardTesting}
+                            onClick={() => testConnectionDirect("gmail-service-account", { gmail_service_account_json: onboardForm.gmail_service_account_json, gmail_impersonated_user: onboardForm.gmail_impersonated_user })}
+                          >
+                            {wizardTesting === "gmail-service-account" ? <Loader2 className="h-3 w-3 animate-spin" /> : "Test"}
+                          </Button>
+                          {wizardTestResults["gmail-service-account"] && (
+                            <span className="inline-flex cursor-pointer" title={wizardTestResults["gmail-service-account"].message + "\n(Click to copy)"} onClick={() => navigator.clipboard.writeText(wizardTestResults["gmail-service-account"].message)}>
+                              {wizardTestResults["gmail-service-account"].success
+                                ? <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                                : <X className="h-3.5 w-3.5 text-red-500 shrink-0" />}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Requires domain-wide delegation in Google Admin</p>
                     </div>
                   </div>
 
@@ -3663,7 +3756,7 @@ export default function AdminPage() {
                         { name: "HousecallPro", configured: !!onboardForm.housecall_pro_api_key, testKey: null, registerKey: null, needsManual: true },
                         { name: "Wave", configured: !!onboardForm.wave_api_token, testKey: "wave", registerKey: null, needsManual: false },
                         { name: "GHL", configured: !!onboardForm.ghl_location_id, testKey: null, registerKey: null, needsManual: true },
-                        { name: "Gmail", configured: !!onboardForm.gmail_user, testKey: "gmail", registerKey: null, needsManual: false },
+                        { name: "Gmail", configured: !!onboardForm.gmail_user || !!onboardForm.gmail_service_account_json, testKey: onboardForm.gmail_service_account_json ? "gmail-service-account" : "gmail", registerKey: null, needsManual: false },
                       ].filter(s => s.configured)
                       if (configuredServices.length === 0) return (
                         <div className="border-t border-zinc-600 pt-3 mt-3 text-sm">

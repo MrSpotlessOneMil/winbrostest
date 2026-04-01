@@ -217,6 +217,28 @@ export async function testGmailConnection(gmailUser: string, appPassword: string
 }
 
 // ---------------------------------------------------------------------------
+// Gmail Service Account verification (domain-wide delegation)
+// ---------------------------------------------------------------------------
+
+export async function testGmailServiceAccountConnection(
+  serviceAccountJson: string,
+  impersonatedUser: string,
+): Promise<StepResult> {
+  const { google } = await import("googleapis")
+  const key = JSON.parse(serviceAccountJson)
+  const auth = new google.auth.JWT({
+    email: key.client_email,
+    key: key.private_key,
+    scopes: ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/gmail.readonly"],
+    subject: impersonatedUser,
+  })
+  const gmail = google.gmail({ version: "v1", auth })
+  // Verify by fetching profile — this confirms delegation works
+  const profile = await gmail.users.getProfile({ userId: "me" })
+  return { ok: true, message: `Gmail API authenticated as ${profile.data.emailAddress}` }
+}
+
+// ---------------------------------------------------------------------------
 // Webhook registration
 // ---------------------------------------------------------------------------
 

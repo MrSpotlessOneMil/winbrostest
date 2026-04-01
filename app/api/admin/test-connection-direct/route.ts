@@ -8,6 +8,7 @@ import {
   testTelegramConnection,
   testWaveConnection,
   testGmailConnection,
+  testGmailServiceAccountConnection,
 } from "@/lib/admin-onboard"
 
 /**
@@ -87,6 +88,14 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Gmail address and app password are required" }, { status: 400 })
         }
         const result = await testGmailConnection(credentials.gmail_user, credentials.gmail_app_password)
+        return NextResponse.json({ success: result.ok, message: result.message })
+      }
+
+      case "gmail-service-account": {
+        if (!credentials.gmail_service_account_json || !credentials.gmail_impersonated_user) {
+          return NextResponse.json({ success: false, error: "Service account JSON and impersonated user email are required" }, { status: 400 })
+        }
+        const result = await testGmailServiceAccountConnection(credentials.gmail_service_account_json, credentials.gmail_impersonated_user)
         return NextResponse.json({ success: result.ok, message: result.message })
       }
 

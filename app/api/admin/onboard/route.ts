@@ -88,6 +88,8 @@ export async function POST(request: NextRequest) {
     ghl_location_id,
     gmail_user,
     gmail_app_password,
+    gmail_service_account_json,
+    gmail_impersonated_user,
     custom_credentials,
     seed_pricing,
   } = body
@@ -285,6 +287,8 @@ export async function POST(request: NextRequest) {
   if (ghl_location_id) credentials.ghl_location_id = ghl_location_id
   if (gmail_user) credentials.gmail_user = gmail_user
   if (gmail_app_password) credentials.gmail_app_password = gmail_app_password
+  if (gmail_service_account_json) credentials.gmail_service_account_json = gmail_service_account_json
+  if (gmail_impersonated_user) credentials.gmail_impersonated_user = gmail_impersonated_user
   if (custom_credentials && typeof custom_credentials === "object" && Object.keys(custom_credentials).length > 0) {
     credentials.custom_credentials = custom_credentials
   }

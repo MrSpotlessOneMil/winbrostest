@@ -8,6 +8,7 @@ import {
   testTelegramConnection,
   testWaveConnection,
   testGmailConnection,
+  testGmailServiceAccountConnection,
 } from "@/lib/admin-onboard"
 
 export async function POST(request: NextRequest) {
@@ -87,6 +88,14 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ success: false, error: "Gmail address or app password not configured" }, { status: 400 })
         }
         const result = await testGmailConnection(tenant.gmail_user, tenant.gmail_app_password)
+        return NextResponse.json({ success: result.ok, message: result.message })
+      }
+
+      case "gmail-service-account": {
+        if (!tenant.gmail_service_account_json || !tenant.gmail_impersonated_user) {
+          return NextResponse.json({ success: false, error: "Gmail service account JSON or impersonated user not configured" }, { status: 400 })
+        }
+        const result = await testGmailServiceAccountConnection(tenant.gmail_service_account_json, tenant.gmail_impersonated_user)
         return NextResponse.json({ success: result.ok, message: result.message })
       }
 
