@@ -16,7 +16,6 @@ import { PRICING_TABLE } from '@/lib/pricing-config'
  * For booking_followup: sends a thank-you text after booking is confirmed.
  */
 
-// Map VAPI assistant IDs → tenant slugs
 const ASSISTANT_TENANT_MAP: Record<string, string> = {
   'e3ed2426-dc28-4046-a5e9-0fbb945ff706': 'spotless-scrubbers',
   '81cee3b3-324f-4d05-900e-ac0f57ed283f': 'west-niagara',
@@ -35,43 +34,35 @@ async function resolveTenantSlugFromAssistant(assistantId: string): Promise<stri
   return data?.slug || null
 }
 
-/**
- * Look up the standard cleaning price from pricing-data.json.
- * Matches exact bedrooms + closest bathrooms (rounds up).
- */
+/** Look up price from pricing-data.json with optional service type multiplier. */
 function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string): number | null {
   const table = PRICING_TABLE.standard
   if (!table || !Array.isArray(table)) return null
 
+  let base: number | null = null
+
   const exact = table.find(r => r.bedrooms === bedrooms && r.bathrooms === bathrooms)
   if (exact) {
-    const base = exact.price
-    if (serviceType === 'deep') return Math.round(base * 1.5 * 100) / 100
-    if (serviceType === 'move') return Math.round(base * 1.75 * 100) / 100
-    return base
+    base = exact.price
+  } else {
+    const sameBed = table
+      .filter(r => r.bedrooms === bedrooms && r.bathrooms >= bathrooms)
+      .sort((a, b) => a.bathrooms - b.bathrooms)
+    if (sameBed.length > 0) {
+      base = sameBed[0].price
+    } else {
+      const higher = table
+        .filter(r => r.bedrooms >= bedrooms && r.bathrooms >= bathrooms)
+        .sort((a, b) => a.bedrooms - b.bedrooms || a.bathrooms - b.bathrooms)
+      if (higher.length > 0) base = higher[0].price
+    }
   }
 
-  const sameBed = table
-    .filter(r => r.bedrooms === bedrooms && r.bathrooms >= bathrooms)
-    .sort((a, b) => a.bathrooms - b.bathrooms)
-  if (sameBed.length > 0) {
-    const base = sameBed[0].price
-    if (serviceType === 'deep') return Math.round(base * 1.5 * 100) / 100
-    if (serviceType === 'move') return Math.round(base * 1.75 * 100) / 100
-    return base
-  }
+  if (base === null) return null
 
-  const higher = table
-    .filter(r => r.bedrooms >= bedrooms && r.bathrooms >= bathrooms)
-    .sort((a, b) => a.bedrooms - b.bedrooms || a.bathrooms - b.bathrooms)
-  if (higher.length > 0) {
-    const base = higher[0].price
-    if (serviceType === 'deep') return Math.round(base * 1.5 * 100) / 100
-    if (serviceType === 'move') return Math.round(base * 1.75 * 100) / 100
-    return base
-  }
-
-  return null
+  if (serviceType === 'deep') return Math.round(base * 1.5)
+  if (serviceType === 'move' || serviceType === 'move_in_out') return Math.round(base * 1.75)
+  return Math.round(base)
 }
 
 function toNumber(val: unknown): number | null {
@@ -83,16 +74,20 @@ function toNumber(val: unknown): number | null {
   return null
 }
 
-/**
- * Create a quote in the DB and return its public URL.
- * Returns null if creation fails (non-blocking — SMS still sends).
- */
+/** Map service_type param to DB service_category value */
+function toServiceCategory(serviceType: string): string {
+  if (serviceType === 'deep') return 'deep'
+  if (serviceType === 'move' || serviceType === 'move_in_out') return 'move_in_out'
+  return 'standard'
+}
+
 async function createQuoteAndGetLink(
   tenantId: string,
   phone: string,
   bedrooms: number,
   bathrooms: number,
   customerName: string | null,
+  serviceCategory: string,
   domain: string,
 ): Promise<string | null> {
   const supabase = getSupabaseServiceClient()
@@ -104,7 +99,7 @@ async function createQuoteAndGetLink(
       customer_phone: phone,
       bedrooms,
       bathrooms,
-      service_category: 'standard',
+      service_category: serviceCategory,
       notes: 'Created from VAPI voice call',
     })
     .select('token')
@@ -154,6 +149,7 @@ export async function POST(request: NextRequest) {
 
   const customerName = typeof params.customer_name === 'string' ? params.customer_name.trim() : ''
   const messageType = typeof params.message_type === 'string' ? params.message_type.trim() : 'price_quote'
+  const serviceType = typeof params.service_type === 'string' ? params.service_type.trim() : 'standard'
 
   const bedrooms = toNumber(params.bedrooms)
   const bathrooms = toNumber(params.bathrooms)
@@ -164,11 +160,23 @@ export async function POST(request: NextRequest) {
       ? String(params.price)
       : ''
 
+  // Price resolution:
+  // 1. If service_type provided → use server lookup with that multiplier
+  // 2. If model price > standard lookup → trust model (it calculated deep/move-out from prompt)
+  // 3. Else → standard lookup
   let finalPrice = ''
   if (bedrooms !== null && bathrooms !== null) {
-    const lookedUp = lookupPrice(bedrooms, bathrooms)
-    if (lookedUp !== null) {
-      finalPrice = String(Math.round(lookedUp))
+    const standardPrice = lookupPrice(bedrooms, bathrooms)
+    const tieredPrice = lookupPrice(bedrooms, bathrooms, serviceType)
+    const modelPriceNum = modelPrice ? parseFloat(modelPrice) : 0
+
+    if (serviceType !== 'standard' && tieredPrice !== null) {
+      finalPrice = String(tieredPrice)
+    } else if (modelPriceNum > 0 && standardPrice !== null && modelPriceNum > standardPrice) {
+      // Model quoted higher than standard — trust it (deep/move-out pricing from prompt)
+      finalPrice = String(Math.round(modelPriceNum))
+    } else if (standardPrice !== null) {
+      finalPrice = String(standardPrice)
     } else if (modelPrice) {
       finalPrice = modelPrice
     }
@@ -179,6 +187,7 @@ export async function POST(request: NextRequest) {
   const normalizedPhone = toE164(phone)
   const businessName = tenant.business_name || tenant.slug
   const domain = tenant.website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
+  const serviceCategory = toServiceCategory(serviceType)
 
   let smsMessage: string
   if (messageType === 'booking_followup') {
@@ -186,12 +195,11 @@ export async function POST(request: NextRequest) {
       ? `Hey ${customerName}, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
       : `Hey, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
   } else {
-    // price_quote: create quote in DB and include payment link
     let quoteLink: string | null = null
     if (bedrooms !== null && bathrooms !== null) {
       quoteLink = await createQuoteAndGetLink(
         tenant.id, normalizedPhone, bedrooms, bathrooms,
-        customerName || null, domain,
+        customerName || null, serviceCategory, domain,
       )
     }
 
