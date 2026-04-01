@@ -405,37 +405,19 @@ export default function CrewAssignmentPage() {
   const fetchData = useCallback(async () => {
     const dateStr = toDateStr(weekStart)
     try {
-      const fetches: Promise<any>[] = [
+      // Admin/crew board: fetch ALL jobs (no cleaner_id filter)
+      const [crewRes, jobsRes] = await Promise.all([
         fetch(`/api/actions/crews?date=${dateStr}&week=true`).then(r => r.json()),
-        fetch(`/api/actions/my-jobs?date=${dateStr}&range=week${cleanerId && cleanerId > 0 ? `&cleaner_id=${cleanerId}` : ""}`).then(r => r.json()),
-      ]
-      const [crewRes, jobsRes] = await Promise.all(fetches)
-      const realCleaners = crewRes.cleaners || []
-      if (realCleaners.length === 0) {
-        // No cleaners at all — full demo
-        const demo = generateDemoData(weekStart)
-        setCleaners(demo.cleaners); setCrewDays(demo.crewDays); setTimeOff(demo.timeOff); setJobs(demo.jobs)
-      } else {
-        setCleaners(realCleaners)
-        setCrewDays(crewRes.crewDays || [])
-        setTimeOff(crewRes.timeOff || [])
-        const realJobs = jobsRes.jobs || []
-        if (realJobs.length === 0) {
-          // Real cleaners exist but no jobs — generate demo jobs for the real TLs
-          const realTLs = realCleaners.filter((c: Cleaner) => c.is_team_lead && c.active)
-          const demoJobs = generateDemoJobsForCleaners(weekStart, realTLs)
-          setJobs(demoJobs)
-        } else {
-          setJobs(realJobs)
-        }
-      }
+        fetch(`/api/actions/my-jobs?date=${dateStr}&range=week`).then(r => r.json()),
+      ])
+      setCleaners(crewRes.cleaners || [])
+      setCrewDays(crewRes.crewDays || [])
+      setTimeOff(crewRes.timeOff || [])
+      setJobs(jobsRes.jobs || [])
       setLocalAssignments(new Map()); setDirty(new Set())
-    } catch {
-      const demo = generateDemoData(weekStart)
-      setCleaners(demo.cleaners); setCrewDays(demo.crewDays); setTimeOff(demo.timeOff); setJobs(demo.jobs)
-    }
+    } catch { }
     setLoading(false)
-  }, [weekStart, isAdmin, cleanerId, generateDemoJobsForCleaners])
+  }, [weekStart])
 
   useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
