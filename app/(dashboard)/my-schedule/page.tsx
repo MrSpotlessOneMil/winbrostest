@@ -313,9 +313,25 @@ export default function CrewAssignmentPage() {
     return (tlAsn?.members || []).map(m => cleaners.find(c => c.id === m.cleaner_id)).filter(Boolean) as Cleaner[]
   }, [getAssignments, cleaners])
 
+  // Get all assigned member IDs for a day (across all TLs) to prevent double-booking
+  const getAssignedIdsForDay = useCallback((dateStr: string): Set<number> => {
+    const dayAsn = getAssignments(dateStr)
+    const ids = new Set<number>()
+    for (const a of dayAsn) {
+      for (const m of a.members) ids.add(m.cleaner_id)
+    }
+    return ids
+  }, [getAssignments])
+
   const getAvailableTLs = useCallback((dateStr: string) => teamLeads.filter(tl => !isOff(tl.id, dateStr)), [teamLeads, isOff])
-  const getAvailableTs = useCallback((dateStr: string) => technicians.filter(t => !isOff(t.id, dateStr)), [technicians, isOff])
-  const getAvailableSs = useCallback((dateStr: string) => salesmen.filter(s => !isOff(s.id, dateStr)), [salesmen, isOff])
+  const getAvailableTs = useCallback((dateStr: string) => {
+    const assigned = getAssignedIdsForDay(dateStr)
+    return technicians.filter(t => !isOff(t.id, dateStr) && !assigned.has(t.id))
+  }, [technicians, isOff, getAssignedIdsForDay])
+  const getAvailableSs = useCallback((dateStr: string) => {
+    const assigned = getAssignedIdsForDay(dateStr)
+    return salesmen.filter(s => !isOff(s.id, dateStr) && !assigned.has(s.id))
+  }, [salesmen, isOff, getAssignedIdsForDay])
 
   // ── Resolve worker cleaner_id ──
   useEffect(() => {
@@ -787,18 +803,36 @@ export default function CrewAssignmentPage() {
                           <div className="ml-1 pl-2 border-l border-border space-y-1 mt-1">
                             {tlJobs.map(job => {
                               const statusClass = STATUS_BG[job.status] || STATUS_BG.scheduled
+                              const isJobExpanded = expandedJob === job.id
+                              const isSales = job.job_type === "sales_appointment" || job.service_type === "sales_appointment"
                               return (
-                                <div key={job.id} className={`rounded px-1.5 py-1 border text-[10px] relative ${statusClass}`}>
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-bold text-foreground">
-                                      {formatTime12(job.scheduled_at)}{job.hours ? ` – ${getEndTimeStr(job.scheduled_at, job.hours)}` : ""}
-                                    </span>
-                                    {STATUS_MARK[job.status]}
-                                  </div>
-                                  <div className="text-muted-foreground truncate">
-                                    {humanize(job.service_type)}
-                                    {job.address ? `, ${job.address.split(",")[0]}` : ""}
-                                  </div>
+                                <div key={job.id}>
+                                  <button onClick={() => setExpandedJob(isJobExpanded ? null : job.id)}
+                                    className={`w-full text-left rounded px-1.5 py-1 border text-[10px] ${statusClass} ${isSales ? "border-amber-500/30" : ""} cursor-pointer`}>
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-bold text-foreground">
+                                        {formatTime12(job.scheduled_at)}{job.hours ? ` – ${getEndTimeStr(job.scheduled_at, job.hours)}` : ""}
+                                      </span>
+                                      {STATUS_MARK[job.status]}
+                                    </div>
+                                    <div className="text-muted-foreground truncate">
+                                      {humanize(job.service_type)}
+                                      {isSales && <span className="ml-1 text-[8px] font-bold text-amber-400">SALES</span>}
+                                      {job.address ? `, ${job.address.split(",")[0]}` : ""}
+                                    </div>
+                                  </button>
+                                  {isJobExpanded && (
+                                    <div className="ml-2 mt-0.5 mb-1 p-2 rounded bg-muted/20 border border-border/20 space-y-1 text-[10px] text-muted-foreground">
+                                      {job.address && <div className="flex items-start gap-1.5"><MapPin className="size-3 shrink-0 mt-0.5" /><span>{job.address}</span></div>}
+                                      {job.customers && <div className="flex items-center gap-1.5"><User className="size-3 shrink-0" /><span>{[job.customers.first_name, job.customers.last_name].filter(Boolean).join(" ")}</span></div>}
+                                      {job.phone_number && <div className="flex items-center gap-1.5"><Phone className="size-3 shrink-0" /><a href={`tel:${job.phone_number}`} className="hover:text-foreground">{job.phone_number}</a></div>}
+                                      {job.notes && <p className="text-[9px] italic border-t border-border/10 pt-1 mt-0.5">{job.notes}</p>}
+                                      {job.frequency && job.frequency !== "one_time" && (
+                                        <span className="inline-block text-[8px] font-semibold text-blue-400 bg-blue-400/10 px-1 py-0.5 rounded uppercase">{job.frequency.replace(/_/g, " ")}</span>
+                                      )}
+                                      {job.price ? <p className="text-[9px] font-semibold text-green-400">${Number(job.price).toLocaleString()}</p> : null}
+                                    </div>
+                                  )}
                                 </div>
                               )
                             })}
