@@ -197,27 +197,15 @@ export default function CrewPortalPage() {
     router.push("/login")
   }
 
-  /* ─── Loading / Error ─── */
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
-      <Loader2 className="size-8 animate-spin" style={{ color: theme.accent }} />
-    </div>
-  )
-  if (error || !data) return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0" }}>
-      <div className="text-center">
-        <AlertCircle className="size-12 text-red-400 mx-auto mb-3" />
-        <h1 className="text-xl font-bold text-slate-800">Invalid Link</h1>
-        <p className="text-slate-500 mt-1 text-sm">This portal link is not valid or has expired.</p>
-      </div>
-    </div>
-  )
-
-  const { cleaner, tenant, jobs, pendingJobs } = data
-  const firstName = cleaner.name?.split(" ")[0] || "Crew"
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+  // ALL hooks must be called before any early returns (Rules of Hooks)
+  const jobs = data?.jobs || []
+  const pendingJobs = data?.pendingJobs || []
+  const cleaner = data?.cleaner
+  const tenant = data?.tenant
+  const firstName = cleaner?.name?.split(" ")[0] || "Crew"
   const todayStr = localToday()
+  const hourNow = new Date().getHours()
+  const greeting = hourNow < 12 ? "Good morning" : hourNow < 17 ? "Good afternoon" : "Good evening"
 
   // Group jobs by date
   const jobsByDate = useMemo(() => {
@@ -250,6 +238,22 @@ export default function CrewPortalPage() {
     const d = new Date(calMonth.year, calMonth.month, dayNum)
     return weekly[DAYS_OF_WEEK[d.getDay()]]?.available === false
   }
+
+  /* ─── Loading / Error ─── */
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
+      <Loader2 className="size-8 animate-spin" style={{ color: theme.accent }} />
+    </div>
+  )
+  if (error || !data) return (
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0" }}>
+      <div className="text-center">
+        <AlertCircle className="size-12 text-red-400 mx-auto mb-3" />
+        <h1 className="text-xl font-bold text-slate-800">Invalid Link</h1>
+        <p className="text-slate-500 mt-1 text-sm">This portal link is not valid or has expired.</p>
+      </div>
+    </div>
+  )
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
