@@ -44,11 +44,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
+  // Log raw payload to understand VAPI's format
+  console.log(`[send-customer-text] RAW BODY KEYS: ${Object.keys(body).join(', ')}`)
+  console.log(`[send-customer-text] RAW BODY: ${JSON.stringify(body).slice(0, 2000)}`)
+
   // Parse VAPI function-call envelope
   const message = body.message as Record<string, unknown> | undefined
   const call = message?.call as Record<string, unknown> | undefined
   const functionCall = message?.functionCall as Record<string, unknown> | undefined
   const params = (functionCall?.parameters || body) as Record<string, unknown>
+
+  console.log(`[send-customer-text] Parsed params: ${JSON.stringify(params).slice(0, 500)}`)
 
   // Extract phone from call metadata (caller's number)
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
@@ -60,8 +66,7 @@ export async function POST(request: NextRequest) {
   const tenantSlugFromParams = typeof params.tenant_slug === 'string' ? params.tenant_slug.trim() : ''
   const tenantSlug = (assistantId ? await resolveTenantSlugFromAssistant(assistantId) : null) || tenantSlugFromParams
 
-  console.log(`[send-customer-text] Raw phone: customerNumber=${customerNumber}, phoneFromParams=${phoneFromParams}, resolved=${phone}`)
-  console.log(`[send-customer-text] assistantId=${assistantId}, tenantSlug=${tenantSlug}`)
+  console.log(`[send-customer-text] phone=${phone}, assistantId=${assistantId}, tenantSlug=${tenantSlug}`)
 
   if (!phone) {
     console.error('[send-customer-text] No phone found. Full body:', JSON.stringify(body).slice(0, 1000))
