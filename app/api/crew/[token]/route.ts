@@ -151,28 +151,31 @@ export async function GET(
     tlJobQueries.push({ date: cd.date, tlId: cd.team_lead_id })
   }
 
-  // Also fetch directly assigned jobs (cleaner_id on jobs table, not via cleaner_assignments)
-  const { data: directJobs } = await client
-    .from('jobs')
-    .select('id, date, scheduled_at, address, service_type, status, notes, job_type, hours, price, cleaner_omw_at, cleaner_arrived_at, payment_method, phone_number, customers(first_name, last_name, address)')
-    .eq('cleaner_id', cleaner.id)
-    .eq('tenant_id', tenantId)
-    .gte('date', rangeStart)
-    .lte('date', rangeEnd)
-    .neq('status', 'cancelled')
+  // For TLs only: also fetch directly assigned jobs (cleaner_id on jobs table)
+  // Techs/salesmen should ONLY see jobs via crew_day_members assignments
+  if (cleaner.is_team_lead) {
+    const { data: directJobs } = await client
+      .from('jobs')
+      .select('id, date, scheduled_at, address, service_type, status, notes, job_type, hours, price, cleaner_omw_at, cleaner_arrived_at, payment_method, phone_number, customers(first_name, last_name, address)')
+      .eq('cleaner_id', cleaner.id)
+      .eq('tenant_id', tenantId)
+      .gte('date', rangeStart)
+      .lte('date', rangeEnd)
+      .neq('status', 'cancelled')
 
-  for (const job of directJobs || []) {
-    if (seenJobIds.has(job.id)) continue
-    seenJobIds.add(job.id)
-    allJobs.push({
-      id: job.id, date: job.date, scheduled_at: job.scheduled_at,
-      address: job.address, service_type: job.service_type, status: job.status,
-      job_type: job.job_type || null, hours: job.hours ? Number(job.hours) : null,
-      price: job.price ? Number(job.price) : null, assignment_status: 'confirmed',
-      assignment_id: null, customer_first_name: (job as any).customers?.first_name || null,
-      cleaner_omw_at: job.cleaner_omw_at, cleaner_arrived_at: job.cleaner_arrived_at,
-      payment_method: job.payment_method,
-    })
+    for (const job of directJobs || []) {
+      if (seenJobIds.has(job.id)) continue
+      seenJobIds.add(job.id)
+      allJobs.push({
+        id: job.id, date: job.date, scheduled_at: job.scheduled_at,
+        address: job.address, service_type: job.service_type, status: job.status,
+        job_type: job.job_type || null, hours: job.hours ? Number(job.hours) : null,
+        price: job.price ? Number(job.price) : null, assignment_status: 'confirmed',
+        assignment_id: null, customer_first_name: (job as any).customers?.first_name || null,
+        cleaner_omw_at: job.cleaner_omw_at, cleaner_arrived_at: job.cleaner_arrived_at,
+        payment_method: job.payment_method,
+      })
+    }
   }
 
   // Fetch TL jobs for crew members
