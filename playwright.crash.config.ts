@@ -9,7 +9,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: /crash-detection\.spec\.ts|crew-portal-calendar\.spec\.ts|crew-full-flow\.spec\.ts/,
+  testMatch: /crash-detection\.spec\.ts|crew-portal-calendar\.spec\.ts|crew-full-flow\.spec\.ts|full-system\.spec\.ts/,
   fullyParallel: false,
   retries: 0,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report-crash', open: 'never' }]],
