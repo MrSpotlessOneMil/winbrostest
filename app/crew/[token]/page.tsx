@@ -365,7 +365,7 @@ export default function CrewPortalPage() {
       {/* ═══ BOTTOM BAR ═══ */}
       <div className="px-4 py-3 border-t flex items-center justify-between shrink-0" style={{ borderColor: "#e8e5de", background: "#fff" }}>
         <span className="text-sm font-bold text-slate-700">
-          {formatCurrency(dayTotal)} <span className="text-xs font-normal text-slate-400">scheduled</span>
+          {(viewMode === "day" ? (jobsByDate[currentDate] || []) : jobs).length} <span className="text-xs font-normal text-slate-400">jobs scheduled</span>
         </span>
         {cleaner.employee_type === "salesman" && (
           <button
@@ -441,11 +441,7 @@ export default function CrewPortalPage() {
                       <span className="text-xs font-medium text-slate-600">{selectedJob.hours}h</span>
                     </div>
                   )}
-                  {selectedJob.price && (
-                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: "#f8f7f4" }}>
-                      <span className="text-xs font-medium text-slate-600">{formatCurrency(selectedJob.price)}</span>
-                    </div>
-                  )}
+                  {/* Price hidden from crew — admin only */}
                 </div>
 
                 {/* Loading detail */}
@@ -648,7 +644,7 @@ function DayView({ jobs, onJobClick, theme }: { jobs: Job[]; onJobClick: (j: Job
               <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400">
                 {job.customer_first_name && <span>{job.customer_first_name}</span>}
                 {job.hours && <span className="flex items-center gap-0.5"><Clock className="size-3" />{job.hours}h</span>}
-                {job.price && <span className="font-medium" style={{ color: theme.accent }}>{formatCurrency(job.price)}</span>}
+                {/* Price hidden from crew */}
               </div>
             </div>
           </button>

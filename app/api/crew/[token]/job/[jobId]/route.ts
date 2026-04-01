@@ -32,7 +32,10 @@ async function resolveContext(token: string, jobId: string) {
 
   if (!cleaner) return null
 
-  // Verify cleaner has an assignment for this job
+  // Verify cleaner has access to this job via:
+  // 1. cleaner_assignments (broadcast system)
+  // 2. direct cleaner_id on the job (TL owns the job)
+  // 3. crew_day_members (assigned to TL who owns the job via crew board)
   const { data: assignment } = await client
     .from('cleaner_assignments')
     .select('id, status, tenant_id')
@@ -43,7 +46,34 @@ async function resolveContext(token: string, jobId: string) {
     .limit(1)
     .maybeSingle()
 
-  if (!assignment) return null
+  if (!assignment) {
+    // Check if this job is directly assigned to this cleaner (TL) or via crew board
+    const { data: jobCheck } = await client
+      .from('jobs')
+      .select('id, cleaner_id, date')
+      .eq('id', parseInt(jobId))
+      .eq('tenant_id', cleaner.tenant_id)
+      .maybeSingle()
+
+    if (!jobCheck) return null
+
+    const isDirectTL = jobCheck.cleaner_id === cleaner.id
+    let isCrewMember = false
+
+    if (!isDirectTL && jobCheck.cleaner_id) {
+      // Check if cleaner is assigned to this job's TL on this date via crew_day_members
+      const { data: crewCheck } = await client
+        .from('crew_day_members')
+        .select('id, crew_days!inner(date, team_lead_id)')
+        .eq('cleaner_id', cleaner.id)
+
+      isCrewMember = (crewCheck || []).some((cm: any) =>
+        cm.crew_days?.team_lead_id === jobCheck.cleaner_id && cm.crew_days?.date === jobCheck.date
+      )
+    }
+
+    if (!isDirectTL && !isCrewMember) return null
+  }
 
   const { data: job } = await client
     .from('jobs')
