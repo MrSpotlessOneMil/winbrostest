@@ -57,8 +57,9 @@ export async function GET(request: NextRequest) {
   const errors: string[] = []
 
   for (const tenant of tenants) {
-    // Only process tenants with Gmail credentials
+    // Only process tenants with Gmail credentials (app password OR service account)
     const hasCreds = (tenant.gmail_user && tenant.gmail_app_password) ||
+                     (tenant.gmail_service_account_json && tenant.gmail_impersonated_user) ||
                      (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
     if (!hasCreds) continue
 

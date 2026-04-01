@@ -421,6 +421,43 @@ export async function sendCustomEmail(params: {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Service account JSON sanitization
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitize a service account JSON string before saving to DB.
+ * Fixes double-escaped newlines in the private_key that happen when users
+ * copy-paste from certain sources or the JSON gets stringified twice.
+ */
+export function sanitizeServiceAccountJson(raw: string): string {
+  const trimmed = raw.trim()
+  // Try parsing as-is first
+  try {
+    const parsed = JSON.parse(trimmed)
+    // Check if private_key has literal \n (correct) vs \\n (double-escaped)
+    if (parsed.private_key && typeof parsed.private_key === 'string') {
+      // If the key doesn't contain actual newlines but has literal backslash-n, fix it
+      if (!parsed.private_key.includes('\n') && parsed.private_key.includes('\\n')) {
+        parsed.private_key = parsed.private_key.replace(/\\n/g, '\n')
+        return JSON.stringify(parsed)
+      }
+    }
+    return trimmed
+  } catch {
+    // If it doesn't parse, try fixing common issues
+    try {
+      // Sometimes the whole thing is double-escaped
+      const fixed = trimmed.replace(/\\\\n/g, '\\n')
+      JSON.parse(fixed) // validate
+      return fixed
+    } catch {
+      // Return as-is — the connection test will catch the error
+      return trimmed
+    }
+  }
+}
+
 // Re-export for use by gmail-imap.ts and other modules
 export { getGmailApiClient, hasServiceAccountCreds }
 export type { GmailTenant }

@@ -3,6 +3,7 @@ import { randomBytes } from "crypto"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { requireAdmin } from "@/lib/auth"
 import { getBaseUrl } from "@/lib/admin-onboard"
+import { sanitizeServiceAccountJson } from "@/lib/gmail-client"
 
 
 // GET - List all tenants with all credential fields
@@ -366,7 +367,12 @@ export async function PATCH(request: NextRequest) {
     if (!ALLOWED_FIELDS.has(key)) continue
     // Skip masked values to prevent overwriting real secrets with "****xxxx"
     if (SECRET_PATCH_FIELDS.has(key) && typeof value === 'string' && value.startsWith('****')) continue
-    updates[key] = value
+    // Sanitize service account JSON (fix double-escaped newlines in private_key)
+    if (key === 'gmail_service_account_json' && typeof value === 'string' && value.trim()) {
+      updates[key] = sanitizeServiceAccountJson(value)
+    } else {
+      updates[key] = value
+    }
   }
 
   const client = getSupabaseServiceClient()
