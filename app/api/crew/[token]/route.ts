@@ -35,13 +35,35 @@ export async function GET(
 
   const client = getSupabaseServiceClient()
   const tenantId = (cleaner as any).tenants.id
+  const url = new URL(request.url)
   const now = new Date()
-  const today = now.toISOString().split('T')[0]
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  // Get 7 days from now
-  const weekFromNow = new Date(now)
-  weekFromNow.setDate(weekFromNow.getDate() + 7)
-  const weekStr = weekFromNow.toISOString().split('T')[0]
+  // Date range params for calendar view
+  const rangeParam = url.searchParams.get('range') // day | week
+  const dateParam = url.searchParams.get('date') || today
+
+  let rangeStart = today
+  let rangeEnd = today
+  if (rangeParam === 'week') {
+    const d = new Date(dateParam + 'T12:00:00')
+    const dow = d.getDay()
+    const diff = dow === 0 ? -6 : 1 - dow // Monday start
+    const monday = new Date(d)
+    monday.setDate(monday.getDate() + diff)
+    const sunday = new Date(monday)
+    sunday.setDate(sunday.getDate() + 6)
+    rangeStart = monday.toISOString().split('T')[0]
+    rangeEnd = sunday.toISOString().split('T')[0]
+  } else if (rangeParam === 'day') {
+    rangeStart = dateParam
+    rangeEnd = dateParam
+  } else {
+    // Default: today + 7 days
+    const weekFromNow = new Date(now)
+    weekFromNow.setDate(weekFromNow.getDate() + 7)
+    rangeEnd = weekFromNow.toISOString().split('T')[0]
+  }
 
   // Fetch cleaner's assignments with job details
   const { data: assignments } = await client
@@ -61,8 +83,7 @@ export async function GET(
     .in('status', ['pending', 'accepted', 'confirmed'])
     .order('created_at', { ascending: false })
 
-  const todaysJobs: any[] = []
-  const upcomingJobs: any[] = []
+  const allJobs: any[] = []
   const pendingJobs: any[] = []
 
   for (const asn of assignments || []) {
@@ -77,6 +98,8 @@ export async function GET(
       service_type: job.service_type,
       status: job.status,
       job_type: job.job_type || null,
+      hours: job.hours ? Number(job.hours) : null,
+      price: job.price ? Number(job.price) : null,
       assignment_status: asn.status,
       assignment_id: asn.id,
       customer_first_name: job.customers?.first_name || null,
@@ -87,47 +110,16 @@ export async function GET(
 
     if (asn.status === 'pending') {
       pendingJobs.push(jobData)
-    } else if (job.date === today) {
-      todaysJobs.push(jobData)
-    } else if (job.date > today && job.date <= weekStr) {
-      upcomingJobs.push(jobData)
+    }
+
+    // Include all jobs in the date range
+    if (job.date >= rangeStart && job.date <= rangeEnd) {
+      allJobs.push(jobData)
     }
   }
 
-  // Past jobs (completed, last 30 days)
-  const thirtyDaysAgo = new Date(now)
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-  const pastStr = thirtyDaysAgo.toISOString().split('T')[0]
-
-  const { data: pastAssignments } = await client
-    .from('cleaner_assignments')
-    .select(`
-      id, status,
-      jobs!inner(
-        id, date, scheduled_at, address, service_type, status,
-        customer_id, customers(first_name)
-      )
-    `)
-    .eq('cleaner_id', cleaner.id)
-    .eq('tenant_id', tenantId)
-    .in('status', ['confirmed', 'accepted'])
-    .eq('jobs.status', 'completed')
-    .gte('jobs.date', pastStr)
-    .order('created_at', { ascending: false })
-    .limit(20)
-
-  const pastJobs = (pastAssignments || []).map((asn: any) => ({
-    id: asn.jobs.id,
-    date: asn.jobs.date,
-    scheduled_at: asn.jobs.scheduled_at,
-    address: asn.jobs.address,
-    service_type: asn.jobs.service_type,
-    status: asn.jobs.status,
-    customer_first_name: asn.jobs.customers?.first_name || null,
-  }))
-
-  // Sort today's jobs by time
-  todaysJobs.sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
+  // Sort by date then time
+  allJobs.sort((a, b) => a.date.localeCompare(b.date) || (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
 
   // Fetch time-off for current + next month
   const currentMonth = today.slice(0, 7)
@@ -156,10 +148,9 @@ export async function GET(
       name: tenant.business_name_short || tenant.business_name || tenant.name,
       slug: tenant.slug,
     },
-    todaysJobs,
-    upcomingJobs,
+    jobs: allJobs,
     pendingJobs,
-    pastJobs,
+    dateRange: { start: rangeStart, end: rangeEnd },
     timeOff: timeOffData || [],
   })
 }

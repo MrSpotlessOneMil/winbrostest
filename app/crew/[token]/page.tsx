@@ -1,30 +1,21 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  Loader2,
-  AlertCircle,
-  ChevronRight,
-  ChevronLeft,
-  MapPin,
-  Clock,
-  Calendar,
-  Sparkles,
-  Star,
-  Zap,
-  Trophy,
-  PlusCircle,
-  LogOut,
-  CheckCircle2,
-  AlertTriangle,
-  Navigation,
-  PartyPopper,
+  Loader2, AlertCircle, ChevronRight, ChevronLeft, MapPin, Clock,
+  Calendar, Sparkles, Zap, PlusCircle, LogOut, CheckCircle2,
+  AlertTriangle, Navigation, Settings2, ExternalLink, X,
 } from "lucide-react"
+import {
+  Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerClose,
+} from "@/components/ui/drawer"
 
-interface JobCard {
+/* ─── Types ─── */
+interface Job {
   id: number; date: string; scheduled_at: string | null; address: string | null
   service_type: string | null; status: string; job_type: string | null
+  hours: number | null; price: number | null
   assignment_status: string; assignment_id: string; customer_first_name: string | null
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null; payment_method: string | null
 }
@@ -34,56 +25,73 @@ interface WeeklySchedule { [day: string]: WeeklyDay }
 interface PortalData {
   cleaner: { id: number; name: string; phone: string; availability: { weekly?: WeeklySchedule } | null; employee_type?: string }
   tenant: { name: string; slug: string }
-  todaysJobs: JobCard[]; upcomingJobs: JobCard[]; pendingJobs: JobCard[]; pastJobs: JobCard[]
+  jobs: Job[]; pendingJobs: Job[]
+  dateRange: { start: string; end: string }
   timeOff: TimeOffEntry[]
 }
 
-// Tenant color themes
+/* ─── Theme ─── */
 const THEMES: Record<string, { gradient: string; accent: string; accentLight: string; avatarGradient: string; avatarText: string }> = {
-  winbros: {
-    gradient: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
-    accent: "#14b8a6",
-    accentLight: "#5eead4",
-    avatarGradient: "linear-gradient(135deg, #99f6e4, #5eead4)",
-    avatarText: "#0f766e",
-  },
+  winbros: { gradient: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)", accent: "#14b8a6", accentLight: "#5eead4", avatarGradient: "linear-gradient(135deg, #99f6e4, #5eead4)", avatarText: "#0f766e" },
 }
-const DEFAULT_THEME = {
-  gradient: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)",
-  accent: "#58cc02",
-  accentLight: "#89e219",
-  avatarGradient: "linear-gradient(135deg, #d4fc79, #96e6a1)",
-  avatarText: "#2b9348",
+const DEFAULT_THEME = { gradient: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)", accent: "#58cc02", accentLight: "#89e219", avatarGradient: "linear-gradient(135deg, #d4fc79, #96e6a1)", avatarText: "#2b9348" }
+
+const STATUS_COLORS: Record<string, string> = {
+  completed: "#22c55e", in_progress: "#eab308", scheduled: "#3b82f6",
+  confirmed: "#3b82f6", pending: "#a855f7", quoted: "#a855f7", cancelled: "#6b7280",
 }
 
-const DAYS_OF_WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-const TIME_OPTIONS = [
-  "06:00","07:00","08:00","09:00","10:00","11:00","12:00",
-  "13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00",
-]
+const DAYS_OF_WEEK = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const
+const DAY_LABELS_SHORT = ["S","M","T","W","T","F","S"]
+const DAY_LABELS_FULL = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
+const TIME_OPTIONS = ["06:00","07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00","19:00","20:00"]
 
+/* ─── Helpers ─── */
 function localToday() {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
 }
-
-function formatDate(d: string) {
-  return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+function parseHHMM(t: string | null): { h: number; m: number } | null {
+  if (!t) return null
+  const parts = t.split(":").map(Number)
+  if (parts.length < 2 || isNaN(parts[0])) return null
+  return { h: parts[0], m: parts[1] || 0 }
 }
-function formatTime(t: string | null) {
-  if (!t) return "TBD"
-  try { const [h, m] = t.split(":").map(Number); return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` } catch { return t }
+function formatTime12(t: string | null) {
+  const p = parseHHMM(t); if (!p) return "TBD"
+  const { h, m } = p; return `${h % 12 || 12}:${String(m).padStart(2,"0")} ${h >= 12 ? "PM" : "AM"}`
 }
-function formatHour(t: string) {
-  const [h] = t.split(":").map(Number)
-  return `${h % 12 || 12} ${h >= 12 ? "PM" : "AM"}`
+function formatTimeShort(t: string | null) {
+  const p = parseHHMM(t); if (!p) return ""
+  const { h, m } = p; return m ? `${h % 12 || 12}:${String(m).padStart(2,"0")}` : `${h % 12 || 12}${h >= 12 ? "p" : "a"}`
+}
+function formatHour(t: string) { const [h] = t.split(":").map(Number); return `${h % 12 || 12} ${h >= 12 ? "PM" : "AM"}` }
+function getEndTime(start: string | null, hours: number | null): string | null {
+  const p = parseHHMM(start); if (!p || !hours) return null
+  const totalMin = p.h * 60 + p.m + hours * 60
+  const eh = Math.floor(totalMin / 60) % 24, em = Math.round(totalMin % 60)
+  return `${String(eh).padStart(2,"0")}:${String(em).padStart(2,"0")}`
 }
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
+function formatDateLabel(d: string) {
+  return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+}
+function getMondayOfWeek(dateStr: string) {
+  const d = new Date(dateStr + "T12:00:00"); const dow = d.getDay()
+  const diff = dow === 0 ? -6 : 1 - dow; d.setDate(d.getDate() + diff)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+}
+function addDays(dateStr: string, n: number) {
+  const d = new Date(dateStr + "T12:00:00"); d.setDate(d.getDate() + n)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`
+}
+function getWeekDays(mondayStr: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(mondayStr, i))
+}
+function formatCurrency(n: number) { return `$${Math.round(n).toLocaleString()}` }
 
-const DEFAULT_WEEKLY: WeeklySchedule = Object.fromEntries(
-  DAYS_OF_WEEK.map(d => [d, { available: true, start: "08:00", end: "18:00" }])
-)
+const DEFAULT_WEEKLY: WeeklySchedule = Object.fromEntries(DAYS_OF_WEEK.map(d => [d, { available: true, start: "08:00", end: "18:00" }]))
+
+/* ═══════════════════════════════════════════════════════════════════════ */
 
 export default function CrewPortalPage() {
   const params = useParams()
@@ -93,62 +101,92 @@ export default function CrewPortalPage() {
   const [data, setData] = useState<PortalData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<"day" | "week">("day")
+  const [currentDate, setCurrentDate] = useState(localToday)
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [jobDetail, setJobDetail] = useState<any>(null)
+  const [loadingDetail, setLoadingDetail] = useState(false)
+
+  // Availability state
+  const [showAvail, setShowAvail] = useState(false)
+  const [availView, setAvailView] = useState<"calendar" | "weekly">("calendar")
   const [calMonth, setCalMonth] = useState(() => { const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() } })
   const [offDays, setOffDays] = useState<Set<string>>(new Set())
   const [togglingDate, setTogglingDate] = useState<string | null>(null)
   const [weekly, setWeekly] = useState<WeeklySchedule>(DEFAULT_WEEKLY)
   const [savingWeekly, setSavingWeekly] = useState(false)
   const [weeklyDirty, setWeeklyDirty] = useState(false)
-  const [showSchedule, setShowSchedule] = useState(false)
 
-  useEffect(() => {
-    fetch(`/api/crew/${token}`)
-      .then(r => { if (!r.ok) throw new Error("Invalid portal link"); return r.json() })
-      .then(d => {
-        setData(d)
-        setOffDays(new Set((d.timeOff || []).map((t: TimeOffEntry) => t.date)))
-        if (d.cleaner.availability?.weekly) {
-          setWeekly({ ...DEFAULT_WEEKLY, ...d.cleaner.availability.weekly })
-        }
-      })
-      .catch(e => setError(e.message)).finally(() => setLoading(false))
+  const theme = data?.tenant?.slug ? (THEMES[data.tenant.slug] || DEFAULT_THEME) : DEFAULT_THEME
+
+  // Fetch jobs for the current date range
+  const fetchJobs = useCallback(async (date: string, range: "day" | "week") => {
+    try {
+      const res = await fetch(`/api/crew/${token}?range=${range}&date=${date}`)
+      if (!res.ok) throw new Error("Invalid portal link")
+      const d = await res.json()
+      setData(d)
+      setOffDays(new Set((d.timeOff || []).map((t: TimeOffEntry) => t.date)))
+      if (d.cleaner.availability?.weekly) {
+        setWeekly({ ...DEFAULT_WEEKLY, ...d.cleaner.availability.weekly })
+      }
+    } catch (e: any) { setError(e.message) }
   }, [token])
 
-  useEffect(() => { fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {}) }, [token])
+  // Initial load
+  useEffect(() => {
+    fetchJobs(currentDate, viewMode).finally(() => setLoading(false))
+    fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {})
+  }, [])
 
+  // Refetch when date or view changes
+  useEffect(() => {
+    if (!loading) fetchJobs(currentDate, viewMode)
+  }, [currentDate, viewMode])
+
+  // Nav handlers
+  const navigate = (dir: -1 | 1) => {
+    setCurrentDate(prev => addDays(prev, viewMode === "week" ? dir * 7 : dir))
+  }
+  const goToday = () => setCurrentDate(localToday())
+
+  // Open job detail drawer
+  const openJobDetail = async (job: Job) => {
+    setSelectedJob(job)
+    setJobDetail(null)
+    setLoadingDetail(true)
+    try {
+      const res = await fetch(`/api/crew/${token}/job/${job.id}`)
+      if (res.ok) setJobDetail(await res.json())
+    } catch {}
+    setLoadingDetail(false)
+  }
+
+  // Availability handlers
   const toggleDay = useCallback(async (dateStr: string) => {
     if (togglingDate) return
     setTogglingDate(dateStr)
     try {
       const res = await fetch(`/api/crew/${token}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ toggleTimeOff: { date: dateStr } }),
       })
       const result = await res.json()
       if (result.success) {
-        setOffDays(prev => {
-          const next = new Set(prev)
-          if (result.action === "added") next.add(dateStr)
-          else next.delete(dateStr)
-          return next
-        })
+        setOffDays(prev => { const next = new Set(prev); result.action === "added" ? next.add(dateStr) : next.delete(dateStr); return next })
       }
     } catch {}
     setTogglingDate(null)
   }, [token, togglingDate])
 
   const updateWeeklyDay = (day: string, updates: Partial<WeeklyDay>) => {
-    setWeekly(prev => ({ ...prev, [day]: { ...prev[day], ...updates } }))
-    setWeeklyDirty(true)
+    setWeekly(prev => ({ ...prev, [day]: { ...prev[day], ...updates } })); setWeeklyDirty(true)
   }
-
   const saveWeekly = async () => {
     setSavingWeekly(true)
     try {
       await fetch(`/api/crew/${token}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ availability: { ...(data?.cleaner.availability || {}), weekly } }),
       })
       setWeeklyDirty(false)
@@ -161,19 +199,12 @@ export default function CrewPortalPage() {
     router.push("/login")
   }
 
-  const theme = data?.tenant?.slug ? (THEMES[data.tenant.slug] || DEFAULT_THEME) : DEFAULT_THEME
-
+  /* ─── Loading / Error ─── */
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
-      <div className="flex flex-col items-center gap-3">
-        <div className="size-12 rounded-2xl flex items-center justify-center animate-pulse" style={{ background: theme.gradient }}>
-          <Sparkles className="size-6 text-white" />
-        </div>
-        <Loader2 className="size-5 animate-spin" style={{ color: theme.accent }} />
-      </div>
+      <Loader2 className="size-8 animate-spin" style={{ color: theme.accent }} />
     </div>
   )
-
   if (error || !data) return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0" }}>
       <div className="text-center">
@@ -184,19 +215,32 @@ export default function CrewPortalPage() {
     </div>
   )
 
-  const { cleaner, tenant, todaysJobs, upcomingJobs, pendingJobs, pastJobs } = data
+  const { cleaner, tenant, jobs, pendingJobs } = data
   const firstName = cleaner.name?.split(" ")[0] || "Crew"
-
-  const todayCompleted = todaysJobs.filter(j => j.status === "completed").length
-  const todayTotal = todaysJobs.length
-  const allDone = todayTotal > 0 && todayCompleted === todayTotal
-  const progressPct = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0
-
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
-
-  // Calendar helpers — use local date, not UTC
   const todayStr = localToday()
+
+  // Group jobs by date
+  const jobsByDate = useMemo(() => {
+    const m: Record<string, Job[]> = {}
+    for (const j of jobs) { (m[j.date] ||= []).push(j) }
+    return m
+  }, [jobs])
+
+  // Daily total for current view
+  const dayTotal = useMemo(() => {
+    const dayJobs = viewMode === "day" ? (jobsByDate[currentDate] || []) : jobs
+    return dayJobs.reduce((s, j) => s + (j.price || 0), 0)
+  }, [jobs, jobsByDate, currentDate, viewMode])
+
+  // Week days for week view
+  const weekDays = useMemo(() => {
+    const monday = getMondayOfWeek(currentDate)
+    return getWeekDays(monday)
+  }, [currentDate])
+
+  // Calendar month helpers for availability
   const calDate = new Date(calMonth.year, calMonth.month, 1)
   const monthName = calDate.toLocaleString("en-US", { month: "long", year: "numeric" })
   const daysInMonth = new Date(calMonth.year, calMonth.month + 1, 0).getDate()
@@ -204,389 +248,475 @@ export default function CrewPortalPage() {
   const calDays: (number | null)[] = []
   for (let i = 0; i < firstDow; i++) calDays.push(null)
   for (let d = 1; d <= daysInMonth; d++) calDays.push(d)
-
-  const prevMonth = () => setCalMonth(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 })
-  const nextMonth = () => setCalMonth(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 })
-
-  // Check if a day is a recurring off day
   const isRecurringOff = (dayNum: number) => {
     const d = new Date(calMonth.year, calMonth.month, dayNum)
-    const dayName = DAYS_OF_WEEK[d.getDay()]
-    return weekly[dayName]?.available === false
+    return weekly[DAYS_OF_WEEK[d.getDay()]]?.available === false
   }
 
   return (
-    <div className="min-h-screen pb-8" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
-      <style>{`
-        @keyframes popIn { 0% { opacity:0; transform: scale(0.8) translateY(10px); } 60% { transform: scale(1.03) translateY(-2px); } 100% { opacity:1; transform: scale(1) translateY(0); } }
-        @keyframes slideUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
-        @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-        .pop-in { animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-        .slide-up { animation: slideUp 0.4s ease-out both; }
-      `}</style>
+    <div className="min-h-screen flex flex-col" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
 
       {/* ═══ HEADER ═══ */}
-      <div className="relative overflow-hidden px-5 pt-6 pb-8" style={{ background: theme.gradient }}>
-        <div className="absolute -top-8 -right-8 size-32 rounded-full" style={{ background: "rgba(255,255,255,0.1)" }} />
-        <div className="absolute bottom-2 -left-6 size-20 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }} />
-
+      <div className="relative overflow-hidden px-5 pt-5 pb-4 shrink-0" style={{ background: theme.gradient }}>
+        <div className="absolute -top-8 -right-8 size-28 rounded-full" style={{ background: "rgba(255,255,255,0.1)" }} />
         <div className="relative z-10">
-          <div className="flex items-center justify-between mb-5">
-            <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">{tenant.name}</span>
-            <button onClick={handleLogout} className="text-xs text-white/50 hover:text-white/80 transition-colors flex items-center gap-1">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[10px] font-semibold text-white/70 uppercase tracking-wider">{tenant.name}</span>
+            <button onClick={handleLogout} className="text-[10px] text-white/50 hover:text-white/80 transition-colors flex items-center gap-1">
               <LogOut className="size-3" /> Log out
             </button>
           </div>
-
-          <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg" style={{ background: theme.avatarGradient, color: theme.avatarText }}>
+          <div className="flex items-center gap-3">
+            <div className="size-11 rounded-xl flex items-center justify-center text-lg font-black shadow-md" style={{ background: theme.avatarGradient, color: theme.avatarText }}>
               {firstName.charAt(0)}
             </div>
             <div>
-              <p className="text-white/70 text-sm">{greeting}</p>
-              <h1 className="text-2xl font-black text-white">{firstName}</h1>
+              <p className="text-white/60 text-xs">{greeting}</p>
+              <h1 className="text-xl font-black text-white">{firstName}</h1>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ═══ DAILY PROGRESS CARD ═══ */}
-      <div className="px-4 -mt-5 mb-6">
-        <div className="rounded-2xl p-4 pop-in flex items-center gap-4" style={{ background: "#ffffff", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
-          <div className="relative size-16 shrink-0">
-            <svg viewBox="0 0 64 64" className="size-16 -rotate-90">
-              <circle cx="32" cy="32" r="26" fill="none" stroke="#e8e5de" strokeWidth="5" />
-              <circle
-                cx="32" cy="32" r="26" fill="none"
-                stroke={allDone ? theme.accent : "#ff9600"}
-                strokeWidth="5" strokeLinecap="round"
-                strokeDasharray={`${2 * Math.PI * 26}`}
-                strokeDashoffset={`${2 * Math.PI * 26 * (1 - progressPct / 100)}`}
-                style={{ transition: "stroke-dashoffset 1s ease-out" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              {allDone
-                ? <Trophy className="size-6 text-amber-500" />
-                : <span className="text-sm font-black" style={{ color: "#ff9600" }}>{progressPct}%</span>
-              }
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-bold text-slate-800">
-              {allDone ? "All jobs done!" : todayTotal === 0 ? "No jobs today" : `${todayCompleted}/${todayTotal} completed`}
-            </p>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {allDone ? "You crushed it today" : todayTotal === 0 ? "Enjoy your free day" : "Keep going, you got this!"}
-            </p>
-          </div>
-          {allDone && <PartyPopper className="size-8 text-amber-400 ml-auto" style={{ animation: "bounce 1s ease-in-out infinite" }} />}
-        </div>
-      </div>
+      {/* ═══ TOOLBAR ═══ */}
+      <div className="px-4 py-2.5 flex items-center gap-2 border-b shrink-0" style={{ borderColor: "#e8e5de", background: "#fff" }}>
+        {/* Date nav */}
+        <button onClick={() => navigate(-1)} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
+          <ChevronLeft className="size-4 text-slate-500" />
+        </button>
+        <button onClick={goToday} className="flex-1 text-center">
+          <span className="text-sm font-bold text-slate-700">
+            {viewMode === "day"
+              ? formatDateLabel(currentDate)
+              : `${formatDateLabel(weekDays[0])} – ${formatDateLabel(weekDays[6])}`
+            }
+          </span>
+          {currentDate !== todayStr && (
+            <span className="block text-[10px] font-medium" style={{ color: theme.accent }}>Tap for today</span>
+          )}
+        </button>
+        <button onClick={() => navigate(1)} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
+          <ChevronRight className="size-4 text-slate-500" />
+        </button>
 
-      <div className="px-4 space-y-6 max-w-lg mx-auto">
-
-        {/* ═══ MY AVAILABILITY ═══ */}
-        <div className="slide-up" style={{ animationDelay: "0.05s" }}>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="size-7 rounded-lg flex items-center justify-center" style={{ background: `${theme.accent}20`, color: theme.accent }}>
-              <Calendar className="size-4" />
-            </div>
-            <h2 className="text-sm font-bold text-slate-800 flex-1">My Availability</h2>
+        {/* View toggle */}
+        <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "#e2ddd5" }}>
+          {(["day", "week"] as const).map(v => (
             <button
-              onClick={() => setShowSchedule(!showSchedule)}
-              className="text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors"
-              style={{ background: showSchedule ? `${theme.accent}15` : "#f1f0eb", color: showSchedule ? theme.accent : "#64748b" }}
+              key={v}
+              onClick={() => setViewMode(v)}
+              className="px-2.5 py-1 text-[10px] font-bold uppercase"
+              style={{
+                background: viewMode === v ? theme.accent : "transparent",
+                color: viewMode === v ? "#fff" : "#94a3b8",
+              }}
             >
-              {showSchedule ? "Calendar" : "Weekly Hours"}
+              {v}
+            </button>
+          ))}
+        </div>
+
+        {/* Availability */}
+        <button onClick={() => setShowAvail(true)} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
+          <Settings2 className="size-4 text-slate-400" />
+        </button>
+      </div>
+
+      {/* ═══ PENDING ACTIONS ═══ */}
+      {pendingJobs.length > 0 && (
+        <div className="px-4 py-2 shrink-0" style={{ background: "#fef2f2" }}>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="size-4 text-red-500 shrink-0" />
+            <p className="text-xs font-bold text-red-700 flex-1">{pendingJobs.length} job{pendingJobs.length > 1 ? "s" : ""} need your response</p>
+            <button
+              onClick={() => { if (pendingJobs[0]) openJobDetail(pendingJobs[0]) }}
+              className="text-[10px] font-bold text-red-600 px-2 py-1 rounded-md bg-red-100"
+            >
+              View
             </button>
           </div>
-
-          {showSchedule ? (
-            /* ── Weekly Schedule ── */
-            <div className="rounded-2xl p-4 space-y-2" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
-              <p className="text-[11px] text-slate-400 mb-2">Set your regular weekly hours. Admin sees this when scheduling.</p>
-              {DAYS_OF_WEEK.map((day, i) => {
-                const info = weekly[day] || { available: true, start: "08:00", end: "18:00" }
-                return (
-                  <div key={day} className="flex items-center gap-2 py-1.5" style={{ borderBottom: i < 6 ? "1px solid #f1f0eb" : "none" }}>
-                    {/* Toggle */}
-                    <button
-                      onClick={() => updateWeeklyDay(day, { available: !info.available })}
-                      className="size-7 rounded-lg text-[10px] font-bold flex items-center justify-center shrink-0 transition-all"
-                      style={{
-                        background: info.available ? `${theme.accent}15` : "#fee2e2",
-                        color: info.available ? theme.accent : "#ef4444",
-                        border: `2px solid ${info.available ? `${theme.accent}40` : "#fca5a540"}`,
-                      }}
-                    >
-                      {DAY_LABELS[i]}
-                    </button>
-
-                    {info.available ? (
-                      <div className="flex items-center gap-1.5 flex-1">
-                        <select
-                          value={info.start || "08:00"}
-                          onChange={e => updateWeeklyDay(day, { start: e.target.value })}
-                          className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600 cursor-pointer"
-                        >
-                          {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
-                        </select>
-                        <span className="text-[10px] text-slate-400">to</span>
-                        <select
-                          value={info.end || "18:00"}
-                          onChange={e => updateWeeklyDay(day, { end: e.target.value })}
-                          className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600 cursor-pointer"
-                        >
-                          {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
-                        </select>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-red-400 font-medium">Off</span>
-                    )}
-                  </div>
-                )
-              })}
-              {weeklyDirty && (
-                <button
-                  onClick={saveWeekly}
-                  disabled={savingWeekly}
-                  className="w-full mt-2 py-2 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-opacity"
-                  style={{ background: theme.accent, opacity: savingWeekly ? 0.6 : 1 }}
-                >
-                  {savingWeekly ? <><Loader2 className="size-4 animate-spin" /> Saving...</> : "Save Schedule"}
-                </button>
-              )}
-            </div>
-          ) : (
-            /* ── Month Calendar ── */
-            <div className="rounded-2xl p-4" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
-              {/* Month nav */}
-              <div className="flex items-center justify-between mb-3">
-                <button onClick={prevMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
-                  <ChevronLeft className="size-4 text-slate-500" />
-                </button>
-                <span className="text-sm font-bold text-slate-700">{monthName}</span>
-                <button onClick={nextMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
-                  <ChevronRight className="size-4 text-slate-500" />
-                </button>
-              </div>
-              {/* Day headers */}
-              <div className="grid grid-cols-7 gap-1 mb-1">
-                {DAY_LABELS.map((d, i) => (
-                  <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
-                ))}
-              </div>
-              {/* Day cells */}
-              <div className="grid grid-cols-7 gap-1">
-                {calDays.map((day, i) => {
-                  if (day === null) return <div key={`e${i}`} />
-                  const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-                  const isOff = offDays.has(dateStr)
-                  const isRecOff = isRecurringOff(day)
-                  const isToday = dateStr === todayStr
-                  const isPast = dateStr < todayStr
-                  const isToggling = togglingDate === dateStr
-                  const dayOff = isOff || isRecOff
-                  return (
-                    <button
-                      key={dateStr}
-                      onClick={() => !isPast && toggleDay(dateStr)}
-                      disabled={isPast || isToggling}
-                      className="relative size-9 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-center"
-                      style={{
-                        background: isOff ? "#ef444420" : isRecOff ? "#ef444410" : isToday ? `${theme.accent}15` : "transparent",
-                        color: isPast ? "#cbd5e1" : dayOff ? "#ef4444" : isToday ? theme.accent : "#475569",
-                        border: isToday ? `2px solid ${theme.accent}` : dayOff ? "2px solid #ef444440" : "2px solid transparent",
-                        opacity: isToggling ? 0.5 : 1,
-                        cursor: isPast ? "default" : "pointer",
-                      }}
-                    >
-                      {day}
-                      {isOff && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-400" />}
-                      {isRecOff && !isOff && <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-2 h-0.5 rounded-full bg-red-300" />}
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="flex items-center gap-3 mt-3 justify-center">
-                <div className="flex items-center gap-1">
-                  <span className="size-2 rounded-full bg-red-400" />
-                  <span className="text-[10px] text-slate-400">Day off</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="w-2 h-0.5 rounded-full bg-red-300" />
-                  <span className="text-[10px] text-slate-400">Weekly off</span>
-                </div>
-              </div>
-              <p className="text-[10px] text-slate-400 mt-2 text-center">Tap a day to request off. Use &ldquo;Weekly Hours&rdquo; for recurring days.</p>
-            </div>
-          )}
         </div>
+      )}
 
-        {/* ═══ NEW QUOTE CTA ═══ */}
+      {/* ═══ SCHEDULE VIEW ═══ */}
+      <div className="flex-1 overflow-y-auto">
+        {viewMode === "day" ? (
+          <DayView
+            jobs={jobsByDate[currentDate] || []}
+            onJobClick={openJobDetail}
+            theme={theme}
+          />
+        ) : (
+          <WeekView
+            weekDays={weekDays}
+            jobsByDate={jobsByDate}
+            currentDate={currentDate}
+            todayStr={todayStr}
+            onJobClick={openJobDetail}
+            onDayClick={(d) => { setCurrentDate(d); setViewMode("day") }}
+            theme={theme}
+          />
+        )}
+      </div>
+
+      {/* ═══ BOTTOM BAR ═══ */}
+      <div className="px-4 py-3 border-t flex items-center justify-between shrink-0" style={{ borderColor: "#e8e5de", background: "#fff" }}>
+        <span className="text-sm font-bold text-slate-700">
+          {formatCurrency(dayTotal)} <span className="text-xs font-normal text-slate-400">scheduled</span>
+        </span>
         {cleaner.employee_type === "salesman" && (
           <button
             onClick={() => router.push(`/crew/${token}/new-quote`)}
-            className="w-full rounded-2xl p-4 flex items-center gap-3 active:scale-[0.97] transition-transform slide-up"
-            style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", boxShadow: "0 4px 15px rgba(124,58,237,0.3)" }}
+            className="size-10 rounded-full flex items-center justify-center shadow-lg"
+            style={{ background: theme.accent }}
           >
-            <div className="size-10 rounded-xl bg-white/20 flex items-center justify-center">
-              <PlusCircle className="size-5 text-white" />
-            </div>
-            <div className="text-left flex-1">
-              <p className="font-bold text-white text-sm">New Quote</p>
-              <p className="text-purple-200 text-xs">Create a quote for a customer</p>
-            </div>
-            <ChevronRight className="size-5 text-purple-200" />
+            <PlusCircle className="size-5 text-white" />
           </button>
         )}
-
-        {/* ═══ ACTION REQUIRED ═══ */}
-        {pendingJobs.length > 0 && (
-          <Section title="Action Required" icon={<AlertTriangle className="size-4" />} color="#ff4b4b" count={pendingJobs.length} badge>
-            {pendingJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} urgent />
-            ))}
-          </Section>
-        )}
-
-        {/* ═══ TODAY'S HOUSES ═══ */}
-        <Section title="Today's Houses" icon={<Zap className="size-4" />} color={theme.accent} count={todaysJobs.length} empty={todaysJobs.length === 0 ? "No houses today — rest up!" : undefined}>
-          {todaysJobs.map((job, i) => (
-            <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} />
-          ))}
-        </Section>
-
-        {/* ═══ COMING UP ═══ */}
-        {upcomingJobs.length > 0 && (
-          <Section title="Coming Up" icon={<Calendar className="size-4" />} color="#1cb0f6" count={upcomingJobs.length}>
-            {upcomingJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} />
-            ))}
-          </Section>
-        )}
-
-        {/* ═══ COMPLETED ═══ */}
-        {pastJobs.length > 0 && (
-          <Section title="Completed" icon={<CheckCircle2 className="size-4" />} color="#afafaf" count={pastJobs.length}>
-            {pastJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} completed />
-            ))}
-          </Section>
-        )}
       </div>
-    </div>
-  )
-}
 
-// ── Section ──
-function Section({ title, icon, color, count, badge, empty, children }: {
-  title: string; icon: React.ReactNode; color: string; count: number; badge?: boolean; empty?: string; children?: React.ReactNode
-}) {
-  return (
-    <div className="slide-up" style={{ animationDelay: "0.1s" }}>
-      <div className="flex items-center gap-2 mb-3">
-        <div className="size-7 rounded-lg flex items-center justify-center" style={{ background: `${color}20`, color }}>
-          {icon}
-        </div>
-        <h2 className="text-sm font-bold text-slate-800 flex-1">{title}</h2>
-        {badge ? (
-          <span className="text-xs font-bold text-white px-2.5 py-1 rounded-full animate-pulse" style={{ background: color }}>
-            {count}
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-slate-400">{count}</span>
-        )}
-      </div>
-      {empty ? (
-        <div className="rounded-2xl p-8 text-center" style={{ background: "#ffffff", border: "2px dashed #e2ddd5" }}>
-          <Star className="size-8 text-slate-300 mx-auto mb-2" />
-          <p className="text-sm text-slate-400">{empty}</p>
-        </div>
-      ) : (
-        <div className="space-y-2.5">{children}</div>
-      )}
-    </div>
-  )
-}
+      {/* ═══ JOB DETAIL DRAWER ═══ */}
+      <Drawer open={!!selectedJob} onOpenChange={(open) => { if (!open) setSelectedJob(null) }}>
+        <DrawerContent className="rounded-t-2xl" style={{ background: "#fff", maxHeight: "75vh" }}>
+          <DrawerHeader className="pb-0">
+            <div className="flex items-center justify-between">
+              <DrawerTitle className="text-slate-800">
+                {selectedJob?.service_type ? humanize(selectedJob.service_type) : "Job Details"}
+              </DrawerTitle>
+              <DrawerClose className="size-8 rounded-full flex items-center justify-center hover:bg-slate-100">
+                <X className="size-4 text-slate-400" />
+              </DrawerClose>
+            </div>
+          </DrawerHeader>
+          <div className="px-4 pb-4 overflow-y-auto space-y-3">
+            {selectedJob && (
+              <>
+                {/* Status + Time */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[10px] font-bold px-2 py-1 rounded-full text-white"
+                    style={{ background: STATUS_COLORS[selectedJob.status] || "#6b7280" }}>
+                    {humanize(selectedJob.status)}
+                  </span>
+                  {selectedJob.job_type === "estimate" && (
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700">ESTIMATE</span>
+                  )}
+                  <span className="text-xs text-slate-500">
+                    {formatDateLabel(selectedJob.date)} · {formatTime12(selectedJob.scheduled_at)}
+                    {selectedJob.hours ? ` – ${formatTime12(getEndTime(selectedJob.scheduled_at, selectedJob.hours))}` : ""}
+                  </span>
+                </div>
 
-// ── Quest Card (Job) ──
-function QuestCard({ job, token, index, theme, urgent, completed }: {
-  job: JobCard; token: string; index: number; theme: typeof DEFAULT_THEME; urgent?: boolean; completed?: boolean
-}) {
-  const router = useRouter()
-  const isEstimate = job.job_type === "estimate"
-  const href = isEstimate ? `/crew/${token}/estimate/${job.id}` : `/crew/${token}/job/${job.id}`
+                {/* Customer */}
+                {selectedJob.customer_first_name && (
+                  <div className="flex items-center gap-2">
+                    <div className="size-8 rounded-lg flex items-center justify-center text-xs font-bold" style={{ background: `${theme.accent}15`, color: theme.accent }}>
+                      {selectedJob.customer_first_name.charAt(0)}
+                    </div>
+                    <span className="text-sm font-semibold text-slate-700">{selectedJob.customer_first_name}</span>
+                  </div>
+                )}
 
-  let statusIcon: React.ReactNode
-  let statusText: string
-  let statusColor: string
-  if (job.assignment_status === "pending") {
-    statusIcon = <AlertTriangle className="size-3.5" />; statusText = "Respond"; statusColor = "#ff4b4b"
-  } else if (job.status === "completed") {
-    statusIcon = <CheckCircle2 className="size-3.5" />; statusText = "Done"; statusColor = theme.accent
-  } else if (job.cleaner_arrived_at) {
-    statusIcon = <Navigation className="size-3.5" />; statusText = "At Location"; statusColor = "#1cb0f6"
-  } else if (job.cleaner_omw_at) {
-    statusIcon = <Navigation className="size-3.5" />; statusText = "On My Way"; statusColor = "#ff9600"
-  } else {
-    statusIcon = <Clock className="size-3.5" />; statusText = "Scheduled"; statusColor = "#afafaf"
-  }
+                {/* Address */}
+                {selectedJob.address && (
+                  <a
+                    href={`https://maps.google.com/?q=${encodeURIComponent(selectedJob.address)}`}
+                    target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-slate-600 hover:bg-slate-50"
+                    style={{ background: "#f8f7f4" }}
+                  >
+                    <MapPin className="size-4 shrink-0" style={{ color: theme.accent }} />
+                    <span className="flex-1">{selectedJob.address}</span>
+                    <ExternalLink className="size-3 text-slate-400" />
+                  </a>
+                )}
 
-  return (
-    <button
-      onClick={() => router.push(href)}
-      className="group w-full text-left rounded-2xl overflow-hidden active:scale-[0.98] transition-all duration-200 pop-in"
-      style={{
-        background: "#ffffff",
-        boxShadow: urgent
-          ? "0 0 0 2px #ff4b4b, 0 4px 15px rgba(255,75,75,0.15)"
-          : completed
-            ? "0 1px 4px rgba(0,0,0,0.04)"
-            : "0 2px 10px rgba(0,0,0,0.06)",
-        animationDelay: `${index * 0.07}s`,
-        opacity: completed ? 0.65 : 1,
-      }}
-    >
-      <div className="flex items-center p-4 gap-3">
-        <div
-          className="size-11 rounded-xl flex items-center justify-center shrink-0"
-          style={{ background: `${statusColor}15`, border: `2px solid ${statusColor}30` }}
-        >
-          <span style={{ color: statusColor }}>{statusIcon}</span>
-        </div>
+                {/* Duration + Price */}
+                <div className="flex gap-3">
+                  {selectedJob.hours && (
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: "#f8f7f4" }}>
+                      <Clock className="size-3.5 text-slate-400" />
+                      <span className="text-xs font-medium text-slate-600">{selectedJob.hours}h</span>
+                    </div>
+                  )}
+                  {selectedJob.price && (
+                    <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl" style={{ background: "#f8f7f4" }}>
+                      <span className="text-xs font-medium text-slate-600">{formatCurrency(selectedJob.price)}</span>
+                    </div>
+                  )}
+                </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <p className="text-sm font-bold text-slate-800 truncate">
-              {job.service_type ? humanize(job.service_type) : "Job"}
-            </p>
-            {isEstimate && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-600">EST</span>
+                {/* Loading detail */}
+                {loadingDetail && (
+                  <div className="flex items-center justify-center py-4">
+                    <Loader2 className="size-5 animate-spin text-slate-400" />
+                  </div>
+                )}
+
+                {/* Notes from detail */}
+                {jobDetail?.job?.notes && (
+                  <div className="px-3 py-2 rounded-xl text-xs text-slate-500" style={{ background: "#f8f7f4" }}>
+                    {jobDetail.job.notes}
+                  </div>
+                )}
+
+                {/* View Full Details button */}
+                <button
+                  onClick={() => {
+                    const isEst = selectedJob.job_type === "estimate"
+                    router.push(`/crew/${token}/${isEst ? "estimate" : "job"}/${selectedJob.id}`)
+                  }}
+                  className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2"
+                  style={{ background: theme.accent }}
+                >
+                  View Full Details <ChevronRight className="size-4" />
+                </button>
+              </>
             )}
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span className="flex items-center gap-1">
-              <Calendar className="size-3" /> {formatDate(job.date)}
-            </span>
-            <span>·</span>
-            <span>{formatTime(job.scheduled_at)}</span>
-          </div>
-          {job.address && (
-            <p className="text-xs text-slate-400 mt-1 truncate flex items-center gap-1">
-              <MapPin className="size-3 shrink-0" /> {job.address}
-            </p>
-          )}
-        </div>
+        </DrawerContent>
+      </Drawer>
 
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span className="text-[10px] font-bold px-2 py-1 rounded-full text-white" style={{ background: statusColor }}>
-            {statusText}
-          </span>
-          <ChevronRight className="size-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
-        </div>
-      </div>
-    </button>
+      {/* ═══ AVAILABILITY DRAWER ═══ */}
+      <Drawer open={showAvail} onOpenChange={setShowAvail}>
+        <DrawerContent className="rounded-t-2xl" style={{ background: "#fff", maxHeight: "85vh" }}>
+          <DrawerHeader>
+            <div className="flex items-center justify-between">
+              <DrawerTitle className="text-slate-800">My Availability</DrawerTitle>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAvailView(availView === "calendar" ? "weekly" : "calendar")}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-lg"
+                  style={{ background: `${theme.accent}15`, color: theme.accent }}
+                >
+                  {availView === "calendar" ? "Weekly Hours" : "Calendar"}
+                </button>
+                <DrawerClose className="size-8 rounded-full flex items-center justify-center hover:bg-slate-100">
+                  <X className="size-4 text-slate-400" />
+                </DrawerClose>
+              </div>
+            </div>
+          </DrawerHeader>
+          <div className="px-4 pb-6 overflow-y-auto">
+            {availView === "calendar" ? (
+              /* ── Month Calendar ── */
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <button onClick={() => setCalMonth(p => p.month === 0 ? { year: p.year-1, month: 11 } : { year: p.year, month: p.month-1 })} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
+                    <ChevronLeft className="size-4 text-slate-500" />
+                  </button>
+                  <span className="text-sm font-bold text-slate-700">{monthName}</span>
+                  <button onClick={() => setCalMonth(p => p.month === 11 ? { year: p.year+1, month: 0 } : { year: p.year, month: p.month+1 })} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100">
+                    <ChevronRight className="size-4 text-slate-500" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {DAY_LABELS_SHORT.map((d, i) => <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>)}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {calDays.map((day, i) => {
+                    if (day === null) return <div key={`e${i}`} />
+                    const dateStr = `${calMonth.year}-${String(calMonth.month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`
+                    const isOff = offDays.has(dateStr); const isRecOff = isRecurringOff(day)
+                    const isToday = dateStr === todayStr; const isPast = dateStr < todayStr
+                    const dayOff = isOff || isRecOff
+                    return (
+                      <button key={dateStr} onClick={() => !isPast && toggleDay(dateStr)} disabled={isPast || togglingDate === dateStr}
+                        className="relative size-9 rounded-lg text-xs font-semibold flex items-center justify-center transition-all"
+                        style={{
+                          background: isOff ? "#ef444420" : isRecOff ? "#ef444410" : isToday ? `${theme.accent}15` : "transparent",
+                          color: isPast ? "#cbd5e1" : dayOff ? "#ef4444" : isToday ? theme.accent : "#475569",
+                          border: isToday ? `2px solid ${theme.accent}` : dayOff ? "2px solid #ef444440" : "2px solid transparent",
+                          opacity: togglingDate === dateStr ? 0.5 : 1, cursor: isPast ? "default" : "pointer",
+                        }}
+                      >
+                        {day}
+                        {isOff && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-400" />}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to request off</p>
+              </div>
+            ) : (
+              /* ── Weekly Hours ── */
+              <div className="space-y-2">
+                <p className="text-[11px] text-slate-400 mb-2">Set your regular weekly hours.</p>
+                {DAYS_OF_WEEK.map((day, i) => {
+                  const info = weekly[day] || { available: true, start: "08:00", end: "18:00" }
+                  return (
+                    <div key={day} className="flex items-center gap-2 py-1.5" style={{ borderBottom: i < 6 ? "1px solid #f1f0eb" : "none" }}>
+                      <button onClick={() => updateWeeklyDay(day, { available: !info.available })}
+                        className="size-7 rounded-lg text-[10px] font-bold flex items-center justify-center shrink-0"
+                        style={{
+                          background: info.available ? `${theme.accent}15` : "#fee2e2",
+                          color: info.available ? theme.accent : "#ef4444",
+                          border: `2px solid ${info.available ? `${theme.accent}40` : "#fca5a540"}`,
+                        }}
+                      >{DAY_LABELS_FULL[i]}</button>
+                      {info.available ? (
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <select value={info.start || "08:00"} onChange={e => updateWeeklyDay(day, { start: e.target.value })} className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600">
+                            {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
+                          </select>
+                          <span className="text-[10px] text-slate-400">to</span>
+                          <select value={info.end || "18:00"} onChange={e => updateWeeklyDay(day, { end: e.target.value })} className="text-xs bg-slate-50 border border-slate-200 rounded-md px-1.5 py-1 text-slate-600">
+                            {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatHour(t)}</option>)}
+                          </select>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-red-400 font-medium">Off</span>
+                      )}
+                    </div>
+                  )
+                })}
+                {weeklyDirty && (
+                  <button onClick={saveWeekly} disabled={savingWeekly}
+                    className="w-full mt-2 py-2 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2"
+                    style={{ background: theme.accent, opacity: savingWeekly ? 0.6 : 1 }}
+                  >
+                    {savingWeekly ? <><Loader2 className="size-4 animate-spin" /> Saving...</> : "Save Schedule"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </div>
+  )
+}
+
+/* ═══ DAY VIEW ═══ */
+function DayView({ jobs, onJobClick, theme }: { jobs: Job[]; onJobClick: (j: Job) => void; theme: typeof DEFAULT_THEME }) {
+  if (jobs.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <Calendar className="size-10 text-slate-300 mb-3" />
+      <p className="text-sm font-semibold text-slate-500">No jobs scheduled</p>
+      <p className="text-xs text-slate-400 mt-1">Enjoy your day off!</p>
+    </div>
+  )
+
+  // Sort by time
+  const sorted = [...jobs].sort((a, b) => (a.scheduled_at || "99:99").localeCompare(b.scheduled_at || "99:99"))
+
+  return (
+    <div className="px-4 py-3 space-y-2">
+      {sorted.map(job => {
+        const isEstimate = job.job_type === "estimate" || job.job_type === "sales_appointment"
+        const statusColor = STATUS_COLORS[job.status] || "#6b7280"
+        const endTime = getEndTime(job.scheduled_at, job.hours)
+
+        return (
+          <button
+            key={job.id}
+            onClick={() => onJobClick(job)}
+            className="w-full text-left rounded-xl overflow-hidden active:scale-[0.98] transition-transform"
+            style={{
+              background: "#fff",
+              boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
+              borderLeft: `4px solid ${isEstimate ? "#f59e0b" : statusColor}`,
+            }}
+          >
+            <div className="p-3">
+              {/* Time range */}
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-bold" style={{ color: isEstimate ? "#f59e0b" : statusColor }}>
+                  {formatTime12(job.scheduled_at)}
+                  {endTime ? ` – ${formatTime12(endTime)}` : ""}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+                  style={{ background: isEstimate ? "#f59e0b" : statusColor }}>
+                  {isEstimate ? "APPT" : humanize(job.status)}
+                </span>
+              </div>
+
+              {/* Service type + location */}
+              <p className="text-sm font-semibold text-slate-800 mb-0.5">
+                {job.service_type ? humanize(job.service_type) : "Job"}
+              </p>
+              {job.address && (
+                <p className="text-xs text-slate-400 truncate flex items-center gap-1">
+                  <MapPin className="size-3 shrink-0" />
+                  {job.address}
+                </p>
+              )}
+
+              {/* Bottom: customer + hours */}
+              <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400">
+                {job.customer_first_name && <span>{job.customer_first_name}</span>}
+                {job.hours && <span className="flex items-center gap-0.5"><Clock className="size-3" />{job.hours}h</span>}
+                {job.price && <span className="font-medium" style={{ color: theme.accent }}>{formatCurrency(job.price)}</span>}
+              </div>
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/* ═══ WEEK VIEW ═══ */
+function WeekView({ weekDays, jobsByDate, currentDate, todayStr, onJobClick, onDayClick, theme }: {
+  weekDays: string[]; jobsByDate: Record<string, Job[]>; currentDate: string; todayStr: string
+  onJobClick: (j: Job) => void; onDayClick: (d: string) => void; theme: typeof DEFAULT_THEME
+}) {
+  return (
+    <div className="grid grid-cols-7 gap-px h-full min-h-[400px]" style={{ background: "#e8e5de" }}>
+      {weekDays.map(dateStr => {
+        const d = new Date(dateStr + "T12:00:00")
+        const dayNum = d.getDate()
+        const dayLabel = DAY_LABELS_FULL[d.getDay()]
+        const isToday = dateStr === todayStr
+        const dayJobs = (jobsByDate[dateStr] || []).sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
+
+        return (
+          <div key={dateStr} className="flex flex-col min-h-0" style={{ background: "#fff" }}>
+            {/* Column header */}
+            <button
+              onClick={() => onDayClick(dateStr)}
+              className="py-2 text-center border-b shrink-0"
+              style={{ borderColor: "#f1f0eb" }}
+            >
+              <div className="text-[10px] font-medium text-slate-400">{dayLabel}</div>
+              <div
+                className="text-sm font-bold mx-auto size-7 rounded-full flex items-center justify-center"
+                style={{
+                  background: isToday ? theme.accent : "transparent",
+                  color: isToday ? "#fff" : "#334155",
+                }}
+              >
+                {dayNum}
+              </div>
+            </button>
+
+            {/* Job chips */}
+            <div className="flex-1 overflow-y-auto p-1 space-y-1">
+              {dayJobs.map(job => {
+                const isEst = job.job_type === "estimate" || job.job_type === "sales_appointment"
+                const statusColor = STATUS_COLORS[job.status] || "#6b7280"
+                return (
+                  <button
+                    key={job.id}
+                    onClick={(e) => { e.stopPropagation(); onJobClick(job) }}
+                    className="w-full text-left rounded-md p-1.5 transition-colors hover:brightness-95 active:scale-95"
+                    style={{
+                      background: `${isEst ? "#f59e0b" : statusColor}12`,
+                      borderLeft: `3px solid ${isEst ? "#f59e0b" : statusColor}`,
+                    }}
+                  >
+                    <div className="text-[9px] font-bold" style={{ color: isEst ? "#f59e0b" : statusColor }}>
+                      {formatTimeShort(job.scheduled_at)}
+                    </div>
+                    <div className="text-[10px] font-medium text-slate-700 truncate">
+                      {job.service_type ? humanize(job.service_type) : "Job"}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
