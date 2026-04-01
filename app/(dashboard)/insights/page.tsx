@@ -388,22 +388,14 @@ export default function InsightsPage() {
               <Repeat className="h-4 w-4 text-orange-400" />
               Retargeting (runs automatically)
             </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-2xl font-bold">{data.retargeting.active_sequences}</p>
-                <p className="text-[11px] text-muted-foreground">Active sequences</p>
+                <p className="text-2xl font-bold">{data.retargeting.active_sequences}<span className="text-sm font-normal text-muted-foreground">/{data.retargeting.total_retargeted}</span></p>
+                <p className="text-[11px] text-muted-foreground">Past Customers</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-green-400">{data.retargeting.converted}</p>
-                <p className="text-[11px] text-muted-foreground">Converted back</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{data.retargeting.completed}</p>
-                <p className="text-[11px] text-muted-foreground">Sequences completed</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{data.retargeting.conversion_rate}%</p>
-                <p className="text-[11px] text-muted-foreground">Conversion rate</p>
+                <p className="text-[11px] text-muted-foreground">Booked Again</p>
               </div>
             </div>
           </CardContent>
