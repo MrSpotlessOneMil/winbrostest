@@ -2,15 +2,40 @@ import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { toE164 } from '@/lib/phone-utils'
 import { getTenantBySlug } from '@/lib/tenant'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 
 // route-check:no-vercel-cron
 
 /**
- * VAPI tool endpoint — sends an SMS to a customer mid-call or post-call.
+ * VAPI function tool endpoint — sends an SMS to a customer mid-call or post-call.
  *
- * Called by the VAPI `send-customer-text` apiRequest tool.
- * VAPI POSTs the tool parameters directly as the JSON body.
+ * Called by the VAPI `send-customer-text` function tool.
+ * VAPI sends: { message: { type: "function-call", call: {...}, functionCall: { name, parameters } } }
+ * The caller's phone is extracted from call.customer.number.
+ * The tenant is resolved from the assistantId on the call.
  */
+
+// Map VAPI assistant IDs → tenant slugs
+const ASSISTANT_TENANT_MAP: Record<string, string> = {
+  'e3ed2426-dc28-4046-a5e9-0fbb945ff706': 'spotless-scrubbers',
+  '81cee3b3-324f-4d05-900e-ac0f57ed283f': 'west-niagara',
+  '4c673d16-436d-42ae-bf51-10b2c2d30fa0': 'cedar-rapids',
+}
+
+async function resolveTenantSlugFromAssistant(assistantId: string): Promise<string | null> {
+  // Fast path: static map
+  if (ASSISTANT_TENANT_MAP[assistantId]) return ASSISTANT_TENANT_MAP[assistantId]
+
+  // Fallback: check DB for vapi_assistant_id
+  const supabase = getSupabaseServiceClient()
+  const { data } = await supabase
+    .from('tenants')
+    .select('slug')
+    .or(`vapi_assistant_id.eq.${assistantId},vapi_outbound_assistant_id.eq.${assistantId}`)
+    .single()
+  return data?.slug || null
+}
+
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>
   try {
@@ -19,41 +44,57 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const phone = typeof body.phone === 'string' ? body.phone.trim() : ''
-  const customerName = typeof body.customer_name === 'string' ? body.customer_name.trim() : ''
-  const price = typeof body.price === 'string' ? body.price.trim() : typeof body.price === 'number' ? String(body.price) : ''
-  const bedrooms = typeof body.bedrooms === 'string' ? body.bedrooms.trim() : typeof body.bedrooms === 'number' ? String(body.bedrooms) : ''
-  const bathrooms = typeof body.bathrooms === 'string' ? body.bathrooms.trim() : typeof body.bathrooms === 'number' ? String(body.bathrooms) : ''
-  const messageType = typeof body.message_type === 'string' ? body.message_type.trim() : 'price_quote'
-  const tenantSlug = typeof body.tenant_slug === 'string' ? body.tenant_slug.trim() : ''
+  // Parse VAPI function-call envelope
+  const message = body.message as Record<string, unknown> | undefined
+  const call = message?.call as Record<string, unknown> | undefined
+  const functionCall = message?.functionCall as Record<string, unknown> | undefined
+  const params = (functionCall?.parameters || body) as Record<string, unknown>
 
-  if (!phone || !tenantSlug) {
-    return NextResponse.json({ error: 'Missing required fields: phone, tenant_slug' }, { status: 400 })
+  // Extract phone from call metadata (caller's number)
+  const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
+  const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
+  const phone = customerNumber || phoneFromParams
+
+  // Extract tenant from assistant ID or params
+  const assistantId = call?.assistantId as string | undefined
+  const tenantSlugFromParams = typeof params.tenant_slug === 'string' ? params.tenant_slug.trim() : ''
+  const tenantSlug = (assistantId ? await resolveTenantSlugFromAssistant(assistantId) : null) || tenantSlugFromParams
+
+  if (!phone) {
+    return NextResponse.json({ error: 'Could not determine customer phone number' }, { status: 400 })
+  }
+  if (!tenantSlug) {
+    return NextResponse.json({ error: 'Could not determine tenant' }, { status: 400 })
   }
 
   const tenant = await getTenantBySlug(tenantSlug)
   if (!tenant) {
-    return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
+    return NextResponse.json({ error: `Tenant not found: ${tenantSlug}` }, { status: 404 })
   }
+
+  const customerName = typeof params.customer_name === 'string' ? params.customer_name.trim() : ''
+  const price = typeof params.price === 'string' ? params.price.trim() : typeof params.price === 'number' ? String(params.price) : ''
+  const bedrooms = typeof params.bedrooms === 'string' ? params.bedrooms.trim() : typeof params.bedrooms === 'number' ? String(params.bedrooms) : ''
+  const bathrooms = typeof params.bathrooms === 'string' ? params.bathrooms.trim() : typeof params.bathrooms === 'number' ? String(params.bathrooms) : ''
+  const messageType = typeof params.message_type === 'string' ? params.message_type.trim() : 'price_quote'
 
   const normalizedPhone = toE164(phone)
   const businessName = tenant.business_name || tenant.slug
 
-  let message: string
+  let smsMessage: string
   if (messageType === 'booking_followup') {
-    message = customerName
+    smsMessage = customerName
       ? `Hey ${customerName}, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
       : `Hey, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
   } else {
-    // price_quote (default)
     const priceDisplay = price ? `$${price.replace('$', '')}` : 'TBD'
     const sizeInfo = bedrooms && bathrooms ? `${bedrooms} bed / ${bathrooms} bath` : ''
-    message = customerName
+    smsMessage = customerName
       ? `Hi ${customerName}! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
       : `Hi! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
   }
 
-  const result = await sendSMS(tenant, normalizedPhone, message, { skipDedup: true })
+  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipDedup: true })
 
   if (!result.success) {
     return NextResponse.json(
@@ -62,5 +103,5 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  return NextResponse.json({ success: true, message_sent: message })
+  return NextResponse.json({ success: true, message_sent: smsMessage })
 }
