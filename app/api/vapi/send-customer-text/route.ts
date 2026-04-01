@@ -60,7 +60,11 @@ export async function POST(request: NextRequest) {
   const tenantSlugFromParams = typeof params.tenant_slug === 'string' ? params.tenant_slug.trim() : ''
   const tenantSlug = (assistantId ? await resolveTenantSlugFromAssistant(assistantId) : null) || tenantSlugFromParams
 
+  console.log(`[send-customer-text] Raw phone: customerNumber=${customerNumber}, phoneFromParams=${phoneFromParams}, resolved=${phone}`)
+  console.log(`[send-customer-text] assistantId=${assistantId}, tenantSlug=${tenantSlug}`)
+
   if (!phone) {
+    console.error('[send-customer-text] No phone found. Full body:', JSON.stringify(body).slice(0, 1000))
     return NextResponse.json({ error: 'Could not determine customer phone number' }, { status: 400 })
   }
   if (!tenantSlug) {
@@ -94,14 +98,19 @@ export async function POST(request: NextRequest) {
       : `Hi! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
   }
 
-  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipDedup: true })
+  console.log(`[send-customer-text] Sending SMS to ${normalizedPhone} (raw: ${phone}), type=${messageType}`)
+
+  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipDedup: true, bypassFilters: true })
 
   if (!result.success) {
+    console.error(`[send-customer-text] SMS failed for ${normalizedPhone}:`, result.error)
     return NextResponse.json(
       { success: false, error: result.error || 'SMS send failed' },
       { status: 500 },
     )
   }
+
+  console.log(`[send-customer-text] SMS sent successfully to ${normalizedPhone}`)
 
   return NextResponse.json({ success: true, message_sent: smsMessage })
 }
