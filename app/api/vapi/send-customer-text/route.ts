@@ -98,19 +98,23 @@ export async function POST(request: NextRequest) {
       : `Hi! Your estimated cleaning price${sizeInfo ? ` for a ${sizeInfo} home` : ''} is ${priceDisplay}. We'll follow up with the full invoice shortly!`
   }
 
-  console.log(`[send-customer-text] Sending SMS to ${normalizedPhone} (raw: ${phone}), type=${messageType}`)
+  console.log(`[send-customer-text] Sending SMS to ${normalizedPhone} (raw: ${phone}), type=${messageType}, price=${price}, bed=${bedrooms}, bath=${bathrooms}`)
+  console.log(`[send-customer-text] Message: ${smsMessage}`)
+  console.log(`[send-customer-text] Tenant: ${tenant.slug}, OpenPhone phone_id: ${tenant.openphone_phone_id}, phone_number: ${tenant.openphone_phone_number}`)
 
   const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipDedup: true, bypassFilters: true })
 
+  console.log(`[send-customer-text] sendSMS result:`, JSON.stringify(result))
+
   if (!result.success) {
-    console.error(`[send-customer-text] SMS failed for ${normalizedPhone}:`, result.error)
+    console.error(`[send-customer-text] SMS FAILED for ${normalizedPhone}: ${result.error}`)
     return NextResponse.json(
       { success: false, error: result.error || 'SMS send failed' },
       { status: 500 },
     )
   }
 
-  console.log(`[send-customer-text] SMS sent successfully to ${normalizedPhone}`)
+  console.log(`[send-customer-text] SMS sent OK to ${normalizedPhone}, messageId=${result.messageId}`)
 
-  return NextResponse.json({ success: true, message_sent: smsMessage })
+  return NextResponse.json({ success: true, message_sent: smsMessage, messageId: result.messageId })
 }
