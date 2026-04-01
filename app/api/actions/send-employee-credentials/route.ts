@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
   const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || 'https://cleanmachine.live').replace('https://', '')
   const message = `Your portal login:\n\nWebsite: ${baseUrl}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nYou can also tap any job link from your texts to go straight to your portal.`
 
-  const result = await sendSMS(tenant, cleaner.phone, message, { skipDedup: true })
+  const result = await sendSMS(tenant, cleaner.phone, message, { skipDedup: true, bypassFilters: true })
 
   if (!result.success) {
     return NextResponse.json({ success: false, error: 'Failed to send text message' }, { status: 500 })
