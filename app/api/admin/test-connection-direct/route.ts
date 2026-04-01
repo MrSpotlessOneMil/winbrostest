@@ -19,7 +19,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 })
   }
 
-  const { service, credentials } = await request.json()
+  let body: any
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const { service, credentials } = body
 
   if (!service || !credentials) {
     return NextResponse.json({ success: false, error: "service and credentials are required" }, { status: 400 })
@@ -87,6 +94,6 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: false, error: `Unknown service: ${service}` }, { status: 400 })
     }
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message || "Connection test failed" }, { status: 500 })
+    return NextResponse.json({ success: false, error: err.message || "Connection test failed" })
   }
 }
