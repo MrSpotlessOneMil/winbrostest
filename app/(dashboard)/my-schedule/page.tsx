@@ -323,6 +323,68 @@ export default function CrewAssignmentPage() {
     fetch("/api/actions/settings").then(r => r.json()).then(d => setCleanerId(d.cleaner_id || -1)).catch(() => setCleanerId(-1))
   }, [user, isAdmin])
 
+  // ── Generate demo jobs for real TLs when no real jobs exist ──
+  const generateDemoJobsForCleaners = useCallback((monday: Date, tls: Cleaner[]): Job[] => {
+    if (tls.length === 0) return []
+    const demoJobs: Job[] = []
+    const services = ["ext_window_cleaning", "gutter_cleaning", "pressure_washing", "int_ext_windows", "screen_repair", "house_wash", "concrete_cleaning"]
+    const addresses = [
+      "1423 Oak St, Washington, IL 61571",
+      "809 Birch Ln, Morton, IL 61550",
+      "2205 Washington Rd, East Peoria, IL 61611",
+      "315 Main St, Peoria Heights, IL 61616",
+      "452 Maple Ave, Pekin, IL 61554",
+      "987 Cedar Dr, Bloomington, IL 61701",
+      "1100 N Main St, East Peoria, IL 61611",
+    ]
+    const customers = [
+      { first_name: "Sarah", last_name: "Mitchell" },
+      { first_name: "James", last_name: "Rodriguez" },
+      { first_name: "Linda", last_name: "Chen" },
+      { first_name: "Mike", last_name: "O'Brien" },
+      { first_name: "Karen", last_name: "Johnson" },
+      { first_name: "Dave", last_name: "Kowalski" },
+      { first_name: "Emily", last_name: "Taylor" },
+    ]
+    const prices = [185, 250, 320, 150, 275, 195, 340]
+    const durations = [1.5, 2, 2.5, 1, 2, 1.5, 3]
+
+    for (let d = 0; d < 6; d++) { // Mon-Sat
+      const day = addDays(monday, d)
+      const dateStr = toDateStr(day)
+      // Assign 2 TLs per day, rotating through the list
+      const dayTLs = [tls[d % tls.length], tls[(d + 1) % tls.length]].filter((v, i, a) => a.indexOf(v) === i)
+
+      for (const tl of dayTLs) {
+        const numJobs = 3 + (d % 3) // 3-5 jobs per TL per day
+        for (let j = 0; j < numJobs; j++) {
+          const hour = 8 + j * 2
+          const min = j % 2 === 0 ? "00" : "30"
+          const idx = (d * 3 + j + tl.id) % 7
+          const isSales = j === numJobs - 1 && d % 4 === 0
+          demoJobs.push({
+            id: d * 10000 + tl.id * 100 + j,
+            date: dateStr,
+            scheduled_at: `${String(hour).padStart(2, "0")}:${min}`,
+            service_type: isSales ? "sales_appointment" : services[idx],
+            address: addresses[idx],
+            status: d < 1 ? "completed" : d === 1 ? "in_progress" : "scheduled",
+            price: isSales ? 0 : prices[idx],
+            hours: isSales ? 1 : durations[idx],
+            cleaner_id: tl.id,
+            job_type: isSales ? "sales_appointment" : null,
+            cleaner_name: tl.name,
+            phone_number: `(309) 555-${String(1200 + idx)}`,
+            notes: j === 0 && d < 3 ? "Two-story home, bring extension ladder" : null,
+            frequency: idx % 3 === 0 ? "monthly" : idx % 3 === 1 ? "bi_weekly" : "one_time",
+            customers: customers[idx],
+          })
+        }
+      }
+    }
+    return demoJobs
+  }, [])
+
   // ── Fetch data ──
   const fetchData = useCallback(async () => {
     const dateStr = toDateStr(weekStart)
@@ -333,7 +395,8 @@ export default function CrewAssignmentPage() {
       ]
       const [crewRes, jobsRes] = await Promise.all(fetches)
       const realCleaners = crewRes.cleaners || []
-      if (realCleaners.length === 0 && isAdmin) {
+      if (realCleaners.length === 0) {
+        // No cleaners at all — full demo
         const demo = generateDemoData(weekStart)
         setCleaners(demo.cleaners); setCrewDays(demo.crewDays); setTimeOff(demo.timeOff); setJobs(demo.jobs)
       } else {
@@ -341,10 +404,11 @@ export default function CrewAssignmentPage() {
         setCrewDays(crewRes.crewDays || [])
         setTimeOff(crewRes.timeOff || [])
         const realJobs = jobsRes.jobs || []
-        if (realJobs.length === 0 && !isAdmin) {
-          // Demo jobs for worker view
-          const demo = generateDemoData(weekStart)
-          setJobs(demo.jobs.filter(j => j.cleaner_id === 101)) // give worker one TL's jobs
+        if (realJobs.length === 0) {
+          // Real cleaners exist but no jobs — generate demo jobs for the real TLs
+          const realTLs = realCleaners.filter((c: Cleaner) => c.is_team_lead && c.active)
+          const demoJobs = generateDemoJobsForCleaners(weekStart, realTLs)
+          setJobs(demoJobs)
         } else {
           setJobs(realJobs)
         }
@@ -355,7 +419,7 @@ export default function CrewAssignmentPage() {
       setCleaners(demo.cleaners); setCrewDays(demo.crewDays); setTimeOff(demo.timeOff); setJobs(demo.jobs)
     }
     setLoading(false)
-  }, [weekStart, isAdmin, cleanerId])
+  }, [weekStart, isAdmin, cleanerId, generateDemoJobsForCleaners])
 
   useEffect(() => { setLoading(true); fetchData() }, [fetchData])
 
