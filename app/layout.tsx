@@ -49,7 +49,7 @@ export default function RootLayout({
         <Analytics />
         <script
           dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}`,
+            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(registrations){for(var r of registrations){r.unregister()}})}`,
           }}
         />
       </body>
