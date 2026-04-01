@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  Flame,
   Loader2,
   AlertCircle,
   ChevronRight,
+  ChevronLeft,
   MapPin,
   Clock,
   Calendar,
@@ -28,10 +28,34 @@ interface JobCard {
   assignment_status: string; assignment_id: string; customer_first_name: string | null
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null; payment_method: string | null
 }
+interface TimeOffEntry { id: number; date: string; reason: string | null }
 interface PortalData {
   cleaner: { id: number; name: string; phone: string; availability: any; employee_type?: string }
   tenant: { name: string; slug: string }
   todaysJobs: JobCard[]; upcomingJobs: JobCard[]; pendingJobs: JobCard[]; pastJobs: JobCard[]
+  timeOff: TimeOffEntry[]
+}
+
+// Tenant color themes
+const THEMES: Record<string, { gradient: string; gradientDark: string; accent: string; accentLight: string; avatarGradient: string; avatarText: string; ring: string }> = {
+  winbros: {
+    gradient: "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
+    gradientDark: "#0d9488",
+    accent: "#14b8a6",
+    accentLight: "#5eead4",
+    avatarGradient: "linear-gradient(135deg, #99f6e4, #5eead4)",
+    avatarText: "#0f766e",
+    ring: "#14b8a6",
+  },
+}
+const DEFAULT_THEME = {
+  gradient: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)",
+  gradientDark: "#58cc02",
+  accent: "#58cc02",
+  accentLight: "#89e219",
+  avatarGradient: "linear-gradient(135deg, #d4fc79, #96e6a1)",
+  avatarText: "#2b9348",
+  ring: "#58cc02",
 }
 
 function formatDate(d: string) {
@@ -51,27 +75,58 @@ export default function CrewPortalPage() {
   const [data, setData] = useState<PortalData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [calMonth, setCalMonth] = useState(() => { const n = new Date(); return { year: n.getFullYear(), month: n.getMonth() } })
+  const [offDays, setOffDays] = useState<Set<string>>(new Set())
+  const [togglingDate, setTogglingDate] = useState<string | null>(null)
 
   useEffect(() => {
     fetch(`/api/crew/${token}`)
       .then(r => { if (!r.ok) throw new Error("Invalid portal link"); return r.json() })
-      .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
+      .then(d => {
+        setData(d)
+        setOffDays(new Set((d.timeOff || []).map((t: TimeOffEntry) => t.date)))
+      })
+      .catch(e => setError(e.message)).finally(() => setLoading(false))
   }, [token])
 
   useEffect(() => { fetch(`/api/crew/${token}/auto-session`, { method: "POST" }).catch(() => {}) }, [token])
+
+  const toggleDay = useCallback(async (dateStr: string) => {
+    if (togglingDate) return
+    setTogglingDate(dateStr)
+    try {
+      const res = await fetch(`/api/crew/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toggleTimeOff: { date: dateStr } }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setOffDays(prev => {
+          const next = new Set(prev)
+          if (result.action === "added") next.add(dateStr)
+          else next.delete(dateStr)
+          return next
+        })
+      }
+    } catch {}
+    setTogglingDate(null)
+  }, [token, togglingDate])
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => {})
     router.push("/login")
   }
 
+  const theme = data?.tenant?.slug ? (THEMES[data.tenant.slug] || DEFAULT_THEME) : DEFAULT_THEME
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
       <div className="flex flex-col items-center gap-3">
-        <div className="size-12 rounded-2xl flex items-center justify-center animate-pulse" style={{ background: "linear-gradient(135deg, #58cc02, #89e219)" }}>
+        <div className="size-12 rounded-2xl flex items-center justify-center animate-pulse" style={{ background: theme.gradient }}>
           <Sparkles className="size-6 text-white" />
         </div>
-        <Loader2 className="size-5 animate-spin text-emerald-500" />
+        <Loader2 className="size-5 animate-spin" style={{ color: theme.accent }} />
       </div>
     </div>
   )
@@ -89,38 +144,43 @@ export default function CrewPortalPage() {
   const { cleaner, tenant, todaysJobs, upcomingJobs, pendingJobs, pastJobs } = data
   const firstName = cleaner.name?.split(" ")[0] || "Crew"
 
-  // Stats
   const todayCompleted = todaysJobs.filter(j => j.status === "completed").length
   const todayTotal = todaysJobs.length
   const allDone = todayTotal > 0 && todayCompleted === todayTotal
   const progressPct = todayTotal > 0 ? Math.round((todayCompleted / todayTotal) * 100) : 0
 
-  // Time-based greeting
   const hour = new Date().getHours()
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening"
+
+  // Calendar helpers
+  const calDate = new Date(calMonth.year, calMonth.month, 1)
+  const monthName = calDate.toLocaleString("en-US", { month: "long", year: "numeric" })
+  const daysInMonth = new Date(calMonth.year, calMonth.month + 1, 0).getDate()
+  const firstDow = calDate.getDay() // 0=Sun
+  const todayStr = new Date().toISOString().split("T")[0]
+  const calDays: (number | null)[] = []
+  for (let i = 0; i < firstDow; i++) calDays.push(null)
+  for (let d = 1; d <= daysInMonth; d++) calDays.push(d)
+
+  const prevMonth = () => setCalMonth(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { year: p.year, month: p.month - 1 })
+  const nextMonth = () => setCalMonth(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { year: p.year, month: p.month + 1 })
 
   return (
     <div className="min-h-screen pb-8" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
       <style>{`
         @keyframes popIn { 0% { opacity:0; transform: scale(0.8) translateY(10px); } 60% { transform: scale(1.03) translateY(-2px); } 100% { opacity:1; transform: scale(1) translateY(0); } }
         @keyframes slideUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
-        @keyframes shimmer { 0% { background-position: -200% center; } 100% { background-position: 200% center; } }
         @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
         .pop-in { animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
         .slide-up { animation: slideUp 0.4s ease-out both; }
       `}</style>
 
       {/* ═══ HEADER ═══ */}
-      <div
-        className="relative overflow-hidden px-5 pt-6 pb-8"
-        style={{ background: "linear-gradient(135deg, #58cc02 0%, #2b9348 100%)" }}
-      >
-        {/* Decorative circles */}
+      <div className="relative overflow-hidden px-5 pt-6 pb-8" style={{ background: theme.gradient }}>
         <div className="absolute -top-8 -right-8 size-32 rounded-full" style={{ background: "rgba(255,255,255,0.1)" }} />
         <div className="absolute bottom-2 -left-6 size-20 rounded-full" style={{ background: "rgba(255,255,255,0.08)" }} />
 
         <div className="relative z-10">
-          {/* Top row */}
           <div className="flex items-center justify-between mb-5">
             <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">{tenant.name}</span>
             <button onClick={handleLogout} className="text-xs text-white/50 hover:text-white/80 transition-colors flex items-center gap-1">
@@ -128,9 +188,8 @@ export default function CrewPortalPage() {
             </button>
           </div>
 
-          {/* Avatar + Greeting */}
           <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl flex items-center justify-center text-xl font-black text-emerald-700 shadow-lg" style={{ background: "linear-gradient(135deg, #d4fc79, #96e6a1)" }}>
+            <div className="size-14 rounded-2xl flex items-center justify-center text-xl font-black shadow-lg" style={{ background: theme.avatarGradient, color: theme.avatarText }}>
               {firstName.charAt(0)}
             </div>
             <div>
@@ -143,22 +202,14 @@ export default function CrewPortalPage() {
 
       {/* ═══ DAILY PROGRESS CARD ═══ */}
       <div className="px-4 -mt-5 mb-6">
-        <div
-          className="rounded-2xl p-4 pop-in flex items-center gap-4"
-          style={{
-            background: "#ffffff",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
-          }}
-        >
-          {/* Progress Ring */}
+        <div className="rounded-2xl p-4 pop-in flex items-center gap-4" style={{ background: "#ffffff", boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}>
           <div className="relative size-16 shrink-0">
             <svg viewBox="0 0 64 64" className="size-16 -rotate-90">
               <circle cx="32" cy="32" r="26" fill="none" stroke="#e8e5de" strokeWidth="5" />
               <circle
                 cx="32" cy="32" r="26" fill="none"
-                stroke={allDone ? "#58cc02" : "#ff9600"}
-                strokeWidth="5"
-                strokeLinecap="round"
+                stroke={allDone ? theme.accent : "#ff9600"}
+                strokeWidth="5" strokeLinecap="round"
                 strokeDasharray={`${2 * Math.PI * 26}`}
                 strokeDashoffset={`${2 * Math.PI * 26 * (1 - progressPct / 100)}`}
                 style={{ transition: "stroke-dashoffset 1s ease-out" }}
@@ -184,6 +235,64 @@ export default function CrewPortalPage() {
       </div>
 
       <div className="px-4 space-y-6 max-w-lg mx-auto">
+        {/* ═══ AVAILABILITY CALENDAR ═══ */}
+        <div className="slide-up" style={{ animationDelay: "0.05s" }}>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="size-7 rounded-lg flex items-center justify-center" style={{ background: `${theme.accent}20`, color: theme.accent }}>
+              <Calendar className="size-4" />
+            </div>
+            <h2 className="text-sm font-bold text-slate-800 flex-1">My Availability</h2>
+          </div>
+          <div className="rounded-2xl p-4" style={{ background: "#ffffff", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" }}>
+            {/* Month nav */}
+            <div className="flex items-center justify-between mb-3">
+              <button onClick={prevMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
+                <ChevronLeft className="size-4 text-slate-500" />
+              </button>
+              <span className="text-sm font-bold text-slate-700">{monthName}</span>
+              <button onClick={nextMonth} className="size-8 rounded-lg flex items-center justify-center hover:bg-slate-100 transition-colors">
+                <ChevronRight className="size-4 text-slate-500" />
+              </button>
+            </div>
+            {/* Day headers */}
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {["S","M","T","W","T","F","S"].map((d, i) => (
+                <div key={i} className="text-center text-[10px] font-bold text-slate-400 py-1">{d}</div>
+              ))}
+            </div>
+            {/* Day cells */}
+            <div className="grid grid-cols-7 gap-1">
+              {calDays.map((day, i) => {
+                if (day === null) return <div key={`e${i}`} />
+                const dateStr = `${calMonth.year}-${String(calMonth.month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
+                const isOff = offDays.has(dateStr)
+                const isToday = dateStr === todayStr
+                const isPast = dateStr < todayStr
+                const isToggling = togglingDate === dateStr
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => !isPast && toggleDay(dateStr)}
+                    disabled={isPast || isToggling}
+                    className="relative size-9 rounded-lg text-xs font-semibold transition-all duration-150 flex items-center justify-center"
+                    style={{
+                      background: isOff ? "#ef444420" : isToday ? `${theme.accent}15` : "transparent",
+                      color: isPast ? "#cbd5e1" : isOff ? "#ef4444" : isToday ? theme.accent : "#475569",
+                      border: isToday ? `2px solid ${theme.accent}` : isOff ? "2px solid #ef444440" : "2px solid transparent",
+                      opacity: isToggling ? 0.5 : 1,
+                      cursor: isPast ? "default" : "pointer",
+                    }}
+                  >
+                    {day}
+                    {isOff && <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-red-400" />}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[10px] text-slate-400 mt-3 text-center">Tap a day to mark yourself unavailable</p>
+          </div>
+        </div>
+
         {/* ═══ NEW QUOTE CTA ═══ */}
         {cleaner.employee_type === "salesman" && (
           <button
@@ -206,15 +315,15 @@ export default function CrewPortalPage() {
         {pendingJobs.length > 0 && (
           <Section title="Action Required" icon={<AlertTriangle className="size-4" />} color="#ff4b4b" count={pendingJobs.length} badge>
             {pendingJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} urgent />
+              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} urgent />
             ))}
           </Section>
         )}
 
         {/* ═══ TODAY'S MISSIONS ═══ */}
-        <Section title="Today's Missions" icon={<Zap className="size-4" />} color="#58cc02" count={todaysJobs.length} empty={todaysJobs.length === 0 ? "No missions today — rest up!" : undefined}>
+        <Section title="Today's Missions" icon={<Zap className="size-4" />} color={theme.accent} count={todaysJobs.length} empty={todaysJobs.length === 0 ? "No missions today — rest up!" : undefined}>
           {todaysJobs.map((job, i) => (
-            <QuestCard key={job.id} job={job} token={token} index={i} />
+            <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} />
           ))}
         </Section>
 
@@ -222,7 +331,7 @@ export default function CrewPortalPage() {
         {upcomingJobs.length > 0 && (
           <Section title="Coming Up" icon={<Calendar className="size-4" />} color="#1cb0f6" count={upcomingJobs.length}>
             {upcomingJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} />
+              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} />
             ))}
           </Section>
         )}
@@ -231,7 +340,7 @@ export default function CrewPortalPage() {
         {pastJobs.length > 0 && (
           <Section title="Completed" icon={<CheckCircle2 className="size-4" />} color="#afafaf" count={pastJobs.length}>
             {pastJobs.map((job, i) => (
-              <QuestCard key={job.id} job={job} token={token} index={i} completed />
+              <QuestCard key={job.id} job={job} token={token} index={i} theme={theme} completed />
             ))}
           </Section>
         )}
@@ -272,21 +381,20 @@ function Section({ title, icon, color, count, badge, empty, children }: {
 }
 
 // ── Quest Card (Job) ──
-function QuestCard({ job, token, index, urgent, completed }: {
-  job: JobCard; token: string; index: number; urgent?: boolean; completed?: boolean
+function QuestCard({ job, token, index, theme, urgent, completed }: {
+  job: JobCard; token: string; index: number; theme: typeof DEFAULT_THEME; urgent?: boolean; completed?: boolean
 }) {
   const router = useRouter()
   const isEstimate = job.job_type === "estimate"
   const href = isEstimate ? `/crew/${token}/estimate/${job.id}` : `/crew/${token}/job/${job.id}`
 
-  // Status config
   let statusIcon: React.ReactNode
   let statusText: string
   let statusColor: string
   if (job.assignment_status === "pending") {
     statusIcon = <AlertTriangle className="size-3.5" />; statusText = "Respond"; statusColor = "#ff4b4b"
   } else if (job.status === "completed") {
-    statusIcon = <CheckCircle2 className="size-3.5" />; statusText = "Done"; statusColor = "#58cc02"
+    statusIcon = <CheckCircle2 className="size-3.5" />; statusText = "Done"; statusColor = theme.accent
   } else if (job.cleaner_arrived_at) {
     statusIcon = <Navigation className="size-3.5" />; statusText = "At Location"; statusColor = "#1cb0f6"
   } else if (job.cleaner_omw_at) {
@@ -311,18 +419,13 @@ function QuestCard({ job, token, index, urgent, completed }: {
       }}
     >
       <div className="flex items-center p-4 gap-3">
-        {/* Left: Icon circle */}
         <div
           className="size-11 rounded-xl flex items-center justify-center shrink-0"
-          style={{
-            background: `${statusColor}15`,
-            border: `2px solid ${statusColor}30`,
-          }}
+          style={{ background: `${statusColor}15`, border: `2px solid ${statusColor}30` }}
         >
           <span style={{ color: statusColor }}>{statusIcon}</span>
         </div>
 
-        {/* Middle: Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <p className="text-sm font-bold text-slate-800 truncate">
@@ -346,12 +449,8 @@ function QuestCard({ job, token, index, urgent, completed }: {
           )}
         </div>
 
-        {/* Right: Status pill + arrow */}
         <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span
-            className="text-[10px] font-bold px-2 py-1 rounded-full text-white"
-            style={{ background: statusColor }}
-          >
+          <span className="text-[10px] font-bold px-2 py-1 rounded-full text-white" style={{ background: statusColor }}>
             {statusText}
           </span>
           <ChevronRight className="size-4 text-slate-300 group-hover:text-slate-500 transition-colors" />

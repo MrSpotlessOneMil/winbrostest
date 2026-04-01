@@ -129,6 +129,20 @@ export async function GET(
   // Sort today's jobs by time
   todaysJobs.sort((a, b) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
 
+  // Fetch time-off for current + next month
+  const currentMonth = today.slice(0, 7)
+  const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+  const nextMonth = nextMonthDate.toISOString().split('T')[0].slice(0, 7)
+
+  const { data: timeOffData } = await client
+    .from('time_off')
+    .select('id, date, reason')
+    .eq('tenant_id', tenantId)
+    .eq('cleaner_id', cleaner.id)
+    .gte('date', `${currentMonth}-01`)
+    .lte('date', `${nextMonth}-31`)
+    .order('date')
+
   const tenant = (cleaner as any).tenants
   return NextResponse.json({
     cleaner: {
@@ -146,6 +160,7 @@ export async function GET(
     upcomingJobs,
     pendingJobs,
     pastJobs,
+    timeOff: timeOffData || [],
   })
 }
 
@@ -166,12 +181,43 @@ export async function PATCH(
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const { availability } = body
-  if (!availability) {
-    return NextResponse.json({ error: 'Missing availability' }, { status: 400 })
+  const client = getSupabaseServiceClient()
+  const tenantId = (cleaner as any).tenants.id
+
+  // Time-off toggle
+  if (body.toggleTimeOff) {
+    const { date } = body.toggleTimeOff
+    if (!date) return NextResponse.json({ error: 'date required' }, { status: 400 })
+
+    // Check if already off
+    const { data: existing } = await client
+      .from('time_off')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('cleaner_id', cleaner.id)
+      .eq('date', date)
+      .maybeSingle()
+
+    if (existing) {
+      await client.from('time_off').delete().eq('id', existing.id)
+      return NextResponse.json({ success: true, action: 'removed', date })
+    } else {
+      await client.from('time_off').insert({
+        tenant_id: tenantId,
+        cleaner_id: cleaner.id,
+        date,
+        reason: 'worker_requested',
+      })
+      return NextResponse.json({ success: true, action: 'added', date })
+    }
   }
 
-  const client = getSupabaseServiceClient()
+  // Legacy availability update
+  const { availability } = body
+  if (!availability) {
+    return NextResponse.json({ error: 'Missing availability or toggleTimeOff' }, { status: 400 })
+  }
+
   const { error } = await client
     .from('cleaners')
     .update({ availability, updated_at: new Date().toISOString() })
