@@ -125,7 +125,13 @@ export async function POST(request: NextRequest) {
   const message = body.message as Record<string, unknown> | undefined
   const call = message?.call as Record<string, unknown> | undefined
   const functionCall = message?.functionCall as Record<string, unknown> | undefined
-  const params = (functionCall?.parameters ?? {}) as Record<string, unknown>
+
+  // VAPI may send parameters as a JSON string OR a parsed object — handle both
+  const rawParams = functionCall?.parameters
+  const params: Record<string, unknown> = typeof rawParams === 'string'
+    ? (() => { try { return JSON.parse(rawParams) } catch { return {} } })()
+    : (rawParams as Record<string, unknown>) ?? {}
+
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
   const assistantId = call?.assistantId as string | undefined
 
@@ -133,7 +139,7 @@ export async function POST(request: NextRequest) {
   const toolCallList = message?.toolCallList as Array<Record<string, unknown>> | undefined
   const toolCallId = (toolCallList?.[0]?.id as string) || (functionCall?.id as string) || ''
 
-  console.log(`[send-customer-text] DIAG | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId} | toolCallId=${toolCallId}`)
+  console.log(`[send-customer-text] DIAG | rawParamsType=${typeof rawParams} | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId} | toolCallId=${toolCallId} | bed=${params.bedrooms} | bath=${params.bathrooms} | price=${params.price}`)
 
   const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
   const phone = customerNumber || phoneFromParams
