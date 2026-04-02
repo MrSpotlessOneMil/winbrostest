@@ -89,6 +89,7 @@ async function createQuoteAndGetLink(
   bathrooms: number,
   customerName: string | null,
   serviceCategory: string,
+  price: number | null,
   domain: string,
 ): Promise<string | null> {
   const supabase = getSupabaseServiceClient()
@@ -101,6 +102,7 @@ async function createQuoteAndGetLink(
       bedrooms,
       bathrooms,
       service_category: serviceCategory,
+      ...(price ? { custom_base_price: price } : {}),
       notes: 'Created from VAPI voice call',
     })
     .select('token')
@@ -213,9 +215,10 @@ export async function POST(request: NextRequest) {
   } else {
     let quoteLink: string | null = null
     if (bedrooms !== null && bathrooms !== null) {
+      const priceNum = finalPrice ? parseFloat(finalPrice) : null
       quoteLink = await createQuoteAndGetLink(
         tenant.id, normalizedPhone, bedrooms, bathrooms,
-        customerName || null, serviceCategory, domain,
+        customerName || null, serviceCategory, priceNum, domain,
       )
     }
 
