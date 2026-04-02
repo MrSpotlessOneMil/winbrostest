@@ -27,13 +27,14 @@ export async function POST(request: NextRequest) {
   // Admin user (no tenant_id) deletes across all tenants
   const isAdmin = !tenant && authResult.user.username === 'admin'
 
-  if (!tenant && !isAdmin) {
+  if (!tenant && !isAdmin && !crossTenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
 
   const body = await request.json()
   const rawPhone = body.phoneNumber
   const rawEmail = body.email?.trim().toLowerCase() as string | undefined
+  const crossTenant = body.crossTenant === true
 
   if (!rawPhone) {
     return NextResponse.json({ success: false, error: "Phone number required" }, { status: 400 })
@@ -53,9 +54,9 @@ export async function POST(request: NextRequest) {
 
   const deletionLog: string[] = []
 
-  // Helper: conditionally add tenant filter (admin deletes across all tenants)
+  // Helper: conditionally add tenant filter (admin or crossTenant deletes across all tenants)
   function withTenant<T extends { eq: (col: string, val: string) => T }>(query: T): T {
-    return tenant ? query.eq("tenant_id", tenant.id) : query
+    return (tenant && !crossTenant) ? query.eq("tenant_id", tenant.id) : query
   }
 
   try {

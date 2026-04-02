@@ -739,7 +739,7 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/reset-customer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumber: person.phone, email: person.email }),
+        body: JSON.stringify({ phoneNumber: person.phone, email: person.email, crossTenant: true }),
       })
       const json = await res.json()
 
