@@ -128,23 +128,32 @@ export async function POST(request: NextRequest) {
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
   const assistantId = call?.assistantId as string | undefined
 
-  console.log(`[send-customer-text] DIAG | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId}`)
+  // Extract toolCallId for VAPI response format
+  const toolCallList = message?.toolCallList as Array<Record<string, unknown>> | undefined
+  const toolCallId = (toolCallList?.[0]?.id as string) || (functionCall?.id as string) || ''
+
+  console.log(`[send-customer-text] DIAG | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId} | toolCallId=${toolCallId}`)
 
   const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
   const phone = customerNumber || phoneFromParams
   const tenantSlugFromParams = typeof params.tenant_slug === 'string' ? params.tenant_slug.trim() : ''
   const tenantSlug = (assistantId ? await resolveTenantSlugFromAssistant(assistantId) : null) || tenantSlugFromParams
 
+  // Helper: return result in VAPI's expected format
+  const vapiResult = (result: string) => NextResponse.json({
+    results: [{ toolCallId, result }],
+  })
+
   if (!phone) {
-    return NextResponse.json({ error: 'Could not determine customer phone number' }, { status: 400 })
+    return vapiResult('Error: Could not determine customer phone number')
   }
   if (!tenantSlug) {
-    return NextResponse.json({ error: 'Could not determine tenant' }, { status: 400 })
+    return vapiResult('Error: Could not determine tenant')
   }
 
   const tenant = await getTenantBySlug(tenantSlug)
   if (!tenant) {
-    return NextResponse.json({ error: `Tenant not found: ${tenantSlug}` }, { status: 404 })
+    return vapiResult(`Error: Tenant not found: ${tenantSlug}`)
   }
 
   const customerName = typeof params.customer_name === 'string' ? params.customer_name.trim() : ''
@@ -218,14 +227,11 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const result = await sendSMS(tenant, normalizedPhone, smsMessage, { skipThrottle: true, skipDedup: true, bypassFilters: true })
+  const smsResult = await sendSMS(tenant, normalizedPhone, smsMessage, { skipThrottle: true, skipDedup: true, bypassFilters: true })
 
-  if (!result.success) {
-    return NextResponse.json(
-      { success: false, error: result.error || 'SMS send failed' },
-      { status: 500 },
-    )
+  if (!smsResult.success) {
+    return vapiResult(`Error: SMS failed - ${smsResult.error || 'unknown error'}`)
   }
 
-  return NextResponse.json({ success: true, message_sent: smsMessage, messageId: result.messageId })
+  return vapiResult(`SMS sent successfully. Message: ${smsMessage}`)
 }
