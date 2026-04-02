@@ -182,7 +182,8 @@ export async function POST(request: NextRequest) {
       if (fullTenant) {
         const customerFirst = (customer_name as string)?.split(' ')[0] || 'there'
         const businessName = fullTenant.business_name || fullTenant.name
-        const domain = fullTenant.website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
+        // Always use Osiris app domain for quote links — website_url may be a marketing site
+        const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
         const quoteLink = `${domain}/quote/${quote.token}`
         const message = `Hey ${customerFirst}! Here's your custom quote from ${businessName}. You can review the details, add extras, and confirm right here: ${quoteLink}`
         await sendSMS(fullTenant, quote.customer_phone, message)

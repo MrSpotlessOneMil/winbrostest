@@ -204,7 +204,9 @@ export async function POST(request: NextRequest) {
 
   const normalizedPhone = toE164(phone)
   const businessName = tenant.business_name || tenant.slug
-  const domain = tenant.website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
+  // Always use the Osiris app domain for quote links — tenant.website_url may point to
+  // a marketing site (e.g. Hostinger) that doesn't host the /quote/ page.
+  const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
   const serviceCategory = toServiceCategory(serviceType)
 
   let smsMessage: string

@@ -296,7 +296,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   }
 
   const businessName = tenant.business_name_short || tenant.name
-  const domain = (tenant as any).website_url?.replace(/\/+$/, '') || process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
+  // Always use Osiris app domain for quote links — website_url may be a marketing site
+  const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
   const quoteLink = `${domain}/quote/${quote.token}`
 
   if (action === 'accepted') {
