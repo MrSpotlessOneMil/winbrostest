@@ -128,12 +128,35 @@ export async function POST(request: NextRequest) {
   const call = message?.call as Record<string, unknown> | undefined
   const functionCall = message?.functionCall as Record<string, unknown> | undefined
 
-  // VAPI sends two formats: newer toolCallList[] and older functionCall{}
+  // VAPI sends multiple formats depending on version and tool type:
+  // 1. message.toolCallList[].parameters (newer format)
+  // 2. message.toolWithToolCallList[].toolCall.parameters (newer format, nested)
+  // 3. message.functionCall.parameters (older format)
+  // 4. message.toolCalls[].function.arguments (OpenAI-style passthrough)
   const toolCallList = message?.toolCallList as Array<Record<string, unknown>> | undefined
-  const toolCallId = (toolCallList?.[0]?.id as string) || (functionCall?.id as string) || ''
+  const toolWithToolCallList = message?.toolWithToolCallList as Array<Record<string, unknown>> | undefined
+  const toolCalls = message?.toolCalls as Array<Record<string, unknown>> | undefined
 
-  // Extract parameters from EITHER format — toolCallList takes priority (newer VAPI format)
-  const rawParams = toolCallList?.[0]?.parameters ?? functionCall?.parameters
+  // Extract toolCallId from whichever format is present
+  const toolCallId =
+    (toolCallList?.[0]?.id as string) ||
+    ((toolWithToolCallList?.[0]?.toolCall as Record<string, unknown>)?.id as string) ||
+    (toolCalls?.[0]?.id as string) ||
+    (functionCall?.id as string) ||
+    ''
+
+  // Extract parameters — try every known VAPI format
+  const rawParams =
+    toolCallList?.[0]?.parameters ??
+    (toolWithToolCallList?.[0]?.toolCall as Record<string, unknown>)?.parameters ??
+    toolCalls?.[0]?.parameters ??
+    (() => {
+      // OpenAI-style: toolCalls[].function.arguments (JSON string)
+      const fn = toolCalls?.[0]?.function as Record<string, unknown> | undefined
+      return fn?.arguments ?? fn?.parameters
+    })() ??
+    functionCall?.parameters
+
   const params: Record<string, unknown> = typeof rawParams === 'string'
     ? (() => { try { return JSON.parse(rawParams) } catch { return {} } })()
     : (rawParams as Record<string, unknown>) ?? {}
@@ -141,7 +164,17 @@ export async function POST(request: NextRequest) {
   const customerNumber = (call?.customer as Record<string, unknown>)?.number as string | undefined
   const assistantId = call?.assistantId as string | undefined
 
-  console.log(`[send-customer-text] DIAG | rawParamsType=${typeof rawParams} | fc_params=${JSON.stringify(params).slice(0, 300)} | customer=${customerNumber} | assistant=${assistantId} | toolCallId=${toolCallId} | bed=${params.bedrooms} | bath=${params.bathrooms} | price=${params.price}`)
+  // Log which format was used and full body keys if params are empty (for debugging)
+  const paramSource = toolCallList?.[0]?.parameters ? 'toolCallList' :
+    (toolWithToolCallList?.[0]?.toolCall as Record<string, unknown>)?.parameters ? 'toolWithToolCallList' :
+    toolCalls?.[0]?.parameters ? 'toolCalls' :
+    functionCall?.parameters ? 'functionCall' : 'NONE'
+
+  console.log(`[send-customer-text] DIAG | source=${paramSource} | params=${JSON.stringify(params).slice(0, 400)} | customer=${customerNumber} | assistant=${assistantId} | toolCallId=${toolCallId} | bed=${params.bedrooms} | bath=${params.bathrooms} | price=${params.price}`)
+
+  if (paramSource === 'NONE') {
+    console.error(`[send-customer-text] NO PARAMS FOUND — raw body keys: message=[${Object.keys(message || {}).join(',')}] body=[${Object.keys(body).join(',')}] | full message: ${JSON.stringify(message).slice(0, 1000)}`)
+  }
 
   const phoneFromParams = typeof params.phone === 'string' ? params.phone.trim() : ''
   const phone = customerNumber || phoneFromParams
