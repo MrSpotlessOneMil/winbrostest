@@ -74,9 +74,10 @@ function toNumber(val: unknown): number | null {
   return null
 }
 
-/** Map service_type param to DB service_category value */
+/** Map service_type param to DB service_category value.
+ *  DB constraint only allows 'standard' | 'move_in_out'.
+ *  Deep clean is a tier within standard, not a separate category. */
 function toServiceCategory(serviceType: string): string {
-  if (serviceType === 'deep') return 'deep'
   if (serviceType === 'move' || serviceType === 'move_in_out') return 'move_in_out'
   return 'standard'
 }
