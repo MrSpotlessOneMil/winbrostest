@@ -19,6 +19,10 @@ import { monthlyFollowup } from '@/lib/sms-templates'
 import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 
 export async function GET(request: NextRequest) {
+  // DISABLED 2026-04-02: Overlaps with lifecycle-auto-enroll retargeting sequences.
+  // Multiple re-engagement crons were bombarding the same customers.
+  return NextResponse.json({ success: true, disabled: true, reason: 'Overlaps with lifecycle-auto-enroll retargeting' })
+
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
   }

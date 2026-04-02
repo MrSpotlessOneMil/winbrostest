@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCronAuth, unauthorizedResponse } from '@/lib/cron-auth'
 import { updateJob, getSupabaseServiceClient } from '@/lib/supabase'
 import { logSystemEvent } from '@/lib/system-events'
+import { isBusinessHours } from '@/lib/config'
 
 // Import extracted core functions — called directly, no mock-request needed
 import { executeCompleteJob } from '@/app/api/actions/complete-job/route'
@@ -186,6 +187,11 @@ async function executeHandler() {
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
     return NextResponse.json(unauthorizedResponse(), { status: 401 })
+  }
+
+  // Don't send payment requests outside business hours (9am-5pm)
+  if (!isBusinessHours()) {
+    return NextResponse.json({ success: true, skipped: true, reason: 'Outside business hours' })
   }
 
   return executeHandler()

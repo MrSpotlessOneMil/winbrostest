@@ -74,7 +74,7 @@ describe('template JSON loading', () => {
       (t: any) => t.function?.name === 'send-customer-text'
     )
     expect(tool).toBeDefined()
-    expect(tool.async).toBe(true)
+    expect(tool.async).toBe(false)
     expect(tool.server.url).toContain('/api/vapi/send-customer-text')
 
     const params = tool.function.parameters

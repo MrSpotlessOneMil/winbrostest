@@ -176,6 +176,25 @@ export async function GET(request: NextRequest) {
           },
         })
 
+        // 30-minute cooldown: don't auto-respond if we already sent an AI response
+        // to this customer in the last 30 minutes (prevents rapid-fire AI texts)
+        const cooldownCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+        const { data: recentAiResponse } = await client
+          .from('messages')
+          .select('id')
+          .eq('phone_number', msg.phone_number)
+          .eq('tenant_id', tenant.id)
+          .eq('direction', 'outbound')
+          .eq('ai_generated', true)
+          .gte('created_at', cooldownCutoff)
+          .limit(1)
+          .maybeSingle()
+
+        if (recentAiResponse) {
+          console.log(`[ghost-watchdog] Skipping AI response for ***${phoneShort}: already sent AI text within 30 min`)
+          continue
+        }
+
         // Actually send an AI response (don't just unpause and wait)
         let aiSent = false
         try {

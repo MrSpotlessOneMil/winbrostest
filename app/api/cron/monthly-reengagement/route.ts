@@ -7,9 +7,13 @@ import { logSystemEvent } from '@/lib/system-events'
 import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
 
 /**
- * Monthly Re-engagement Cron
+ * Monthly Re-engagement Cron — DISABLED
  *
- * Runs daily at 10am. Loops all active tenants that have
+ * Disabled 2026-04-02: Overlaps with lifecycle-auto-enroll retargeting sequences.
+ * Multiple re-engagement crons were sending overlapping SMS to the same customers,
+ * causing confusion and eroding trust. Keeping lifecycle-auto-enroll as the single path.
+ *
+ * Previously: Runs daily at 10am. Loops all active tenants that have
  * monthly_followup_enabled=true and use_retargeting=true.
  * Sends a re-engagement offer with discount to customers 30+ days since last job.
  *
@@ -17,6 +21,9 @@ import { getAllActiveTenants, tenantUsesFeature } from '@/lib/tenant'
  * SELECT FOR UPDATE SKIP LOCKED to prevent duplicate SMS.
  */
 export async function GET(request: NextRequest) {
+  // DISABLED: Overlaps with lifecycle-auto-enroll. See comment at top of file.
+  return NextResponse.json({ success: true, disabled: true, reason: 'Overlaps with lifecycle-auto-enroll retargeting' })
+
   if (!verifyCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

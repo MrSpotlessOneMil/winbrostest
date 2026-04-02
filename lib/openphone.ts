@@ -144,9 +144,9 @@ export async function sendSMS(
       .eq('direction', 'outbound')
       .gte('created_at', twentyFourHoursAgo)
 
-    if (dailyCount && dailyCount >= 20) {
-      console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} messages in 24h (limit 20)`)
-      return { success: false, error: `SMS throttled: customer received ${dailyCount} messages in 24h` }
+    if (dailyCount && dailyCount >= 3) {
+      console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} automated messages in 24h (limit 3)`)
+      return { success: false, error: `SMS throttled: customer received ${dailyCount} automated messages in 24h` }
     }
   } catch (throttleErr) {
     console.error(`[${tenant.slug}] SMS throttle check failed:`, throttleErr)
