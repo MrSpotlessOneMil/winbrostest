@@ -62,6 +62,91 @@ const TIER_COLORS = [
   { bg: "bg-indigo-50", border: "border-indigo-500", ring: "ring-indigo-200", icon: "bg-indigo-600", check: "text-indigo-600", badge: "bg-indigo-600" },
 ]
 
+// ── Detailed Checklists (what the cleaner actually does) ────────────
+
+const STANDARD_CHECKLIST = [
+  "Wipe down all kitchen countertops",
+  "Clean and sanitize kitchen sink",
+  "Wipe exterior of all appliances (fridge, microwave, oven, dishwasher)",
+  "Clean stovetop surface",
+  "Scrub and sanitize all toilets (inside and out)",
+  "Clean bathtub and shower surfaces",
+  "Clean bathroom vanity, sink, and mirrors",
+  "Vacuum all carpeted areas",
+  "Mop all hard floors",
+  "Dust all reachable surfaces, furniture, and shelves",
+  "Empty all trash cans and replace liners",
+]
+
+const DEEP_EXTRAS = [
+  "Hand-wipe all baseboards throughout home",
+  "Dust and wipe all ceiling fan blades",
+  "Clean light fixtures and switch plates",
+  "Clean all window sills and ledges",
+  "Clean inside microwave",
+]
+
+const EXTRA_DEEP_EXTRAS = [
+  "Clean inside fridge (shelves, drawers, and door compartments)",
+  "Clean inside oven (racks, walls, and door glass)",
+  "Wipe down all cabinet interiors (shelves and doors)",
+  "Degrease range hood and exhaust filter",
+  "Deep clean all blinds and shutters",
+  "Spot clean walls (scuffs, marks, and fingerprints)",
+]
+
+const MOVE_GOOD_CHECKLIST = [
+  "Clean all kitchen countertops, stovetop, and sink",
+  "Clean inside microwave",
+  "Wipe all cabinet exteriors",
+  "Clean garbage disposal area",
+  "Scrub and sanitize all toilets, tubs, and showers",
+  "Clean bathroom vanity, sink, and all mirrors",
+  "Vacuum all carpeted areas and mop all hard floors",
+  "Dust all surfaces and remove cobwebs",
+  "Hand-wipe all baseboards",
+  "Dust and wipe ceiling fan blades",
+  "Clean light fixtures, light switches, and door knobs",
+  "Clean all window sills and ledges",
+  "Sweep and wipe all closet interiors",
+  "Spot clean walls (scuffs and marks)",
+  "Empty all trash and replace liners",
+]
+
+const MOVE_BETTER_EXTRAS = [
+  "Clean inside oven (racks, walls, door glass)",
+  "Clean inside fridge (shelves, drawers, compartments)",
+  "Clean inside dishwasher",
+  "Wipe all cabinet and drawer interiors",
+  "Degrease range hood and filter",
+  "Clean behind and under appliances",
+  "Clean all window tracks",
+  "Scrub bathroom grout",
+  "Detailed hand-wipe all baseboards",
+  "Detailed light fixture cleaning",
+]
+
+const MOVE_BEST_EXTRAS = [
+  "Full wall washing (every wall, floor to ceiling)",
+  "Interior window glass cleaning",
+  "Mineral deposit and hard water removal",
+  "Mold and mildew treatment",
+  "Deep clean all blinds",
+  "Clean all exhaust fans",
+]
+
+function getDetailedChecklist(tierKey: string): string[] {
+  switch (tierKey) {
+    case "standard": return STANDARD_CHECKLIST
+    case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
+    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS, ...EXTRA_DEEP_EXTRAS]
+    case "move_good": return MOVE_GOOD_CHECKLIST
+    case "move_better": return [...MOVE_GOOD_CHECKLIST, ...MOVE_BETTER_EXTRAS]
+    case "move_best": return [...MOVE_GOOD_CHECKLIST, ...MOVE_BETTER_EXTRAS, ...MOVE_BEST_EXTRAS]
+    default: return []
+  }
+}
+
 // ── Component ────────────────────────────────────────────────────────
 
 export default function QuotePage() {
@@ -812,26 +897,13 @@ export default function QuotePage() {
                   <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
                 </button>
                 {summaryExpanded && (
-                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-blue-100 space-y-1.5">
-                    {selectedTierPrice.breakdown.filter(item => item.service !== selectedTier.name && !item.service.includes('(base)')).map((item) => (
-                      <div key={item.service} className="flex items-start gap-2">
+                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
+                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
+                      <div key={i} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
-                        <span className="text-xs text-slate-500">{item.service}</span>
+                        <span className="text-xs text-slate-600">{task}</span>
                       </div>
                     ))}
-                    {selectedTier.included.filter(key => !selectedTierPrice.breakdown.some(b => b.service.toLowerCase().includes(key.replace(/_/g, ' ')))).length > 0 && selectedTier.included.map((key) => {
-                      const alreadyShown = selectedTierPrice.breakdown.some(b =>
-                        b.service.toLowerCase().includes(key.replace(/_/g, ' ').toLowerCase())
-                      )
-                      if (alreadyShown) return null
-                      const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
-                      return (
-                        <div key={key} className="flex items-start gap-2">
-                          <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
-                          <span className="text-xs text-slate-500">{label}</span>
-                        </div>
-                      )
-                    })}
                   </div>
                 )}
               </div>
