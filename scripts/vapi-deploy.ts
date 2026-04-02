@@ -185,6 +185,95 @@ async function upgradeSettings(dryRun: boolean) {
   }
 }
 
+// Tenant config for --fix-tools deployment
+// Each entry maps to its variant file + assistant key
+const HOUSE_CLEANING_ASSISTANTS: Record<string, { variant: string; assistantKey: string }> = {
+  spotless: { variant: 'spotless-a', assistantKey: 'spotless-inbound' },
+  westNiagara: { variant: 'west-niagara-a', assistantKey: 'spotless-inbound-west' },
+  cedar: { variant: 'cedar-a', assistantKey: 'cedar-inbound' },
+};
+
+async function fixTools(dryRun: boolean) {
+  console.log('\nDeploying 4-phase quote flow to house cleaning assistants...\n');
+
+  // Load inline tools from the base template
+  const templatePath = path.join(__dirname, '..', 'lib', 'vapi-templates', 'house-cleaning-inbound.json');
+  const template = JSON.parse(fs.readFileSync(templatePath, 'utf-8'));
+  const templateTools: object[] = template.model.tools || [];
+
+  if (templateTools.length === 0) {
+    console.error('ERROR: Template has no model.tools — nothing to deploy');
+    process.exit(1);
+  }
+
+  for (const [tenantLabel, config] of Object.entries(HOUSE_CLEANING_ASSISTANTS)) {
+    const assistantId = ASSISTANT_MAP[config.assistantKey];
+    if (!assistantId) {
+      console.warn(`  Skipping ${tenantLabel}: no assistant ID for ${config.assistantKey}`);
+      continue;
+    }
+
+    // Load the variant (prompt already has tool instructions baked in)
+    const variantPath = path.join(__dirname, 'vapi-variants', `${config.variant}.json`);
+    if (!fs.existsSync(variantPath)) {
+      console.warn(`  Skipping ${tenantLabel}: variant ${config.variant}.json not found`);
+      continue;
+    }
+    const variant: Variant = JSON.parse(fs.readFileSync(variantPath, 'utf-8'));
+
+    console.log(`  ${tenantLabel} / ${config.assistantKey} (${assistantId})`);
+    console.log(`    Variant: ${variant.name} (${config.variant})`);
+
+    // Fetch current config to preserve toolIds
+    const current = await vapiRequest('GET', `/assistant/${assistantId}`);
+    const currentModel = current.model || {};
+    const existingToolIds: string[] = currentModel.toolIds || [];
+
+    // Set base URL for inline tool server URLs
+    const baseUrl = current.server?.url
+      ? new URL(current.server.url).origin
+      : 'https://cleanmachine.live';
+
+    const tools = JSON.parse(JSON.stringify(templateTools));
+    for (const tool of tools) {
+      if (tool.server?.url && typeof tool.server.url === 'string') {
+        try {
+          const parsed = new URL(tool.server.url);
+          tool.server.url = `${baseUrl}${parsed.pathname}`;
+        } catch { /* leave as-is */ }
+      }
+    }
+
+    const update = {
+      firstMessage: variant.firstMessage,
+      model: {
+        ...V2_SETTINGS.model,
+        provider: 'openai',
+        toolIds: existingToolIds,
+        tools,
+        maxTokens: currentModel.maxTokens || 300,
+        messages: [{ role: 'system', content: variant.systemPrompt }],
+      },
+    };
+
+    if (dryRun) {
+      console.log(`    [DRY RUN] Would update:`);
+      console.log(`      First message: "${variant.firstMessage.slice(0, 70)}..."`);
+      console.log(`      Prompt length: ${variant.systemPrompt.length} chars`);
+      console.log(`      Inline tools: ${tools.length} (${tools.map((t: any) => t.function?.name).join(', ')})`);
+      console.log(`      Preserved toolIds: [${existingToolIds.join(', ')}]`);
+      console.log(`      Has CRITICAL instruction: ${variant.systemPrompt.includes('CRITICAL: You MUST call send-customer-text')}`);
+      console.log(`      Has 4-phase flow: ${variant.systemPrompt.includes('Phase 4: Confirm')}`);
+    } else {
+      await vapiRequest('PATCH', `/assistant/${assistantId}`, update);
+      console.log(`    Updated successfully.`);
+      console.log(`      Inline tools: ${tools.length}`);
+      console.log(`      Preserved toolIds: ${existingToolIds.length}`);
+    }
+    console.log('');
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
@@ -192,6 +281,7 @@ async function main() {
     ? args[args.indexOf('--variant') + 1]
     : undefined;
   const upgradeOnly = args.includes('--upgrade-settings');
+  const fixToolsFlag = args.includes('--fix-tools');
 
   if (dryRun) {
     console.log('*** DRY RUN MODE — no changes will be made ***');
@@ -201,10 +291,13 @@ async function main() {
     await deployVariant(variantArg, dryRun);
   } else if (upgradeOnly) {
     await upgradeSettings(dryRun);
+  } else if (fixToolsFlag) {
+    await fixTools(dryRun);
   } else {
     console.log('Usage:');
     console.log('  npx tsx scripts/vapi-deploy.ts --variant spotless-a     Deploy a variant');
     console.log('  npx tsx scripts/vapi-deploy.ts --upgrade-settings       Upgrade model/voice');
+    console.log('  npx tsx scripts/vapi-deploy.ts --fix-tools              Deploy tool fix to house cleaning assistants');
     console.log('  npx tsx scripts/vapi-deploy.ts --dry-run --variant X    Preview changes');
   }
 

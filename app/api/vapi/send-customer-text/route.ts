@@ -239,9 +239,39 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Pre-insert DB record BEFORE sending so OpenPhone webhook recognizes this as
+  // system-sent and does NOT trigger manual_takeover (which ghosts the customer).
+  const supabase = getSupabaseServiceClient()
+
+  // Look up customer ID for the DB record
+  const { data: customerRow } = await supabase
+    .from('customers')
+    .select('id')
+    .eq('phone_number', normalizedPhone)
+    .eq('tenant_id', tenant.id)
+    .limit(1)
+    .maybeSingle()
+
+  const { data: msgRecord } = await supabase.from('messages').insert({
+    tenant_id: tenant.id,
+    customer_id: customerRow?.id || null,
+    phone_number: normalizedPhone,
+    role: 'assistant',
+    content: smsMessage,
+    direction: 'outbound',
+    message_type: 'sms',
+    ai_generated: false,
+    source: 'vapi_booking_confirmation',
+    timestamp: new Date().toISOString(),
+  }).select('id').single()
+
   const smsResult = await sendSMS(tenant, normalizedPhone, smsMessage, { skipThrottle: true, skipDedup: true, bypassFilters: true })
 
   if (!smsResult.success) {
+    // Clean up pre-inserted record since send failed
+    if (msgRecord?.id) {
+      await supabase.from('messages').delete().eq('id', msgRecord.id)
+    }
     return vapiResult(`Error: SMS failed - ${smsResult.error || 'unknown error'}`)
   }
 
