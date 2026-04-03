@@ -226,5 +226,18 @@ export async function POST(request: NextRequest) {
     results.oldSequences = { leadsReset: leadIds.length, tasksCancelled: cancelledTasks }
   }
 
+  if (action === 'cancel_all_retargeting' || action === 'cleanup_all') {
+    // Nuclear option: cancel ALL pending retargeting tasks across all tenants
+    // Safe because lifecycle-auto-enroll will re-enroll people who genuinely need it
+    // and the 3/day throttle prevents spam regardless
+    const { data, error } = await client
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .eq('task_type', 'retargeting')
+      .eq('status', 'pending')
+      .select('id')
+    results.cancelledRetargeting = { cancelled: data?.length || 0, error: error?.message }
+  }
+
   return NextResponse.json({ success: true, action, results })
 }
