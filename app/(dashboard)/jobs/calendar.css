@@ -114,7 +114,15 @@
 }
 
 .fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
-  color: #a78bfa;
+  color: #fff;
+  background: rgba(139, 92, 246, 0.85);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px;
 }
 
 .fc .fc-event {
