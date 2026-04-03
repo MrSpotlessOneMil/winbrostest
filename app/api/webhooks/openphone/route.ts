@@ -38,7 +38,7 @@ async function sendMultiPartSMS(
 
     // Send via OpenPhone API first, then insert DB record only on success
     // This prevents ghost messages (stored in DB but never actually sent)
-    const result = await sendSMS(tenant, phone, part, { skipDedup: true })
+    const result = await sendSMS(tenant, phone, part, { skipDedup: true, skipThrottle: true })
     if (result.success) {
       messageIds.push(result.messageId || '')
       // Only insert DB record after confirmed send
@@ -692,7 +692,7 @@ export async function POST(request: NextRequest) {
 
   if (isStopRequest && tenant && customer) {
     // Send confirmation FIRST (before opt-out, so it goes through)
-    await sendSMS(tenant, phone, "You've been unsubscribed from automated messages. Reply START to re-subscribe anytime.")
+    await sendSMS(tenant, phone, "You've been unsubscribed from automated messages. Reply START to re-subscribe anytime.", { skipThrottle: true })
 
     // Set opt-out flag + clear retargeting state
     await client
@@ -783,7 +783,7 @@ export async function POST(request: NextRequest) {
       .update({ sms_opt_out: false, sms_opt_out_at: null })
       .eq("id", customer.id)
 
-    await sendSMS(tenant, phone, "You've been re-subscribed to messages. We're glad to have you back!")
+    await sendSMS(tenant, phone, "You've been re-subscribed to messages. We're glad to have you back!", { skipThrottle: true })
 
     console.log(`[OpenPhone] START: Customer ${customer.id} re-subscribed`)
 
@@ -873,7 +873,7 @@ export async function POST(request: NextRequest) {
 
           const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
           const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
-          const replyResult = await sendSMS(tenant, phone, replyMsg)
+          const replyResult = await sendSMS(tenant, phone, replyMsg, { skipThrottle: true })
 
           // Only save outbound message if SMS was actually sent (prevents ghost messages)
           if (replyResult.success) {
@@ -912,7 +912,7 @@ export async function POST(request: NextRequest) {
         } else if (sentiment === "negative") {
           // Apology — NO review link
           const apologyMsg = `We're really sorry to hear that. We want to make it right - someone from our team will reach out to you personally. Thank you for letting us know.`
-          const apologyResult = await sendSMS(tenant, phone, apologyMsg)
+          const apologyResult = await sendSMS(tenant, phone, apologyMsg, { skipThrottle: true })
 
           if (apologyResult.success) {
             await client.from("messages").insert({
@@ -963,7 +963,7 @@ export async function POST(request: NextRequest) {
           const reviewLink = tenant.google_review_link || "https://g.page/review"
           const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
           const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
-          await sendSMS(tenant, phone, neutralMsg)
+          await sendSMS(tenant, phone, neutralMsg, { skipThrottle: true })
 
           await client.from("messages").insert({
             tenant_id: tenant.id,
@@ -1022,7 +1022,7 @@ export async function POST(request: NextRequest) {
       } else if (isAccept) {
         const customerFirstName = customer.first_name || 'there'
         const confirmMsg = `That's great ${customerFirstName}! Our team will get your next cleaning on the books. They'll text you shortly to get it scheduled!`
-        const recurringResult = await sendSMS(tenant, phone, confirmMsg)
+        const recurringResult = await sendSMS(tenant, phone, confirmMsg, { skipThrottle: true })
 
         if (recurringResult.success) {
           await client.from("messages").insert({
@@ -1330,7 +1330,7 @@ export async function POST(request: NextRequest) {
             const confirmMsg = isRenew
               ? `Great! Your ${plan.name} membership with ${businessName} will renew after your final visit. Thank you!`
               : `Got it. Your ${plan.name} membership with ${businessName} will end after your final visit. Thank you for being a member!`
-            await sendSMS(tenant, phone, confirmMsg)
+            await sendSMS(tenant, phone, confirmMsg, { skipThrottle: true })
 
             // Notify tenant owner via SMS
             if (tenant.owner_phone) {
@@ -1400,7 +1400,7 @@ export async function POST(request: NextRequest) {
             }
 
             // Confirm to customer
-            await sendSMS(tenant, phone, `Great! We'll get you set up for another ${completedPlan.name} cycle with ${businessName}. Someone from our team will reach out shortly!`)
+            await sendSMS(tenant, phone, `Great! We'll get you set up for another ${completedPlan.name} cycle with ${businessName}. Someone from our team will reach out shortly!`, { skipThrottle: true })
 
             // Notify tenant owner — they need to manually create the new membership
             if (tenant.owner_phone) {
@@ -1808,7 +1808,7 @@ export async function POST(request: NextRequest) {
         const jobAddress = job.address || customer.address || 'your address'
         const confirmMsg = `You're all confirmed, ${customerFirst}! Your free estimate is set for ${jobDateTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
 
-        const smsResult = await sendSMS(tenant, phone, confirmMsg)
+        const smsResult = await sendSMS(tenant, phone, confirmMsg, { skipThrottle: true })
 
         if (smsResult.success) {
           await client.from("messages").insert({
@@ -1999,7 +1999,7 @@ export async function POST(request: NextRequest) {
           }
           const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
           const cardMessage = `Thanks! ${priceStr}Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
-          const cardSms = await sendSMS(tenant!, phone, cardMessage)
+          const cardSms = await sendSMS(tenant!, phone, cardMessage, { skipThrottle: true })
           if (cardSms.success) {
             await client.from("messages").insert({
               tenant_id: tenant?.id,
@@ -2054,7 +2054,7 @@ export async function POST(request: NextRequest) {
       // Fallback: card-on-file creation failed
       {
         const fallbackMsg = `Thanks for your email! We're getting everything set up and will send over the details shortly.`
-        const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg)
+        const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true })
         if (fallbackResult.success) {
           await client.from("messages").insert({
             tenant_id: tenant?.id,
@@ -2156,7 +2156,7 @@ export async function POST(request: NextRequest) {
           const responseText = txt?.type === 'text' ? txt.text.trim() : ''
 
           if (responseText) {
-            const sendResult = await sendSMS(tenant!, phone, responseText)
+            const sendResult = await sendSMS(tenant!, phone, responseText, { skipThrottle: true })
             if (sendResult.success) {
               await client.from("messages").insert({
                 tenant_id: tenant?.id,
@@ -2217,7 +2217,7 @@ export async function POST(request: NextRequest) {
             : 'your requested date'
         const jobAddress = job.address || customer.address || 'your address'
         const confirmMsg = `You're all confirmed, ${customerFirst}! Your free estimate is set for ${jobDateTime} at ${jobAddress}. A team member will visit to provide your on-site quote. We'll see you then!`
-        const smsResult = await sendSMS(tenant, phone, confirmMsg)
+        const smsResult = await sendSMS(tenant, phone, confirmMsg, { skipThrottle: true })
         if (smsResult.success) {
           await client.from("messages").insert({
             tenant_id: tenant.id, customer_id: customer.id, phone_number: phone,
@@ -2310,7 +2310,7 @@ export async function POST(request: NextRequest) {
       if (quoteError || !newQuote) {
         console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
         const fallbackMsg = `Thanks for confirming! We'll be in touch with your quote shortly.`
-        await sendSMS(tenant!, phone, fallbackMsg)
+        await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true })
         await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_quote_fallback", leadId: bookedLead.id })
       }
@@ -2323,7 +2323,7 @@ export async function POST(request: NextRequest) {
         ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
         : `Here's your quote — pick the option that works best for you: ${quoteUrl}`
 
-      const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg)
+      const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg, { skipThrottle: true })
       if (quoteSmsResult.success) {
         await client.from("messages").insert({
           tenant_id: tenant?.id,
@@ -2471,7 +2471,7 @@ export async function POST(request: NextRequest) {
         const responseText = txt?.type === 'text' ? txt.text.trim() : ''
 
         if (responseText) {
-          const sendResult = await sendSMS(tenant!, phone, responseText)
+          const sendResult = await sendSMS(tenant!, phone, responseText, { skipThrottle: true })
           if (sendResult.success) {
             await client.from("messages").insert({
               tenant_id: tenant?.id,
@@ -3310,7 +3310,7 @@ export async function POST(request: NextRequest) {
                   console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
                   // Fall back to a simple confirmation if quote creation fails
                   const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
-                  await sendSMS(tenant as any, phone, fallbackMsg)
+                  await sendSMS(tenant as any, phone, fallbackMsg, { skipThrottle: true })
                   await updateDisposition(client, currentMsgId, 'responded_ai')
                   return NextResponse.json({
                     success: true,
@@ -3331,7 +3331,7 @@ export async function POST(request: NextRequest) {
                   ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
                   : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
 
-                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg)
+                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true })
                 if (quoteSms.success) {
                   await client.from("messages").insert({
                     tenant_id: tenant.id,
@@ -4069,7 +4069,7 @@ async function sendDepositPaymentFlow(params: {
         msgParts.push(`Your card will be charged the final amount after service is completed.`)
 
         const termsMsg = msgParts.join('\n')
-        const termsSms = await sendSMS(tenant as any, phone, termsMsg)
+        const termsSms = await sendSMS(tenant as any, phone, termsMsg, { skipThrottle: true })
         if (termsSms.success) {
           await client.from("messages").insert({
             tenant_id: tenant.id,
@@ -4169,7 +4169,7 @@ async function sendDepositPaymentFlow(params: {
         `Full service details sent to your email. Card-on-file link coming next to confirm your appointment!`,
       ].filter(line => line !== null).join('\n')
 
-      const confirmSms = await sendSMS(tenant as any, phone, confirmMsg)
+      const confirmSms = await sendSMS(tenant as any, phone, confirmMsg, { skipThrottle: true })
       if (confirmSms.success) {
         await client.from("messages").insert({
           tenant_id: tenant.id,
@@ -4203,7 +4203,7 @@ async function sendDepositPaymentFlow(params: {
         invoiceUrl = invoiceResult.invoiceUrl
 
         const invoiceMsg = SMS_TEMPLATES.invoiceSent(email, invoiceUrl)
-        const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg)
+        const invoiceSms = await sendSMS(tenant as any, phone, invoiceMsg, { skipThrottle: true })
         if (invoiceSms.success) {
           await client.from("messages").insert({
             tenant_id: tenant.id,
@@ -4249,7 +4249,7 @@ async function sendDepositPaymentFlow(params: {
       depositUrl = cardResult.url
 
       const cardMsg = `Please save your card on file to confirm your appointment: ${cardResult.url}`
-      const cardSms = await sendSMS(tenant as any, phone, cardMsg)
+      const cardSms = await sendSMS(tenant as any, phone, cardMsg, { skipThrottle: true })
       if (cardSms.success) {
         await client.from("messages").insert({
           tenant_id: tenant.id,
