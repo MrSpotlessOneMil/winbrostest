@@ -14,7 +14,12 @@
     "test:sms": "vitest run tests/sms-regression --reporter=verbose",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:headed": "playwright test --headed"
+    "test:e2e:headed": "playwright test --headed",
+    "simulate": "npx tsx scripts/e2e/runner.ts",
+    "simulate:seed": "npx tsx scripts/e2e/runner.ts --seed-only",
+    "simulate:cleanup": "npx tsx scripts/e2e/runner.ts --cleanup-only",
+    "audit": "npx tsx scripts/audit.ts",
+    "smoke": "npx tsx scripts/e2e/smoke-test-live.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
