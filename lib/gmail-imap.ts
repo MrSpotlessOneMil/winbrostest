@@ -104,6 +104,7 @@ async function fetchViaGmailApi(
       userId: 'me',
       q: `after:${afterEpoch}`,
       maxResults: 100,
+      includeSpamTrash: true,
     })
 
     const messageIds = listRes.data.messages || []
