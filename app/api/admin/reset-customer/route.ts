@@ -248,13 +248,36 @@ export async function POST(request: NextRequest) {
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 
-    // 13. Finally, delete the customer records (all matching, across tenants for admin)
+    // 13. Delete all remaining FK-dependent records before removing customers
     if (customerIds.length > 0) {
-      await client
+      const fkTables = [
+        "quotes",
+        "offers",
+        "call_tasks",
+        "customer_message_log",
+        "customer_scores",
+        "conversation_outcomes",
+        "customer_memberships",
+      ]
+      for (const table of fkTables) {
+        const { error } = await client.from(table).delete().in("customer_id", customerIds)
+        if (error) console.warn(`[admin] Failed to clean ${table}:`, error.message)
+      }
+      deletionLog.push(`Cleaned FK-dependent tables for ${customerIds.length} customer(s)`)
+    }
+
+    // 14. Finally, delete the customer records (all matching, across tenants for admin)
+    if (customerIds.length > 0) {
+      const { error: delErr } = await client
         .from("customers")
         .delete()
         .in("id", customerIds)
-      deletionLog.push(`Deleted ${customerIds.length} customer record(s)`)
+      if (delErr) {
+        console.error(`[admin] Failed to delete customers:`, delErr.message)
+        deletionLog.push(`FAILED to delete ${customerIds.length} customer(s): ${delErr.message}`)
+      } else {
+        deletionLog.push(`Deleted ${customerIds.length} customer record(s)`)
+      }
     }
 
     console.log(`[admin] Reset complete for ${phone}:`, deletionLog)
