@@ -27,14 +27,20 @@ export async function POST(request: NextRequest) {
   // Admin user (no tenant_id) deletes across all tenants
   const isAdmin = !tenant && authResult.user.username === 'admin'
 
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ success: false, error: "Malformed JSON body" }, { status: 400 })
+  }
+
+  const rawPhone = body.phoneNumber as string | undefined
+  const rawEmail = (body.email as string | undefined)?.trim().toLowerCase()
+  const crossTenant = body.crossTenant === true
+
   if (!tenant && !isAdmin && !crossTenant) {
     return NextResponse.json({ success: false, error: "No tenant found" }, { status: 500 })
   }
-
-  const body = await request.json()
-  const rawPhone = body.phoneNumber
-  const rawEmail = body.email?.trim().toLowerCase() as string | undefined
-  const crossTenant = body.crossTenant === true
 
   if (!rawPhone) {
     return NextResponse.json({ success: false, error: "Phone number required" }, { status: 400 })
