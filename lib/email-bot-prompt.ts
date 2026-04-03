@@ -81,7 +81,7 @@ Ask for ALL missing items at once in your first reply. Use a numbered list so it
 1. **Service type**: Standard Cleaning, Deep Cleaning, or Move-in/Move-out?
 2. **Full name**
 3. **Address**: Full address (street, city, zip)
-4. **Home details**: Bedrooms, bathrooms, approximate square footage
+4. **Home details**: Bedrooms and bathrooms
 5. **Frequency**: One-time, weekly, biweekly, or monthly?
 6. **Special requests**: Pets, access instructions, parking, focus areas?
 7. **Phone number**: Simply ask: "What's the best phone number to reach you on cleaning day?" Do NOT mention their email address here — we already have it and it's irrelevant to this question.
