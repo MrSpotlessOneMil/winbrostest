@@ -124,19 +124,38 @@ async function processIncomingEmail(
   const senderEmail = email.from.toLowerCase()
   const businessName = tenant.business_name_short || tenant.business_name || tenant.name
 
-  // ── Dedup: skip if we already stored this exact Message-ID ──
+  // ── Dedup: skip if we already stored AND replied to this exact Message-ID ──
+  // If inbound was stored but no outbound reply exists, retry the reply.
+  let isRetry = false
   if (email.messageId) {
     const { data: existing } = await client
       .from('messages')
-      .select('id')
+      .select('id, created_at')
       .eq('tenant_id', tenant.id)
       .eq('email_message_id', email.messageId)
       .limit(1)
       .maybeSingle()
 
     if (existing) {
-      console.log(`[Email Cron] Skipping already-processed email Message-ID: ${email.messageId}`)
-      return { replied: false }
+      // Check if we actually replied to this sender after this inbound was stored
+      const { data: hasReply } = await client
+        .from('messages')
+        .select('id')
+        .eq('tenant_id', tenant.id)
+        .eq('email_address', senderEmail)
+        .eq('direction', 'outbound')
+        .eq('message_type', 'email')
+        .gt('created_at', existing.created_at)
+        .limit(1)
+        .maybeSingle()
+
+      if (hasReply) {
+        console.log(`[Email Cron] Skipping already-replied email Message-ID: ${email.messageId}`)
+        return { replied: false }
+      }
+      // Inbound stored but no reply — fall through to retry reply generation
+      isRetry = true
+      console.log(`[Email Cron] Retrying reply for stored-but-unreplied email from ${senderEmail}`)
     }
   }
 
@@ -298,28 +317,30 @@ async function processIncomingEmail(
     }
   }
 
-  // ── Store the inbound email as a message ──
-  await client.from('messages').insert({
-    tenant_id: tenant.id,
-    direction: 'inbound',
-    message_type: 'email',
-    content: email.textBody || email.subject,
-    role: 'client',
-    ai_generated: false,
-    status: 'received',
-    source: 'gmail',
-    customer_id: customer.id,
-    lead_id: lead.id,
-    email_address: senderEmail,
-    email_thread_id: threadId,
-    email_message_id: email.messageId,
-    metadata: {
-      subject: email.subject,
-      from_name: email.fromName,
-      date: email.date.toISOString(),
-    },
-    timestamp: email.date.toISOString(),
-  })
+  // ── Store the inbound email as a message (skip on retry — already stored) ──
+  if (!isRetry) {
+    await client.from('messages').insert({
+      tenant_id: tenant.id,
+      direction: 'inbound',
+      message_type: 'email',
+      content: email.textBody || email.subject,
+      role: 'client',
+      ai_generated: false,
+      status: 'received',
+      source: 'gmail',
+      customer_id: customer.id,
+      lead_id: lead.id,
+      email_address: senderEmail,
+      email_thread_id: threadId,
+      email_message_id: email.messageId,
+      metadata: {
+        subject: email.subject,
+        from_name: email.fromName,
+        date: email.date.toISOString(),
+      },
+      timestamp: email.date.toISOString(),
+    })
+  }
 
   // ── Skip auto-response for dead leads ──
   if (['lost', 'unresponsive'].includes(lead.status)) {
