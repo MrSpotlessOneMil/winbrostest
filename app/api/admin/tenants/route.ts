@@ -451,6 +451,17 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 })
   }
 
+  // When deactivating a tenant, cancel all pending scheduled tasks
+  if (updates.active === false) {
+    const { count } = await client
+      .from("scheduled_tasks")
+      .update({ status: 'cancelled' })
+      .eq("tenant_id", tenantId)
+      .eq("status", "pending")
+
+    console.log(`[Admin] Tenant ${tenantId} deactivated — cancelled ${count ?? 0} pending scheduled tasks`)
+  }
+
   // Sync username when slug changes
   if (updates.slug) {
     await client

@@ -68,6 +68,17 @@ export async function GET(request: NextRequest) {
         break
       }
 
+      // Skip tasks for inactive tenants
+      if (task.tenant_id) {
+        const taskTenant = await getTenantById(task.tenant_id)
+        if (!taskTenant || taskTenant.active === false) {
+          console.log(`[process-scheduled-tasks] Skipping task ${task.id} (${task.task_type}) — tenant ${task.tenant_id} is inactive`)
+          await completeTask(task.id)
+          results.skipped++
+          continue
+        }
+      }
+
       const claimResult = await claimTask(task.id)
 
       if (!claimResult.success) {
