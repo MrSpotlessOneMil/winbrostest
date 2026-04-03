@@ -70,6 +70,8 @@ async function createQuoteAndGetLink(
   serviceCategory: string,
   price: number | null,
   domain: string,
+  preferredDate?: string | null,
+  preferredTime?: string | null,
 ): Promise<string | null> {
   const supabase = getSupabaseServiceClient()
   const { data: quote, error } = await supabase
@@ -81,7 +83,8 @@ async function createQuoteAndGetLink(
       bedrooms,
       bathrooms,
       service_category: serviceCategory,
-      ...(price ? { custom_base_price: price } : {}),
+      ...(preferredDate ? { service_date: preferredDate } : {}),
+      ...(preferredTime ? { service_time: preferredTime } : {}),
       notes: 'Created from VAPI voice call',
     })
     .select('token')
@@ -180,6 +183,8 @@ export async function POST(request: NextRequest) {
   const customerName = typeof params.customer_name === 'string' ? params.customer_name.trim() : ''
   const messageType = typeof params.message_type === 'string' ? params.message_type.trim() : 'price_quote'
   const serviceType = typeof params.service_type === 'string' ? params.service_type.trim() : 'standard'
+  const preferredDate = typeof params.preferred_date === 'string' ? params.preferred_date.trim() : null
+  const preferredTime = typeof params.preferred_time === 'string' ? params.preferred_time.trim() : null
 
   const bedrooms = toNumber(params.bedrooms)
   const bathrooms = toNumber(params.bathrooms)
@@ -233,6 +238,7 @@ export async function POST(request: NextRequest) {
       quoteLink = await createQuoteAndGetLink(
         tenant.id, normalizedPhone, bedrooms, bathrooms,
         customerName || null, serviceCategory, priceNum, domain,
+        preferredDate, preferredTime,
       )
     }
 
