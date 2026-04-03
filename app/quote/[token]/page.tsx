@@ -214,8 +214,13 @@ export default function QuotePage() {
           }
         } else {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
-          const middleIndex = Math.min(1, tierKeys.length - 1)
-          const defaultTier = tierKeys[middleIndex] || tierKeys[0]
+          // Default to the tier matching the quote's service_category (e.g. customer asked for standard on the call)
+          // Fall back to middle tier (best value) if no match
+          const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move_good' }
+          const categoryTier = categoryTierMap[json.quote.service_category as string]
+          const defaultTier = (categoryTier && tierKeys.includes(categoryTier))
+            ? categoryTier
+            : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
           setSelectedTierKey(defaultTier)
 
           // Pre-select included addons for default tier
