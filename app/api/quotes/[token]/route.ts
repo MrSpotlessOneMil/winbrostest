@@ -151,6 +151,7 @@ export async function PATCH(
     membership_plan,
     service_agreement_accepted,
     service_date,
+    service_time,
     customer_notes,
   } = body
 
@@ -321,6 +322,7 @@ export async function PATCH(
   if (customer_name) updatePayload.customer_name = customer_name
   if (customer_email) updatePayload.customer_email = customer_email
   if (service_date && typeof service_date === 'string') updatePayload.service_date = service_date
+  if (service_time && typeof service_time === 'string') updatePayload.service_time = service_time
   if (customer_notes && typeof customer_notes === 'string') updatePayload.notes = customer_notes.slice(0, 500)
 
   await supabase

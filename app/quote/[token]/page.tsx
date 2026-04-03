@@ -36,7 +36,7 @@ interface QuoteAddon { key: string; name: string; description: string; priceType
 interface TierPrice { price: number; breakdown: { service: string; price: number }[]; tier: string }
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
-interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string }
+interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null }
 interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -169,6 +169,7 @@ export default function QuotePage() {
   const [customerEmail, setCustomerEmail] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
+  const [serviceTime, setServiceTime] = useState("")
   const [customerNotes, setCustomerNotes] = useState("")
   const [summaryExpanded, setSummaryExpanded] = useState(false)
 
@@ -228,6 +229,8 @@ export default function QuotePage() {
 
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
+        if (json.quote.service_date) setServiceDate(json.quote.service_date)
+        if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
         // Pre-select and lock membership if salesman already set it
@@ -355,6 +358,7 @@ export default function QuotePage() {
           customer_name: customerName || undefined,
           customer_email: customerEmail || undefined,
           service_date: serviceDate || undefined,
+          service_time: serviceTime || undefined,
           customer_notes: customerNotes || undefined,
           service_agreement_accepted: true,
         }),
@@ -757,33 +761,53 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Preferred Service Date ─────────────────────────── */}
+        {/* ── Preferred Service Date & Time ─────────────────────────── */}
         {!isExpired && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
               <Calendar className="size-5 text-blue-500" />
-              Preferred Service Date
+              Preferred Service Date & Time
             </h2>
-            <p className="text-slate-400 text-sm mb-4">Pick a date that works best for you.</p>
+            <p className="text-slate-400 text-sm mb-4">Pick a date and time that works best for you.</p>
 
-            <div className={`border-2 rounded-2xl p-4 transition-all ${serviceDate ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
-              <input
-                type="date"
-                value={serviceDate}
-                min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
-              />
-              {serviceDate && (
-                <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
-                  <CheckCircle className="size-4" />
-                  {new Date(serviceDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                </p>
-              )}
-              {!serviceDate && (
-                <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`border-2 rounded-2xl p-4 transition-all ${serviceDate ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Date</label>
+                <input
+                  type="date"
+                  value={serviceDate}
+                  min={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setServiceDate(e.target.value)}
+                  className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                />
+                {serviceDate && (
+                  <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
+                    <CheckCircle className="size-4" />
+                    {new Date(serviceDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                  </p>
+                )}
+              </div>
+
+              <div className={`border-2 rounded-2xl p-4 transition-all ${serviceTime ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Time</label>
+                <input
+                  type="time"
+                  value={serviceTime}
+                  onChange={(e) => setServiceTime(e.target.value)}
+                  className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                />
+                {serviceTime && (
+                  <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
+                    <Clock className="size-4" />
+                    {new Date(`2000-01-01T${serviceTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {!serviceDate && !serviceTime && (
+              <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
+            )}
           </div>
         )}
 

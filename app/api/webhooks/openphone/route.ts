@@ -2298,6 +2298,7 @@ export async function POST(request: NextRequest) {
           square_footage: job?.notes?.match(/(\d+)\s*(?:sq|sqft|sf)/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*(?:sq|sqft|sf)/i)![1]) : null,
           service_category: quoteCategory,
           service_date: job?.date || null,
+          service_time: job?.scheduled_at || null,
           notes: [
             job?.service_type ? `Service: ${job.service_type}` : null,
             job?.date ? `Date: ${job.date}` : null,
@@ -3296,6 +3297,8 @@ export async function POST(request: NextRequest) {
                     bathrooms: bookingData.bathrooms || null,
                     square_footage: bookingData.squareFootage || null,
                     service_category: quoteCategory,
+                    service_date: jobDate || null,
+                    service_time: bookingData.preferredTime || null,
                     notes: [
                       bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                       bookingData.hasPets ? 'Has pets' : null,
