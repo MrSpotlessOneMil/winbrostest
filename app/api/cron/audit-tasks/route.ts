@@ -148,3 +148,83 @@ export async function GET(request: NextRequest) {
     smsByTenant,
   })
 }
+
+/**
+ * POST: Cleanup actions
+ * - cleanup_stale_tasks: Cancel pending retargeting tasks older than 7 days
+ * - cleanup_stuck_leads: Reset leads stuck at stage 4+ back to 0
+ * - cleanup_old_sequences: Cancel sequences for leads that haven't responded in 14+ days
+ */
+export async function POST(request: NextRequest) {
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
+  let body: Record<string, unknown>
+  try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+
+  const action = body.action as string
+  const client = getSupabaseServiceClient()
+  const results: Record<string, unknown> = {}
+
+  if (action === 'cleanup_stale_tasks' || action === 'cleanup_all') {
+    // Cancel pending retargeting/lead_followup tasks older than 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const { data, error } = await client
+      .from('scheduled_tasks')
+      .update({ status: 'cancelled' })
+      .in('task_type', ['retargeting', 'lead_followup'])
+      .eq('status', 'pending')
+      .lt('scheduled_for', sevenDaysAgo)
+      .select('id')
+    results.staleTasks = { cancelled: data?.length || 0, error: error?.message }
+  }
+
+  if (action === 'cleanup_stuck_leads' || action === 'cleanup_all') {
+    // Reset leads stuck at stage 4+ with status 'new' (sequence finished but lead never converted)
+    const { data, error } = await client
+      .from('leads')
+      .update({ followup_stage: 0, status: 'contacted' })
+      .gte('followup_stage', 4)
+      .in('status', ['new', 'contacted'])
+      .select('id')
+    results.stuckLeads = { reset: data?.length || 0, error: error?.message }
+  }
+
+  if (action === 'cleanup_old_sequences' || action === 'cleanup_all') {
+    // Cancel pending tasks for leads that started sequences 14+ days ago and are still at stage 1-2
+    const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: oldLeads } = await client
+      .from('leads')
+      .select('id, phone_number')
+      .gt('followup_stage', 0)
+      .lte('followup_stage', 2)
+      .in('status', ['new'])
+      .lt('followup_started_at', fourteenDaysAgo)
+      .limit(200)
+
+    let cancelledTasks = 0
+    for (const lead of (oldLeads || [])) {
+      const { data: cancelled } = await client
+        .from('scheduled_tasks')
+        .update({ status: 'cancelled' })
+        .eq('status', 'pending')
+        .ilike('task_key', `%lead-${lead.id}%`)
+        .select('id')
+      cancelledTasks += cancelled?.length || 0
+    }
+
+    // Reset the leads themselves
+    const leadIds = (oldLeads || []).map(l => l.id)
+    if (leadIds.length > 0) {
+      await client
+        .from('leads')
+        .update({ followup_stage: 0 })
+        .in('id', leadIds)
+    }
+
+    results.oldSequences = { leadsReset: leadIds.length, tasksCancelled: cancelledTasks }
+  }
+
+  return NextResponse.json({ success: true, action, results })
+}
