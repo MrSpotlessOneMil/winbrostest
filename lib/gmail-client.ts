@@ -117,6 +117,7 @@ async function sendViaGmailApi(
     fromName?: string
     inReplyTo?: string
     references?: string[]
+    threadId?: string
   }
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
@@ -135,7 +136,7 @@ async function sendViaGmailApi(
 
     const res = await gmail.users.messages.send({
       userId: 'me',
-      requestBody: { raw },
+      requestBody: { raw, threadId: params.threadId || undefined },
     })
 
     const messageId = res.data.id || ''
@@ -294,6 +295,7 @@ export async function sendReplyEmail(params: {
   fromName?: string
   inReplyTo?: string  // Message-ID of the email being replied to
   references?: string[] // Reference chain for threading
+  threadId?: string   // Gmail API thread ID for same-thread replies
   tenant?: GmailTenant
 }): Promise<{ success: boolean; messageId?: string; error?: string }> {
   // Strip any markdown formatting that the AI might include
@@ -323,6 +325,7 @@ export async function sendReplyEmail(params: {
       fromName: params.fromName,
       inReplyTo: params.inReplyTo,
       references: params.references,
+      threadId: params.threadId,
     })
   }
 

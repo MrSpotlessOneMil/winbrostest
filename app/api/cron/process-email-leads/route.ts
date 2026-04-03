@@ -415,6 +415,7 @@ async function processIncomingEmail(
       fromName: businessName,
       inReplyTo: email.messageId,
       references: replyRefs,
+      threadId: email.gmailThreadId,
       tenant,
     })
 
@@ -521,6 +522,7 @@ async function processIncomingEmail(
     fromName: businessName,
     inReplyTo: email.messageId,
     references: replyRefs,
+    threadId: email.gmailThreadId,
     tenant,
   })
 
@@ -833,6 +835,7 @@ async function handleEmailBookingCompletion(
       fromName: businessName,
       inReplyTo: originalEmail.messageId,
       references: replyRefs,
+      threadId: originalEmail.gmailThreadId,
       tenant,
     })
 

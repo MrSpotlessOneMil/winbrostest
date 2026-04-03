@@ -26,6 +26,7 @@ export interface IncomingEmail {
   inReplyTo: string | null   // In-Reply-To header
   references: string[]       // References header chain
   date: Date
+  gmailThreadId?: string     // Gmail API thread ID (for reply threading)
 }
 
 interface GmailCreds {
@@ -173,6 +174,7 @@ async function fetchViaGmailApi(
           inReplyTo: inReplyToStr || null,
           references,
           date,
+          gmailThreadId: full.data.threadId || undefined,
         })
       } catch (msgErr) {
         console.error(`[Gmail API] Error fetching message ${msg.id}:`, msgErr)
