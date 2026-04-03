@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAdmin } from '@/lib/admin-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { verifyCronAuth } from '@/lib/cron-auth'
 
 // route-check:no-vercel-cron
 
 /**
  * Admin Audit — Returns overview of scheduled tasks, retargeting sequences,
  * paused customers, and SMS volume for system health review.
+ *
+ * Auth: CRON_SECRET bearer token (same as cron routes)
  */
 export async function GET(request: NextRequest) {
-  const authError = await requireAdmin(request)
-  if (authError) return authError
+  if (!verifyCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+  }
 
   const client = getSupabaseServiceClient()
 
