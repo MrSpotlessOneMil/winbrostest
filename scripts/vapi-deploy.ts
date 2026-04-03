@@ -86,7 +86,15 @@ async function deployVariant(variantId: string, dryRun: boolean) {
   const tenant = variant.tenant;
 
   // Determine which assistant(s) to update
-  const assistantKeys = Object.keys(ASSISTANT_MAP).filter(k => k.startsWith(tenant));
+  // Use exact tenant match from variant-to-assistant mapping, not prefix matching
+  // (prefix matching caused spotless-a to deploy to spotless-inbound-west / West Niagara)
+  const VARIANT_ASSISTANT_MAP: Record<string, string[]> = {
+    spotless: ['spotless-inbound'],
+    westNiagara: ['spotless-inbound-west'],
+    winbros: ['winbros-inbound'],
+    cedar: ['cedar-inbound'],
+  };
+  const assistantKeys = VARIANT_ASSISTANT_MAP[tenant] || Object.keys(ASSISTANT_MAP).filter(k => k === tenant);
   if (assistantKeys.length === 0) {
     console.error(`No assistant mapping found for tenant: ${tenant}`);
     process.exit(1);
