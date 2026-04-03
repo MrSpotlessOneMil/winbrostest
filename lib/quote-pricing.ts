@@ -355,6 +355,15 @@ async function getHouseCleaningPricing(
 
 // ── Standard Cleaning Pricing (3 tiers) ──────────────────────────────
 
+// Formula-based pricing fallback when DB has no rows for a tenant
+function formulaPrice(serviceType: 'standard' | 'deep', bedrooms: number, bathrooms: number): number {
+  if (serviceType === 'standard') {
+    return Math.max(100 * bedrooms + 35 * bathrooms, 200)
+  }
+  // deep / move
+  return Math.max(125 * bedrooms + 50 * bathrooms, 250)
+}
+
 function buildStandardPricing(
   pricingTiers: Array<{ service_type: string; bedrooms: number; bathrooms: string; price: string; labor_hours: string; cleaners: number; max_sq_ft: number }>,
   pricingAddons: Array<{ addon_key: string; label: string; flat_price: string }>,
@@ -365,21 +374,25 @@ function buildStandardPricing(
   const standardPrice = findPricingRow(pricingTiers, 'standard', bedrooms, bathrooms)
   const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
 
+  // Use DB price if available, otherwise fall back to formula
+  const stdPriceValue = standardPrice?.price ?? formulaPrice('standard', bedrooms, bathrooms)
+  const deepPriceValue = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
+
   // Extra deep = deep price + sum of premium addon prices
   const premiumAddonKeys = ['inside_fridge', 'inside_oven', 'inside_cabinets', 'range_hood', 'blinds', 'wall_cleaning']
   const premiumAddons = pricingAddons.filter(a => premiumAddonKeys.includes(a.addon_key))
   const premiumAddonTotal = premiumAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
-  const extraDeepPrice = (deepPrice?.price || 0) + premiumAddonTotal
+  const extraDeepPrice = deepPriceValue + premiumAddonTotal
 
   const tierPrices: Record<string, TierPriceResult> = {
     standard: {
-      price: Number(standardPrice?.price) || 0,
-      breakdown: buildCleaningBreakdown('standard', standardPrice, pricingAddons),
+      price: stdPriceValue,
+      breakdown: buildCleaningBreakdown('standard', standardPrice || { price: stdPriceValue }, pricingAddons),
       tier: bedbathLabel,
     },
     deep: {
-      price: Number(deepPrice?.price) || 0,
-      breakdown: buildCleaningBreakdown('deep', deepPrice, pricingAddons),
+      price: deepPriceValue,
+      breakdown: buildCleaningBreakdown('deep', deepPrice || { price: deepPriceValue }, pricingAddons),
       tier: bedbathLabel,
     },
     extra_deep: {
@@ -418,7 +431,7 @@ function buildMoveInOutPricing(
 ): QuotePricingResult {
   // Base price from deep cleaning tier (move cleans start at deep clean level)
   const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
-  const baseDeepPrice = deepPrice?.price || 0
+  const baseDeepPrice = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
 
   // Move Good = deep price + base move surcharge items
   // (closet interiors, light switches, door knobs, cobwebs, wall spot cleaning are labor — included in price markup)

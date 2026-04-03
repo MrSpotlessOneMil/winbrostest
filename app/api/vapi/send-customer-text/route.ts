@@ -34,35 +34,14 @@ async function resolveTenantSlugFromAssistant(assistantId: string): Promise<stri
   return data?.slug || null
 }
 
-/** Look up price from pricing-data.json with optional service type multiplier. */
+/** Calculate price using bed/bath formula. Falls back to pricing-data.json lookup for exact match. */
 function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string): number | null {
-  const table = PRICING_TABLE.standard
-  if (!table || !Array.isArray(table)) return null
-
-  let base: number | null = null
-
-  const exact = table.find(r => r.bedrooms === bedrooms && r.bathrooms === bathrooms)
-  if (exact) {
-    base = exact.price
-  } else {
-    const sameBed = table
-      .filter(r => r.bedrooms === bedrooms && r.bathrooms >= bathrooms)
-      .sort((a, b) => a.bathrooms - b.bathrooms)
-    if (sameBed.length > 0) {
-      base = sameBed[0].price
-    } else {
-      const higher = table
-        .filter(r => r.bedrooms >= bedrooms && r.bathrooms >= bathrooms)
-        .sort((a, b) => a.bedrooms - b.bedrooms || a.bathrooms - b.bathrooms)
-      if (higher.length > 0) base = higher[0].price
-    }
+  // Formula-based pricing: consistent across all touchpoints
+  if (serviceType === 'deep' || serviceType === 'move' || serviceType === 'move_in_out') {
+    return Math.max(125 * bedrooms + 50 * bathrooms, 250)
   }
-
-  if (base === null) return null
-
-  if (serviceType === 'deep') return Math.round(base * 1.5)
-  if (serviceType === 'move' || serviceType === 'move_in_out') return Math.round(base * 1.75)
-  return Math.round(base)
+  // Standard
+  return Math.max(100 * bedrooms + 35 * bathrooms, 200)
 }
 
 function toNumber(val: unknown): number | null {
