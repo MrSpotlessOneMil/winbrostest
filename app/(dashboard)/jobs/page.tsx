@@ -1846,8 +1846,19 @@ export default function JobsPage() {
                 const status = arg.event.extendedProps.status
                 const service = arg.event.extendedProps.service
                 const view = arg.view.type
-                if (view !== 'timeGridWeek' && view !== 'timeGridDay') return undefined
                 const dotColor = status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#f59e0b' : '#6366f1'
+                if (view === 'dayGridMonth') {
+                  const timeText = arg.timeText || ''
+                  return {
+                    html: `
+                      <div style="display:flex;align-items:center;gap:3px;padding:1px 3px;overflow:hidden;white-space:nowrap">
+                        <span style="font-size:10px;opacity:0.75;flex-shrink:0">${timeText}</span>
+                        <span style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                      </div>
+                    `
+                  }
+                }
+                if (view !== 'timeGridWeek' && view !== 'timeGridDay') return undefined
                 return {
                   html: `
                     <div style="padding:1px 3px;overflow:hidden;line-height:1.3">
