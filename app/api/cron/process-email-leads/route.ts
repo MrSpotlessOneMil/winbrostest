@@ -21,7 +21,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { getAllActiveTenants } from '@/lib/tenant'
 import { tenantUsesFeature } from '@/lib/tenant'
 import { fetchUnreadEmails, markEmailsAsRead } from '@/lib/gmail-imap'
-import { sendReplyEmail, sendConfirmationEmail } from '@/lib/gmail-client'
+import { sendReplyEmail } from '@/lib/gmail-client'
 import { generateEmailResponse, loadCustomerContext } from '@/lib/auto-response'
 import type { KnownCustomerInfo } from '@/lib/auto-response'
 import { logSystemEvent } from '@/lib/system-events'
@@ -886,118 +886,117 @@ async function handleEmailBookingCompletion(
       console.error(`[Email Cron] Failed to send estimate confirmation to ${senderEmail}: ${sendResult.error}`)
     }
   } else {
-    // House cleaning: Wave invoice + Stripe deposit link
+    // House cleaning: Create a quote and send the customer a link (same as SMS flow)
+    const svcType = (serviceType || '').toLowerCase()
+    const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
-    // Calculate price if not yet determined
-    if (!servicePrice) {
-      try {
-        const { calculateJobEstimateAsync } = await import('@/lib/stripe-client')
-        const jobForEstimate = {
-          id: newJob.id,
-          service_type: serviceType || 'Standard cleaning',
-          notes: jobNotes,
-        }
-        const estimate = await calculateJobEstimateAsync(jobForEstimate, undefined, tenant.id)
-        servicePrice = estimate.totalPrice
-        console.log(`[Email Cron] Calculated price: $${servicePrice}`)
-      } catch (err) {
-        console.error('[Email Cron] Price calculation failed:', err)
-      }
-    }
+    const { data: newQuote, error: quoteError } = await client
+      .from('quotes')
+      .insert({
+        tenant_id: tenant.id,
+        customer_id: customer.id,
+        customer_name: [firstName, lastName].filter(Boolean).join(' ') || customer.first_name || null,
+        customer_phone: phoneNumber || customer.phone_number || null,
+        customer_email: finalEmail,
+        customer_address: address || customer.address || null,
+        bedrooms: bookingData.bedrooms || null,
+        bathrooms: bookingData.bathrooms || null,
+        square_footage: bookingData.squareFootage || null,
+        service_category: quoteCategory,
+        service_date: jobDate || null,
+        service_time: preferredTime || null,
+        notes: [
+          bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
+          bookingData.hasPets ? 'Has pets' : null,
+          jobDate ? `Preferred date: ${jobDate}` : null,
+          preferredTime ? `Preferred time: ${preferredTime}` : null,
+        ].filter(Boolean).join(' | ') || null,
+      })
+      .select('id, token')
+      .single()
 
-    // Create Wave invoice for Wave tenants
-    let waveInvoiceUrl: string | undefined
-    const wc = tenant.workflow_config
-    const isStripeOnly = wc?.use_stripe && !wc?.use_wave
+    if (quoteError || !newQuote) {
+      console.error(`[Email Cron] Quote creation failed for ${senderEmail}:`, quoteError)
+    } else {
+      const { getClientConfig } = await import('@/lib/client-config')
+      const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+      const quoteUrl = `${appDomain}/quote/${newQuote.token}`
+      paymentUrl = quoteUrl
 
-    if (!isStripeOnly && servicePrice && servicePrice > 0) {
-      try {
-        const { createInvoice } = await import('@/lib/invoices')
-        const invoiceResult = await createInvoice(
-          { ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number }, service_type: serviceType || 'Standard cleaning' } as any,
-          { ...customer, email: finalEmail } as any,
-          tenant
-        )
-        if (invoiceResult.success && invoiceResult.invoiceUrl) {
-          waveInvoiceUrl = invoiceResult.invoiceUrl
-          console.log(`[Email Cron] Wave invoice created: ${waveInvoiceUrl}`)
-        } else {
-          console.warn(`[Email Cron] Invoice creation failed (${invoiceResult.provider || 'unknown'}): ${invoiceResult.error}`)
-        }
-      } catch (invoiceErr) {
-        console.error('[Email Cron] Invoice creation error:', invoiceErr)
-      }
-    }
+      console.log(`[Email Cron] Quote created: #${newQuote.id}, URL: ${quoteUrl}`)
 
-    // Create Stripe deposit link
-    if (servicePrice && tenant.stripe_secret_key) {
-      try {
-        const { createDepositPaymentLink } = await import('@/lib/stripe-client')
-        const depositResult = await createDepositPaymentLink(
-          { ...customer, email: finalEmail } as any,
-          {
-            ...{ id: newJob.id, price: servicePrice, phone_number: customer.phone_number },
-            service_type: serviceType || 'Standard cleaning',
-          } as any,
-          { lead_id: String(lead.id) },
-          tenant.id,
-          tenant.stripe_secret_key
-        )
-        if (depositResult?.url) {
-          paymentUrl = depositResult.url
-          console.log(`[Email Cron] Stripe deposit link created: ${paymentUrl}`)
+      // Send quote link email in the same thread
+      const sdrName = tenant.sdr_persona || 'Mary'
+      const customerName = firstName || customer.first_name || 'there'
+      const quoteBody = `Hi ${customerName}!\n\nYour estimated cleaning price for a ${bookingData.bedrooms || '?'} bed / ${bookingData.bathrooms || '?'} bath home is ready. Review your quote and book here: ${quoteUrl}\n\nIf you have any questions, just reply to this email!\n\n${sdrName}`
 
-          const { updateJob } = await import('@/lib/supabase')
-          await updateJob(newJob.id, {
-            invoice_sent: true,
-            status: 'quoted' as any,
-            booked: false,
-          })
-        }
-      } catch (stripeErr) {
-        console.error('[Email Cron] Stripe deposit creation failed:', stripeErr)
-      }
-    }
-
-    // Send confirmation email with payment link
-    if (paymentUrl) {
-      await sendConfirmationEmail({
-        customer: { ...customer, email: finalEmail },
-        job: {
-          date: jobDate,
-          scheduled_at: preferredTime || '09:00',
-          service_type: serviceType || 'Standard cleaning',
-          address: address || customer.address || null,
-        } as any,
-        waveInvoiceUrl,
-        stripeDepositUrl: paymentUrl,
-        tenant,
+      const sendResult = await sendReplyEmail({
+        to: senderEmail,
+        subject: confirmSubject,
+        body: quoteBody,
+        fromName: businessName,
         inReplyTo: originalEmail.messageId,
         references: replyRefs,
-        subjectOverride: confirmSubject,
+        threadId: originalEmail.gmailThreadId,
+        tenant,
       })
 
-      await client.from('messages').insert({
-        tenant_id: tenant.id,
-        direction: 'outbound',
-        message_type: 'email',
-        content: `Booking confirmed! Sent deposit link and confirmation details to ${finalEmail}`,
-        role: 'assistant',
-        ai_generated: false,
-        status: 'sent',
-        source: 'deposit',
-        customer_id: customer.id,
-        lead_id: lead.id,
-        email_address: senderEmail,
-        email_thread_id: threadId,
-        metadata: {
-          deposit_url: paymentUrl,
-          wave_invoice_url: waveInvoiceUrl || null,
-          job_id: newJob.id,
-          service_price: servicePrice,
-        },
-        timestamp: new Date().toISOString(),
-      })
+      if (sendResult.success) {
+        await client.from('messages').insert({
+          tenant_id: tenant.id,
+          direction: 'outbound',
+          message_type: 'email',
+          content: quoteBody,
+          role: 'assistant',
+          ai_generated: false,
+          status: 'sent',
+          source: 'estimate_booked',
+          customer_id: customer.id,
+          lead_id: lead.id,
+          email_address: senderEmail,
+          email_thread_id: threadId,
+          email_message_id: sendResult.messageId || null,
+          metadata: {
+            quote_id: newQuote.id,
+            quote_token: newQuote.token,
+            quote_url: quoteUrl,
+            job_id: newJob.id,
+          },
+          timestamp: new Date().toISOString(),
+        })
+        console.log(`[Email Cron] Quote link sent to ${senderEmail} — quote ${newQuote.id}`)
+      } else {
+        console.error(`[Email Cron] Failed to send quote email to ${senderEmail}: ${sendResult.error}`)
+      }
+
+      // Schedule follow-up wiring (same as SMS flow)
+      try {
+        const { scheduleTask, scheduleRetargetingSequence } = await import('@/lib/scheduler')
+        await scheduleTask({
+          tenantId: tenant.id,
+          taskType: 'quote_followup_urgent',
+          taskKey: `quote-${newQuote.id}-urgent`,
+          scheduledFor: new Date(Date.now() + 2 * 60 * 60 * 1000),
+          payload: {
+            quoteId: newQuote.id,
+            customerId: customer.id,
+            customerPhone: phoneNumber || customer.phone_number || '',
+            customerName: customerName,
+            tenantId: tenant.id,
+          },
+        })
+        await scheduleRetargetingSequence(
+          tenant.id,
+          customer.id,
+          phoneNumber || customer.phone_number || '',
+          customerName,
+          'quoted_not_booked',
+        )
+        await client.from('quotes').update({ followup_enrolled_at: new Date().toISOString() }).eq('id', newQuote.id)
+        console.log(`[Email Cron] Quote follow-up wired: 2hr nudge + retargeting for quote ${newQuote.id}`)
+      } catch (followupErr) {
+        console.error('[Email Cron] Quote follow-up wiring failed:', followupErr)
+      }
     }
   }
 
