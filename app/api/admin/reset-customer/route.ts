@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     const jobIds = [...new Set(allJobs.map((j) => j.id))]
     console.log(`[admin] Found ${jobIds.length} jobs (${jobsByPhone?.length || 0} by phone, ${jobsByCustomer?.length || 0} by customer)`)
 
-    // 4. Delete scheduled_tasks for these leads
+    // 4. Delete scheduled_tasks for these leads + retargeting/quote/nudge tasks for customers
     if (leadIds.length > 0) {
       for (const leadId of leadIds) {
         const { error } = await client
@@ -152,6 +152,24 @@ export async function POST(request: NextRequest) {
         if (!error) {
           deletionLog.push(`Deleted scheduled tasks for lead ${leadId}`)
         }
+      }
+    }
+
+    // Delete retargeting, quote followup, nudge, and post-job tasks keyed by customer ID
+    if (customerIds.length > 0) {
+      let customerTaskCount = 0
+      for (const custId of customerIds) {
+        for (const prefix of ["retarget-", "quote-", "nudge-", "post-job-"]) {
+          const { data: tasks } = await client
+            .from("scheduled_tasks")
+            .delete()
+            .like("task_key", `${prefix}${custId}-%`)
+            .select("id")
+          customerTaskCount += tasks?.length || 0
+        }
+      }
+      if (customerTaskCount > 0) {
+        deletionLog.push(`Deleted ${customerTaskCount} customer-keyed scheduled tasks (retargeting/quote/nudge/post-job)`)
       }
     }
 
@@ -254,7 +272,29 @@ export async function POST(request: NextRequest) {
       deletionLog.push(`Deleted ${followups.length} followup queue entries`)
     }
 
-    // 13. Delete all remaining FK-dependent records before removing customers
+    // 13. Delete quote-keyed scheduled tasks before deleting quotes
+    if (customerIds.length > 0) {
+      const { data: quotes } = await client
+        .from("quotes")
+        .select("id")
+        .in("customer_id", customerIds)
+      if (quotes?.length) {
+        let quoteTaskCount = 0
+        for (const q of quotes) {
+          const { data: tasks } = await client
+            .from("scheduled_tasks")
+            .delete()
+            .like("task_key", `quote-${q.id}-%`)
+            .select("id")
+          quoteTaskCount += tasks?.length || 0
+        }
+        if (quoteTaskCount > 0) {
+          deletionLog.push(`Deleted ${quoteTaskCount} quote-keyed scheduled tasks`)
+        }
+      }
+    }
+
+    // 14. Delete all remaining FK-dependent records before removing customers
     if (customerIds.length > 0) {
       const fkTables = [
         "quotes",
