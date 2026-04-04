@@ -2892,6 +2892,27 @@ export async function POST(request: NextRequest) {
       console.error("[OpenPhone] Error managing follow-up tasks:", rescheduleErr)
     }
 
+    // Cancel stale retargeting tasks — customer re-engaged, don't fire old sequences mid-booking
+    if (customer?.id && customer.retargeting_sequence && !customer.retargeting_completed_at) {
+      try {
+        const { cancelPendingTasks } = await import("@/lib/lifecycle-engine")
+        const retargetCancelled = await cancelPendingTasks(tenant!.id, `retarget-${customer.id}-`)
+        if (retargetCancelled > 0) {
+          await client
+            .from("customers")
+            .update({
+              retargeting_completed_at: new Date().toISOString(),
+              retargeting_stopped_reason: "customer_re_engaged",
+              auto_response_paused: false,
+            })
+            .eq("id", customer.id)
+          console.log(`[OpenPhone] Cancelled ${retargetCancelled} retargeting tasks for customer ${customer.id} (re-engaged on lead ${existingLead.id})`)
+        }
+      } catch (retargetErr) {
+        console.error("[OpenPhone] Error cancelling retargeting:", retargetErr)
+      }
+    }
+
     console.log(`[OpenPhone] Active lead ${existingLead.id} last_contact_at updated for ${maskPhone(phone)}`)
 
     // Only send auto-response if SMS is enabled for this tenant

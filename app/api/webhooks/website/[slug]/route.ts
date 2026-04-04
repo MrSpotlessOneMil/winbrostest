@@ -131,6 +131,29 @@ export async function POST(
     .select("id")
     .single()
 
+  // ── Cancel stale retargeting for this customer ──────────────────
+  // If this phone already has an active retargeting sequence from a previous
+  // interaction, cancel it — the customer is re-engaging organically.
+  if (customer?.id) {
+    try {
+      const { cancelPendingTasks } = await import("@/lib/lifecycle-engine")
+      const cancelled = await cancelPendingTasks(tenant.id, `retarget-${customer.id}-`)
+      if (cancelled > 0) {
+        console.log(`[Website Webhook] Cancelled ${cancelled} stale retargeting tasks for customer ${customer.id}`)
+        await client
+          .from("customers")
+          .update({
+            retargeting_completed_at: new Date().toISOString(),
+            retargeting_stopped_reason: "new_website_lead",
+            auto_response_paused: false,
+          })
+          .eq("id", customer.id)
+      }
+    } catch (cancelErr) {
+      console.error("[Website Webhook] Error cancelling retargeting:", cancelErr)
+    }
+  }
+
   // ── Create lead ─────────────────────────────────────────────────
 
   const { data: lead, error: leadError } = await client
