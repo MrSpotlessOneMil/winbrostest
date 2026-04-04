@@ -1999,7 +1999,7 @@ export async function POST(request: NextRequest) {
           }
           const priceStr = servicePrice ? `Your service total is $${Number(servicePrice).toFixed(2)}. ` : ""
           const cardMessage = `Thanks! ${priceStr}Go ahead and put your card on file so that we can get you set up: ${cardResult.url}`
-          const cardSms = await sendSMS(tenant!, phone, cardMessage, { skipThrottle: true })
+          const cardSms = await sendSMS(tenant!, phone, cardMessage, { skipThrottle: true, bypassFilters: true })
           if (cardSms.success) {
             await client.from("messages").insert({
               tenant_id: tenant?.id,
@@ -2054,7 +2054,7 @@ export async function POST(request: NextRequest) {
       // Fallback: card-on-file creation failed
       {
         const fallbackMsg = `Thanks for your email! We're getting everything set up and will send over the details shortly.`
-        const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true })
+        const fallbackResult = await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true, bypassFilters: true })
         if (fallbackResult.success) {
           await client.from("messages").insert({
             tenant_id: tenant?.id,
@@ -2311,7 +2311,7 @@ export async function POST(request: NextRequest) {
       if (quoteError || !newQuote) {
         console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
         const fallbackMsg = `Thanks for confirming! We'll be in touch with your quote shortly.`
-        await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true })
+        await sendSMS(tenant!, phone, fallbackMsg, { skipThrottle: true, bypassFilters: true })
         await updateDisposition(client, currentMsgId, 'responded_ai')
         return NextResponse.json({ success: true, flow: "phone_call_quote_fallback", leadId: bookedLead.id })
       }
@@ -2324,7 +2324,7 @@ export async function POST(request: NextRequest) {
         ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
         : `Here's your quote — pick the option that works best for you: ${quoteUrl}`
 
-      const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg, { skipThrottle: true })
+      const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
       if (quoteSmsResult.success) {
         await client.from("messages").insert({
           tenant_id: tenant?.id,
@@ -3324,7 +3324,7 @@ export async function POST(request: NextRequest) {
                   console.error(`[OpenPhone] Quote creation failed for ${maskPhone(phone)}:`, quoteError)
                   // Fall back to a simple confirmation if quote creation fails
                   const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
-                  await sendSMS(tenant as any, phone, fallbackMsg, { skipThrottle: true })
+                  await sendSMS(tenant as any, phone, fallbackMsg, { skipThrottle: true, bypassFilters: true })
                   await updateDisposition(client, currentMsgId, 'responded_ai')
                   return NextResponse.json({
                     success: true,
@@ -3345,7 +3345,7 @@ export async function POST(request: NextRequest) {
                   ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
                   : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
 
-                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true })
+                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {
                   await client.from("messages").insert({
                     tenant_id: tenant.id,
