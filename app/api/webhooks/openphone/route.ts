@@ -3605,6 +3605,10 @@ export async function POST(request: NextRequest) {
     },
   })
 
+  // Hoist booking completion flag — set inside smsEnabled block, used after lead creation
+  let newInquiryBookingComplete = false
+  let newInquiryAutoResponse: Awaited<ReturnType<typeof generateAutoResponse>> | null = null
+
   // Auto-Response for new inquiries
   if (smsEnabled) {
     try {
@@ -3627,6 +3631,10 @@ export async function POST(request: NextRequest) {
         knownInfoNew,
         { isReturningCustomer: isSeasonalReply, isRetargetingReply, customerContext: customerCtx }
       )
+
+      // Capture booking completion for use after lead creation
+      newInquiryBookingComplete = autoResponse.bookingComplete || false
+      newInquiryAutoResponse = autoResponse
 
       if (autoResponse.shouldSend && autoResponse.response) {
         // Strip [BOOKING_COMPLETE] tags for new inquiries too
@@ -3895,6 +3903,251 @@ export async function POST(request: NextRequest) {
           intent: intentResult,
         },
       })
+
+      // ── NEW-INQUIRY BOOKING COMPLETION ──
+      // If the AI already flagged [BOOKING_COMPLETE] on the first message
+      // (customer gave address + bed/bath upfront), skip follow-up and send the quote now.
+      if (newInquiryBookingComplete && tenant) {
+        console.log(`[OpenPhone] New inquiry booking complete on first message for lead ${lead.id} — sending quote`)
+
+        try {
+          // Detect email from the message or customer record
+          const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i
+          const detectedEmail = combinedMessage.match(emailRegex)?.[0]?.toLowerCase() || null
+          const bookingEmail = detectedEmail || customer.email || null
+
+          // Save email to customer if found
+          if (bookingEmail) {
+            await client.from("customers").update({ email: bookingEmail }).eq("id", customer.id)
+          }
+
+          // Extract booking data from conversation
+          const isWindowCleaningTenant = tenantUsesFeature(tenant, 'use_hcp_mirror')
+          let bookingData: any
+
+          if (isWindowCleaningTenant) {
+            const { extractBookingData } = await import("@/lib/winbros-sms-prompt")
+            bookingData = await extractBookingData([
+              ...conversationHistory,
+              { role: 'client' as const, content: combinedMessage },
+            ])
+          } else {
+            const { extractHouseCleaningBookingData } = await import("@/lib/house-cleaning-sms-prompt")
+            bookingData = await extractHouseCleaningBookingData([
+              ...conversationHistory,
+              { role: 'client' as const, content: combinedMessage },
+            ])
+          }
+          console.log(`[OpenPhone] New inquiry booking data: service=${bookingData.serviceType}, beds=${bookingData.bedrooms}, baths=${bookingData.bathrooms}`)
+
+          const finalEmail = bookingData.email || bookingEmail
+
+          // Update customer with extracted info
+          if (bookingData.firstName || bookingData.lastName || bookingData.address) {
+            await client.from("customers").update({
+              first_name: bookingData.firstName || customer.first_name,
+              last_name: bookingData.lastName || customer.last_name,
+              email: finalEmail,
+              address: bookingData.address || customer.address,
+            }).eq("id", customer.id)
+          }
+
+          // Determine price
+          let servicePrice: number | null = null
+          if (!isWindowCleaningTenant) {
+            servicePrice = bookingData.price || null
+            if (!servicePrice && bookingData.bedrooms && bookingData.bathrooms) {
+              try {
+                const { getPricingRow } = await import("@/lib/pricing-db")
+                const svcRaw = (bookingData.serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
+                const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
+                const pricingRow = await getPricingRow(
+                  pricingTier as 'standard' | 'deep' | 'move',
+                  bookingData.bedrooms,
+                  bookingData.bathrooms,
+                  bookingData.squareFootage || null,
+                  tenant.id
+                )
+                if (pricingRow?.price) servicePrice = pricingRow.price
+              } catch (pricingErr) {
+                console.error('[OpenPhone] New inquiry pricing lookup failed:', pricingErr)
+              }
+            }
+          }
+
+          // Build job notes
+          const { mergeOverridesIntoNotes } = await import("@/lib/pricing-config")
+          const { buildWinBrosJobNotes } = await import("@/lib/winbros-sms-prompt")
+          let jobNotes = ''
+          if (isWindowCleaningTenant) {
+            jobNotes = buildWinBrosJobNotes(bookingData)
+          } else {
+            jobNotes = [
+              bookingData.hasPets ? 'Has pets' : null,
+              bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
+            ].filter(Boolean).join(' | ') || ''
+          }
+          if (bookingData.bedrooms || bookingData.bathrooms || bookingData.squareFootage) {
+            jobNotes = mergeOverridesIntoNotes(jobNotes || null, {
+              bedrooms: bookingData.bedrooms || undefined,
+              bathrooms: bookingData.bathrooms || undefined,
+              squareFootage: bookingData.squareFootage || undefined,
+            })
+          }
+
+          // Fallback date: next business day
+          let jobDate = bookingData.preferredDate || null
+          if (!jobDate) {
+            const now = new Date()
+            const candidate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+            while (candidate.getDay() === 0 || candidate.getDay() === 6) {
+              candidate.setDate(candidate.getDate() + 1)
+            }
+            jobDate = candidate.toISOString().split('T')[0]
+          }
+
+          // Create job
+          const defaultServiceType = isWindowCleaningTenant
+            ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
+            : 'Standard cleaning'
+
+          const { data: newJob, error: jobError } = await client.from("jobs").insert({
+            tenant_id: tenant.id,
+            customer_id: customer.id,
+            phone_number: phone,
+            service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+            address: bookingData.address || customer.address || null,
+            price: servicePrice || null,
+            date: jobDate,
+            scheduled_at: bookingData.preferredTime || '09:00',
+            status: 'quoted',
+            booked: false,
+            notes: jobNotes || null,
+            job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
+          }).select("id").single()
+
+          if (jobError || !newJob?.id) {
+            console.error(`[OpenPhone] New inquiry job creation failed:`, jobError)
+          } else {
+            console.log(`[OpenPhone] New inquiry job created: ${newJob.id}`)
+
+            // Update lead to qualified
+            await client.from("leads").update({
+              status: "qualified",
+              converted_to_job_id: newJob.id,
+              form_data: {
+                ...parseFormData(lead ? { original_message: combinedMessage, intent_analysis: intentResult, extracted_info: intentResult.extractedInfo } : {}),
+                booking_data: bookingData,
+              },
+            }).eq("id", lead.id)
+
+            // Non-WinBros: Create quote and send link
+            if (!isWindowCleaningTenant) {
+              const svcType = (bookingData.serviceType || '').toLowerCase()
+              const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
+
+              const { data: newQuote, error: quoteError } = await client.from("quotes").insert({
+                tenant_id: tenant.id,
+                customer_id: customer.id,
+                customer_name: [bookingData.firstName, bookingData.lastName].filter(Boolean).join(' ') || customer.first_name || null,
+                customer_phone: phone,
+                customer_email: finalEmail || null,
+                customer_address: bookingData.address || customer.address || null,
+                bedrooms: bookingData.bedrooms || null,
+                bathrooms: bookingData.bathrooms || null,
+                square_footage: bookingData.squareFootage || null,
+                service_category: quoteCategory,
+                service_date: jobDate || null,
+                service_time: bookingData.preferredTime || null,
+                notes: [
+                  bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
+                  bookingData.hasPets ? 'Has pets' : null,
+                ].filter(Boolean).join(' | ') || null,
+              }).select("id, token").single()
+
+              if (quoteError || !newQuote) {
+                console.error(`[OpenPhone] New inquiry quote creation failed:`, quoteError)
+                const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
+                await sendSMS(tenant as any, phone, fallbackMsg, { skipThrottle: true, bypassFilters: true })
+              } else {
+                const { getClientConfig } = await import("@/lib/client-config")
+                const appDomain = getClientConfig().domain.replace(/\/+$/, '')
+                const quoteUrl = `${appDomain}/quote/${newQuote.token}`
+
+                const customerFirstName = bookingData.firstName || customer.first_name || ''
+                const quoteMsg = customerFirstName
+                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+
+                const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
+                if (quoteSms.success) {
+                  await client.from("messages").insert({
+                    tenant_id: tenant.id,
+                    customer_id: customer.id,
+                    phone_number: phone,
+                    role: "assistant",
+                    content: quoteMsg,
+                    direction: "outbound",
+                    message_type: "sms",
+                    ai_generated: false,
+                    timestamp: new Date().toISOString(),
+                    source: "estimate_booked",
+                    metadata: { lead_id: lead.id, job_id: newJob.id, quote_id: newQuote.id, quote_token: newQuote.token },
+                  })
+                }
+                console.log(`[OpenPhone] New inquiry quote SMS sent — quote ${newQuote.id}`)
+
+                // Schedule follow-ups for the quote
+                await scheduleTask({
+                  tenantId: tenant.id,
+                  taskType: "quote_followup_urgent",
+                  taskKey: `quote-${newQuote.id}-urgent`,
+                  scheduledFor: new Date(Date.now() + 2 * 60 * 60 * 1000),
+                  payload: { quoteId: newQuote.id, customerId: customer.id, customerPhone: phone, customerName: customerFirstName || "there", tenantId: tenant.id },
+                })
+
+                await scheduleRetargetingSequence(tenant.id, customer.id, phone, customerFirstName || customer.first_name || "there", "quoted_not_booked")
+
+                await client.from("quotes").update({ followup_enrolled_at: new Date().toISOString() }).eq("id", newQuote.id)
+
+                await logSystemEvent({
+                  tenant_id: tenant.id,
+                  source: "openphone",
+                  event_type: "SMS_BOOKING_COMPLETED",
+                  message: `New inquiry SMS booking completed for ${phone} — job ${newJob.id}, quote ${newQuote.id} sent`,
+                  phone_number: phone,
+                  metadata: { lead_id: lead.id, job_id: newJob.id, quote_id: newQuote.id, quote_url: quoteUrl, booking_data: bookingData, flow: "new_inquiry_quote_link" },
+                })
+              }
+            }
+
+            // WinBros: estimate flow (same as existing-lead path)
+            if (isWindowCleaningTenant) {
+              const customerName = [bookingData.firstName || customer.first_name, bookingData.lastName || customer.last_name].filter(Boolean).join(' ') || 'Customer'
+              await logSystemEvent({
+                tenant_id: tenant.id,
+                source: "openphone",
+                event_type: "SMS_BOOKING_COMPLETED",
+                message: `New inquiry estimate booking for ${customerName} — job ${newJob.id}`,
+                phone_number: phone,
+                metadata: { lead_id: lead.id, job_id: newJob.id, booking_data: bookingData, flow: "new_inquiry_estimate" },
+              })
+            }
+          }
+
+          await updateDisposition(client, currentMsgId, 'responded_ai')
+          return NextResponse.json({
+            success: true,
+            leadCreated: true,
+            leadId: lead.id,
+            flow: "new_inquiry_booking_complete",
+            intentAnalysis: intentResult,
+          })
+        } catch (bookingErr) {
+          console.error("[OpenPhone] New inquiry booking completion error:", bookingErr)
+          // Fall through to normal follow-up scheduling
+        }
+      }
 
       // Auto-response already served as the initial greeting (stage 1),
       // so mark the lead as contacted to prevent the scheduled stage 1 from sending a duplicate.
