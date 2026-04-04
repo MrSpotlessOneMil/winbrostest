@@ -3258,6 +3258,7 @@ export async function POST(request: NextRequest) {
                 status: 'quoted',
                 booked: false,
                 notes: jobNotes || null,
+                frequency: bookingData.frequency || 'one-time',
                 job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
               }).select("id").single()
 
@@ -4023,6 +4024,7 @@ export async function POST(request: NextRequest) {
             status: 'quoted',
             booked: false,
             notes: jobNotes || null,
+            frequency: bookingData.frequency || 'one-time',
             job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
           }).select("id").single()
 
