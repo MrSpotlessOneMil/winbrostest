@@ -103,7 +103,8 @@ export async function POST(
   const address = (body.address as string) || ""
   const serviceType = (body.service_type as string) || (body.serviceType as string) || ""
   const message = (body.message as string) || (body.notes as string) || ""
-  const source = (body.source as string) || "website"
+  const sourceDetail = (body.source as string) || "website"
+  const source = "website" // DB CHECK constraint — detail preserved in form_data
   const bedrooms = typeof body.bedrooms === "number" ? body.bedrooms : null
   const bathrooms = typeof body.bathrooms === "number" ? body.bathrooms : null
   const frequency = (body.frequency as string) || null
@@ -146,6 +147,7 @@ export async function POST(
       status: "new",
       form_data: {
         ...body,
+        source_detail: sourceDetail,
         service_type: serviceType,
         message,
         address,
@@ -231,6 +233,7 @@ export async function POST(
       lead_id: lead?.id,
       service_type: serviceType,
       source,
+      source_detail: sourceDetail,
       bedrooms,
       bathrooms,
       frequency,
