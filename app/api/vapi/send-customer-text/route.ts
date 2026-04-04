@@ -74,25 +74,46 @@ async function createQuoteAndGetLink(
   preferredTime?: string | null,
 ): Promise<string | null> {
   const supabase = getSupabaseServiceClient()
+
+  const baseRow = {
+    tenant_id: tenantId,
+    customer_name: customerName || null,
+    customer_phone: phone,
+    bedrooms,
+    bathrooms,
+    service_category: serviceCategory,
+    notes: 'Created from VAPI voice call',
+  }
+
+  // First attempt: include date/time if provided
+  const insertRow = {
+    ...baseRow,
+    ...(preferredDate ? { service_date: preferredDate } : {}),
+    ...(preferredTime ? { service_time: preferredTime } : {}),
+  }
+
+  console.log('[send-customer-text] Creating quote:', JSON.stringify(insertRow))
+
   const { data: quote, error } = await supabase
     .from('quotes')
-    .insert({
-      tenant_id: tenantId,
-      customer_name: customerName || null,
-      customer_phone: phone,
-      bedrooms,
-      bathrooms,
-      service_category: serviceCategory,
-      ...(preferredDate ? { service_date: preferredDate } : {}),
-      ...(preferredTime ? { service_time: preferredTime } : {}),
-      notes: 'Created from VAPI voice call',
-    })
+    .insert(insertRow)
     .select('token')
     .single()
 
   if (error || !quote?.token) {
-    console.error('[send-customer-text] Failed to create quote:', error?.message)
-    return null
+    console.error('[send-customer-text] Quote insert failed:', error?.message, '| Retrying without date/time...')
+    // Retry without date/time in case those fields caused the error
+    const { data: retry, error: retryErr } = await supabase
+      .from('quotes')
+      .insert(baseRow)
+      .select('token')
+      .single()
+
+    if (retryErr || !retry?.token) {
+      console.error('[send-customer-text] Quote retry also failed:', retryErr?.message)
+      return null
+    }
+    return `${domain}/quote/${retry.token}`
   }
 
   return `${domain}/quote/${quote.token}`
