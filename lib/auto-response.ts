@@ -30,6 +30,11 @@ export interface KnownCustomerInfo {
   email?: string | null
   phone?: string | null
   source?: string | null // "housecall_pro", "ghl", etc.
+  bedrooms?: number | null
+  bathrooms?: number | null
+  serviceType?: string | null
+  frequency?: string | null
+  estimatedPrice?: number | null
 }
 
 export interface AutoResponseOptions {
@@ -741,6 +746,21 @@ async function generateWinBrosResponse(
     if (knownCustomerInfo.email) {
       parts.push(`Email on file: ${knownCustomerInfo.email}`)
     }
+    if (knownCustomerInfo.bedrooms) {
+      parts.push(`Bedrooms: ${knownCustomerInfo.bedrooms}`)
+    }
+    if (knownCustomerInfo.bathrooms) {
+      parts.push(`Bathrooms: ${knownCustomerInfo.bathrooms}`)
+    }
+    if (knownCustomerInfo.serviceType) {
+      parts.push(`Service type: ${knownCustomerInfo.serviceType.replace(/[-_]/g, ' ')}`)
+    }
+    if (knownCustomerInfo.frequency) {
+      parts.push(`Frequency: ${knownCustomerInfo.frequency.replace(/[-_]/g, ' ')}`)
+    }
+    if (knownCustomerInfo.estimatedPrice) {
+      parts.push(`Estimated price: $${knownCustomerInfo.estimatedPrice}`)
+    }
     // NOTE: knownCustomerInfo.source is an internal system field (e.g. "sms", "housecall_pro")
     // that tracks how the lead was created — NOT how the customer heard about the business.
     // Do NOT include it — the AI would mistake it for the "how did you hear about us" answer.
@@ -1237,6 +1257,11 @@ export async function generateEmailResponse(
     if (knownCustomerInfo.address) parts.push(`Address on file: ${knownCustomerInfo.address}`)
     if (knownCustomerInfo.email) parts.push(`Email on file: ${knownCustomerInfo.email}`)
     if (knownCustomerInfo.phone) parts.push(`Phone on file: ${knownCustomerInfo.phone}`)
+    if (knownCustomerInfo.bedrooms) parts.push(`Bedrooms: ${knownCustomerInfo.bedrooms}`)
+    if (knownCustomerInfo.bathrooms) parts.push(`Bathrooms: ${knownCustomerInfo.bathrooms}`)
+    if (knownCustomerInfo.serviceType) parts.push(`Service type: ${knownCustomerInfo.serviceType.replace(/[-_]/g, ' ')}`)
+    if (knownCustomerInfo.frequency) parts.push(`Frequency: ${knownCustomerInfo.frequency.replace(/[-_]/g, ' ')}`)
+    if (knownCustomerInfo.estimatedPrice) parts.push(`Estimated price: $${knownCustomerInfo.estimatedPrice}`)
     if (parts.length > 0) {
       knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking.\n`
     }
@@ -1428,6 +1453,21 @@ async function generateHouseCleaningResponse(
     }
     if (knownCustomerInfo.email) {
       parts.push(`Email on file: ${knownCustomerInfo.email}`)
+    }
+    if (knownCustomerInfo.bedrooms) {
+      parts.push(`Bedrooms: ${knownCustomerInfo.bedrooms}`)
+    }
+    if (knownCustomerInfo.bathrooms) {
+      parts.push(`Bathrooms: ${knownCustomerInfo.bathrooms}`)
+    }
+    if (knownCustomerInfo.serviceType) {
+      parts.push(`Service type: ${knownCustomerInfo.serviceType.replace(/[-_]/g, ' ')}`)
+    }
+    if (knownCustomerInfo.frequency) {
+      parts.push(`Frequency: ${knownCustomerInfo.frequency.replace(/[-_]/g, ' ')}`)
+    }
+    if (knownCustomerInfo.estimatedPrice) {
+      parts.push(`Estimated price: $${knownCustomerInfo.estimatedPrice}`)
     }
     // NOTE: knownCustomerInfo.source is an internal system field (e.g. "sms", "housecall_pro")
     // that tracks how the lead was created — NOT how the customer heard about the business.

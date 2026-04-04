@@ -2575,6 +2575,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Build known customer info for the AI
+      const leadForm = parseFormData(assignedLead.form_data)
       const knownInfo: KnownCustomerInfo = {
         firstName: customer.first_name || null,
         lastName: customer.last_name || null,
@@ -2582,6 +2583,11 @@ export async function POST(request: NextRequest) {
         email: customer.email || null,
         phone: phone,
         source: assignedLead.source || null,
+        bedrooms: typeof leadForm.bedrooms === 'number' ? leadForm.bedrooms : null,
+        bathrooms: typeof leadForm.bathrooms === 'number' ? leadForm.bathrooms : null,
+        serviceType: (leadForm.service_type as string) || null,
+        frequency: (leadForm.frequency as string) || null,
+        estimatedPrice: typeof leadForm.estimated_price === 'number' ? leadForm.estimated_price : null,
       }
 
       // Generate AI response with full booking context
@@ -2904,6 +2910,11 @@ export async function POST(request: NextRequest) {
           email: customer.email || leadFormData.email || null,
           phone: phone,
           source: existingLead.source || null,
+          bedrooms: typeof leadFormData.bedrooms === 'number' ? leadFormData.bedrooms : null,
+          bathrooms: typeof leadFormData.bathrooms === 'number' ? leadFormData.bathrooms : null,
+          serviceType: (leadFormData.service_type as string) || null,
+          frequency: (leadFormData.frequency as string) || null,
+          estimatedPrice: typeof leadFormData.estimated_price === 'number' ? leadFormData.estimated_price : null,
         }
 
         const autoResponse = await generateAutoResponse(
