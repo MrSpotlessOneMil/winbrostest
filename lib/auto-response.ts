@@ -1472,8 +1472,23 @@ async function generateHouseCleaningResponse(
     // NOTE: knownCustomerInfo.source is an internal system field (e.g. "sms", "housecall_pro")
     // that tracks how the lead was created — NOT how the customer heard about the business.
     // Do NOT include it — the AI would mistake it for the "how did you hear about us" answer.
+
+    // Build the booking-ready hint: if we already have bed/bath or address, tell
+    // the AI exactly what's missing so it triggers [BOOKING_COMPLETE] immediately
+    // once the last piece arrives — no extra confirmation round-trips.
+    const hasBedBath = !!(knownCustomerInfo.bedrooms && knownCustomerInfo.bathrooms)
+    const hasAddress = !!knownCustomerInfo.address
+    let bookingReadyHint = ''
+    if (hasBedBath && hasAddress) {
+      bookingReadyHint = '\nIMPORTANT: You already have address + bedrooms + bathrooms. Trigger [BOOKING_COMPLETE] RIGHT NOW in your response. Do not ask any more questions first.'
+    } else if (hasBedBath) {
+      bookingReadyHint = '\nIMPORTANT: You already have bedrooms and bathrooms on file. The ONLY thing you need is the address. As soon as the customer provides an address (in this message or a previous one), trigger [BOOKING_COMPLETE] immediately. Do not ask additional questions.'
+    } else if (hasAddress) {
+      bookingReadyHint = '\nIMPORTANT: You already have the address on file. The ONLY thing you need is bedrooms and bathrooms. As soon as the customer provides bed/bath count, trigger [BOOKING_COMPLETE] immediately. Do not ask additional questions.'
+    }
+
     if (parts.length > 0) {
-      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking. But still follow the step order — don't jump ahead to confirm these early.\n`
+      knownInfoBlock = `\n\nINFO ALREADY ON FILE FOR THIS CUSTOMER:\n${parts.join('\n')}\nWhen you reach the step for any info listed above, CONFIRM it instead of asking.${bookingReadyHint}\n`
     }
   }
 
