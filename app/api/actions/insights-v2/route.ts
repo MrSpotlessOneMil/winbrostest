@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Active recurring jobs (for projection)
     supabase.from('jobs')
-      .select('id, price, frequency, customer_id')
+      .select('id, price, frequency, customer_id, parent_job_id')
       .eq('tenant_id', tenant.id)
       .not('frequency', 'eq', 'one-time')
       .not('frequency', 'is', null)
@@ -106,8 +106,24 @@ export async function GET(request: NextRequest) {
   const recurringCustomerIds = new Set(recurringJobs.filter(j => j.customer_id).map(j => j.customer_id))
   const recurringClientCount = recurringCustomerIds.size
 
-  // Projected annual: recurring monthly × 12 + one-time YTD
-  const projectedAnnual = (monthlyRecurring * 12) + annualOneTime
+  // MRR run-rate: sum each active recurring job's price normalized to monthly
+  // (weekly ×4.33, bi-weekly ×2.17, monthly ×1, every_6_weeks ×0.72)
+  const freqMultiplier: Record<string, number> = {
+    weekly: 4.33,
+    'bi-weekly': 2.17,
+    monthly: 1,
+    every_6_weeks: 0.72,
+  }
+  // Deduplicate by parent: only count parent jobs (no parent_job_id) to avoid
+  // inflating MRR by counting every generated instance of a recurring series.
+  const parentRecurringJobs = recurringJobs.filter((j: any) => !j.parent_job_id)
+  const mrrRunRate = parentRecurringJobs.reduce((sum, j: any) => {
+    const mult = freqMultiplier[j.frequency] || 1
+    return sum + Number(j.price) * mult
+  }, 0)
+
+  // Projected annual: MRR run-rate × 12 + one-time YTD
+  const projectedAnnual = (mrrRunRate * 12) + annualOneTime
 
   // ── Profit & Loss ──
   const cleanerPayPct = tenant.workflow_config?.cleaner_pay_percentage || 0
@@ -223,6 +239,7 @@ export async function GET(request: NextRequest) {
       annual: annualRevenue,
       annual_recurring: annualRecurring,
       annual_one_time: annualOneTime,
+      mrr_run_rate: mrrRunRate,
       projected_annual: projectedAnnual,
       recurring_client_count: recurringClientCount,
     },

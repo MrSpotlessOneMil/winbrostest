@@ -354,7 +354,7 @@ If the conversation history already contains an [ESCALATE:...] response from you
 
 export interface HouseCleaningBookingData {
   serviceType: string | null // "standard_cleaning" | "deep_cleaning" | "move_in_out"
-  frequency: string | null // "one_time" | "weekly" | "biweekly" | "monthly"
+  frequency: string | null // "one_time" | "weekly" | "bi-weekly" | "monthly"
   bedrooms: number | null
   bathrooms: number | null
   squareFootage: number | null
@@ -394,7 +394,7 @@ export async function extractHouseCleaningBookingData(
 
 {
   "serviceType": "standard_cleaning" | "deep_cleaning" | "move_in_out" | null,
-  "frequency": "one_time" | "weekly" | "biweekly" | "monthly" | null,
+  "frequency": "one_time" | "weekly" | "bi-weekly" | "monthly" | null,
   "bedrooms": number | null,
   "bathrooms": number | null,
   "squareFootage": number | null,
@@ -435,7 +435,7 @@ Return ONLY the JSON object, nothing else.`
 
       return {
         serviceType: parsed.serviceType || null,
-        frequency: parsed.frequency || null,
+        frequency: parsed.frequency === 'biweekly' ? 'bi-weekly' : (parsed.frequency || null),
         bedrooms: parsed.bedrooms != null ? Number(parsed.bedrooms) : null,
         bathrooms: parsed.bathrooms != null ? Number(parsed.bathrooms) : null,
         squareFootage: parsed.squareFootage ? Number(parsed.squareFootage) : null,

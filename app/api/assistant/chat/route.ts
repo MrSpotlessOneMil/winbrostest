@@ -769,7 +769,7 @@ function buildTools(tenant: Tenant | null): Anthropic.Tool[] {
         phone_number: { type: "string", description: "Customer phone (alternative to job_id — creates new recurring job)" },
         frequency: {
           type: "string",
-          enum: ["weekly", "biweekly", "monthly", "every_6_weeks"],
+          enum: ["weekly", "bi-weekly", "monthly", "every_6_weeks"],
           description: "How often the job should recur",
         },
         start_date: { type: "string", description: "First occurrence date in YYYY-MM-DD format (uses job date if job_id provided)" },
@@ -2691,7 +2691,7 @@ async function executeTool(
 
       const freqLabel: Record<string, string> = {
         weekly: "every week",
-        biweekly: "every 2 weeks",
+        "bi-weekly": "every 2 weeks",
         monthly: "every month",
         every_6_weeks: "every 6 weeks",
       }
