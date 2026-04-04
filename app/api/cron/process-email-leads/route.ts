@@ -348,9 +348,10 @@ async function processIncomingEmail(
     return { replied: false }
   }
 
-  // ── Post-booking / assigned lead: respond with customer context ──
+  // ── Post-booking / assigned / quoted lead: respond with customer context ──
   // (Same pattern as SMS bot — answer questions, handle corrections, don't re-book)
-  const isPostBooking = ['booked', 'assigned'].includes(lead.status)
+  // 'qualified' = quote link sent, customer may ask questions before paying
+  const isPostBooking = ['booked', 'assigned', 'qualified'].includes(lead.status)
 
   // ── Load conversation history for this email thread ──
   const { data: historyRows } = await client
