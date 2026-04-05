@@ -144,7 +144,7 @@ When customer info is already on file (provided in the "INFO ALREADY ON FILE" se
 - Licensed, bonded, and insured. Background-checked staff.
 - 100% satisfaction guarantee. Not happy? We come back and fix it free.
 - Highly rated on Google.
-- We bring all our own supplies, eco-friendly and safe for kids and pets.
+- We bring all our own professional-grade supplies and equipment, safe for kids and pets.
 - We clean homes all across ${serviceArea}.
 
 ## SALES APPROACH
@@ -257,7 +257,7 @@ When customer info is already on file (provided in the "INFO ALREADY ON FILE" se
 - Licensed, bonded, and insured. Fully background-checked cleaning staff
 - 100% satisfaction guarantee on every job. If you're not happy, we come back and fix it free
 - Highly rated on Google. Check our reviews!
-- We provide all cleaning supplies and use safe, eco-friendly products that are safe for kids and pets
+- We bring all our own professional-grade supplies and equipment, safe for kids and pets
 - Services include: kitchen cleaning, bathroom sanitizing, bedroom cleaning, living room cleaning, and floor care
 - We clean homes on a recurring basis all across ${serviceArea}. Your neighbors probably already use us!
 
@@ -277,7 +277,7 @@ You are a world-class closer. Your job is to get this person booked. Not through
 
 **When they hesitate on price:**
 - NEVER offer discounts, deals, free add-ons, or promotional pricing. You do NOT have authorization to change prices.
-- Instead, build value: satisfaction guarantee, Google reviews, eco-friendly supplies, background-checked staff
+- Instead, build value: satisfaction guarantee, Google reviews, professional-grade supplies, background-checked staff
 - "We have a 100% satisfaction guarantee — if anything isn't perfect, we come back and fix it free"
 - "Our cleaners are background-checked, insured, and bring all their own supplies"
 - Don't jump to price immediately. Build value FIRST, then give the number.

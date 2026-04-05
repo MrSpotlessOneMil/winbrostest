@@ -68,6 +68,14 @@ function toServiceCategory(serviceType: string): string {
   return 'standard'
 }
 
+/** Map VAPI service_type to the quote tier key so the quote page
+ *  pre-selects the correct package (instead of defaulting to cheapest). */
+function toSelectedTier(serviceType: string): string {
+  if (serviceType === 'deep') return 'deep'
+  if (serviceType === 'move' || serviceType === 'move_in_out') return 'move_good'
+  return 'standard'
+}
+
 async function createQuoteAndGetLink(
   tenantId: string,
   phone: string,
@@ -79,6 +87,7 @@ async function createQuoteAndGetLink(
   domain: string,
   preferredDate?: string | null,
   preferredTime?: string | null,
+  selectedTier?: string | null,
 ): Promise<string | null> {
   const supabase = getSupabaseServiceClient()
 
@@ -89,6 +98,7 @@ async function createQuoteAndGetLink(
     bedrooms,
     bathrooms,
     service_category: serviceCategory,
+    selected_tier: selectedTier || null,
     notes: 'Created from VAPI voice call',
   }
 
@@ -243,6 +253,7 @@ export async function POST(request: NextRequest) {
   // a marketing site (e.g. Hostinger) that doesn't host the /quote/ page.
   const domain = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
   const serviceCategory = toServiceCategory(serviceType)
+  const selectedTier = toSelectedTier(serviceType)
 
   let smsMessage: string
   if (messageType === 'booking_followup') {
@@ -258,7 +269,7 @@ export async function POST(request: NextRequest) {
       quoteLink = await createQuoteAndGetLink(
         tenant.id, normalizedPhone, bedrooms, bathrooms,
         customerName || null, serviceCategory, priceAmount, domain,
-        preferredDate, preferredTime,
+        preferredDate, preferredTime, selectedTier,
       )
     }
     const sizeInfo = bedrooms !== null && bathrooms !== null ? `${bedrooms} bed / ${bathrooms} bath` : ''
