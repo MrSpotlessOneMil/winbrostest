@@ -18,6 +18,7 @@ import { PRICING_TABLE } from '@/lib/pricing-config'
 
 const ASSISTANT_TENANT_MAP: Record<string, string> = {
   'e3ed2426-dc28-4046-a5e9-0fbb945ff706': 'spotless-scrubbers',
+  '3aab40c8-6f4e-4a12-a411-85ace7b86ba8': 'spotless-scrubbers',
   '81cee3b3-324f-4d05-900e-ac0f57ed283f': 'west-niagara',
   '4c673d16-436d-42ae-bf51-10b2c2d30fa0': 'cedar-rapids',
 }
@@ -34,13 +35,20 @@ async function resolveTenantSlugFromAssistant(assistantId: string): Promise<stri
   return data?.slug || null
 }
 
-/** Calculate price using bed/bath formula. Falls back to pricing-data.json lookup for exact match. */
-function lookupPrice(bedrooms: number, bathrooms: number, serviceType?: string): number | null {
-  // Formula-based pricing: consistent across all touchpoints
+/** Look up price from DB pricing tiers. Falls back to formula if no DB rows. */
+async function lookupPriceFromDB(tenantId: string, bedrooms: number, bathrooms: number, serviceType?: string): Promise<number | null> {
+  try {
+    const { getPricingRow } = await import('@/lib/pricing-db')
+    const tier = (serviceType === 'deep' || serviceType === 'move' || serviceType === 'move_in_out') ? (serviceType === 'move_in_out' ? 'move' : serviceType) : 'standard'
+    const row = await getPricingRow(tier as any, bedrooms, bathrooms, null, tenantId)
+    if (row?.price) return row.price
+  } catch (e) {
+    console.error('[send-customer-text] DB price lookup failed:', e)
+  }
+  // Formula fallback (should rarely hit now that all tenants have DB pricing)
   if (serviceType === 'deep' || serviceType === 'move' || serviceType === 'move_in_out') {
     return Math.max(125 * bedrooms + 50 * bathrooms, 250)
   }
-  // Standard
   return Math.max(100 * bedrooms + 35 * bathrooms, 200)
 }
 
@@ -216,23 +224,12 @@ export async function POST(request: NextRequest) {
       ? String(params.price)
       : ''
 
-  // Price resolution:
-  // 1. If service_type provided → use server lookup with that multiplier
-  // 2. If model price > standard lookup → trust model (it calculated deep/move-out from prompt)
-  // 3. Else → standard lookup
+  // Price resolution: DB lookup is source of truth. Model price is fallback only.
   let finalPrice = ''
   if (bedrooms !== null && bathrooms !== null) {
-    const standardPrice = lookupPrice(bedrooms, bathrooms)
-    const tieredPrice = lookupPrice(bedrooms, bathrooms, serviceType)
-    const modelPriceNum = modelPrice ? parseFloat(modelPrice) : 0
-
-    if (serviceType !== 'standard' && tieredPrice !== null) {
-      finalPrice = String(tieredPrice)
-    } else if (modelPriceNum > 0 && standardPrice !== null && modelPriceNum > standardPrice) {
-      // Model quoted higher than standard — trust it (deep/move-out pricing from prompt)
-      finalPrice = String(Math.round(modelPriceNum))
-    } else if (standardPrice !== null) {
-      finalPrice = String(standardPrice)
+    const dbPrice = await lookupPriceFromDB(tenant.id, bedrooms, bathrooms, serviceType)
+    if (dbPrice !== null) {
+      finalPrice = String(dbPrice)
     } else if (modelPrice) {
       finalPrice = modelPrice
     }
