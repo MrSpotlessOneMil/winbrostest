@@ -55,6 +55,9 @@ export interface WorkflowConfig {
   require_deposit: boolean
   deposit_percentage: number
   cleaner_pay_percentage?: number // % of job revenue paid to cleaner (e.g. 40 = 40%)
+  cleaner_pay_model?: 'percentage' | 'hourly' // How cleaner pay is calculated
+  cleaner_pay_hourly_standard?: number // $/hr for standard cleans (e.g. 25)
+  cleaner_pay_hourly_deep?: number // $/hr for deep & move cleans (e.g. 30)
   use_broadcast_assignment?: boolean // Blast all cleaners at once, first to accept wins (vs distance-based routing)
   assignment_mode?: 'broadcast' | 'ranked' | 'distance' // Explicit mode (overrides use_broadcast_assignment if set)
 
@@ -495,6 +498,34 @@ export function formatTenantCurrency(tenant: Tenant, amount: number): string {
   const currency = getTenantCurrency(tenant)
   const locale = getTenantLocale(tenant)
   return new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+}
+
+export function getCurrencySymbol(tenant: Tenant): string {
+  return tenant.currency === 'cad' ? 'C$' : '$'
+}
+
+export function calculateCleanerPay(
+  tenant: Tenant,
+  jobPrice: number,
+  laborHours: number,
+  serviceType?: string
+): number | null {
+  const config = tenant.workflow_config
+  const model = config.cleaner_pay_model || (config.cleaner_pay_percentage ? 'percentage' : null)
+
+  if (model === 'percentage' && config.cleaner_pay_percentage) {
+    return Math.round(jobPrice * (config.cleaner_pay_percentage / 100))
+  }
+
+  if (model === 'hourly') {
+    const isDeepOrMove = serviceType && (serviceType.includes('deep') || serviceType.includes('move'))
+    const rate = isDeepOrMove
+      ? (config.cleaner_pay_hourly_deep || config.cleaner_pay_hourly_standard || 25)
+      : (config.cleaner_pay_hourly_standard || 25)
+    return Math.round(laborHours * rate)
+  }
+
+  return null
 }
 
 export function getTenantServiceDescription(tenant: Tenant): string {

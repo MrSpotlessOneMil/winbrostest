@@ -1384,7 +1384,7 @@ async function generateHouseCleaningResponse(
   // Reuse escalation/booking detection from WinBros (same tag format)
   const { detectEscalation, detectBookingComplete, stripEscalationTags } = await import('./winbros-sms-prompt')
 
-  const systemPrompt = buildHouseCleaningSmsSystemPrompt(tenant)
+  const systemPrompt = await buildHouseCleaningSmsSystemPrompt(tenant)
   const sdrName = tenant.sdr_persona || 'Sarah'
 
   const historyContext = conversationHistory?.length

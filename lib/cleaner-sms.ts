@@ -8,6 +8,7 @@
  */
 
 import type { Tenant } from './tenant'
+import { formatTenantCurrency } from './tenant'
 import { sendSMS } from './openphone'
 import { getSupabaseServiceClient } from './supabase'
 
@@ -130,10 +131,10 @@ export async function notifyCleanerAssignment(
   const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
   if (payPercentage && job.price) {
     const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-    details.push(`Your pay: $${cleanerPay.toFixed(0)}`)
+    details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
   } else if (job.hours) {
     const rate = cleaner.hourly_rate || 25
-    details.push(`Your pay: $${(rate * Number(job.hours)).toFixed(0)}`)
+    details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
   }
 
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
@@ -196,14 +197,14 @@ export async function notifyCleanerAwarded(
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
   // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+  const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
   let payStr = ''
-  if (payPercentage && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-    payStr = `\nYour pay: $${cleanerPay.toFixed(0)}`
+  if (payPercentage2 && job.price) {
+    const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
   } else if (job.hours) {
     const rate = cleaner.hourly_rate || 25
-    payStr = `\nYour pay: $${(rate * Number(job.hours)).toFixed(0)}`
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
   }
 
   let link = ''
@@ -749,7 +750,7 @@ export async function notifyCleanerPreconfirm(
   }
 
   const service = preconfirm.description || preconfirm.service_category || 'Cleaning'
-  const payStr = preconfirm.cleaner_pay ? `\nYour pay: $${Number(preconfirm.cleaner_pay).toFixed(0)}` : ''
+  const payStr = preconfirm.cleaner_pay ? `\nYour pay: ${formatTenantCurrency(tenant, Number(preconfirm.cleaner_pay))}` : ''
   const addressStr = preconfirm.customer_address ? `\nArea: ${preconfirm.customer_address}` : ''
   const custStr = preconfirm.customer_name ? `\nCustomer: ${preconfirm.customer_name.split(' ')[0]}` : ''
 

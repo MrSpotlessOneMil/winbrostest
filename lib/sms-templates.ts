@@ -22,10 +22,11 @@ export function leadFollowupSecond(name: string): string {
 /**
  * Payment link message with amount and secure link
  */
-export function paymentLink(name: string, amount: number, link: string): string {
-  const formattedAmount = amount.toLocaleString('en-US', {
+export function paymentLink(name: string, amount: number, link: string, currency = 'USD'): string {
+  const locale = currency.toUpperCase() === 'CAD' ? 'en-CA' : 'en-US'
+  const formattedAmount = amount.toLocaleString(locale, {
     style: 'currency',
-    currency: 'USD',
+    currency: currency.toUpperCase(),
   })
   return `Hi ${name}, your invoice of ${formattedAmount} is ready. Pay securely here: ${link}`
 }
@@ -130,10 +131,11 @@ export function paymentFailed(paymentUrl: string): string {
 /**
  * Payment retry — sent when admin manually retries or auto-retry triggers
  */
-export function paymentRetry(businessName: string, amount: number, paymentUrl: string): string {
-  const formattedAmount = amount.toLocaleString('en-US', {
+export function paymentRetry(businessName: string, amount: number, paymentUrl: string, currency = 'USD'): string {
+  const locale = currency.toUpperCase() === 'CAD' ? 'en-CA' : 'en-US'
+  const formattedAmount = amount.toLocaleString(locale, {
     style: 'currency',
-    currency: 'USD',
+    currency: currency.toUpperCase(),
   })
   return `Hi! Your remaining balance of ${formattedAmount} with ${businessName} is still outstanding. Pay securely here: ${paymentUrl}`
 }

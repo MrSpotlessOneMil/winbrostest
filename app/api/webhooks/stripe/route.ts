@@ -5,7 +5,7 @@ import { getSupabaseServiceClient, updateJob, getJobById, updateGHLLead } from '
 import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
 import { logSystemEvent } from '@/lib/system-events'
 import { convertHCPLeadToJob } from '@/lib/housecall-pro-api'
-import { getTenantById, getAllActiveTenants, tenantUsesFeature, type Tenant } from '@/lib/tenant'
+import { getTenantById, getAllActiveTenants, tenantUsesFeature, formatTenantCurrency, type Tenant } from '@/lib/tenant'
 import { sendSMS, SMS_TEMPLATES } from '@/lib/openphone'
 import { maskPhone } from '@/lib/phone-utils'
 import { distributeTip } from '@/lib/tips'
@@ -805,7 +805,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
             const dateStr = hasServiceDate
               ? new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
               : 'TBD'
-            const payStr = primaryCleaner.cleaner_pay ? `\nYour pay: $${Number(primaryCleaner.cleaner_pay).toFixed(0)}` : ''
+            const payStr = primaryCleaner.cleaner_pay ? `\nYour pay: ${formatTenantCurrency(tenant, Number(primaryCleaner.cleaner_pay))}` : ''
             const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
             const portalLink = cleaner.portal_token ? `\n\nDetails: ${appBaseUrl}/crew/${cleaner.portal_token}/job/${newJob.id}` : ''
             const msg = `You're confirmed! ${custName} booked for ${dateStr}.\n${serviceName} at ${quote.customer_address || 'See portal'}${payStr}${portalLink}`

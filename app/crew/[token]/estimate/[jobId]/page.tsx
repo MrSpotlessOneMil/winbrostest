@@ -56,7 +56,7 @@ interface EstimateData {
   job: { id: number; date: string; scheduled_at: string | null; address: string | null; service_type: string | null; job_type: string | null; sqft: number | null; notes: string | null }
   customer: { id: number | null; first_name: string | null; last_name: string | null; phone: string | null; email: string | null; address: string | null }
   pricing: { tiers: QuoteTier[]; tierPrices: Record<string, TierPrice>; addons: QuoteAddon[]; serviceType: string }
-  tenant: { name: string; slug: string; stripe_publishable_key?: string }
+  tenant: { name: string; slug: string; stripe_publishable_key?: string; currency?: string | null }
   availability: Record<string, number>
   checklist: ChecklistItem[]
   servicePlans?: ServicePlan[]
@@ -64,8 +64,9 @@ interface EstimateData {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function fmt(amount: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount)
+function fmtCurrency(amount: number, currency = "USD"): string {
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function formatDate(dateStr: string): string {
@@ -190,6 +191,8 @@ export default function EstimatePage() {
   const tiers = data?.pricing.tiers ?? []
   const addons = data?.pricing.addons ?? []
   const tierPrices = data?.pricing.tierPrices ?? {}
+  const tenantCurrency = data?.tenant?.currency?.toUpperCase() || "USD"
+  const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 

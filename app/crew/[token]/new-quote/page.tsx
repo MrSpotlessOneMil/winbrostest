@@ -34,15 +34,16 @@ interface TierPrice { price: number; breakdown: { service: string; price: number
 
 interface NewQuoteData {
   pricing: { tiers: QuoteTier[]; tierPrices: Record<string, TierPrice>; addons: QuoteAddon[]; serviceType: string }
-  tenant: { name: string; slug: string; serviceType: string }
+  tenant: { name: string; slug: string; serviceType: string; currency?: string | null }
   cleaner: { id: number; name: string }
   availability: Record<string, number>
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function fmt(amount: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount)
+function fmtCurrency(amount: number, currency = "USD"): string {
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function formatDate(dateStr: string): string {
@@ -176,6 +177,8 @@ export default function NewQuotePage() {
   const tiers = data?.pricing.tiers ?? []
   const addons = data?.pricing.addons ?? []
   const tierPrices = data?.pricing.tierPrices ?? {}
+  const tenantCurrency = data?.tenant?.currency?.toUpperCase() || "USD"
+  const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 

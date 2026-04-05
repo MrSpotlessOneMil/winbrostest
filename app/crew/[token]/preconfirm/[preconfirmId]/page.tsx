@@ -5,7 +5,7 @@ import { useParams } from "next/navigation"
 import { CheckCircle2, XCircle, Loader2, MapPin, DollarSign, Sparkles, Calendar } from "lucide-react"
 
 interface PreconfirmData {
-  preconfirm: { id: number; status: string; cleaner_pay: number | null; responded_at: string | null }
+  preconfirm: { id: number; status: string; cleaner_pay: number | null; currency: string; responded_at: string | null }
   quote: {
     description: string | null; customer_first_name: string | null; customer_address: string | null
     service_category: string | null; square_footage: number | null; bedrooms: number | null
@@ -17,6 +17,11 @@ interface PreconfirmData {
 }
 
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
+function fmtPay(amount: number, currency = "usd") {
+  const cur = (currency || "usd").toUpperCase()
+  const locale = cur === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+}
 
 export default function PreconfirmPage() {
   const params = useParams()
@@ -165,7 +170,7 @@ export default function PreconfirmPage() {
               <DollarSign className="size-5 text-green-500 mt-0.5 shrink-0" />
               <div>
                 <p className="text-sm text-gray-500">Your Pay</p>
-                <p className="font-bold text-green-600 text-lg">${Number(preconfirm.cleaner_pay).toFixed(0)}</p>
+                <p className="font-bold text-green-600 text-lg">{fmtPay(Number(preconfirm.cleaner_pay), preconfirm.currency)}</p>
               </div>
             </div>
           )}

@@ -12,27 +12,53 @@
  */
 
 import type { Tenant } from './tenant'
-import { getTenantServiceDescription } from './tenant'
+import { getTenantServiceDescription, formatTenantCurrency, getCurrencySymbol } from './tenant'
+import { getPricingTiers } from './pricing-db'
 
 // =====================================================================
 // SYSTEM PROMPT
 // =====================================================================
 
-export function buildHouseCleaningSmsSystemPrompt(tenant: Tenant): string {
-  // V2: conversational, gives pricing upfront, fewer required fields
-  // Used by all house cleaning tenants with shared pricing formula
-  if (tenant.slug === 'spotless-scrubbers' || tenant.slug === 'west-niagara') {
-    return buildSpotlessV2Prompt(tenant)
+export async function buildHouseCleaningSmsSystemPrompt(tenant: Tenant): Promise<string> {
+  // V2: conversational, gives pricing upfront from DB
+  // Used by all house cleaning tenants
+  if (tenant.slug === 'spotless-scrubbers' || tenant.slug === 'west-niagara' || tenant.slug === 'cedar-rapids') {
+    return buildCleaningV2Prompt(tenant)
   }
-  // All other house cleaning tenants keep the original flow
+  // Fallback for any future tenants without DB pricing
   return buildHouseCleaningSmsSystemPromptV1(tenant)
 }
 
-function buildSpotlessV2Prompt(tenant: Tenant): string {
+async function buildCleaningV2Prompt(tenant: Tenant): Promise<string> {
   const businessName = tenant.business_name_short || tenant.business_name || tenant.name
   const sdrName = tenant.sdr_persona || 'Sarah'
   const serviceArea = tenant.service_area || 'your area'
   const serviceType = getTenantServiceDescription(tenant) || 'house cleaning'
+  const sym = getCurrencySymbol(tenant)
+  const fmt = (n: number) => formatTenantCurrency(tenant, n)
+
+  // Load pricing from DB
+  const tiers = await getPricingTiers(tenant.id)
+  const stdRows = tiers['standard'] || []
+  const deepRows = tiers['deep'] || []
+  const moveRows = tiers['move'] || []
+
+  // Build pricing tables from DB
+  const buildTable = (rows: Array<{ bedrooms: number; bathrooms: number; price: number }>) =>
+    rows.map(r => `- ${r.bedrooms} bed / ${r.bathrooms} bath: ${fmt(r.price)}`).join('\n')
+
+  const stdTable = buildTable(stdRows)
+  const deepTable = buildTable(deepRows)
+  const moveTable = buildTable(moveRows)
+
+  // Price ranges for "I don't know bed/bath" responses
+  const stdPrices = stdRows.map(r => r.price)
+  const stdMin = stdPrices.length ? fmt(Math.min(...stdPrices)) : `${sym}150`
+  const stdMax = stdPrices.length ? fmt(Math.max(...stdPrices)) : `${sym}400`
+
+  // Example prices for the multi-text example
+  const exampleStd = stdRows.find(r => r.bedrooms === 3 && r.bathrooms === 2)
+  const examplePrice = exampleStd ? fmt(exampleStd.price) : `${sym}260`
 
   return `You are ${sdrName}, a real person who works at ${businessName}, a professional ${serviceType} service in ${serviceArea}. You're texting with a potential customer.
 
@@ -53,33 +79,28 @@ Get them a quote and book a cleaning. Be helpful, be fast, give them a price. Do
 
 ## MULTI-TEXT RESPONSES
 Split into 2-3 separate texts when natural. Use ||| to separate.
-"Nice, 3 bed 2 bath!|||For a standard clean that runs about $370. Want me to send you exact pricing with options?"
+"Nice, 3 bed 2 bath!|||For a standard clean that runs about ${examplePrice}. Want me to send you exact pricing with options?"
 Rules: 2-3 texts max. Each one short and complete. Don't force splits for simple replies.
 
 ## PRICING -- THIS IS CRITICAL
 People asking about price are BUYING SIGNALS. Never dodge a pricing question. Give them a number.
 
-PRICING FORMULA (how to calculate any size home):
-- STANDARD CLEAN: $100 per bedroom + $35 per bathroom (minimum $200)
-- DEEP CLEAN / MOVE IN-OUT: $125 per bedroom + $50 per bathroom (minimum $250)
+STANDARD CLEAN PRICES:
+${stdTable}
 
-QUICK REFERENCE (common combos):
-Standard / Deep:
-- 1 bed / 1 bath: $200 / $250
-- 2 bed / 1 bath: $235 / $300
-- 2 bed / 2 bath: $270 / $350
-- 3 bed / 2 bath: $370 / $475
-- 3 bed / 3 bath: $405 / $525
-- 4 bed / 2 bath: $470 / $600
-- 4 bed / 3 bath: $505 / $650
+DEEP CLEAN PRICES:
+${deepTable}
+
+MOVE IN/OUT PRICES:
+${moveTable}
 
 EXTRA DEEP (cabinets, organizing, OCD-level detail):
-- This is a custom quote. If someone describes inside cabinets, reorganizing, heavy detail work, say: "That sounds like our Extra Deep service, those start at $500 and go up depending on the scope. Let me have someone reach out with an exact quote." Then tag [ESCALATE:special_request].
+- This is a custom quote. If someone describes inside cabinets, reorganizing, heavy detail work, say: "That sounds like our Extra Deep service, let me have someone reach out with an exact quote." Then tag [ESCALATE:special_request].
 
 HOW TO USE THESE:
-- If they ask for a price and you know bed/bath: calculate it or use the quick reference. "A standard clean for a 2 bed 2 bath runs $270. Deep clean is $350. Want me to send you a quote with all the options?"
-- If they ask for a price but you DON'T know bed/bath yet: give a range. "Standard cleans usually run $200-470 depending on the size of your place. How many bedrooms and bathrooms?"
-- If they just say "how much" with zero context: "Most homes run $200-470 for a standard clean, deep cleans are a bit more. What's the address? I'll get you exact pricing!"
+- If they ask for a price and you know bed/bath: use the price list above. "A standard clean for a 2 bed 2 bath runs ${stdRows.find(r => r.bedrooms === 2 && r.bathrooms === 2) ? fmt(stdRows.find(r => r.bedrooms === 2 && r.bathrooms === 2)!.price) : `${sym}200`}. Want me to send you a quote with all the options?"
+- If they ask for a price but you DON'T know bed/bath yet: give a range. "Standard cleans usually run ${stdMin}-${stdMax} depending on the size of your place. How many bedrooms and bathrooms?"
+- If they just say "how much" with zero context: "Most homes run ${stdMin}-${stdMax} for a standard clean, deep cleans are a bit more. What's the address? I'll get you exact pricing!"
 - If a home sounds unusually large for its bed/bath count (loft, open plan, etc): just note it and move on. Pricing is by bed/bath only.
 - NEVER say "it depends" or "I'll need more info" without ALSO giving a range.
 - NEVER deflect a pricing question. Always anchor with a number first, then ask for details.

@@ -1621,6 +1621,88 @@ export default function AdminPage() {
                         </div>
                       </div>
 
+                      {/* Cleaner Pay — house cleaning tenants only */}
+                      {currentTenant.service_description !== 'window cleaning' && (
+                      <div className="p-4 rounded-lg border border-border space-y-3">
+                        <div className="font-medium">Cleaner Pay</div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm text-muted-foreground">Pay Model</Label>
+                          <select
+                            className="text-sm border rounded px-2 py-1 bg-background"
+                            value={currentTenant.workflow_config.cleaner_pay_model || 'hourly'}
+                            onChange={(e) =>
+                              updateTenant(currentTenant.id, {
+                                workflow_config: { cleaner_pay_model: e.target.value as 'percentage' | 'hourly' },
+                              })
+                            }
+                            disabled={updating === currentTenant.id}
+                          >
+                            <option value="percentage">% of Job</option>
+                            <option value="hourly">Hourly Rate</option>
+                          </select>
+                        </div>
+
+                        {currentTenant.workflow_config.cleaner_pay_model === 'percentage' ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm text-muted-foreground">Cleaner gets (%)</Label>
+                              <input
+                                type="number"
+                                min={0} max={100}
+                                className="w-20 text-sm border rounded px-2 py-1 text-right bg-background"
+                                value={currentTenant.workflow_config.cleaner_pay_percentage ?? 35}
+                                onChange={(e) =>
+                                  updateTenant(currentTenant.id, {
+                                    workflow_config: { cleaner_pay_percentage: Number(e.target.value) },
+                                  })
+                                }
+                                disabled={updating === currentTenant.id}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Example: {currentTenant.currency === 'cad' ? 'C' : ''}$300 job = {currentTenant.currency === 'cad' ? 'C' : ''}${Math.round(300 * ((currentTenant.workflow_config.cleaner_pay_percentage ?? 35) / 100))} to cleaner ({currentTenant.workflow_config.cleaner_pay_percentage ?? 35}%)
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm text-muted-foreground">Standard clean ({currentTenant.currency === 'cad' ? 'C$' : '$'}/hr)</Label>
+                              <input
+                                type="number"
+                                min={0}
+                                className="w-20 text-sm border rounded px-2 py-1 text-right bg-background"
+                                value={currentTenant.workflow_config.cleaner_pay_hourly_standard ?? 25}
+                                onChange={(e) =>
+                                  updateTenant(currentTenant.id, {
+                                    workflow_config: { cleaner_pay_hourly_standard: Number(e.target.value) },
+                                  })
+                                }
+                                disabled={updating === currentTenant.id}
+                              />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <Label className="text-sm text-muted-foreground">Deep / Move ({currentTenant.currency === 'cad' ? 'C$' : '$'}/hr)</Label>
+                              <input
+                                type="number"
+                                min={0}
+                                className="w-20 text-sm border rounded px-2 py-1 text-right bg-background"
+                                value={currentTenant.workflow_config.cleaner_pay_hourly_deep ?? 25}
+                                onChange={(e) =>
+                                  updateTenant(currentTenant.id, {
+                                    workflow_config: { cleaner_pay_hourly_deep: Number(e.target.value) },
+                                  })
+                                }
+                                disabled={updating === currentTenant.id}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Example: 3hr standard clean = {currentTenant.currency === 'cad' ? 'C' : ''}${(currentTenant.workflow_config.cleaner_pay_hourly_standard ?? 25) * 3} to cleaner ({currentTenant.currency === 'cad' ? 'C$' : '$'}{currentTenant.workflow_config.cleaner_pay_hourly_standard ?? 25}/hr)
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      )}
+
                       {/* Integrations */}
                       <div className="p-4 rounded-lg border border-border space-y-3">
                         <div className="font-medium">Integrations</div>

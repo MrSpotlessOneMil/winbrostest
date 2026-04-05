@@ -15,7 +15,7 @@ interface JobDetail {
   id: number; date: string; scheduled_at: string | null; address: string | null
   service_type: string | null; status: string; notes: string | null
   bedrooms: number | null; bathrooms: number | null; sqft: number | null
-  hours: number | null; cleaner_pay: number | null; total_hours: number | null
+  hours: number | null; cleaner_pay: number | null; currency: string; total_hours: number | null
   hours_per_cleaner: number | null; num_cleaners: number | null
   paid: boolean; payment_status: string | null
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null
@@ -35,6 +35,11 @@ function formatTime(t: string | null) {
   try { const [h, m] = t.split(":").map(Number); return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` } catch { return t }
 }
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
+function fmtPay(amount: number, currency = "usd") {
+  const cur = (currency || "usd").toUpperCase()
+  const locale = cur === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+}
 
 export default function JobDetailPage() {
   const params = useParams()
@@ -277,7 +282,7 @@ export default function JobDetailPage() {
                 <DollarSign className="size-5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-xl font-black text-emerald-600">${Number(job.cleaner_pay).toFixed(2)}</p>
+                <p className="text-xl font-black text-emerald-600">{fmtPay(Number(job.cleaner_pay), job.currency)}</p>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your Pay</p>
               </div>
             </div>

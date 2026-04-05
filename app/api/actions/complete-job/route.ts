@@ -565,7 +565,7 @@ export async function executeCompleteJob(jobId: string): Promise<{
 
   // First create a price for this specific payment
   const price = await stripe.prices.create({
-    currency: 'usd',
+    currency: tenant?.currency || 'usd',
     unit_amount: chargeAmountCents, // Convert to cents
     product_data: {
       name: `${job.service_type || 'Cleaning'} - Final Payment`,

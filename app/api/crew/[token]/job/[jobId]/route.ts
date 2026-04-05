@@ -222,6 +222,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       sqft: job.sqft,
       hours: job.hours,
       cleaner_pay: cleanerPay,
+      currency: tenant.currency || 'usd',
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,
       num_cleaners: estimate.cleaners ?? null,

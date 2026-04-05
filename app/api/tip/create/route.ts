@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       line_items: [
         {
           price_data: {
-            currency: 'usd',
+            currency: tenant.currency || 'usd',
             product_data: {
               name: `Tip for ${cleanerName}`,
               description: `Thank you for your generosity! 100% goes to ${cleanerName}.`,

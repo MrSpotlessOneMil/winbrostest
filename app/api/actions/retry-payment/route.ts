@@ -112,7 +112,7 @@ export async function executeRetryPayment(jobId: string): Promise<{
   await findOrCreateStripeCustomer(customer, stripeKey)
 
   const price = await stripe.prices.create({
-    currency: 'usd',
+    currency: tenant.currency || 'usd',
     unit_amount: chargeAmountCents,
     product_data: {
       name: `${job.service_type || 'Cleaning'} - Payment Retry`,

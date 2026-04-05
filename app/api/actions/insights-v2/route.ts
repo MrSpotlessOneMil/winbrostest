@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
   const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
     // Monthly completed jobs (use completed_at with upper bound, fall back to date for NULL completed_at)
     supabase.from('jobs')
-      .select('id, price, frequency, customer_id, completed_at, date')
+      .select('id, price, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
       .or(`and(completed_at.gte.${monthStart}T00:00:00Z,completed_at.lte.${monthEnd}T23:59:59Z),and(completed_at.is.null,date.gte.${monthStart},date.lte.${monthEnd})`)
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     // Annual completed jobs
     supabase.from('jobs')
-      .select('id, price, frequency, customer_id, completed_at, date')
+      .select('id, price, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
       .or(`and(completed_at.gte.${yearStart}T00:00:00Z),and(completed_at.is.null,date.gte.${yearStart})`)
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     // Chart jobs: daily data points for revenue graph
     supabase.from('jobs')
-      .select('id, price, completed_at, service_type, phone_number, frequency, address')
+      .select('id, price, completed_at, service_type, phone_number, address')
       .eq('tenant_id', tenant.id)
       .eq('status', 'completed')
       .gte('completed_at', `${chartStart}T00:00:00Z`)
@@ -87,23 +87,51 @@ export async function GET(request: NextRequest) {
 
   const monthJobs = monthJobsRes.data || []
   const yearJobs = yearJobsRes.data || []
-  const recurringJobs = recurringJobsRes.data || []
   const expenses = expensesRes.data || []
   const leads = leadsRes.data || []
   const chartJobs = chartJobsRes.data || []
   const retargetingCustomers = retargetingRes.data || []
 
+  // Fetch recurring jobs separately — frequency column may not exist yet
+  const recurringJobsRes2 = await supabase.from('jobs')
+    .select('id, price, frequency, customer_id')
+    .eq('tenant_id', tenant.id)
+    .not('frequency', 'eq', 'one-time')
+    .not('frequency', 'is', null)
+    .in('status', ['scheduled', 'in_progress', 'completed'])
+    .not('price', 'is', null)
+  const recurringJobs = recurringJobsRes2.data || []
+
   // ── Revenue Calculations ──
   const monthlyRevenue = monthJobs.reduce((sum, j) => sum + Number(j.price), 0)
   const annualRevenue = yearJobs.reduce((sum, j) => sum + Number(j.price), 0)
 
-  const monthlyRecurring = monthJobs.filter(j => j.frequency && j.frequency !== 'one-time').reduce((sum, j) => sum + Number(j.price), 0)
+  // Detect recurring: explicit frequency OR repeat customer (2+ completed jobs this year)
+  const yearCustomerJobCounts: Record<string, number> = {}
+  for (const j of yearJobs) {
+    if (j.customer_id) {
+      yearCustomerJobCounts[j.customer_id] = (yearCustomerJobCounts[j.customer_id] || 0) + 1
+    }
+  }
+  const repeatCustomerIds = new Set(
+    Object.entries(yearCustomerJobCounts)
+      .filter(([, count]) => count >= 2)
+      .map(([id]) => id)
+  )
+
+  const isRecurring = (j: { customer_id?: string | number | null }) =>
+    j.customer_id && repeatCustomerIds.has(String(j.customer_id))
+
+  const monthlyRecurring = monthJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
   const monthlyOneTime = monthlyRevenue - monthlyRecurring
-  const annualRecurring = yearJobs.filter(j => j.frequency && j.frequency !== 'one-time').reduce((sum, j) => sum + Number(j.price), 0)
+  const annualRecurring = yearJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
   const annualOneTime = annualRevenue - annualRecurring
 
-  // Count unique recurring customers
-  const recurringCustomerIds = new Set(recurringJobs.filter(j => j.customer_id).map(j => j.customer_id))
+  // Count unique recurring customers (explicit frequency + repeat customers)
+  const recurringCustomerIds = new Set(
+    recurringJobs.filter(j => j.customer_id).map(j => String(j.customer_id))
+      .concat(Array.from(repeatCustomerIds))
+  )
   const recurringClientCount = recurringCustomerIds.size
 
   // MRR run-rate: sum each active recurring job's price normalized to monthly

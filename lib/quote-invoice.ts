@@ -29,7 +29,8 @@ interface QuoteData {
 export async function generateQuoteInvoice(
   jobId: number,
   quote: QuoteData,
-  tenant: { id: string; slug: string; name: string; business_name?: string | null; stripe_secret_key?: string | null }
+  tenant: { id: string; slug: string; name: string; business_name?: string | null; stripe_secret_key?: string | null; currency?: string | null },
+  currency = 'usd'
 ): Promise<{ success: boolean; invoiceId?: string; error?: string }> {
   const serviceClient = getSupabaseServiceClient()
 
@@ -106,12 +107,14 @@ export async function generateQuoteInvoice(
       },
     })
 
+    const resolvedCurrency = tenant.currency || currency || 'usd'
+
     // Main line item: tier name + business name + address
     await stripe.invoiceItems.create({
       customer: stripeCustomer.id,
       invoice: invoice.id,
       amount: Math.round(tierAmount * 100),
-      currency: 'usd',
+      currency: resolvedCurrency,
       description: `${tierName} — ${businessName}${quote.customer_address ? ` — ${quote.customer_address}` : ''}`,
     })
 
@@ -124,7 +127,7 @@ export async function generateQuoteInvoice(
           customer: stripeCustomer.id,
           invoice: invoice.id,
           amount: Math.round(addonDef.price * 100),
-          currency: 'usd',
+          currency: resolvedCurrency,
           description: addonDef.name,
         })
       }
@@ -137,7 +140,7 @@ export async function generateQuoteInvoice(
         customer: stripeCustomer.id,
         invoice: invoice.id,
         amount: -Math.round(discount * 100),
-        currency: 'usd',
+        currency: resolvedCurrency,
         description: 'Discount applied',
       })
     }
