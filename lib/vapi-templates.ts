@@ -20,7 +20,7 @@ const TEMPLATE_FLOW_MAP: Record<FlowType, TemplateSet> = {
     inbound: "house-cleaning-inbound", // V2: natural greeting, gives pricing, fewer questions
   },
   cedar: {
-    inbound: "winbros-inbound",
+    inbound: "house-cleaning-inbound",
   },
 }
 

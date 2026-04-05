@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { toE164 } from '@/lib/phone-utils'
-import { getTenantBySlug } from '@/lib/tenant'
+import { getTenantBySlug, formatTenantCurrency } from '@/lib/tenant'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { PRICING_TABLE } from '@/lib/pricing-config'
 
 // route-check:no-vercel-cron
 
@@ -250,17 +249,17 @@ export async function POST(request: NextRequest) {
       ? `Hey ${customerName}, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
       : `Hey, thanks for booking with ${businessName}! If you have any questions, just reply to this number and we'll get back to you quickly.`
   } else {
+    const priceAmount = finalPrice ? parseFloat(finalPrice) : null
+    const priceDisplay = priceAmount ? formatTenantCurrency(tenant, priceAmount) : null
+
     let quoteLink: string | null = null
     if (bedrooms !== null && bathrooms !== null) {
-      const priceNum = finalPrice ? parseFloat(finalPrice) : null
       quoteLink = await createQuoteAndGetLink(
         tenant.id, normalizedPhone, bedrooms, bathrooms,
-        customerName || null, serviceCategory, priceNum, domain,
+        customerName || null, serviceCategory, priceAmount, domain,
         preferredDate, preferredTime,
       )
     }
-
-    const priceDisplay = finalPrice ? `$${finalPrice.replace('$', '')}` : null
     const sizeInfo = bedrooms !== null && bathrooms !== null ? `${bedrooms} bed / ${bathrooms} bath` : ''
     const namePrefix = customerName ? `Hi ${customerName}! ` : 'Hi! '
 
@@ -311,5 +310,7 @@ export async function POST(request: NextRequest) {
     return vapiResult(`Error: SMS failed - ${smsResult.error || 'unknown error'}`)
   }
 
-  return vapiResult(`SMS sent successfully. Message: ${smsMessage}`)
+  // Return the actual price so the AI can quote it accurately on the call
+  const priceInfo = finalPrice ? ` The exact price is ${formatTenantCurrency(tenant, parseFloat(finalPrice))}.` : ''
+  return vapiResult(`SMS sent successfully.${priceInfo} Message: ${smsMessage}`)
 }
