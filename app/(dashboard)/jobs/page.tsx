@@ -426,7 +426,7 @@ export default function JobsPage() {
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
-  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; sent: boolean } | null>(null)
+  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; quoteId?: string; sent: boolean; sending?: boolean } | null>(null)
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
@@ -1613,7 +1613,7 @@ export default function JobsPage() {
             service_category: (createForm.service_type || "").toLowerCase().includes("move") ? "move_in_out" : "standard",
             notes: createForm.notes.trim() || undefined,
             custom_base_price: undefined,
-            send_sms: true,
+            send_sms: false,
           }),
         })
 
@@ -1626,7 +1626,8 @@ export default function JobsPage() {
         setQuoteSuccess({
           url: data.quote_url || `/quote/${data.quote?.token}`,
           token: data.quote?.token,
-          sent: true,
+          quoteId: data.quote?.id,
+          sent: false,
         })
         return
       }
@@ -2746,10 +2747,13 @@ export default function JobsPage() {
           {quoteSuccess ? (
             <div className="cal-modal-body" style={{ textAlign: "center", padding: "2rem 1.5rem" }}>
               <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>&#10003;</div>
-              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.5rem" }}>Quote Sent!</h3>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                {quoteSuccess.sent ? "Quote Sent!" : "Quote Created"}
+              </h3>
               <p style={{ color: "#a1a1aa", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
-                {createForm.customer_name || "Customer"} will receive an SMS with their quote link.
-                They can pick Good / Better / Best, add extras, and pay online.
+                {quoteSuccess.sent
+                  ? `${createForm.customer_name || "Customer"} will receive an SMS with their quote link. They can pick their package, add extras, and pay online.`
+                  : "Review the quote or text it to the customer when ready."}
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "center" }}>
                 <a
@@ -2767,8 +2771,46 @@ export default function JobsPage() {
                     fontWeight: 500,
                   }}
                 >
-                  View Quote Page
+                  View Quote
                 </a>
+                <button
+                  className="cal-modal-btn"
+                  disabled={quoteSuccess.sent || quoteSuccess.sending}
+                  onClick={async () => {
+                    if (!quoteSuccess.quoteId) return
+                    setQuoteSuccess(prev => prev ? { ...prev, sending: true } : prev)
+                    try {
+                      const res = await fetch("/api/actions/quotes/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ quote_id: quoteSuccess.quoteId }),
+                      })
+                      const data = await res.json()
+                      if (data.success) {
+                        setQuoteSuccess(prev => prev ? { ...prev, sent: true, sending: false } : prev)
+                      } else {
+                        alert(data.error || "Failed to send SMS")
+                        setQuoteSuccess(prev => prev ? { ...prev, sending: false } : prev)
+                      }
+                    } catch {
+                      alert("Failed to send SMS")
+                      setQuoteSuccess(prev => prev ? { ...prev, sending: false } : prev)
+                    }
+                  }}
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                    padding: "0.5rem 1.25rem",
+                    background: quoteSuccess.sent ? "#22c55e" : "#8b5cf6",
+                    color: "#fff",
+                    borderRadius: "0.375rem",
+                    border: "none",
+                    cursor: quoteSuccess.sent ? "default" : "pointer",
+                    opacity: quoteSuccess.sending ? 0.7 : 1,
+                  }}
+                >
+                  {quoteSuccess.sending ? "Sending..." : quoteSuccess.sent ? "Sent!" : "Text to Customer"}
+                </button>
                 <button
                   className="cal-modal-btn"
                   onClick={() => {
@@ -3573,7 +3615,7 @@ export default function JobsPage() {
               onClick={handleCreateSave}
               disabled={createSaving}
             >
-              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Send Quote" : "Create Job"}
+              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Create Quote" : "Create Job"}
             </button>
           </div>
           </>)}
