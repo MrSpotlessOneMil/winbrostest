@@ -70,7 +70,7 @@ async function maybeCancelFee(
     job_id: String(jobId),
     payment_type: "CANCELLATION_FEE",
     phone_number: phoneNumber || "",
-  })
+  }, tenant.currency || 'usd')
 
   const feeAmount = (feeCents / 100).toFixed(2)
   if (result.success) {

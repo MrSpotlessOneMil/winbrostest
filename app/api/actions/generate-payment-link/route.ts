@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
         if (!customer.email) {
           return NextResponse.json({ error: 'Customer email required for invoice' }, { status: 400 })
         }
-        result = await createAndSendInvoice(job, customer as Customer, stripeKey)
+        result = await createAndSendInvoice(job, customer as Customer, stripeKey, undefined, authTenant.currency || 'usd')
         break
       }
 

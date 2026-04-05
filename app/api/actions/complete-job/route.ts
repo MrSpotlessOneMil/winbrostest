@@ -471,7 +471,7 @@ export async function executeCompleteJob(jobId: string): Promise<{
       job_id: jobId,
       phone_number: job.phone_number,
       payment_type: 'AUTO_CHARGE',
-    })
+    }, tenant?.currency || 'usd')
 
     if (autoChargeResult.success) {
       // Auto-charge succeeded — mark job as completed + fully paid

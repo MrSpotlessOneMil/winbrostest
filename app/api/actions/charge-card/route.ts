@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
       customer_id,
       description: chargeDescription,
       ...(job_id ? { job_id } : {}),
-    })
+    }, authTenant.currency || 'usd')
 
     if (!result.success) {
       return NextResponse.json({ error: result.error || 'Charge failed' }, { status: 400 })

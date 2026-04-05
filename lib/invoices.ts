@@ -43,7 +43,7 @@ export async function createInvoice(
   if (wc?.use_stripe && !wc?.use_wave && tenant?.stripe_secret_key) {
     try {
       const { createAndSendInvoice } = await import('./stripe-client')
-      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key, membershipInfo)
+      const result = await createAndSendInvoice(job, customer, tenant.stripe_secret_key, membershipInfo, tenant.currency || 'usd')
       return {
         success: result.success,
         provider: 'stripe',

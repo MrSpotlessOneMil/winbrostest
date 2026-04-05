@@ -330,7 +330,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             tenant.stripe_secret_key,
             stripeCustomerId,
             chargeCents,
-            { job_id: jobId, phone_number: customerPhone || '', payment_type: 'AUTO_CHARGE_ON_DONE' }
+            { job_id: jobId, phone_number: customerPhone || '', payment_type: 'AUTO_CHARGE_ON_DONE' },
+            tenant.currency || 'usd'
           )
 
           if (chargeResult.success) {

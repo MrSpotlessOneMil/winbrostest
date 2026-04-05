@@ -94,7 +94,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       job_id: String(job.id),
       tenant_id: cleaner.tenant_id,
       charged_by: cleaner.name || 'crew_portal',
-    }
+    },
+    tenant.currency || 'usd'
   )
 
   if (!result.success) {

@@ -2405,7 +2405,7 @@ async function executeTool(
       }
       if (toolInput.job_id) metadata.job_id = String(toolInput.job_id)
 
-      const result = await chargeCardOnFile(stripeKey, customer.stripe_customer_id, amountCents, metadata)
+      const result = await chargeCardOnFile(stripeKey, customer.stripe_customer_id, amountCents, metadata, tenant?.currency || 'usd')
       if (!result.success) return `Charge failed: ${result.error}`
 
       // Mark job as paid if job_id provided
