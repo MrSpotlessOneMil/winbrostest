@@ -48,7 +48,7 @@ export async function GET(
   // Fetch tenant info for branding + service type
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("id, slug, name, business_name, business_name_short, owner_phone, owner_email, google_review_link, workflow_config")
+    .select("id, slug, name, business_name, business_name_short, owner_phone, owner_email, google_review_link, workflow_config, currency")
     .eq("id", quote.tenant_id)
     .single()
 
@@ -122,6 +122,7 @@ export async function GET(
       brand_color: wc.brand_color || null,
       brand_color_light: wc.brand_color_light || null,
       logo_url: wc.logo_url || null,
+      currency: tenant.currency || 'usd',
     },
   })
 }
