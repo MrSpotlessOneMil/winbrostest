@@ -79,9 +79,11 @@ const CLEANING_TIERS: TierDefinition[] = [
       'light_fixtures',
       'window_sills',
       'inside_microwave',
+      'inside_fridge',
+      'inside_oven',
     ],
     description:
-      'Everything in Standard plus baseboards, ceiling fans, light fixtures, window sills, and inside microwave. A top-to-bottom refresh.',
+      'Everything in Standard plus baseboards, ceiling fans, light fixtures, window sills, inside microwave, inside fridge, and inside oven. A top-to-bottom refresh.',
   },
   {
     key: 'extra_deep',
@@ -378,8 +380,9 @@ function buildStandardPricing(
   const stdPriceValue = standardPrice?.price ?? formulaPrice('standard', bedrooms, bathrooms)
   const deepPriceValue = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
 
-  // Extra deep = deep price + sum of premium addon prices
-  const premiumAddonKeys = ['inside_fridge', 'inside_oven', 'inside_cabinets', 'range_hood', 'blinds', 'wall_cleaning']
+  // Extra deep = deep price + premium addons NOT already included in deep
+  // Fridge/oven are included in deep, so only add cabinets, range hood, blinds, wall cleaning
+  const premiumAddonKeys = ['inside_cabinets', 'range_hood', 'blinds', 'wall_cleaning']
   const premiumAddons = pricingAddons.filter(a => premiumAddonKeys.includes(a.addon_key))
   const premiumAddonTotal = premiumAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
   const extraDeepPrice = deepPriceValue + premiumAddonTotal
