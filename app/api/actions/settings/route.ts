@@ -73,6 +73,13 @@ export async function GET(request: NextRequest) {
     assignment_mode: wc.assignment_mode ?? (wc.use_broadcast_assignment ? 'broadcast' : 'distance'),
     service_description: authTenant.service_description || null,
     tenant_name: authTenant.name,
+    currency: authTenant.currency || 'usd',
+    cleaner_pay: {
+      model: wc.cleaner_pay_model ?? (wc.cleaner_pay_percentage ? 'percentage' : 'hourly'),
+      percentage: wc.cleaner_pay_percentage ?? null,
+      hourly_standard: wc.cleaner_pay_hourly_standard ?? null,
+      hourly_deep: wc.cleaner_pay_hourly_deep ?? null,
+    },
     window_tiers: wc.window_tiers ?? null,
     flat_services: wc.flat_services ?? null,
     job_service_types: wc.job_service_types ?? null,
@@ -126,6 +133,23 @@ export async function POST(request: NextRequest) {
       )
     }
     workflowUpdates.assignment_mode = mode
+  }
+
+  // ── Cleaner pay (workflow_config fields) ──
+  if ('cleaner_pay' in body && typeof body.cleaner_pay === 'object' && body.cleaner_pay) {
+    const cp = body.cleaner_pay as Record<string, unknown>
+    if (cp.model === 'percentage' || cp.model === 'hourly') {
+      workflowUpdates.cleaner_pay_model = cp.model
+    }
+    if (typeof cp.percentage === 'number') {
+      workflowUpdates.cleaner_pay_percentage = Math.max(0, Math.min(100, cp.percentage))
+    }
+    if (typeof cp.hourly_standard === 'number') {
+      workflowUpdates.cleaner_pay_hourly_standard = Math.max(0, cp.hourly_standard)
+    }
+    if (typeof cp.hourly_deep === 'number') {
+      workflowUpdates.cleaner_pay_hourly_deep = Math.max(0, cp.hourly_deep)
+    }
   }
 
   // ── Tenant column updates (business info) ──

@@ -90,10 +90,17 @@ export function ServiceEditor() {
   const [tiers, setTiers] = useState<Record<string, PricingTierRow[]>>({})
   const [addons, setAddons] = useState<AddonRow[]>([])
 
-  // New type input — only 'standard' and 'deep' are allowed by DB constraint
-  const ALLOWED_SERVICE_TYPES = ["standard", "deep"]
+  // New type input
+  const ALLOWED_SERVICE_TYPES = ["standard", "deep", "move"]
   const [newTypeName, setNewTypeName] = useState("")
   const [showNewType, setShowNewType] = useState(false)
+
+  // Cleaner pay state
+  const [cleanerPayModel, setCleanerPayModel] = useState<'percentage' | 'hourly'>('hourly')
+  const [cleanerPayPct, setCleanerPayPct] = useState<number>(35)
+  const [cleanerPayStd, setCleanerPayStd] = useState<number>(25)
+  const [cleanerPayDeep, setCleanerPayDeep] = useState<number>(25)
+  const [currencySymbol, setCurrencySymbol] = useState('$')
 
   // ── Load data ──────────────────────────────────────────────────────
 
@@ -191,6 +198,16 @@ export function ServiceEditor() {
           active: a.active ?? true,
         }))
         setAddons(addonsData)
+
+        // Load cleaner pay config
+        const cp = settingsData.cleaner_pay
+        if (cp) {
+          setCleanerPayModel(cp.model || 'hourly')
+          if (cp.percentage != null) setCleanerPayPct(cp.percentage)
+          if (cp.hourly_standard != null) setCleanerPayStd(cp.hourly_standard)
+          if (cp.hourly_deep != null) setCleanerPayDeep(cp.hourly_deep)
+        }
+        setCurrencySymbol(settingsData.currency === 'cad' ? 'C$' : '$')
       }
     } catch {
       setError("Failed to load pricing data")
@@ -298,6 +315,25 @@ export function ServiceEditor() {
         const result = await pricingRes.json()
         if (!result.success) {
           setError(result.error || "Failed to save pricing")
+          return
+        }
+
+        // Save cleaner pay config via settings API
+        const cpRes = await fetch("/api/actions/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            cleaner_pay: {
+              model: cleanerPayModel,
+              percentage: cleanerPayPct,
+              hourly_standard: cleanerPayStd,
+              hourly_deep: cleanerPayDeep,
+            },
+          }),
+        })
+        const cpResult = await cpRes.json()
+        if (!cpResult.success) {
+          setError(cpResult.error || "Failed to save cleaner pay")
           return
         }
       }
@@ -1164,8 +1200,7 @@ export function ServiceEditor() {
                             <tr className="border-b border-white/[0.06]">
                               <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Beds</th>
                               <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Baths</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Max Sqft</th>
-                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price $</th>
+                              <th className="px-3 py-2.5 text-left text-xs font-medium text-zinc-400">Price {currencySymbol}</th>
                               <th className="px-3 py-2.5 w-10" />
                             </tr>
                           </thead>
@@ -1209,21 +1244,6 @@ export function ServiceEditor() {
                                       setTiers(updated)
                                     }}
                                     className="w-16 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
-                                  />
-                                </td>
-                                <td className="px-3 py-2">
-                                  <input
-                                    type="number"
-                                    onFocus={selectOnFocus}
-                                    min={1}
-                                    value={row.max_sq_ft}
-                                    onChange={(e) => {
-                                      const updated = { ...tiers }
-                                      updated[selectedType] = [...(updated[selectedType] || [])]
-                                      updated[selectedType][i] = { ...row, max_sq_ft: Math.max(1, Number(e.target.value) || 1) }
-                                      setTiers(updated)
-                                    }}
-                                    className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
                                   />
                                 </td>
                                 <td className="px-3 py-2">
@@ -1402,6 +1422,96 @@ export function ServiceEditor() {
               </div>
             </div>
           </>
+        )}
+
+        {/* ── Cleaner Pay (house cleaning only) ── */}
+        {!isWindowCleaning && (
+          <div className="space-y-3">
+            <button
+              onClick={() => toggleSection("cleanerPay")}
+              className="flex items-center gap-2.5 w-full text-left group"
+            >
+              <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+              </div>
+              <span className="text-sm font-semibold text-zinc-200 group-hover:text-white transition-colors">
+                Cleaner Pay
+              </span>
+              <ChevronUp className={cn("w-4 h-4 text-zinc-500 ml-auto transition-transform", !openSections.cleanerPay && "rotate-180")} />
+            </button>
+
+            {openSections.cleanerPay && (
+              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-4">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs font-medium text-zinc-400 w-24">Pay Model</label>
+                  <select
+                    value={cleanerPayModel}
+                    onChange={(e) => setCleanerPayModel(e.target.value as 'percentage' | 'hourly')}
+                    className="px-3 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50"
+                  >
+                    <option value="percentage">% of Job Price</option>
+                    <option value="hourly">Hourly Rate</option>
+                  </select>
+                </div>
+
+                {cleanerPayModel === 'percentage' ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-medium text-zinc-400 w-24">Cleaner gets</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0} max={100}
+                          value={cleanerPayPct}
+                          onFocus={selectOnFocus}
+                          onChange={(e) => setCleanerPayPct(Number(e.target.value) || 0)}
+                          className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50 text-right"
+                        />
+                        <span className="text-xs text-zinc-500">%</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-500 pl-[108px]">
+                      Ex: {currencySymbol}300 job = {currencySymbol}{Math.round(300 * cleanerPayPct / 100)} to cleaner ({cleanerPayPct}%)
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-medium text-zinc-400 w-24">Standard</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          value={cleanerPayStd}
+                          onFocus={selectOnFocus}
+                          onChange={(e) => setCleanerPayStd(Number(e.target.value) || 0)}
+                          className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50 text-right"
+                        />
+                        <span className="text-xs text-zinc-500">{currencySymbol}/hr</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-medium text-zinc-400 w-24">Deep / Move</label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          value={cleanerPayDeep}
+                          onFocus={selectOnFocus}
+                          onChange={(e) => setCleanerPayDeep(Number(e.target.value) || 0)}
+                          className="w-20 px-2 py-1.5 text-sm bg-zinc-800/80 border border-zinc-700/50 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500/50 text-right"
+                        />
+                        <span className="text-xs text-zinc-500">{currencySymbol}/hr</span>
+                      </div>
+                    </div>
+                    <p className="text-xs text-zinc-500 pl-[108px]">
+                      Ex: 3hr standard = {currencySymbol}{cleanerPayStd * 3} to cleaner ({currencySymbol}{cleanerPayStd}/hr)
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── Error ── */}
