@@ -429,14 +429,13 @@ function buildMoveInOutPricing(
   bathrooms: number,
   bedbathLabel: string,
 ): QuotePricingResult {
-  // Base price from deep cleaning tier (move cleans start at deep clean level)
+  // Base price from move tier (explicit move-in/out prices in pricing_tiers)
+  // Falls back to deep * 1.15 if no move rows exist yet
+  const moveRow = findPricingRow(pricingTiers, 'move', bedrooms, bathrooms)
   const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
   const baseDeepPrice = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
-
-  // Move Good = deep price + base move surcharge items
-  // (closet interiors, light switches, door knobs, cobwebs, wall spot cleaning are labor — included in price markup)
-  const moveGoodMarkup = 0.15 // 15% over deep for standard move tasks
-  const moveGoodPrice = Math.round(baseDeepPrice * (1 + moveGoodMarkup))
+  // Use explicit move row if available, otherwise derive from deep + 15% markup
+  const moveGoodPrice = moveRow?.price || Math.round(baseDeepPrice * 1.15)
 
   // Move Better = move good + appliance interiors + behind/under appliances + grout
   const deepAddonKeys = ['inside_oven', 'inside_fridge', 'inside_dishwasher', 'inside_cabinets', 'range_hood']

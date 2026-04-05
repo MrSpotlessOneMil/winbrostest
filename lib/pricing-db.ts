@@ -131,9 +131,8 @@ export async function getPricingRow(
   squareFootage?: number | null,
   tenantId?: string
 ): Promise<PricingRow | null> {
-  const pricingTier = serviceType === 'move' ? 'deep' : serviceType
   const tiers = await getPricingTiers(tenantId)
-  const rows = tiers[pricingTier] || []
+  const rows = tiers[serviceType] || []
 
   // Filter by bedrooms and bathrooms
   const matching = rows.filter(

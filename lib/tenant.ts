@@ -125,6 +125,7 @@ export interface Tenant {
   sdr_persona: string
   service_description: string | null // e.g., "window cleaning", "house cleaning", "carpet cleaning"
   timezone: string // IANA timezone, e.g. "America/Chicago"
+  currency: string // ISO currency code, e.g. "usd", "cad"
 
   // API Keys
   openphone_api_key: string | null
@@ -482,6 +483,20 @@ export function getTenantSdrName(tenant: Tenant): string {
  * Get the service type/description for this tenant
  * Used in AI prompts and templates to customize messaging
  */
+export function getTenantCurrency(tenant: Tenant): string {
+  return tenant.currency || 'usd'
+}
+
+export function getTenantLocale(tenant: Tenant): string {
+  return tenant.currency === 'cad' ? 'en-CA' : 'en-US'
+}
+
+export function formatTenantCurrency(tenant: Tenant, amount: number): string {
+  const currency = getTenantCurrency(tenant)
+  const locale = getTenantLocale(tenant)
+  return new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+}
+
 export function getTenantServiceDescription(tenant: Tenant): string {
   // Use explicit service_description if set
   if (tenant.service_description) {
