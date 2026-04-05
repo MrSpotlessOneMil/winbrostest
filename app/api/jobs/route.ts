@@ -455,6 +455,10 @@ export async function POST(request: NextRequest) {
 
     const client = await getTenantScopedClient(tenant.id)
 
+    if (!body.lead_source || !String(body.lead_source).trim()) {
+      return NextResponse.json({ success: false, error: "Lead source is required" }, { status: 400 })
+    }
+
     const rawPhone = String(body.customer_phone || body.phone || body.phone_number || "").trim()
     const phone = normalizePhoneNumber(rawPhone) || rawPhone
     const firstLast = String(body.customer_name || body.name || "Unknown").trim().split(" ")

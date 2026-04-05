@@ -1586,6 +1586,10 @@ export default function JobsPage() {
       setCreateError("Please select a window cleaning tier")
       return
     }
+    if (!createForm.lead_source.trim() || createForm.lead_source === "__custom__") {
+      setCreateError("Lead source is required")
+      return
+    }
 
     setCreateSaving(true)
     setCreateError("")
@@ -3198,7 +3202,7 @@ export default function JobsPage() {
 
                 {/* Row 5: Lead Source */}
                 <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Lead Source</label>
+                  <label className="cal-form-label">Lead Source <span style={{ color: "#ef4444" }}>*</span></label>
                   {(() => {
                     const knownSources = ["Website", "Google", "Referral", "Facebook", "Instagram", "Nextdoor", "Yelp", "Thumbtack", "Angi", "Door Hanger", "Yard Sign", "Repeat Customer"]
                     const isKnown = knownSources.includes(createForm.lead_source) || createForm.lead_source === ""
