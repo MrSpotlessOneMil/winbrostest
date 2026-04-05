@@ -2736,7 +2736,7 @@ export default function JobsPage() {
       >
         <div className="cal-modal" style={{ maxWidth: 900, maxHeight: "calc(100vh - 2rem)" }}>
           <div className="cal-modal-header">
-            <h5>{createForm.is_quote ? "Send Quote" : "Create Job"}</h5>
+            <h5>{createForm.is_quote ? "Create Quote" : "Create Job"}</h5>
             <button
               className="cal-modal-close"
               onClick={() => { setCreateOpen(false); setQuoteSuccess(null) }}
