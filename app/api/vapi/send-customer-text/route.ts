@@ -203,7 +203,8 @@ export async function POST(request: NextRequest) {
     return vapiResult('Error: Could not determine tenant')
   }
 
-  const tenant = await getTenantBySlug(tenantSlug)
+  // Pass activeOnly=false so inactive tenants (e.g. Cedar Rapids) can still use VAPI
+  const tenant = await getTenantBySlug(tenantSlug, false)
   if (!tenant) {
     return vapiResult(`Error: Tenant not found: ${tenantSlug}`)
   }
