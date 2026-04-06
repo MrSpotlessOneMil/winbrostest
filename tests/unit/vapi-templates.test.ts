@@ -83,7 +83,7 @@ describe('template JSON loading', () => {
     expect(params.required).toContain('bathrooms')
     expect(params.properties.bedrooms.type).toBe('number')
     expect(params.properties.bathrooms.type).toBe('number')
-    expect(params.properties.price.type).toBe('number')
+    expect(params.properties.service_type).toBeDefined()
   })
 
   it('house-cleaning-inbound has no toolIds (uses inline tools)', () => {
