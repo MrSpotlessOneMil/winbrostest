@@ -22,7 +22,7 @@
         "type": "function",
         "async": false,
         "server": {
-          "url": "https://placeholder.vercel.app/api/vapi/send-customer-text"
+          "url": "https://cleanmachine.live/api/vapi/send-customer-text"
         },
         "function": {
           "name": "send-customer-text",
