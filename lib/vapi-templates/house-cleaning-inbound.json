@@ -78,7 +78,7 @@
       }
     ]
   },
-  "firstMessage": "Hey! This is {{SDR_PERSONA}} with {{BUSINESS_NAME}}. {{OWNER_FIRST_NAME}} is on a job right now — I'm his booking assistant. I can get you set up in under 2 minutes! How can I help?",
+  "firstMessage": "Hey! Thanks for calling {{BUSINESS_NAME}}. {{OWNER_FIRST_NAME}}'s on a job but he wanted me to make sure you're taken care of — I'm {{SDR_PERSONA}}. How can I help?",
   "voicemailMessage": "Hey, this is {{SDR_PERSONA}} from {{BUSINESS_NAME}}! Give us a call back when you get a chance and we'll get you a quote. Talk soon!",
   "endCallFunctionEnabled": true,
   "endCallMessage": "Thanks for calling {{BUSINESS_NAME}}!",
