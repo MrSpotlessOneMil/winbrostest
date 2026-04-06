@@ -149,6 +149,7 @@ export async function PATCH(
     selected_addons,
     customer_name,
     customer_email,
+    customer_address,
     membership_plan,
     service_agreement_accepted,
     service_date,
@@ -322,6 +323,7 @@ export async function PATCH(
   }
   if (customer_name) updatePayload.customer_name = customer_name
   if (customer_email) updatePayload.customer_email = customer_email
+  if (customer_address && typeof customer_address === 'string') updatePayload.customer_address = customer_address
   if (service_date && typeof service_date === 'string') updatePayload.service_date = service_date
   if (service_time && typeof service_time === 'string') updatePayload.service_time = service_time
   if (customer_notes && typeof customer_notes === 'string') updatePayload.notes = customer_notes.slice(0, 500)

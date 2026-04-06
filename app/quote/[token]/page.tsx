@@ -167,6 +167,7 @@ export default function QuotePage() {
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
+  const [customerAddress, setCustomerAddress] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
   const [serviceTime, setServiceTime] = useState("")
@@ -236,6 +237,7 @@ export default function QuotePage() {
 
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
+        if (json.quote.customer_address) setCustomerAddress(json.quote.customer_address)
         if (json.quote.service_date) setServiceDate(json.quote.service_date)
         if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
@@ -366,6 +368,7 @@ export default function QuotePage() {
           membership_plan: selectedPlan?.slug || null,
           customer_name: customerName || undefined,
           customer_email: customerEmail || undefined,
+          customer_address: customerAddress || undefined,
           service_date: serviceDate || undefined,
           service_time: serviceTime || undefined,
           customer_notes: customerNotes || undefined,
@@ -850,6 +853,24 @@ export default function QuotePage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Service Address ─────────────────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <MapPin className="size-5 text-blue-500" />
+              Service Address
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
+            <input
+              type="text"
+              value={customerAddress}
+              onChange={(e) => setCustomerAddress(e.target.value)}
+              placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
+              className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
+            />
           </div>
         )}
 
