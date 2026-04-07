@@ -64,7 +64,8 @@ function toNumber(val: unknown): number | null {
  *  DB constraint only allows 'standard' | 'move_in_out'.
  *  Deep clean is a tier within standard, not a separate category. */
 function toServiceCategory(serviceType: string): string {
-  if (serviceType === 'move' || serviceType === 'move_in_out') return 'move_in_out'
+  const lower = serviceType.toLowerCase().replace(/[-_\s]/g, '')
+  if (lower.includes('move')) return 'move_in_out'
   return 'standard'
 }
 
@@ -72,7 +73,8 @@ function toServiceCategory(serviceType: string): string {
  *  pre-selects the correct package (instead of defaulting to cheapest). */
 function toSelectedTier(serviceType: string): string {
   if (serviceType === 'deep') return 'deep'
-  if (serviceType === 'move' || serviceType === 'move_in_out') return 'move_good'
+  const lower = serviceType.toLowerCase().replace(/[-_\s]/g, '')
+  if (lower.includes('move')) return 'move_good'
   return 'standard'
 }
 

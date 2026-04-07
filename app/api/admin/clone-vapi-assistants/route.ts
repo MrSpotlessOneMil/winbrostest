@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 })
   }
-  const { vapi_api_key, flow_type, slug, business_name, service_area, service_type, sdr_persona } = body
+  const { vapi_api_key, flow_type, slug, business_name, service_area, service_type, sdr_persona, owner_first_name, owner_phone } = body
 
   if (!vapi_api_key) {
     return NextResponse.json({ success: false, error: "VAPI API key is required" }, { status: 400 })
@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
       serviceArea: service_area || "",
       serviceType: service_type || "cleaning",
       sdrPersona: sdr_persona || "Mary",
+      ownerFirstName: owner_first_name || "",
+      ownerPhone: owner_phone || "",
       webhookUrl,
       baseUrl,
     })

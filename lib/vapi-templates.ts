@@ -36,6 +36,8 @@ const PLACEHOLDERS = {
   SERVICE_AREA: "{{SERVICE_AREA}}",
   SERVICE_TYPE: "{{SERVICE_TYPE}}",
   SDR_PERSONA: "{{SDR_PERSONA}}",
+  OWNER_FIRST_NAME: "{{OWNER_FIRST_NAME}}",
+  OWNER_PHONE: "{{OWNER_PHONE}}",
 } as const
 
 // ---------------------------------------------------------------------------
@@ -48,8 +50,10 @@ export interface CloneOptions {
   serviceArea: string
   serviceType: string
   sdrPersona: string
-  webhookUrl: string  // e.g. https://example.com/api/webhooks/vapi/my-slug
-  baseUrl: string     // e.g. https://example.com
+  ownerFirstName: string
+  ownerPhone: string   // E.164 format, e.g. +14246771146
+  webhookUrl: string   // e.g. https://example.com/api/webhooks/vapi/my-slug
+  baseUrl: string      // e.g. https://example.com
 }
 
 export interface CloneResult {
@@ -155,6 +159,8 @@ function replaceInPrompt(config: Record<string, any>, opts: CloneOptions): void 
     [PLACEHOLDERS.SERVICE_AREA]: opts.serviceArea,
     [PLACEHOLDERS.SERVICE_TYPE]: opts.serviceType,
     [PLACEHOLDERS.SDR_PERSONA]: opts.sdrPersona,
+    [PLACEHOLDERS.OWNER_FIRST_NAME]: opts.ownerFirstName,
+    [PLACEHOLDERS.OWNER_PHONE]: opts.ownerPhone,
   }
 
   const doReplace = (text: string): string => {
@@ -189,6 +195,17 @@ function replaceInPrompt(config: Record<string, any>, opts: CloneOptions): void 
   }
   if (typeof config.voicemailMessage === "string") {
     config.voicemailMessage = doReplace(config.voicemailMessage)
+  }
+
+  // transferPlan destinations (phone numbers + messages)
+  if (config.transferPlan?.destinations && Array.isArray(config.transferPlan.destinations)) {
+    for (const dest of config.transferPlan.destinations) {
+      if (typeof dest.number === "string") dest.number = doReplace(dest.number)
+      if (typeof dest.message === "string") dest.message = doReplace(dest.message)
+    }
+    if (typeof config.transferPlan.message === "string") {
+      config.transferPlan.message = doReplace(config.transferPlan.message)
+    }
   }
 }
 
