@@ -1893,8 +1893,8 @@ export default function JobsPage() {
   const renderPaymentMenu = (showCardOnFile: boolean, direction: "down" | "up" = "down") => (
     <>
       {/* Backdrop for mobile */}
-      <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={pmReset} />
-      <div className={`fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:w-72 md:mx-0 ${direction === "up" ? "md:bottom-9" : "md:top-9"}`}>
+      <div className="fixed inset-0 bg-black/40" style={{ zIndex: 60 }} onClick={pmReset} />
+      <div className={`fixed inset-x-4 top-1/4 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:w-72 md:mx-0 ${direction === "up" ? "md:bottom-9" : "md:top-9"}`} style={{ zIndex: 70, isolation: "isolate" }}>
         {pmError && (
           <div className="p-3 border-b border-zinc-700/50">
             <p className="text-xs text-red-400">{pmError}</p>
