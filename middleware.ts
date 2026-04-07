@@ -38,6 +38,7 @@ const externalRoutes = [
   '/api/vapi/',
   '/api/automation/',
   '/api/marketing/',
+  '/api/admin/patch-vapi-transfer',
 ]
 
 function isPublicRoute(pathname: string): boolean {
