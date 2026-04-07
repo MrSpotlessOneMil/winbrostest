@@ -131,25 +131,27 @@ export async function sendSMS(
     console.error(`[${tenant.slug}] SMS dedup check failed:`, dedupErr)
   }
 
-  // ── Per-recipient daily limit (skipped for cleaner operational SMS) ──
+  // ── Active conversation check (only for marketing/retargeting, not AI convos or transactional) ──
+  // AI booking conversations and transactional texts (receipts, confirmations) skip this entirely.
+  // Only marketing texts (retargeting, lead followup, nudges) check if someone is actively chatting.
   if (!options?.skipThrottle) try {
     const throttleClient = getSupabaseServiceClient()
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
 
-    const { count: dailyCount } = await throttleClient
+    // Check for ANY recent message activity (inbound or outbound) with this customer
+    const { count: recentActivity } = await throttleClient
       .from('messages')
       .select('id', { count: 'exact', head: true })
       .eq('phone_number', toE164Format)
       .eq('tenant_id', tenant.id)
-      .eq('direction', 'outbound')
-      .gte('created_at', twentyFourHoursAgo)
+      .gte('created_at', tenMinutesAgo)
 
-    if (dailyCount && dailyCount >= 3) {
-      console.warn(`[${tenant.slug}] SMS throttled for ${toE164Format}: ${dailyCount} automated messages in 24h (limit 3)`)
-      return { success: false, error: `SMS throttled: customer received ${dailyCount} automated messages in 24h` }
+    if (recentActivity && recentActivity > 0) {
+      console.log(`[${tenant.slug}] SMS held for ${toE164Format}: active conversation (${recentActivity} messages in last 10min)`)
+      return { success: false, error: 'Active conversation detected — holding automated text' }
     }
   } catch (throttleErr) {
-    console.error(`[${tenant.slug}] SMS throttle check failed:`, throttleErr)
+    console.error(`[${tenant.slug}] SMS conversation check failed:`, throttleErr)
   }
 
   try {
