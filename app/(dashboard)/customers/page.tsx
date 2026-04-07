@@ -1965,7 +1965,6 @@ export default function CustomersPage() {
                                   { key: "card_on_file", label: "Card on File", desc: "Send link to save card", icon: CreditCard },
                                   { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
                                   { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
-                                  { key: "deposit", label: "Deposit", desc: "50% + 3% fee", icon: DollarSign },
                                   { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
                                 ].map((opt) => (
                                   <button

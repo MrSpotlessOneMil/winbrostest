@@ -12,6 +12,8 @@ import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
+import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
+import { StripeCardForm } from "@/components/stripe-card-form"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -63,6 +65,8 @@ type CalendarEventDetails = {
   parentJobId: string | null
   jobType: string
   leadSource: string
+  customerPhone: string
+  customerId: string
 }
 
 type PendingMove = {
@@ -426,8 +430,22 @@ export default function JobsPage() {
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
-  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; quoteId?: string; sent: boolean; sending?: boolean } | null>(null)
+  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; quoteId?: string; sent: boolean; sending?: boolean; customerPhone?: string; customerId?: string } | null>(null)
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  // Payment menu state (shared between quote success + event detail)
+  const [pmOpen, setPmOpen] = useState(false)
+  const [pmType, setPmType] = useState<string | null>(null)
+  const [pmAmount, setPmAmount] = useState("")
+  const [pmJobId, setPmJobId] = useState("")
+  const [pmLoading, setPmLoading] = useState(false)
+  const [pmResult, setPmResult] = useState<{ url?: string; invoiceId?: string } | null>(null)
+  const [pmCopied, setPmCopied] = useState(false)
+  const [pmSmsSent, setPmSmsSent] = useState(false)
+  const [pmSmsSending, setPmSmsSending] = useState(false)
+  const [pmChargeLoading, setPmChargeLoading] = useState(false)
+  const [pmChargeResult, setPmChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
+  const [pmChargeDesc, setPmChargeDesc] = useState("")
+  const pmRef = useRef<HTMLDivElement>(null)
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
   const [servicePlans, setServicePlans] = useState<ServicePlan[]>([])
@@ -971,6 +989,8 @@ export default function JobsPage() {
           jobType: (job as any).job_type || "",
           isCommercial: !!customer?.is_commercial,
           leadSource: resolveLeadSource(job),
+          customerPhone: customer?.phone_number || job.phone_number || "",
+          customerId: customer?.id ? String(customer.id) : "",
         },
       }
     })
@@ -1020,6 +1040,8 @@ export default function JobsPage() {
       parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
       jobType: (job as any).job_type || "",
       leadSource: resolveLeadSource(job),
+      customerPhone: customer?.phone_number || job.phone_number || "",
+      customerId: customer?.id ? String(customer.id) : "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1126,6 +1148,8 @@ export default function JobsPage() {
       parentJobId: info.event.extendedProps.parentJobId || null,
       jobType: info.event.extendedProps.jobType || "",
       leadSource: info.event.extendedProps.leadSource || "",
+      customerPhone: info.event.extendedProps.customerPhone || "",
+      customerId: info.event.extendedProps.customerId || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1134,6 +1158,7 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
+    pmReset()
 
     // Load cleaners list for send-to-cleaner dropdown (view mode)
     if (cleanersList.length === 0) {
@@ -1404,6 +1429,123 @@ export default function JobsPage() {
     }
   }
 
+  // ── Payment menu helpers (used in quote success + event detail) ──
+  const pmReset = () => {
+    setPmOpen(false); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId("")
+    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false)
+  }
+
+  const pmGetCustomerId = (): string | null => {
+    if (quoteSuccess?.customerId) return quoteSuccess.customerId
+    if (selectedEvent?.customerId) return selectedEvent.customerId
+    return lookedUpCustomerId
+  }
+
+  const pmGetCustomerPhone = (): string | null => {
+    if (quoteSuccess?.customerPhone) return quoteSuccess.customerPhone
+    if (selectedEvent?.customerPhone) return selectedEvent.customerPhone
+    return null
+  }
+
+  const pmGenerateLink = async (type: string) => {
+    const customerId = pmGetCustomerId()
+    if (!customerId) { alert("No customer found"); return }
+    setPmLoading(true)
+    setPmResult(null)
+    setPmCopied(false)
+    setPmSmsSent(false)
+    try {
+      const body: Record<string, unknown> = { customerId, type }
+      if (type === "payment") {
+        body.amount = parseFloat(pmAmount)
+        body.description = "Payment"
+      }
+      if (pmJobId) body.jobId = pmJobId
+      const res = await fetch("/api/actions/generate-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setPmResult({ url: json.url, invoiceId: json.invoiceId })
+      } else {
+        alert(json.error || "Failed to generate link")
+      }
+    } catch {
+      alert("Failed to generate link")
+    } finally {
+      setPmLoading(false)
+    }
+  }
+
+  const pmCopy = () => {
+    if (pmResult?.url) {
+      navigator.clipboard.writeText(pmResult.url)
+      setPmCopied(true)
+      setTimeout(() => setPmCopied(false), 2000)
+    }
+  }
+
+  const pmSendSms = async () => {
+    const phone = pmGetCustomerPhone()
+    if (!pmResult?.url || !phone || pmSmsSending || pmSmsSent) return
+    setPmSmsSending(true)
+    try {
+      const res = await fetch("/api/actions/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phone, message: `Here's your payment link: ${pmResult.url}` }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setPmSmsSent(true)
+      } else {
+        alert(json.error || "Failed to send SMS")
+      }
+    } catch {
+      alert("Failed to send SMS")
+    } finally {
+      setPmSmsSending(false)
+    }
+  }
+
+  const pmChargeCard = async () => {
+    const customerId = pmGetCustomerId()
+    if (!customerId || pmChargeLoading) return
+    const amt = parseFloat(pmAmount)
+    if (!amt || amt <= 0) return
+    setPmChargeLoading(true)
+    setPmChargeResult(null)
+    try {
+      const res = await fetch("/api/actions/charge-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: customerId, amount: amt, description: pmChargeDesc || undefined }),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setPmChargeResult({ success: true, amount: json.amount })
+      } else {
+        setPmChargeResult({ success: false, error: json.error || "Charge failed" })
+      }
+    } catch {
+      setPmChargeResult({ success: false, error: "Failed to charge card" })
+    } finally {
+      setPmChargeLoading(false)
+    }
+  }
+
+  // Close payment popover on outside click
+  useEffect(() => {
+    if (!pmOpen) return
+    const handler = (e: MouseEvent) => {
+      if (pmRef.current && !pmRef.current.contains(e.target as Node)) pmReset()
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [pmOpen])
+
   const handleDeleteJob = async (mode: "single" | "future") => {
     if (!selectedEvent) return
     setDeleteMode(mode)
@@ -1626,7 +1768,7 @@ export default function JobsPage() {
             bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
             service_category: (createForm.service_type || "").toLowerCase().includes("move") ? "move_in_out" : "standard",
             notes: createForm.notes.trim() || undefined,
-            custom_base_price: undefined,
+            custom_base_price: createForm.price ? Number(createForm.price) : undefined,
             send_sms: false,
           }),
         })
@@ -1640,8 +1782,10 @@ export default function JobsPage() {
         setQuoteSuccess({
           url: data.quote_url || `/quote/${data.quote?.token}`,
           token: data.quote?.token,
-          quoteId: data.quote?.id,
+          quoteId: data.quote?.id != null ? String(data.quote.id) : undefined,
           sent: false,
+          customerPhone: phone,
+          customerId: lookedUpCustomerId ? String(lookedUpCustomerId) : data.quote?.customer_id ? String(data.quote.customer_id) : undefined,
         })
         return
       }
@@ -1727,6 +1871,215 @@ export default function JobsPage() {
       setCreateSaving(false)
     }
   }
+
+  // ── Reusable payment menu popover ──
+  const renderPaymentMenu = (showCardOnFile: boolean) => (
+    <>
+      {/* Backdrop for mobile */}
+      <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={pmReset} />
+      <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
+        {!pmType && !pmResult && !pmChargeResult && (
+          <div className="p-2 space-y-0.5">
+            <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
+            {[
+              { key: "card_on_file", label: "Card on File", desc: "Send link to save card", icon: CreditCard },
+              { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
+              { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
+              { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  if (opt.key === "enter_card") {
+                    setPmType("enter_card")
+                  } else if (opt.key === "payment") {
+                    setPmType("payment")
+                  } else if (opt.key === "invoice") {
+                    // Need to pick a job first if event is open
+                    if (selectedEvent) {
+                      setPmJobId(selectedEvent.jobId)
+                    }
+                    setPmType("invoice")
+                  } else {
+                    pmGenerateLink(opt.key)
+                    setPmType(opt.key)
+                  }
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+              >
+                <opt.icon className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                <div>
+                  <div className="text-sm text-zinc-200">{opt.label}</div>
+                  <div className="text-xs text-zinc-500">{opt.desc}</div>
+                </div>
+              </button>
+            ))}
+            {showCardOnFile && (
+              <>
+                <div className="mx-2 my-1.5 border-t border-zinc-700/50" />
+                <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Charge</p>
+                <button
+                  onClick={() => setPmType("charge_card")}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+                >
+                  <Zap className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm text-zinc-200">Charge Card</div>
+                    <div className="text-xs text-zinc-500">Charge saved card</div>
+                  </div>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Payment Link — amount input */}
+        {pmType === "payment" && !pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Payment Link</p>
+            <input
+              type="number"
+              value={pmAmount}
+              onChange={(e) => setPmAmount(e.target.value)}
+              placeholder="Amount ($)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setPmType(null)} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={() => pmGenerateLink("payment")}
+                disabled={pmLoading || !pmAmount || parseFloat(pmAmount) <= 0}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+              >
+                {pmLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Invoice — confirm */}
+        {pmType === "invoice" && !pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Send Invoice</p>
+            <div className="flex gap-2">
+              <button onClick={() => { setPmType(null); setPmJobId("") }} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={() => pmGenerateLink("invoice")}
+                disabled={pmLoading}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+              >
+                {pmLoading ? "Sending..." : "Send Invoice"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Enter Card — Stripe Elements */}
+        {pmType === "enter_card" && (
+          <StripeCardForm
+            customerId={pmGetCustomerId() || ""}
+            onSuccess={() => { setPmType(null); pmReset() }}
+            onCancel={() => setPmType(null)}
+          />
+        )}
+
+        {/* Charge Card — amount input */}
+        {pmType === "charge_card" && !pmChargeResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Charge Card on File</p>
+            <input
+              type="number"
+              value={pmAmount}
+              onChange={(e) => setPmAmount(e.target.value)}
+              placeholder="Amount ($)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              autoFocus
+            />
+            <input
+              type="text"
+              value={pmChargeDesc}
+              onChange={(e) => setPmChargeDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { setPmType(null); setPmAmount(""); setPmChargeDesc("") }} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={pmChargeCard}
+                disabled={pmChargeLoading || !pmAmount || parseFloat(pmAmount) <= 0}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-500 disabled:opacity-50 transition-colors"
+              >
+                {pmChargeLoading ? "Charging..." : `Charge $${pmAmount || "0"}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Charge Card — result */}
+        {pmChargeResult && (
+          <div className="p-4 space-y-3">
+            {pmChargeResult.success ? (
+              <>
+                <p className="text-sm font-medium text-emerald-400">Charge Successful!</p>
+                <p className="text-xs text-zinc-400">${pmChargeResult.amount?.toFixed(2)} charged to card on file. SMS receipt sent.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-red-400">Charge Failed</p>
+                <p className="text-xs text-zinc-400">{pmChargeResult.error}</p>
+              </>
+            )}
+            <button onClick={pmReset} className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Done</button>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {pmType === "card_on_file" && !pmResult && pmLoading && (
+          <div className="p-4 flex items-center justify-center gap-2 text-sm text-zinc-400">
+            <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+          </div>
+        )}
+
+        {/* Result — URL + copy/SMS */}
+        {pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-emerald-400">
+              {pmResult.invoiceId ? "Invoice Sent!" : "Link Generated!"}
+            </p>
+            {pmResult.url && (
+              <>
+                <div className="px-3 py-2 bg-zinc-800 rounded-lg text-xs text-zinc-300 break-all max-h-20 overflow-y-auto">
+                  {pmResult.url}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={pmCopy}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                  >
+                    {pmCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {pmCopied ? "Copied" : "Copy"}
+                  </button>
+                  <button
+                    onClick={pmSendSms}
+                    disabled={pmSmsSent}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-600 hover:bg-purple-500 disabled:bg-emerald-600 text-white rounded-lg transition-colors"
+                  >
+                    {pmSmsSent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                    {pmSmsSent ? "Sent" : "Send SMS"}
+                  </button>
+                </div>
+              </>
+            )}
+            {pmResult.invoiceId && !pmResult.url && (
+              <p className="text-xs text-zinc-400">Invoice emailed to customer.</p>
+            )}
+            <button onClick={pmReset} className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Done</button>
+          </div>
+        )}
+      </div>
+    </>
+  )
 
   return (
     <>
@@ -2494,6 +2847,17 @@ export default function JobsPage() {
                       + Charge
                     </button>
                   )}
+                  <div className="relative" ref={pmRef}>
+                    <button
+                      onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(selectedEvent?.jobId || ""); setPmChargeResult(null); setPmChargeDesc("") }}
+                      className={`cal-modal-btn ${pmOpen ? "text-purple-400" : ""}`}
+                      title="Payment links"
+                      style={{ padding: "0.4rem 0.5rem" }}
+                    >
+                      <DollarSign className="w-4 h-4" />
+                    </button>
+                    {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile)}
+                  </div>
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}
@@ -2753,7 +3117,7 @@ export default function JobsPage() {
             <h5>{createForm.is_quote ? "Create Quote" : "Create Job"}</h5>
             <button
               className="cal-modal-close"
-              onClick={() => { setCreateOpen(false); setQuoteSuccess(null) }}
+              onClick={() => { setCreateOpen(false); setQuoteSuccess(null); pmReset() }}
             >
               &times;
             </button>
@@ -2791,7 +3155,10 @@ export default function JobsPage() {
                   className="cal-modal-btn"
                   disabled={quoteSuccess.sent || quoteSuccess.sending}
                   onClick={async () => {
-                    if (!quoteSuccess.quoteId) return
+                    if (!quoteSuccess.quoteId) {
+                      alert("Quote ID missing — cannot send SMS. Try creating the quote again.")
+                      return
+                    }
                     setQuoteSuccess(prev => prev ? { ...prev, sending: true } : prev)
                     try {
                       const res = await fetch("/api/actions/quotes/send", {
@@ -2825,6 +3192,18 @@ export default function JobsPage() {
                 >
                   {quoteSuccess.sending ? "Sending..." : quoteSuccess.sent ? "Sent!" : "Text to Customer"}
                 </button>
+                {/* Payment menu ($) */}
+                <div className="relative" ref={pmRef}>
+                  <button
+                    onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(""); setPmChargeResult(null); setPmChargeDesc("") }}
+                    className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
+                    title="Payment links"
+                    style={{ border: "1px solid rgba(63,63,70,0.5)" }}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                  </button>
+                  {pmOpen && renderPaymentMenu(false)}
+                </div>
                 <button
                   className="cal-modal-btn"
                   onClick={() => {

@@ -12,15 +12,15 @@ export async function POST(request: NextRequest) {
   if (authResult instanceof NextResponse) return authResult
   const { tenant } = authResult
 
-  let quote_id: string
+  let quote_id: number
   try {
     const body = await request.json()
-    quote_id = body.quote_id
+    quote_id = Number(body.quote_id)
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
   }
 
-  if (!quote_id) {
+  if (!quote_id || isNaN(quote_id)) {
     return NextResponse.json({ error: "quote_id is required" }, { status: 400 })
   }
 
@@ -34,6 +34,7 @@ export async function POST(request: NextRequest) {
     .single()
 
   if (!quote || quote.tenant_id !== tenant.id) {
+    console.error(`[quotes/send] Quote not found: id=${quote_id}, tenant=${tenant.id}`)
     return NextResponse.json({ error: "Quote not found" }, { status: 404 })
   }
 
@@ -56,9 +57,11 @@ export async function POST(request: NextRequest) {
   const name = quote.customer_name?.split(" ")[0] || "there"
   const message = `Hey ${name}! Your quote from ${tenant.name} is ready. Check it out and choose your package here: ${quoteUrl}`
 
+  console.log(`[quotes/send] Sending quote ${quote.id} to ${quote.customer_phone} for tenant ${tenant.slug}`)
   const result = await sendSMS(tenant, quote.customer_phone, message)
 
   if (!result.success) {
+    console.error(`[quotes/send] SMS failed for quote ${quote.id}:`, result.error)
     return NextResponse.json({ error: result.error || "Failed to send SMS" }, { status: 500 })
   }
 
