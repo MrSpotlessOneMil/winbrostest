@@ -96,10 +96,38 @@ export async function POST(request: NextRequest) {
       console.error('[send-sms] Failed to save message to DB:', msgError)
     }
 
+    // Pause AI auto-response for this customer (manual takeover)
+    if (customer?.id) {
+      await serviceClient
+        .from('customers')
+        .update({
+          auto_response_paused: true,
+          manual_takeover_at: new Date().toISOString(),
+        })
+        .eq('id', customer.id)
+
+      // Also pause the active lead's follow-up sequence (mirrors webhook behavior)
+      const { data: activeLead } = await serviceClient
+        .from('leads')
+        .select('id, form_data')
+        .eq('phone_number', e164Phone)
+        .eq('tenant_id', authTenant.id)
+        .not('status', 'in', '("completed","lost","duplicate")')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (activeLead) {
+        const fd = typeof activeLead.form_data === 'object' && activeLead.form_data ? activeLead.form_data : {}
+        await serviceClient.from('leads').update({ form_data: { ...fd, followup_paused: true } }).eq('id', activeLead.id)
+      }
+    }
+
     // Send the SMS (use tenant for proper OpenPhone routing)
     // skipDedup: the route pre-inserts the DB record above, so the dedup check
     // inside sendSMS would find it and block the send as a false positive.
-    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true })
+    // skipThrottle: manual dashboard sends should never be throttled by automated message counts.
+    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true, skipThrottle: true })
 
     if (!result.success) {
       // Clean up the pre-inserted record since send failed

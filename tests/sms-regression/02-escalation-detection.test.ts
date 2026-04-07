@@ -1,15 +1,16 @@
 /**
- * Regression test: Escalation detection — AI tags only, no keyword fallback.
+ * Regression test: Escalation detection — AI tags + customer message keyword fallback.
  *
- * Bug history: Keyword-based fallback caused false positives. "No french panes"
- * matched "french pane" and triggered an escalation. Fix: only use AI [ESCALATE:...] tags.
- * This test prevents keyword-based detection from being reintroduced.
+ * Bug history: A keyword-based fallback on the AI RESPONSE caused false positives
+ * ("No french panes" matched "french pane"). That was removed. The current fallback
+ * checks the CUSTOMER'S inbound message for unambiguous escalation phrases (refund,
+ * cancel, lawyer, etc.) — these don't appear in normal booking conversations.
  */
 
 import { describe, it, expect } from 'vitest'
 import { detectEscalation, detectBookingComplete, stripEscalationTags, detectScheduleReady } from '@/lib/winbros-sms-prompt'
 
-describe('Escalation detection (AI tags only)', () => {
+describe('Escalation detection (AI tags + customer keyword fallback)', () => {
   it('detects [ESCALATE:french_panes] tag in AI response', () => {
     const response = 'I see you have french pane windows. Let me connect you with our team for a custom quote. [ESCALATE:french_panes]'
     const result = detectEscalation(response)
@@ -66,6 +67,67 @@ describe('Escalation detection (AI tags only)', () => {
       const result = detectEscalation(response)
       expect(result.shouldEscalate, `false escalation on: "${response.slice(0, 50)}..."`).toBe(false)
     }
+  })
+
+  // === CUSTOMER MESSAGE KEYWORD FALLBACK ===
+  it('escalates when customer says "refund" even if AI missed the tag', () => {
+    const aiResponse = "I'm sorry to hear that, can I ask what happened?"
+    const result = detectEscalation(aiResponse, undefined, "I want a refund")
+    expect(result.shouldEscalate).toBe(true)
+    expect(result.reasons).toContain('customer_escalation_keyword')
+  })
+
+  it('escalates when customer says "cancel"', () => {
+    const aiResponse = "I understand! Let me help you with that."
+    const result = detectEscalation(aiResponse, undefined, "I need to cancel")
+    expect(result.shouldEscalate).toBe(true)
+    expect(result.reasons).toContain('customer_escalation_keyword')
+  })
+
+  it('escalates when customer mentions "lawyer"', () => {
+    const aiResponse = "I'm sorry you had that experience."
+    const result = detectEscalation(aiResponse, undefined, "I'm going to talk to my lawyer")
+    expect(result.shouldEscalate).toBe(true)
+  })
+
+  it('escalates when customer mentions "bbb"', () => {
+    const aiResponse = "I'm sorry about that."
+    const result = detectEscalation(aiResponse, undefined, "I'm reporting you to the bbb")
+    expect(result.shouldEscalate).toBe(true)
+  })
+
+  it('escalates when customer says "scam"', () => {
+    const aiResponse = "I understand your concern."
+    const result = detectEscalation(aiResponse, undefined, "this is a scam")
+    expect(result.shouldEscalate).toBe(true)
+  })
+
+  it('does NOT use keyword fallback when AI already tagged', () => {
+    const aiResponse = "Our team will reach out shortly! [ESCALATE:service_issue]"
+    const result = detectEscalation(aiResponse, undefined, "I want a refund")
+    expect(result.shouldEscalate).toBe(true)
+    expect(result.reasons).toContain('service_issue')
+    expect(result.reasons).not.toContain('customer_escalation_keyword')
+  })
+
+  it('does NOT escalate on normal customer messages', () => {
+    const normalMessages = [
+      "Hi, I need a cleaning",
+      "3 bed 2 bath",
+      "How much does it cost?",
+      "Can you come on Monday?",
+      "Sounds good, book it",
+    ]
+    for (const msg of normalMessages) {
+      const result = detectEscalation("Sure! Let me help.", undefined, msg)
+      expect(result.shouldEscalate, `false escalation on customer msg: "${msg}"`).toBe(false)
+    }
+  })
+
+  it('still does NOT escalate on "No french panes" in AI response', () => {
+    const response = "Got it — no french panes on your windows. That makes the job straightforward!"
+    const result = detectEscalation(response, undefined, "no we dont have french panes")
+    expect(result.shouldEscalate).toBe(false)
   })
 })
 

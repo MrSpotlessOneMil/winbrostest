@@ -843,7 +843,8 @@ async function generateWinBrosResponse(
       throw new Error('Empty response from Claude (WinBros)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
@@ -934,7 +935,8 @@ async function generateWinBrosResponse(
       throw new Error('Empty response from OpenAI (WinBros)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
@@ -1307,7 +1309,8 @@ export async function generateEmailResponse(
       throw new Error('Empty response from Claude (EmailBot)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
 
@@ -1341,7 +1344,8 @@ export async function generateEmailResponse(
       throw new Error('Empty response from OpenAI (EmailBot)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
 
@@ -1571,7 +1575,8 @@ async function generateHouseCleaningResponse(
       throw new Error('Empty response from Claude (HouseCleaning)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
@@ -1608,7 +1613,8 @@ async function generateHouseCleaningResponse(
       throw new Error('Empty response from OpenAI (HouseCleaning)')
     }
 
-    const escalation = detectEscalation(rawText, conversationHistory)
+    const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
+    const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
     const cleanResponse = stripEscalationTags(rawText)
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)

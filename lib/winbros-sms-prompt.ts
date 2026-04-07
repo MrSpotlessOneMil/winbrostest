@@ -305,7 +305,8 @@ export interface EscalationResult {
  */
 export function detectEscalation(
   aiResponse: string,
-  _conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>
+  _conversationHistory?: Array<{ role: 'client' | 'assistant'; content: string }>,
+  customerMessage?: string,
 ): EscalationResult {
   const reasons: string[] = []
 
@@ -321,9 +322,26 @@ export function detectEscalation(
     reasons.push('out_of_area')
   }
 
-  // Note: keyword-based fallback was removed — it caused false positives
-  // (e.g. "No french panes" matched "french pane" and escalated).
-  // With Sonnet, the AI reliably includes [ESCALATE:...] tags when appropriate.
+  // Fallback: check CUSTOMER message for unambiguous escalation phrases.
+  // Only triggers when the AI missed the tag. Checks the customer's inbound
+  // message (not AI response) — avoids the "No french panes" false positive
+  // that caused the previous keyword-based fallback to be removed.
+  if (reasons.length === 0 && customerMessage) {
+    const msg = customerMessage.toLowerCase()
+    const escalationPhrases = [
+      /\brefund\b/,
+      /\bcancel\b/,
+      /\bsue\b/,
+      /\blawyer\b/,
+      /\bbbb\b/,
+      /\bbetter business bureau\b/,
+      /\breport you\b/,
+      /\bscam\b/,
+    ]
+    if (escalationPhrases.some(p => p.test(msg))) {
+      reasons.push('customer_escalation_keyword')
+    }
+  }
 
   return {
     shouldEscalate: reasons.length > 0,
