@@ -1876,11 +1876,11 @@ export default function JobsPage() {
   }
 
   // ── Reusable payment menu popover ──
-  const renderPaymentMenu = (showCardOnFile: boolean) => (
+  const renderPaymentMenu = (showCardOnFile: boolean, direction: "down" | "up" = "down") => (
     <>
       {/* Backdrop for mobile */}
       <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={pmReset} />
-      <div className="fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:top-9 md:w-72 md:mx-0">
+      <div className={`fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:w-72 md:mx-0 ${direction === "up" ? "md:bottom-9" : "md:top-9"}`}>
         {!pmType && !pmResult && !pmChargeResult && (
           <div className="p-2 space-y-0.5">
             <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
@@ -2413,17 +2413,7 @@ export default function JobsPage() {
       >
         <div className="cal-modal">
           <div className="cal-modal-header">
-            <h5 style={{ flex: 1 }}>{selectedEvent?.title || "Event"}</h5>
-            <div className="relative" ref={pmRef} style={{ marginRight: "0.5rem" }}>
-              <button
-                onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(selectedEvent?.jobId || ""); setPmChargeResult(null); setPmChargeDesc("") }}
-                className={`p-1.5 rounded transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-500 hover:text-purple-400 hover:bg-purple-400/10"}`}
-                title="Payment links"
-              >
-                <DollarSign className="w-4 h-4" />
-              </button>
-              {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile)}
-            </div>
+            <h5>{selectedEvent?.title || "Event"}</h5>
             <button
               className="cal-modal-close"
               onClick={() => { setSelectedEvent(null); setConfirmDelete(false); setDeleteMode(null) }}
@@ -2860,6 +2850,17 @@ export default function JobsPage() {
                       + Charge
                     </button>
                   )}
+                  <div className="relative" ref={pmRef}>
+                    <button
+                      onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(selectedEvent?.jobId || ""); setPmChargeResult(null); setPmChargeDesc("") }}
+                      className={`cal-modal-btn ${pmOpen ? "text-purple-400" : ""}`}
+                      title="Payment links"
+                      style={{ padding: "0.4rem 0.5rem" }}
+                    >
+                      <DollarSign className="w-4 h-4" />
+                    </button>
+                    {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile, "up")}
+                  </div>
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}
@@ -3136,18 +3137,6 @@ export default function JobsPage() {
                   : "Review the quote or text it to the customer when ready."}
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "center" }}>
-                {/* Payment menu ($) */}
-                <div className="relative" ref={pmRef}>
-                  <button
-                    onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(""); setPmChargeResult(null); setPmChargeDesc("") }}
-                    className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
-                    title="Payment links"
-                    style={{ border: "1px solid rgba(63,63,70,0.5)" }}
-                  >
-                    <DollarSign className="w-4 h-4" />
-                  </button>
-                  {pmOpen && renderPaymentMenu(false)}
-                </div>
                 <a
                   href={quoteSuccess.url}
                   target="_blank"
@@ -3206,6 +3195,18 @@ export default function JobsPage() {
                 >
                   {quoteSuccess.sending ? "Sending..." : quoteSuccess.sent ? "Sent!" : "Text to Customer"}
                 </button>
+                {/* Payment menu ($) */}
+                <div className="relative" ref={pmRef}>
+                  <button
+                    onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(""); setPmChargeResult(null); setPmChargeDesc("") }}
+                    className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
+                    title="Payment links"
+                    style={{ border: "1px solid rgba(63,63,70,0.5)" }}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                  </button>
+                  {pmOpen && renderPaymentMenu(false, "up")}
+                </div>
                 <button
                   className="cal-modal-btn"
                   onClick={() => {
