@@ -1749,10 +1749,6 @@ export default function JobsPage() {
         setCreateError("Number of bathrooms is required")
         return
       }
-      if (!createForm.sqft) {
-        setCreateError("Square footage is required")
-        return
-      }
     }
     if (!isHouseCleaning && (createForm.service_type || "").toLowerCase().includes("window") && !createForm.selected_tier_index) {
       setCreateError("Please select a window cleaning tier")
