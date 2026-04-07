@@ -131,16 +131,23 @@ async function handlePatch(request: NextRequest) {
         ],
       }
 
-      // Remove any existing transferCall tool, then add the new one
-      const updatedTools = currentTools.filter((t: any) => t.type !== 'transferCall')
-      updatedTools.push(transferTool)
+      // Remove any transferCall from model.tools (wrong location — doesn't work there)
+      const cleanedModelTools = currentTools.filter((t: any) => t.type !== 'transferCall')
 
-      const patchBody = {
-        model: {
-          ...currentModel,
-          tools: updatedTools,
-        },
+      // Get current top-level tools and replace/add transferCall there
+      const currentTopLevelTools: any[] = current.tools || []
+      const cleanedTopLevelTools = currentTopLevelTools.filter((t: any) => t.type !== 'transferCall')
+      cleanedTopLevelTools.push(transferTool)
+
+      const patchBody: Record<string, any> = {
+        // transferCall goes at assistant top-level tools, NOT model.tools
+        tools: cleanedTopLevelTools,
         endCallPhrases: cleanedPhrases,
+      }
+
+      // Only update model.tools if we cleaned out a stale transferCall
+      if (cleanedModelTools.length !== currentTools.length) {
+        patchBody.model = { ...currentModel, tools: cleanedModelTools }
       }
 
       const res = await fetch(`https://api.vapi.ai/assistant/${vapi_assistant_id}`, {

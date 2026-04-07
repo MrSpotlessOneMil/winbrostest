@@ -198,8 +198,10 @@ function replaceInPrompt(config: Record<string, any>, opts: CloneOptions): void 
   }
 
   // transferCall tool: replace placeholders in function schema, destinations, and messages
-  if (config.model?.tools && Array.isArray(config.model.tools)) {
-    for (const tool of config.model.tools) {
+  // Check both top-level tools (correct location) and model.tools (legacy)
+  const allToolArrays = [config.tools, config.model?.tools].filter(Array.isArray)
+  for (const toolsArr of allToolArrays) {
+    for (const tool of toolsArr) {
       if (tool.type === 'transferCall') {
         // Destinations
         if (Array.isArray(tool.destinations)) {
