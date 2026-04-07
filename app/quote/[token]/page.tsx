@@ -264,6 +264,8 @@ export default function QuotePage() {
 
   const handleTierChange = useCallback((tierKey: string) => {
     setSelectedTierKey(tierKey)
+    // Clear membership selection when switching away from standard (recurring is standard-only upsell)
+    if (tierKey !== 'standard' && !membershipLocked) setSelectedMembership(null)
     if (!data) return
     const tierDef = data.tiers.find((t) => t.key === tierKey)
     if (!tierDef) return
@@ -273,7 +275,7 @@ export default function QuotePage() {
       tierDef.included.forEach((k) => { next[k] = true })
       return next
     })
-  }, [data])
+  }, [data, membershipLocked])
 
   // ── Computed values ──────────────────────────────────────────────
 
@@ -777,8 +779,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Recurring Savings Banner (hidden for custom-priced — discount already applied) */}
-        {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
+        {/* ── Recurring Savings Banner — only on standard tier as a cheeky upsell */}
+        {!isExpired && !isCustomPriced && servicePlans.length > 0 && selectedTierKey === 'standard' && (
           <div>
             {membershipLocked ? (
               /* Locked membership — show as confirmed */
