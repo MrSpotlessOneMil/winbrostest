@@ -41,8 +41,7 @@ interface InsightsData {
     annual: number
     annual_recurring: number
     annual_one_time: number
-    mrr_run_rate: number
-    projected_annual: number
+    trailing_12_annual: number
     recurring_client_count: number
   }
   pnl: {
@@ -189,13 +188,13 @@ export default function InsightsPage() {
           expanded={expandedCard === "annual"} onToggle={() => toggle("annual")}
           detail={<><p className="text-xs text-muted-foreground">Recurring: {fmtFull(revenue.annual_recurring)}</p><p className="text-xs text-muted-foreground">One-time: {fmtFull(revenue.annual_one_time)}</p></>}
         />
-        <RevenueCard title="Recurring Revenue" amount={revenue.mrr_run_rate} suffix="/mo" icon={<Repeat className="h-5 w-5" />} color="text-violet-400" bg="bg-violet-500/10"
+        <RevenueCard title="Recurring Revenue" amount={revenue.monthly_recurring} suffix="/mo" icon={<Repeat className="h-5 w-5" />} color="text-violet-400" bg="bg-violet-500/10"
           expanded={expandedCard === "recurring"} onToggle={() => toggle("recurring")}
-          detail={<><p className="text-xs text-muted-foreground">{revenue.recurring_client_count} active recurring clients</p><p className="text-xs text-muted-foreground">Realized this month: {fmtFull(revenue.monthly_recurring)}</p></>}
+          detail={<><p className="text-xs text-muted-foreground">{revenue.recurring_client_count} recurring clients</p><p className="text-xs text-muted-foreground">YTD recurring: {fmtFull(revenue.annual_recurring)}</p></>}
         />
-        <RevenueCard title="Projected Annual" amount={revenue.projected_annual} icon={<Target className="h-5 w-5" />} color="text-amber-400" bg="bg-amber-500/10"
+        <RevenueCard title="Trailing 12mo" amount={revenue.trailing_12_annual} icon={<Target className="h-5 w-5" />} color="text-amber-400" bg="bg-amber-500/10"
           expanded={expandedCard === "projected"} onToggle={() => toggle("projected")}
-          detail={<p className="text-xs text-muted-foreground">= (MRR × 12) + one-time YTD</p>}
+          detail={<p className="text-xs text-muted-foreground">Actual collected revenue, last 12 months</p>}
         />
       </div>
 

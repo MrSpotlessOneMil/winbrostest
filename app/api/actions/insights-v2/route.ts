@@ -30,9 +30,14 @@ export async function GET(request: NextRequest) {
   const chartDays = chartRange === 'week' ? 7 : chartRange === 'year' ? 365 : 30
   const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
+  // Trailing 12-month window for annualized revenue
+  const trailing12Start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate() + 1).toISOString().slice(0, 10)
+
   // ── Revenue Queries ──
-  const [monthJobsRes, yearJobsRes, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
-    // Monthly completed jobs (use completed_at with upper bound, fall back to date for NULL completed_at)
+  // Count completed jobs only — status='completed' is the source of truth
+  // (payment_status is not reliably set across tenants, so we trust manual completion)
+  const [monthJobsRes, yearJobsRes, trailing12Res, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
+    // Monthly completed jobs
     supabase.from('jobs')
       .select('id, price, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
@@ -40,7 +45,7 @@ export async function GET(request: NextRequest) {
       .or(`and(completed_at.gte.${monthStart}T00:00:00Z,completed_at.lte.${monthEnd}T23:59:59Z),and(completed_at.is.null,date.gte.${monthStart},date.lte.${monthEnd})`)
       .not('price', 'is', null),
 
-    // Annual completed jobs
+    // YTD completed jobs
     supabase.from('jobs')
       .select('id, price, customer_id, completed_at, date')
       .eq('tenant_id', tenant.id)
@@ -48,13 +53,21 @@ export async function GET(request: NextRequest) {
       .or(`and(completed_at.gte.${yearStart}T00:00:00Z),and(completed_at.is.null,date.gte.${yearStart})`)
       .not('price', 'is', null),
 
-    // Active recurring jobs (for projection)
+    // Trailing 12-month completed (for annualized actual revenue)
+    supabase.from('jobs')
+      .select('id, price, customer_id, completed_at, date')
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'completed')
+      .or(`and(completed_at.gte.${trailing12Start}T00:00:00Z),and(completed_at.is.null,date.gte.${trailing12Start})`)
+      .not('price', 'is', null),
+
+    // Recurring jobs — ONLY completed (not scheduled/in_progress)
     supabase.from('jobs')
       .select('id, price, frequency, customer_id, parent_job_id')
       .eq('tenant_id', tenant.id)
       .not('frequency', 'eq', 'one-time')
       .not('frequency', 'is', null)
-      .in('status', ['scheduled', 'in_progress', 'completed'])
+      .eq('status', 'completed')
       .not('price', 'is', null),
 
     // Expenses this month
@@ -63,13 +76,13 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenant.id)
       .gte('date', monthStart),
 
-    // Leads this month with source (for lead source economics)
+    // Leads this year with source (for lead source economics)
     supabase.from('leads')
       .select('id, source, status, phone_number, created_at')
       .eq('tenant_id', tenant.id)
       .gte('created_at', `${yearStart}T00:00:00Z`),
 
-    // Chart jobs: daily data points for revenue graph
+    // Chart jobs: daily data points for completed jobs
     supabase.from('jobs')
       .select('id, price, completed_at, service_type, phone_number, address')
       .eq('tenant_id', tenant.id)
@@ -87,26 +100,19 @@ export async function GET(request: NextRequest) {
 
   const monthJobs = monthJobsRes.data || []
   const yearJobs = yearJobsRes.data || []
+  const trailing12Jobs = trailing12Res.data || []
+  const recurringJobs = recurringJobsRes.data || []
   const expenses = expensesRes.data || []
   const leads = leadsRes.data || []
   const chartJobs = chartJobsRes.data || []
   const retargetingCustomers = retargetingRes.data || []
 
-  // Fetch recurring jobs separately — frequency column may not exist yet
-  const recurringJobsRes2 = await supabase.from('jobs')
-    .select('id, price, frequency, customer_id, parent_job_id, created_at')
-    .eq('tenant_id', tenant.id)
-    .not('frequency', 'eq', 'one-time')
-    .not('frequency', 'is', null)
-    .in('status', ['scheduled', 'in_progress', 'completed'])
-    .not('price', 'is', null)
-  const recurringJobs = recurringJobsRes2.data || []
-
-  // ── Revenue Calculations ──
+  // ── Revenue Calculations (completed jobs only — no projections) ──
   const monthlyRevenue = monthJobs.reduce((sum, j) => sum + Number(j.price), 0)
   const annualRevenue = yearJobs.reduce((sum, j) => sum + Number(j.price), 0)
+  const trailing12Revenue = trailing12Jobs.reduce((sum, j) => sum + Number(j.price), 0)
 
-  // Detect recurring: explicit frequency OR repeat customer (2+ completed jobs this year)
+  // Detect recurring: explicit frequency OR repeat customer (2+ paid jobs this year)
   const yearCustomerJobCounts: Record<string, number> = {}
   for (const j of yearJobs) {
     if (j.customer_id) {
@@ -119,48 +125,24 @@ export async function GET(request: NextRequest) {
       .map(([id]) => id)
   )
 
-  const isRecurring = (j: { customer_id?: string | number | null }) =>
-    j.customer_id && repeatCustomerIds.has(String(j.customer_id))
-
-  const monthlyRecurring = monthJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
-  const monthlyOneTime = monthlyRevenue - monthlyRecurring
-  const annualRecurring = yearJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
-  const annualOneTime = annualRevenue - annualRecurring
-
-  // Count unique recurring customers (explicit frequency + repeat customers)
+  // Recurring customer = has frequency-based jobs OR booked 2+ times this year
   const recurringCustomerIds = new Set(
     recurringJobs.filter(j => j.customer_id).map(j => String(j.customer_id))
       .concat(Array.from(repeatCustomerIds))
   )
   const recurringClientCount = recurringCustomerIds.size
 
-  // MRR run-rate: sum each active recurring job's price normalized to monthly
-  // (weekly ×4.33, bi-weekly ×2.17, monthly ×1, every_6_weeks ×0.72)
-  const freqMultiplier: Record<string, number> = {
-    weekly: 4.33,
-    'bi-weekly': 2.17,
-    monthly: 1,
-    every_6_weeks: 0.72,
-  }
-  // Deduplicate by customer: take only the LATEST job per customer to avoid
-  // inflating MRR by counting every instance of a recurring series.
-  // (parent_job_id dedup alone is unreliable — not all tenants use it)
-  const latestByCustomer = new Map<string, { price: number; frequency: string }>()
-  for (const j of recurringJobs) {
-    if (!j.customer_id) continue
-    const cid = String(j.customer_id)
-    // Keep the most recently created job per customer
-    if (!latestByCustomer.has(cid)) {
-      latestByCustomer.set(cid, { price: Number(j.price), frequency: j.frequency })
-    }
-  }
-  const mrrRunRate = Array.from(latestByCustomer.values()).reduce((sum, j) => {
-    const mult = freqMultiplier[j.frequency] || 1
-    return sum + j.price * mult
-  }, 0)
+  const isRecurring = (j: { customer_id?: string | number | null }) =>
+    j.customer_id && recurringCustomerIds.has(String(j.customer_id))
 
-  // Projected annual: MRR run-rate × 12 + one-time YTD
-  const projectedAnnual = (mrrRunRate * 12) + annualOneTime
+  const monthlyRecurring = monthJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
+  const monthlyOneTime = monthlyRevenue - monthlyRecurring
+  const annualRecurring = yearJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
+  const annualOneTime = annualRevenue - annualRecurring
+
+  // Recurring revenue = actual paid recurring revenue this month (not projections)
+  // Trailing 12-month actual revenue replaces the old fake "projected annual"
+  const trailing12Annual = trailing12Revenue
 
   // ── Profit & Loss ──
   const cleanerPayPct = tenant.workflow_config?.cleaner_pay_percentage || 0
@@ -276,8 +258,7 @@ export async function GET(request: NextRequest) {
       annual: annualRevenue,
       annual_recurring: annualRecurring,
       annual_one_time: annualOneTime,
-      mrr_run_rate: mrrRunRate,
-      projected_annual: projectedAnnual,
+      trailing_12_annual: trailing12Annual,
       recurring_client_count: recurringClientCount,
     },
     pnl: {
