@@ -75,24 +75,22 @@
             }
           }
         }
+      },
+      {
+        "type": "transferCall",
+        "destinations": [
+          {
+            "type": "number",
+            "number": "{{OWNER_PHONE}}",
+            "message": "Transferring you to the team now."
+          }
+        ]
       }
     ]
   },
   "firstMessage": "Hey! Thanks for calling {{BUSINESS_NAME}}. {{OWNER_FIRST_NAME}}'s on a job but he wanted me to make sure you're taken care of — I'm {{SDR_PERSONA}}. How can I help?",
   "voicemailMessage": "Hey, this is {{SDR_PERSONA}} from {{BUSINESS_NAME}}! Give us a call back when you get a chance and we'll get you a quote. Talk soon!",
   "endCallFunctionEnabled": true,
-  "transferCallEnabled": true,
-  "transferPlan": {
-    "mode": "blind-transfer",
-    "message": "Let me connect you now, one moment.",
-    "destinations": [
-      {
-        "type": "number",
-        "number": "{{OWNER_PHONE}}",
-        "message": "Transferring you to the team now."
-      }
-    ]
-  },
   "endCallMessage": "Thanks for calling {{BUSINESS_NAME}}!",
   "transcriber": {
     "model": "nova-2-phonecall",

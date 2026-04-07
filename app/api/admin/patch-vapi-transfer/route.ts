@@ -75,7 +75,7 @@ async function handlePatch(request: NextRequest) {
     }
 
     try {
-      // Fetch current assistant config to get existing endCallPhrases
+      // Fetch current assistant config
       const getRes = await fetch(`https://api.vapi.ai/assistant/${vapi_assistant_id}`, {
         method: 'GET',
         headers: {
@@ -84,28 +84,40 @@ async function handlePatch(request: NextRequest) {
         },
       })
 
-      let currentEndCallPhrases: string[] | undefined
-      if (getRes.ok) {
-        const current = await getRes.json()
-        currentEndCallPhrases = current.endCallPhrases
+      if (!getRes.ok) {
+        vapiResults.push({ slug, assistantId: vapi_assistant_id, status: 'failed', error: `GET failed: ${getRes.status}` })
+        continue
       }
 
+      const current = await getRes.json()
+      const currentModel = current.model || {}
+      const currentTools: any[] = currentModel.tools || []
+      const currentEndCallPhrases: string[] = current.endCallPhrases || ['goodbye', 'talk to you soon', 'bye bye', 'take care']
+
       // Remove "have a great day" from endCallPhrases (conflicts with transfer)
-      const cleanedPhrases = (currentEndCallPhrases || ['goodbye', 'talk to you soon', 'bye bye', 'take care'])
+      const cleanedPhrases = currentEndCallPhrases
         .filter((p: string) => p.toLowerCase() !== 'have a great day')
 
+      // Build the transfer tool
+      const transferTool = {
+        type: 'transferCall',
+        destinations: [
+          {
+            type: 'number',
+            number: owner_phone,
+            message: 'Transferring you to the team now.',
+          },
+        ],
+      }
+
+      // Remove any existing transferCall tool, then add the new one
+      const updatedTools = currentTools.filter((t: any) => t.type !== 'transferCall')
+      updatedTools.push(transferTool)
+
       const patchBody = {
-        transferCallEnabled: true,
-        transferPlan: {
-          mode: 'blind-transfer',
-          message: 'Let me connect you now, one moment.',
-          destinations: [
-            {
-              type: 'number',
-              number: owner_phone,
-              message: 'Transferring you to the team now.',
-            },
-          ],
+        model: {
+          ...currentModel,
+          tools: updatedTools,
         },
         endCallPhrases: cleanedPhrases,
       }

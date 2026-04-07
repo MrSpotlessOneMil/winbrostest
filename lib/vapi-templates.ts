@@ -197,14 +197,15 @@ function replaceInPrompt(config: Record<string, any>, opts: CloneOptions): void 
     config.voicemailMessage = doReplace(config.voicemailMessage)
   }
 
-  // transferPlan destinations (phone numbers + messages)
-  if (config.transferPlan?.destinations && Array.isArray(config.transferPlan.destinations)) {
-    for (const dest of config.transferPlan.destinations) {
-      if (typeof dest.number === "string") dest.number = doReplace(dest.number)
-      if (typeof dest.message === "string") dest.message = doReplace(dest.message)
-    }
-    if (typeof config.transferPlan.message === "string") {
-      config.transferPlan.message = doReplace(config.transferPlan.message)
+  // transferCall tool destinations in model.tools (phone numbers + messages)
+  if (config.model?.tools && Array.isArray(config.model.tools)) {
+    for (const tool of config.model.tools) {
+      if (tool.type === 'transferCall' && Array.isArray(tool.destinations)) {
+        for (const dest of tool.destinations) {
+          if (typeof dest.number === "string") dest.number = doReplace(dest.number)
+          if (typeof dest.message === "string") dest.message = doReplace(dest.message)
+        }
+      }
     }
   }
 }
