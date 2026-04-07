@@ -84,16 +84,48 @@ export async function POST(request: NextRequest) {
 
   const supabase = getSupabaseServiceClient()
 
-  // Cross-tenant check: verify customer belongs to tenant if customer_id provided
-  if (customer_id) {
+  // Resolve customer: verify existing or auto-create from phone
+  let resolvedCustomerId = customer_id ? Number(customer_id) : null
+  if (resolvedCustomerId) {
     const { data: customer } = await supabase
       .from("customers")
       .select("id, tenant_id")
-      .eq("id", customer_id)
+      .eq("id", resolvedCustomerId)
       .single()
 
     if (!customer || customer.tenant_id !== tenant.id) {
       return NextResponse.json({ error: "Customer not found" }, { status: 404 })
+    }
+  } else if (customer_phone) {
+    // Auto-create or find customer by phone (same pattern as jobs API)
+    const phone = String(customer_phone).trim()
+    const { data: existing } = await supabase
+      .from("customers")
+      .select("id")
+      .eq("tenant_id", tenant.id)
+      .eq("phone_number", phone)
+      .maybeSingle()
+
+    if (existing?.id) {
+      resolvedCustomerId = Number(existing.id)
+    } else {
+      const nameParts = String(customer_name || "").trim().split(" ")
+      const { data: created, error: createErr } = await supabase
+        .from("customers")
+        .insert({
+          tenant_id: tenant.id,
+          phone_number: phone,
+          first_name: nameParts[0] || undefined,
+          last_name: nameParts.slice(1).join(" ") || undefined,
+          email: customer_email || undefined,
+          address: customer_address || undefined,
+        })
+        .select("id")
+        .single()
+
+      if (!createErr && created) {
+        resolvedCustomerId = Number(created.id)
+      }
     }
   }
 
@@ -119,7 +151,7 @@ export async function POST(request: NextRequest) {
     .from("quotes")
     .insert({
       tenant_id: tenant.id,
-      customer_id: customer_id || null,
+      customer_id: resolvedCustomerId || null,
       customer_name,
       customer_phone: customer_phone || null,
       customer_email: customer_email || null,
@@ -163,11 +195,11 @@ export async function POST(request: NextRequest) {
   }
 
   // Tag customer for quoted_not_booked retargeting (only if no existing override)
-  if (customer_id) {
+  if (resolvedCustomerId) {
     await supabase
       .from('customers')
       .update({ lifecycle_stage_override: 'quoted_not_booked' })
-      .eq('id', customer_id as number)
+      .eq('id', resolvedCustomerId)
       .eq('tenant_id', tenant.id)
       .is('lifecycle_stage_override', null)
   }

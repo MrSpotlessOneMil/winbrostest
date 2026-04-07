@@ -1910,6 +1910,10 @@ export default function JobsPage() {
                 key={opt.key}
                 onClick={() => {
                   if (opt.key === "enter_card") {
+                    if (!pmGetCustomerId()) {
+                      alert("No customer found — save a customer first before entering card details.")
+                      return
+                    }
                     setPmType("enter_card")
                   } else if (opt.key === "payment") {
                     setPmType("payment")
