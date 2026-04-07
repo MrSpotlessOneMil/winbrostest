@@ -19,6 +19,7 @@ const OWNER_PHONES: Record<string, string> = {
   'spotless-scrubbers': '+14242755847',
   'west-niagara': '+12894405365',
   'cedar-rapids': '+13198264311',
+  'winbros': '+13092411958',
 }
 
 // Also support GET for easy browser/curl access
