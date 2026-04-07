@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
 
   // Fetch recurring jobs separately — frequency column may not exist yet
   const recurringJobsRes2 = await supabase.from('jobs')
-    .select('id, price, frequency, customer_id')
+    .select('id, price, frequency, customer_id, parent_job_id, created_at')
     .eq('tenant_id', tenant.id)
     .not('frequency', 'eq', 'one-time')
     .not('frequency', 'is', null)
@@ -142,12 +142,21 @@ export async function GET(request: NextRequest) {
     monthly: 1,
     every_6_weeks: 0.72,
   }
-  // Deduplicate by parent: only count parent jobs (no parent_job_id) to avoid
-  // inflating MRR by counting every generated instance of a recurring series.
-  const parentRecurringJobs = recurringJobs.filter((j: any) => !j.parent_job_id)
-  const mrrRunRate = parentRecurringJobs.reduce((sum, j: any) => {
+  // Deduplicate by customer: take only the LATEST job per customer to avoid
+  // inflating MRR by counting every instance of a recurring series.
+  // (parent_job_id dedup alone is unreliable — not all tenants use it)
+  const latestByCustomer = new Map<string, { price: number; frequency: string }>()
+  for (const j of recurringJobs) {
+    if (!j.customer_id) continue
+    const cid = String(j.customer_id)
+    // Keep the most recently created job per customer
+    if (!latestByCustomer.has(cid)) {
+      latestByCustomer.set(cid, { price: Number(j.price), frequency: j.frequency })
+    }
+  }
+  const mrrRunRate = Array.from(latestByCustomer.values()).reduce((sum, j) => {
     const mult = freqMultiplier[j.frequency] || 1
-    return sum + Number(j.price) * mult
+    return sum + j.price * mult
   }, 0)
 
   // Projected annual: MRR run-rate × 12 + one-time YTD
