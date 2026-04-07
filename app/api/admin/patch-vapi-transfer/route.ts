@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { verifyCronAuth } from '@/lib/cron-auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 
 /**
@@ -21,7 +22,10 @@ const OWNER_PHONES: Record<string, string> = {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await requireAdmin(request))) {
+  // Accept admin session OR CRON_SECRET bearer token
+  const isAdmin = await requireAdmin(request)
+  const isCron = verifyCronAuth(request)
+  if (!isAdmin && !isCron) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
