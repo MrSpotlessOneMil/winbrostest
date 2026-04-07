@@ -445,6 +445,7 @@ export default function JobsPage() {
   const [pmChargeLoading, setPmChargeLoading] = useState(false)
   const [pmChargeResult, setPmChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
   const [pmChargeDesc, setPmChargeDesc] = useState("")
+  const [pmError, setPmError] = useState<string | null>(null)
   const pmRef = useRef<HTMLDivElement>(null)
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
@@ -1445,7 +1446,7 @@ export default function JobsPage() {
   // ── Payment menu helpers (used in quote success + event detail) ──
   const pmReset = () => {
     setPmOpen(false); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId("")
-    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false)
+    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false); setPmError(null)
   }
 
   const pmGetCustomerId = (): string | null => {
@@ -1462,9 +1463,10 @@ export default function JobsPage() {
 
   const pmGenerateLink = async (type: string): Promise<boolean> => {
     const customerId = pmGetCustomerId()
-    if (!customerId) { alert("No customer found"); return false }
+    if (!customerId) { setPmError("No customer found"); return false }
     setPmLoading(true)
     setPmResult(null)
+    setPmError(null)
     setPmCopied(false)
     setPmSmsSent(false)
     try {
@@ -1484,11 +1486,11 @@ export default function JobsPage() {
         setPmResult({ url: json.url, invoiceId: json.invoiceId })
         return true
       } else {
-        alert(json.error || "Failed to generate link")
+        setPmError(json.error || "Failed to generate link")
         return false
       }
     } catch {
-      alert("Failed to generate link")
+      setPmError("Failed to generate link")
       return false
     } finally {
       setPmLoading(false)
@@ -1517,10 +1519,10 @@ export default function JobsPage() {
       if (json.success) {
         setPmSmsSent(true)
       } else {
-        alert(json.error || "Failed to send SMS")
+        setPmError(json.error || "Failed to send SMS")
       }
     } catch {
-      alert("Failed to send SMS")
+      setPmError("Failed to send SMS")
     } finally {
       setPmSmsSending(false)
     }
@@ -1893,6 +1895,12 @@ export default function JobsPage() {
       {/* Backdrop for mobile */}
       <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={pmReset} />
       <div className={`fixed inset-x-4 top-1/4 z-50 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:w-72 md:mx-0 ${direction === "up" ? "md:bottom-9" : "md:top-9"}`}>
+        {pmError && (
+          <div className="p-3 border-b border-zinc-700/50">
+            <p className="text-xs text-red-400">{pmError}</p>
+            <button onClick={() => setPmError(null)} className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300">Dismiss</button>
+          </div>
+        )}
         {!pmType && !pmResult && !pmChargeResult && (
           <div className="p-2 space-y-0.5">
             <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
@@ -1905,9 +1913,10 @@ export default function JobsPage() {
               <button
                 key={opt.key}
                 onClick={() => {
+                  setPmError(null)
                   if (opt.key === "enter_card") {
                     if (!pmGetCustomerId()) {
-                      alert("No customer found — save a customer first before entering card details.")
+                      setPmError("No customer found — save a customer first before entering card details.")
                       return
                     }
                     setPmType("enter_card")
