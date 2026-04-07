@@ -243,8 +243,8 @@ export async function POST(request: NextRequest) {
         monthly_followup_discount: "15%",
         // Cleaner assignment
         cleaner_assignment_auto: true,
-        require_deposit: true,
-        deposit_percentage: 50,
+        require_deposit: false,
+        deposit_percentage: 0,
         sms_auto_response_enabled: true,
         hcp_sync_enabled: body.flow_flags?.use_hcp_mirror ?? false,
         // Lifecycle messaging

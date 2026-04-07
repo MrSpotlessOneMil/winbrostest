@@ -92,7 +92,7 @@ export async function GET(
     cancellation_fee: cancellationFee,
     cancellation_window_hours: cancellationWindow,
     satisfaction_guarantee: true,
-    deposit_percentage: Number(wc.deposit_percentage || 50),
+    deposit_percentage: 0,
     processing_fee_percentage: 3,
     terms: [
       `A $${cancellationFee.toFixed(0)} cancellation fee applies if cancelled within ${cancellationWindow} hours of your scheduled appointment.`,
