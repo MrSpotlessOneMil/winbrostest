@@ -1,13 +1,15 @@
 /**
  * GET /api/actions/insights-v2
  *
- * Real P&L insights: revenue (monthly/annual/recurring/projected),
+ * Real P&L insights powered by Stripe (actual collected revenue),
  * cleaner pay, expenses, lead source economics with ROI.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
+import { getStripeClientForTenant } from '@/lib/stripe-client'
+import type Stripe from 'stripe'
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -15,55 +17,96 @@ export async function GET(request: NextRequest) {
   const { tenant } = authResult
 
   const supabase = getSupabaseServiceClient()
-  const tz = tenant.timezone || 'America/Chicago'
-  // Use tenant timezone for "now" — compute local date boundaries
-  const nowUtc = new Date()
-  // For simplicity, compute month/year boundaries in UTC (completed_at is timestamptz)
-  const now = nowUtc
+  const now = new Date()
   const yearStart = `${now.getFullYear()}-01-01`
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
 
   // Chart range: week (7d), month (30d), year (365d)
   const chartRange = request.nextUrl.searchParams.get('chart_range') || 'month'
   const chartDays = chartRange === 'week' ? 7 : chartRange === 'year' ? 365 : 30
-  const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const chartStart = new Date(now.getTime() - chartDays * 24 * 60 * 60 * 1000)
 
-  // Trailing 12-month window for annualized revenue
-  const trailing12Start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate() + 1).toISOString().slice(0, 10)
+  // Trailing 12-month window
+  const trailing12Start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate() + 1)
 
-  // ── Revenue Queries ──
-  // Count completed jobs only — status='completed' is the source of truth
-  // (payment_status is not reliably set across tenants, so we trust manual completion)
-  const [monthJobsRes, yearJobsRes, trailing12Res, recurringJobsRes, expensesRes, leadsRes, chartJobsRes, retargetingRes] = await Promise.all([
-    // Monthly completed jobs
+  // ── Stripe Revenue (source of truth) ──
+  // Pull all succeeded charges from Stripe for the trailing 12 months
+  let allCharges: Stripe.Charge[] = []
+  let stripeError = false
+  if (tenant.stripe_secret_key) {
+    try {
+      const stripe = getStripeClientForTenant(tenant.stripe_secret_key)
+      const sinceTs = Math.floor(trailing12Start.getTime() / 1000)
+      let hasMore = true
+      let startingAfter: string | undefined
+      while (hasMore) {
+        const params: Stripe.ChargeListParams = {
+          limit: 100,
+          created: { gte: sinceTs },
+        }
+        if (startingAfter) params.starting_after = startingAfter
+        const batch = await stripe.charges.list(params)
+        const succeeded = batch.data.filter(c => c.status === 'succeeded')
+        allCharges.push(...succeeded)
+        hasMore = batch.has_more
+        if (batch.data.length > 0) {
+          startingAfter = batch.data[batch.data.length - 1].id
+        } else {
+          hasMore = false
+        }
+      }
+    } catch {
+      stripeError = true
+    }
+  }
+
+  // Bucket Stripe charges by period
+  const yearStartTs = new Date(`${yearStart}T00:00:00Z`).getTime() / 1000
+  const monthStartTs = new Date(`${monthStart}T00:00:00Z`).getTime() / 1000
+  const monthEndTs = new Date(`${monthEnd}T23:59:59Z`).getTime() / 1000
+  const chartStartTs = Math.floor(chartStart.getTime() / 1000)
+
+  const monthCharges = allCharges.filter(c => c.created >= monthStartTs && c.created <= monthEndTs)
+  const yearCharges = allCharges.filter(c => c.created >= yearStartTs)
+
+  const monthlyRevenue = monthCharges.reduce((sum, c) => sum + c.amount, 0) / 100
+  const annualRevenue = yearCharges.reduce((sum, c) => sum + c.amount, 0) / 100
+  const trailing12Revenue = allCharges.reduce((sum, c) => sum + c.amount, 0) / 100
+
+  // Build daily chart from Stripe charges
+  const chartCharges = allCharges.filter(c => c.created >= chartStartTs)
+  const dailyMap: Record<string, { revenue: number; count: number }> = {}
+  for (const c of chartCharges) {
+    const day = new Date(c.created * 1000).toISOString().slice(0, 10)
+    if (!dailyMap[day]) dailyMap[day] = { revenue: 0, count: 0 }
+    dailyMap[day].revenue += c.amount / 100
+    dailyMap[day].count++
+  }
+
+  const dailyChart: { date: string; label: string; revenue: number; jobs: number; job_details: never[] }[] = []
+  const labelFmt = chartRange === 'year'
+    ? { month: 'short' as const }
+    : { month: 'short' as const, day: 'numeric' as const }
+  for (let i = 0; i < chartDays; i++) {
+    const d = new Date(now.getTime() - (chartDays - 1 - i) * 24 * 60 * 60 * 1000)
+    const key = d.toISOString().slice(0, 10)
+    const label = d.toLocaleDateString('en-US', labelFmt)
+    const entry = dailyMap[key]
+    dailyChart.push({
+      date: key,
+      label,
+      revenue: entry?.revenue || 0,
+      jobs: entry?.count || 0,
+      job_details: [],
+    })
+  }
+
+  // ── DB Queries (for recurring detection, leads, expenses, retargeting) ──
+  const [recurringJobsRes, expensesRes, leadsRes, retargetingRes, yearJobsRes] = await Promise.all([
+    // Recurring jobs — completed only
     supabase.from('jobs')
-      .select('id, price, customer_id, completed_at, date')
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'completed')
-      .or(`and(completed_at.gte.${monthStart}T00:00:00Z,completed_at.lte.${monthEnd}T23:59:59Z),and(completed_at.is.null,date.gte.${monthStart},date.lte.${monthEnd})`)
-      .not('price', 'is', null),
-
-    // YTD completed jobs
-    supabase.from('jobs')
-      .select('id, price, customer_id, completed_at, date')
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'completed')
-      .or(`and(completed_at.gte.${yearStart}T00:00:00Z),and(completed_at.is.null,date.gte.${yearStart})`)
-      .not('price', 'is', null),
-
-    // Trailing 12-month completed (for annualized actual revenue)
-    supabase.from('jobs')
-      .select('id, price, customer_id, completed_at, date')
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'completed')
-      .or(`and(completed_at.gte.${trailing12Start}T00:00:00Z),and(completed_at.is.null,date.gte.${trailing12Start})`)
-      .not('price', 'is', null),
-
-    // Recurring jobs — ONLY completed (not scheduled/in_progress)
-    supabase.from('jobs')
-      .select('id, price, frequency, customer_id, parent_job_id')
+      .select('id, price, frequency, customer_id')
       .eq('tenant_id', tenant.id)
       .not('frequency', 'eq', 'one-time')
       .not('frequency', 'is', null)
@@ -76,43 +119,34 @@ export async function GET(request: NextRequest) {
       .eq('tenant_id', tenant.id)
       .gte('date', monthStart),
 
-    // Leads this year with source (for lead source economics)
+    // Leads this year
     supabase.from('leads')
       .select('id, source, status, phone_number, created_at')
       .eq('tenant_id', tenant.id)
       .gte('created_at', `${yearStart}T00:00:00Z`),
-
-    // Chart jobs: daily data points for completed jobs
-    supabase.from('jobs')
-      .select('id, price, completed_at, service_type, phone_number, address')
-      .eq('tenant_id', tenant.id)
-      .eq('status', 'completed')
-      .gte('completed_at', `${chartStart}T00:00:00Z`)
-      .not('price', 'is', null)
-      .order('completed_at', { ascending: true }),
 
     // Retargeting stats
     supabase.from('customers')
       .select('id, retargeting_sequence, retargeting_step, retargeting_stopped_reason, lifecycle_stage')
       .eq('tenant_id', tenant.id)
       .not('retargeting_sequence', 'is', null),
+
+    // YTD completed jobs (for recurring customer detection + lead economics)
+    supabase.from('jobs')
+      .select('id, price, customer_id, completed_at, date, phone_number')
+      .eq('tenant_id', tenant.id)
+      .eq('status', 'completed')
+      .or(`and(completed_at.gte.${yearStart}T00:00:00Z),and(completed_at.is.null,date.gte.${yearStart})`)
+      .not('price', 'is', null),
   ])
 
-  const monthJobs = monthJobsRes.data || []
-  const yearJobs = yearJobsRes.data || []
-  const trailing12Jobs = trailing12Res.data || []
   const recurringJobs = recurringJobsRes.data || []
   const expenses = expensesRes.data || []
   const leads = leadsRes.data || []
-  const chartJobs = chartJobsRes.data || []
   const retargetingCustomers = retargetingRes.data || []
+  const yearJobs = yearJobsRes.data || []
 
-  // ── Revenue Calculations (completed jobs only — no projections) ──
-  const monthlyRevenue = monthJobs.reduce((sum, j) => sum + Number(j.price), 0)
-  const annualRevenue = yearJobs.reduce((sum, j) => sum + Number(j.price), 0)
-  const trailing12Revenue = trailing12Jobs.reduce((sum, j) => sum + Number(j.price), 0)
-
-  // Detect recurring: explicit frequency OR repeat customer (2+ paid jobs this year)
+  // ── Recurring Detection ──
   const yearCustomerJobCounts: Record<string, number> = {}
   for (const j of yearJobs) {
     if (j.customer_id) {
@@ -124,25 +158,23 @@ export async function GET(request: NextRequest) {
       .filter(([, count]) => count >= 2)
       .map(([id]) => id)
   )
-
-  // Recurring customer = has frequency-based jobs OR booked 2+ times this year
   const recurringCustomerIds = new Set(
     recurringJobs.filter(j => j.customer_id).map(j => String(j.customer_id))
       .concat(Array.from(repeatCustomerIds))
   )
   const recurringClientCount = recurringCustomerIds.size
 
-  const isRecurring = (j: { customer_id?: string | number | null }) =>
-    j.customer_id && recurringCustomerIds.has(String(j.customer_id))
+  // Estimate recurring share from job data (apply ratio to Stripe revenue)
+  const yearJobTotal = yearJobs.reduce((sum, j) => sum + Number(j.price), 0)
+  const yearRecurringTotal = yearJobs
+    .filter(j => j.customer_id && recurringCustomerIds.has(String(j.customer_id)))
+    .reduce((sum, j) => sum + Number(j.price), 0)
+  const recurringPct = yearJobTotal > 0 ? yearRecurringTotal / yearJobTotal : 0
 
-  const monthlyRecurring = monthJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
+  const monthlyRecurring = Math.round(monthlyRevenue * recurringPct)
   const monthlyOneTime = monthlyRevenue - monthlyRecurring
-  const annualRecurring = yearJobs.filter(isRecurring).reduce((sum, j) => sum + Number(j.price), 0)
+  const annualRecurring = Math.round(annualRevenue * recurringPct)
   const annualOneTime = annualRevenue - annualRecurring
-
-  // Recurring revenue = actual paid recurring revenue this month (not projections)
-  // Trailing 12-month actual revenue replaces the old fake "projected annual"
-  const trailing12Annual = trailing12Revenue
 
   // ── Profit & Loss ──
   const cleanerPayPct = tenant.workflow_config?.cleaner_pay_percentage || 0
@@ -151,8 +183,7 @@ export async function GET(request: NextRequest) {
   const adSpend = expenses.filter(e => e.category.startsWith('ad_spend')).reduce((sum, e) => sum + Number(e.amount), 0)
   const profitMargin = monthlyRevenue - cleanerPay - totalExpenses
 
-  // ── Lead Source Economics ──
-  // Get jobs linked to leads via customer phone
+  // ── Lead Source Economics (still job-based — Stripe doesn't track lead source) ──
   const leadPhones = [...new Set(leads.map(l => l.phone_number).filter(Boolean))]
   let jobsByPhone: Record<string, { revenue: number; count: number }> = {}
 
@@ -174,13 +205,11 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Aggregate expenses by category for cost-per-source
   const expenseByCategory: Record<string, number> = {}
   for (const e of expenses) {
     expenseByCategory[e.category] = (expenseByCategory[e.category] || 0) + Number(e.amount)
   }
 
-  // Build lead source table
   const sourceMap: Record<string, { leads: number; booked: number; revenue: number; cost: number }> = {}
   for (const lead of leads) {
     const src = lead.source || 'unknown'
@@ -192,7 +221,6 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Map expense categories to lead sources
   const categoryToSource: Record<string, string> = {
     ad_spend_meta: 'meta',
     ad_spend_google: 'google',
@@ -216,34 +244,6 @@ export async function GET(request: NextRequest) {
     }))
     .sort((a, b) => b.revenue - a.revenue)
 
-  // Build DAILY revenue chart data (Stripe-style spikes)
-  const dailyMap: Record<string, { revenue: number; jobs: { id: number; price: number; service_type: string | null; phone_number: string | null; address: string | null }[] }> = {}
-  for (const j of chartJobs) {
-    if (!j.completed_at) continue
-    const day = new Date(j.completed_at).toISOString().slice(0, 10)
-    if (!dailyMap[day]) dailyMap[day] = { revenue: 0, jobs: [] }
-    dailyMap[day].revenue += Number(j.price)
-    dailyMap[day].jobs.push({ id: j.id, price: Number(j.price), service_type: j.service_type, phone_number: j.phone_number, address: j.address })
-  }
-  // Fill in every day in the range (zeros for days with no jobs)
-  const dailyChart: { date: string; label: string; revenue: number; jobs: number; job_details: { id: number; price: number; service_type: string | null; phone_number: string | null; address: string | null }[] }[] = []
-  const labelFmt = chartRange === 'year'
-    ? { month: 'short' as const }
-    : { month: 'short' as const, day: 'numeric' as const }
-  for (let i = 0; i < chartDays; i++) {
-    const d = new Date(now.getTime() - (chartDays - 1 - i) * 24 * 60 * 60 * 1000)
-    const key = d.toISOString().slice(0, 10)
-    const label = d.toLocaleDateString('en-US', labelFmt)
-    const entry = dailyMap[key]
-    dailyChart.push({
-      date: key,
-      label,
-      revenue: entry?.revenue || 0,
-      jobs: entry?.jobs.length || 0,
-      job_details: entry?.jobs || [],
-    })
-  }
-
   // Retargeting stats
   const activeSequences = retargetingCustomers.filter((c: any) => !c.retargeting_stopped_reason).length
   const converted = retargetingCustomers.filter((c: any) => c.retargeting_stopped_reason === 'converted').length
@@ -258,8 +258,9 @@ export async function GET(request: NextRequest) {
       annual: annualRevenue,
       annual_recurring: annualRecurring,
       annual_one_time: annualOneTime,
-      trailing_12_annual: trailing12Annual,
+      trailing_12_annual: trailing12Revenue,
       recurring_client_count: recurringClientCount,
+      source: stripeError ? 'jobs' : (tenant.stripe_secret_key ? 'stripe' : 'jobs'),
     },
     pnl: {
       revenue: monthlyRevenue,

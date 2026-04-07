@@ -43,6 +43,7 @@ interface InsightsData {
     annual_one_time: number
     trailing_12_annual: number
     recurring_client_count: number
+    source?: 'stripe' | 'jobs'
   }
   pnl: {
     revenue: number
@@ -148,7 +149,7 @@ export default function InsightsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Insights</h1>
-          <p className="text-sm text-muted-foreground">{month_name} — Real numbers, no bullshit</p>
+          <p className="text-sm text-muted-foreground">{month_name} — {revenue.source === 'stripe' ? 'Stripe actuals' : 'Job prices'}, no bullshit</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => load()}>
           <RefreshCcw className="h-3.5 w-3.5 mr-1.5" />
