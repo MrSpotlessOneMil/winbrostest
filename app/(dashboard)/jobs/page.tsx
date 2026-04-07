@@ -591,22 +591,36 @@ export default function JobsPage() {
     }
   }, [createForm.service_type])
 
+  // Addons included per tier (code-level source of truth, matches quote-pricing.ts)
+  const TIER_INCLUDED_ADDONS: Record<string, string[]> = {
+    deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+    move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+  }
+
   // Auto-select add-ons included in the chosen service type (house cleaning only)
   useEffect(() => {
     if (!isHouseCleaning) return
     if (addonsList.length === 0) return
     const st = (createForm.service_type || "").toLowerCase()
     const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
-    const includedKeys = addonsList
+    // Merge DB included_in with code-level fallback
+    const dbIncludedKeys = addonsList
       .filter((a: any) => Array.isArray(a.included_in) && a.included_in.includes(tierKey))
       .map((a: any) => a.addon_key)
+    const codeIncludedKeys = (TIER_INCLUDED_ADDONS[tierKey] || [])
+      .filter((key) => addonsList.some((a: any) => a.addon_key === key))
+    const includedKeys = [...new Set([...dbIncludedKeys, ...codeIncludedKeys])]
     // All addon keys that are included in ANY tier (so we can remove stale ones on switch)
-    const allIncludableKeys = addonsList
-      .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
-      .map((a: any) => a.addon_key)
+    const allIncludableKeys = [
+      ...addonsList
+        .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
+        .map((a: any) => a.addon_key),
+      ...Object.values(TIER_INCLUDED_ADDONS).flat(),
+    ]
+    const allIncludableSet = [...new Set(allIncludableKeys)]
     setCreateForm((prev) => {
       // Keep manually-selected add-ons (ones not auto-includable), drop old auto-included, add new ones
-      const manual = prev.selected_addons.filter((k) => !allIncludableKeys.includes(k))
+      const manual = prev.selected_addons.filter((k) => !allIncludableSet.includes(k))
       const merged = [...new Set([...manual, ...includedKeys])]
       if (merged.length === prev.selected_addons.length && merged.every((k) => prev.selected_addons.includes(k))) return prev
       return { ...prev, selected_addons: merged }
@@ -3448,7 +3462,14 @@ export default function JobsPage() {
                             {addons.map((addon) => {
                               const st = (createForm.service_type || "").toLowerCase()
                               const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
-                              const isIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
+                              const dbIncluded = Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
+                              // Code-level fallback: addons included per tier per quote-pricing.ts definitions
+                              const TIER_INCLUDES: Record<string, string[]> = {
+                                deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                                move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                              }
+                              const codeIncluded = (TIER_INCLUDES[tierKey] || []).includes(addon.addon_key)
+                              const isIncluded = isHouseCleaning && (dbIncluded || codeIncluded)
                               return (
                               <label
                                 key={addon.addon_key}
@@ -3520,10 +3541,20 @@ export default function JobsPage() {
                       items.push({ label: createForm.service_type || "Base Service", price: basePrice })
                     }
 
-                    // Selected add-ons
+                    // Selected add-ons (skip price for included addons)
+                    const st = (createForm.service_type || "").toLowerCase()
+                    const summaryTierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+                    const TIER_INCLUDES_SUMMARY: Record<string, string[]> = {
+                      deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                      move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                    }
                     for (const key of createForm.selected_addons) {
                       const addon = derivedAddonsList.find((a) => a.addon_key === key)
                       if (addon) {
+                        const addonDbIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(summaryTierKey)
+                        const addonCodeIncluded = isHouseCleaning && (TIER_INCLUDES_SUMMARY[summaryTierKey] || []).includes(key)
+                        const addonIncluded = addonDbIncluded || addonCodeIncluded
+                        if (addonIncluded) continue // included in tier price, don't add to summary
                         items.push({ label: addon.label, price: addon.flat_price || 0 })
                       }
                     }
