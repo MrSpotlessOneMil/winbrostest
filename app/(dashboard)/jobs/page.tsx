@@ -464,6 +464,7 @@ export default function JobsPage() {
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   // Refs for values read inside closures/timeouts to avoid stale captures
+  const pendingJobOpenRef = useRef<string | null>(null)
   const isPreviewingRef = useRef(false)
   const formSnapshotRef = useRef<CreateForm | null>(null)
   const basePriceSnapshotRef = useRef<number>(0)
@@ -1051,6 +1052,18 @@ export default function JobsPage() {
     setSendToCleanerId("")
     setSendToCleanerResult(null)
   }, [jobs])
+
+  // Open job details after creation once jobs list refreshes
+  useEffect(() => {
+    if (pendingJobOpenRef.current) {
+      const jobId = pendingJobOpenRef.current
+      const job = jobs.find((j) => String(j.id) === jobId)
+      if (job) {
+        pendingJobOpenRef.current = null
+        handleGanttJobClick(jobId)
+      }
+    }
+  }, [jobs, handleGanttJobClick])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -1867,6 +1880,9 @@ export default function JobsPage() {
       setIsPreviewing(false)
       setLookedUpCustomerId(null)
       setCustomerMemberships([])
+      // Open the new job's detail view after refresh
+      const newJobId = data.data?.id
+      if (newJobId) pendingJobOpenRef.current = String(newJobId)
       await refreshJobs()
     } catch {
       setCreateError("Connection error. Please try again.")
