@@ -490,8 +490,9 @@ export function getTenantCurrency(tenant: Tenant): string {
   return tenant.currency || 'usd'
 }
 
-export function getTenantLocale(tenant: Tenant): string {
-  return tenant.currency === 'cad' ? 'en-CA' : 'en-US'
+export function getTenantLocale(_tenant: Tenant): string {
+  // Always use en-US so non-USD currencies get distinguishing prefix (CA$ not $)
+  return 'en-US'
 }
 
 export function formatTenantCurrency(tenant: Tenant, amount: number): string {

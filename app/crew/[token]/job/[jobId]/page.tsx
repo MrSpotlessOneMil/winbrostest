@@ -37,8 +37,7 @@ function formatTime(t: string | null) {
 function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
 function fmtPay(amount: number, currency = "usd") {
   const cur = (currency || "usd").toUpperCase()
-  const locale = cur === "CAD" ? "en-CA" : "en-US"
-  return new Intl.NumberFormat(locale, { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
 }
 
 export default function JobDetailPage() {

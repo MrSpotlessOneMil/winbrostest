@@ -42,8 +42,8 @@ interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<strin
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function fmtCurrency(amount: number, currency = "USD"): string {
-  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
-  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
+  // Always use en-US locale so non-USD currencies get a distinguishing prefix (CA$, not $)
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function fmtDate(iso: string): string {
