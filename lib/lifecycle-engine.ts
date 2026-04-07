@@ -6,7 +6,7 @@
  */
 
 import { getSupabaseServiceClient } from './supabase'
-import { sendSMS } from './openphone'
+import { sendSMS, isConversationQuiet } from './openphone'
 import { scheduleTask } from './scheduler'
 import { logSystemEvent } from './system-events'
 
@@ -45,20 +45,24 @@ export async function canSendToCustomer(
     return false
   }
 
-  // Global daily cap: max 3 automated messages per day (tenant-scoped)
-  const dailyCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-  let dailyQuery = client
-    .from('customer_message_log')
-    .select('id', { count: 'exact', head: true })
-    .eq('customer_id', customerId)
-    .gte('sent_at', dailyCutoff)
-  dailyQuery = dailyQuery.eq('tenant_id', tenantId)
-
-  const { count: dailyCount } = await dailyQuery
-
-  if (dailyCount && dailyCount >= 3) {
-    console.log(`[lifecycle] Customer ${customerId} hit daily cap (${dailyCount}/3 automated msgs)`)
-    return false
+  // Active conversation check: if there's been any message activity with this customer
+  // in the last 10 minutes, hold off — they're in a live convo with AI or a human.
+  // This prevents retargeting/followup texts from barging into active conversations.
+  try {
+    const { data: custPhone } = await client
+      .from('customers')
+      .select('phone_number')
+      .eq('id', customerId)
+      .single()
+    if (custPhone?.phone_number) {
+      const quiet = await isConversationQuiet(tenantId, custPhone.phone_number, 10)
+      if (!quiet) {
+        console.log(`[lifecycle] Customer ${customerId} in active conversation — holding automated text`)
+        return false
+      }
+    }
+  } catch {
+    // fail open — if we can't check, allow the send
   }
 
   return true

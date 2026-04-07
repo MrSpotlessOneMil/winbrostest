@@ -14,6 +14,34 @@ import { getSupabaseServiceClient } from './supabase'
 // Re-export for dashboard compatibility
 export { normalizePhoneNumber }
 
+/**
+ * Check if a customer is in an active conversation (any message in last 10 min).
+ * Use this in marketing/retargeting crons BEFORE calling sendSMS to avoid
+ * interrupting a live AI or human conversation.
+ *
+ * Returns true if it's safe to send (no recent activity).
+ */
+export async function isConversationQuiet(tenantId: string, phone: string, windowMinutes = 10): Promise<boolean> {
+  const formatted = toE164(phone)
+  if (!formatted) return true // can't check, allow send
+
+  try {
+    const client = getSupabaseServiceClient()
+    const cutoff = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString()
+
+    const { count } = await client
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('phone_number', formatted)
+      .eq('tenant_id', tenantId)
+      .gte('created_at', cutoff)
+
+    return !count || count === 0
+  } catch {
+    return true // fail open — if we can't check, allow the send
+  }
+}
+
 const OPENPHONE_API_BASE = 'https://api.openphone.com/v1'
 
 interface SendSMSResponse {
@@ -131,28 +159,11 @@ export async function sendSMS(
     console.error(`[${tenant.slug}] SMS dedup check failed:`, dedupErr)
   }
 
-  // ── Active conversation check (only for marketing/retargeting, not AI convos or transactional) ──
-  // AI booking conversations and transactional texts (receipts, confirmations) skip this entirely.
-  // Only marketing texts (retargeting, lead followup, nudges) check if someone is actively chatting.
-  if (!options?.skipThrottle) try {
-    const throttleClient = getSupabaseServiceClient()
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-
-    // Check for ANY recent message activity (inbound or outbound) with this customer
-    const { count: recentActivity } = await throttleClient
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('phone_number', toE164Format)
-      .eq('tenant_id', tenant.id)
-      .gte('created_at', tenMinutesAgo)
-
-    if (recentActivity && recentActivity > 0) {
-      console.log(`[${tenant.slug}] SMS held for ${toE164Format}: active conversation (${recentActivity} messages in last 10min)`)
-      return { success: false, error: 'Active conversation detected — holding automated text' }
-    }
-  } catch (throttleErr) {
-    console.error(`[${tenant.slug}] SMS conversation check failed:`, throttleErr)
-  }
+  // ── Throttle removed ──
+  // Old 3/day hard limit killed. Conversation awareness check lives in the
+  // marketing crons (retargeting, lead followup, monthly nudge) instead of here.
+  // All sendSMS calls pass through freely — the crons themselves decide whether
+  // to call sendSMS based on conversation state.
 
   try {
     const controller = new AbortController()
