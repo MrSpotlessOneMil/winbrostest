@@ -21,11 +21,22 @@ const OWNER_PHONES: Record<string, string> = {
   'cedar-rapids': '+13198264311',
 }
 
+// Also support GET for easy browser/curl access
+export async function GET(request: NextRequest) {
+  return handlePatch(request)
+}
+
 export async function POST(request: NextRequest) {
-  // Accept admin session OR CRON_SECRET bearer token
+  return handlePatch(request)
+}
+
+async function handlePatch(request: NextRequest) {
+  // Accept admin session OR CRON_SECRET (bearer header or ?secret= query param)
   const isAdmin = await requireAdmin(request)
   const isCron = verifyCronAuth(request)
-  if (!isAdmin && !isCron) {
+  const secretParam = request.nextUrl.searchParams.get('secret')
+  const isSecretParam = secretParam === process.env.CRON_SECRET
+  if (!isAdmin && !isCron && !isSecretParam) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
