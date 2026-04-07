@@ -2464,6 +2464,14 @@ export default function JobsPage() {
                     }}>Card on file</span>
                   )}
                 </div>
+                {selectedEvent?.customerPhone && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Phone:</strong>{" "}
+                    <a href={`tel:${selectedEvent.customerPhone}`} style={{ color: "#8b5cf6", textDecoration: "none" }}>
+                      {selectedEvent.customerPhone}
+                    </a>
+                  </div>
+                )}
                 {selectedEvent?.leadSource && (() => {
                   const cfg = getLeadSourceConfig(selectedEvent.leadSource)
                   return (
