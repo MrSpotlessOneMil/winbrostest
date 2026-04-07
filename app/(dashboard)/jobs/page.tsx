@@ -3516,7 +3516,7 @@ export default function JobsPage() {
                       />
                     </div>
                     <div>
-                      <label className="cal-form-label">Sqft *</label>
+                      <label className="cal-form-label">Sqft</label>
                       <input
                         type="number"
                         className="cal-form-control"
