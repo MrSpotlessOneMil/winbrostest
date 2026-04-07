@@ -1447,9 +1447,9 @@ export default function JobsPage() {
     return null
   }
 
-  const pmGenerateLink = async (type: string) => {
+  const pmGenerateLink = async (type: string): Promise<boolean> => {
     const customerId = pmGetCustomerId()
-    if (!customerId) { alert("No customer found"); return }
+    if (!customerId) { alert("No customer found"); return false }
     setPmLoading(true)
     setPmResult(null)
     setPmCopied(false)
@@ -1469,11 +1469,14 @@ export default function JobsPage() {
       const json = await res.json()
       if (res.ok && json.success) {
         setPmResult({ url: json.url, invoiceId: json.invoiceId })
+        return true
       } else {
         alert(json.error || "Failed to generate link")
+        return false
       }
     } catch {
       alert("Failed to generate link")
+      return false
     } finally {
       setPmLoading(false)
     }
@@ -1901,8 +1904,8 @@ export default function JobsPage() {
                     }
                     setPmType("invoice")
                   } else {
-                    pmGenerateLink(opt.key)
                     setPmType(opt.key)
+                    pmGenerateLink(opt.key).then(ok => { if (!ok) setPmType(null) })
                   }
                 }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
