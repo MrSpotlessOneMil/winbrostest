@@ -78,11 +78,32 @@
       },
       {
         "type": "transferCall",
+        "function": {
+          "name": "transferCall",
+          "description": "Transfer the call to a human. Use when the customer asks for a real person, agent, representative, or the owner.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "destination": {
+                "type": "string",
+                "enum": ["{{OWNER_PHONE}}"],
+                "description": "The phone number to transfer to."
+              }
+            },
+            "required": ["destination"]
+          }
+        },
         "destinations": [
           {
             "type": "number",
             "number": "{{OWNER_PHONE}}",
             "message": "Transferring you to the team now."
+          }
+        ],
+        "messages": [
+          {
+            "type": "request-start",
+            "content": "Let me connect you right now, one moment."
           }
         ]
       }

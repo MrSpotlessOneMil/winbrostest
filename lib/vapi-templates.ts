@@ -197,13 +197,34 @@ function replaceInPrompt(config: Record<string, any>, opts: CloneOptions): void 
     config.voicemailMessage = doReplace(config.voicemailMessage)
   }
 
-  // transferCall tool destinations in model.tools (phone numbers + messages)
+  // transferCall tool: replace placeholders in function schema, destinations, and messages
   if (config.model?.tools && Array.isArray(config.model.tools)) {
     for (const tool of config.model.tools) {
-      if (tool.type === 'transferCall' && Array.isArray(tool.destinations)) {
-        for (const dest of tool.destinations) {
-          if (typeof dest.number === "string") dest.number = doReplace(dest.number)
-          if (typeof dest.message === "string") dest.message = doReplace(dest.message)
+      if (tool.type === 'transferCall') {
+        // Destinations
+        if (Array.isArray(tool.destinations)) {
+          for (const dest of tool.destinations) {
+            if (typeof dest.number === "string") dest.number = doReplace(dest.number)
+            if (typeof dest.message === "string") dest.message = doReplace(dest.message)
+          }
+        }
+        // Function schema (enum values for destination parameter)
+        const enumArr = tool.function?.parameters?.properties?.destination?.enum
+        if (Array.isArray(enumArr)) {
+          for (let i = 0; i < enumArr.length; i++) {
+            if (typeof enumArr[i] === "string") enumArr[i] = doReplace(enumArr[i])
+          }
+        }
+        // Messages
+        if (Array.isArray(tool.messages)) {
+          for (const msg of tool.messages) {
+            if (typeof msg.content === "string") msg.content = doReplace(msg.content)
+            if (Array.isArray(msg.conditions)) {
+              for (const cond of msg.conditions) {
+                if (typeof cond.value === "string") cond.value = doReplace(cond.value)
+              }
+            }
+          }
         }
       }
     }

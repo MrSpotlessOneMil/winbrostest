@@ -98,14 +98,35 @@ async function handlePatch(request: NextRequest) {
       const cleanedPhrases = currentEndCallPhrases
         .filter((p: string) => p.toLowerCase() !== 'have a great day')
 
-      // Build the transfer tool
+      // Build the transfer tool with full function schema (required by VAPI)
       const transferTool = {
         type: 'transferCall',
+        function: {
+          name: 'transferCall',
+          description: 'Transfer the call to a human. Use when the customer asks for a real person, agent, representative, or the owner.',
+          parameters: {
+            type: 'object',
+            properties: {
+              destination: {
+                type: 'string',
+                enum: [owner_phone],
+                description: 'The phone number to transfer to.',
+              },
+            },
+            required: ['destination'],
+          },
+        },
         destinations: [
           {
             type: 'number',
             number: owner_phone,
             message: 'Transferring you to the team now.',
+          },
+        ],
+        messages: [
+          {
+            type: 'request-start',
+            content: 'Let me connect you right now, one moment.',
           },
         ],
       }
