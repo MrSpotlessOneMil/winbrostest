@@ -512,14 +512,22 @@ export default function QuotePage() {
         )}
 
         {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
-        {isCustomPriced ? (
+        {isCustomPriced ? (() => {
+          // Determine checklist from service_category
+          const catMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
+          const customTierKey = catMap[(quote as any).service_category as string] || ''
+          const customChecklist = getDetailedChecklist(customTierKey)
+          // Show service type name
+          const serviceNames: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move_in_out: 'Move-Out Clean', move: 'Move-Out Clean' }
+          const serviceName = serviceNames[(quote as any).service_category as string] || 'Custom Service Package'
+          return (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
             <p className="text-slate-400 text-sm mb-3">Prepared by our team specifically for your property.</p>
             <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-slate-800 font-bold text-lg">Custom Service Package</h3>
+                  <h3 className="text-slate-800 font-bold text-lg">{serviceName}</h3>
                   <p className="text-slate-500 text-sm mt-1">{quote.customer_address || "Your property"}</p>
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
@@ -554,9 +562,24 @@ export default function QuotePage() {
                   })}
                 </div>
               )}
+              {/* What's included checklist (from service_category) */}
+              {customChecklist.length > 0 && (
+                <div className="border-t border-blue-200 pt-4 space-y-2">
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {customChecklist.map((task, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        ) : (
+          )
+        })() : (
         <div>
           {/* Single-price hero view for VAPI quotes */}
           {singleTierMode && selectedTier && selectedTierPrice ? (
@@ -691,8 +714,8 @@ export default function QuotePage() {
         </div>
         )}
 
-        {/* ── Add-ons (hidden for custom-priced quotes — all included in base price) */}
-        {addons.length > 0 && !isCustomPriced && (
+        {/* ── Add-ons */}
+        {addons.length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
             <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
