@@ -42,8 +42,9 @@ interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<strin
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function fmtCurrency(amount: number, currency = "USD"): string {
-  // Always use en-US locale so non-USD currencies get a distinguishing prefix (CA$, not $)
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount)
+  // Use locale matching currency so domestic customers see "$" not "CA$"
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function fmtDate(iso: string): string {
@@ -95,44 +96,28 @@ const EXTRA_DEEP_EXTRAS = [
   "Spot clean walls (scuffs, marks, and fingerprints)",
 ]
 
-const MOVE_GOOD_CHECKLIST = [
+const MOVE_CHECKLIST = [
   "Clean all kitchen countertops, stovetop, and sink",
   "Clean inside microwave",
-  "Wipe all cabinet exteriors",
-  "Clean garbage disposal area",
-  "Scrub and sanitize all toilets, tubs, and showers",
-  "Clean bathroom vanity, sink, and all mirrors",
-  "Vacuum all carpeted areas and mop all hard floors",
-  "Dust all surfaces and remove cobwebs",
-  "Hand-wipe all baseboards",
-  "Dust and wipe ceiling fan blades",
-  "Clean light fixtures, light switches, and door knobs",
-  "Clean all window sills and ledges",
-  "Sweep and wipe all closet interiors",
-  "Spot clean walls (scuffs and marks)",
-  "Empty all trash and replace liners",
-]
-
-const MOVE_BETTER_EXTRAS = [
   "Clean inside oven (racks, walls, door glass)",
   "Clean inside fridge (shelves, drawers, compartments)",
   "Clean inside dishwasher",
-  "Wipe all cabinet and drawer interiors",
+  "Wipe all cabinet and drawer interiors and exteriors",
   "Degrease range hood and filter",
+  "Clean garbage disposal area",
   "Clean behind and under appliances",
-  "Clean all window tracks",
+  "Scrub and sanitize all toilets, tubs, and showers",
   "Scrub bathroom grout",
+  "Clean bathroom vanity, sink, and all mirrors",
+  "Vacuum all carpeted areas and mop all hard floors",
+  "Dust all surfaces and remove cobwebs",
   "Detailed hand-wipe all baseboards",
-  "Detailed light fixture cleaning",
-]
-
-const MOVE_BEST_EXTRAS = [
-  "Full wall washing (every wall, floor to ceiling)",
-  "Interior window glass cleaning",
-  "Mineral deposit and hard water removal",
-  "Mold and mildew treatment",
-  "Deep clean all blinds",
-  "Clean all exhaust fans",
+  "Detailed cleaning of all ceiling fans and light fixtures",
+  "Clean all window sills, ledges, and window tracks",
+  "Clean light switches, door knobs, and outlet covers",
+  "Sweep and wipe all closet interiors",
+  "Spot clean walls (scuffs and marks)",
+  "Empty all trash and replace liners",
 ]
 
 function getDetailedChecklist(tierKey: string): string[] {
@@ -140,9 +125,11 @@ function getDetailedChecklist(tierKey: string): string[] {
     case "standard": return STANDARD_CHECKLIST
     case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
     case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS, ...EXTRA_DEEP_EXTRAS]
-    case "move_good": return MOVE_GOOD_CHECKLIST
-    case "move_better": return [...MOVE_GOOD_CHECKLIST, ...MOVE_BETTER_EXTRAS]
-    case "move_best": return [...MOVE_GOOD_CHECKLIST, ...MOVE_BETTER_EXTRAS, ...MOVE_BEST_EXTRAS]
+    case "move": return MOVE_CHECKLIST
+    // Backward compat for old quotes
+    case "move_good": return MOVE_CHECKLIST
+    case "move_better": return MOVE_CHECKLIST
+    case "move_best": return MOVE_CHECKLIST
     default: return []
   }
 }
@@ -219,7 +206,7 @@ export default function QuotePage() {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
           // Default to the tier matching the quote's service_category (e.g. customer asked for standard on the call)
           // Fall back to middle tier (best value) if no match
-          const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move_good' }
+          const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
           const categoryTier = categoryTierMap[json.quote.service_category as string]
           const defaultTier = (categoryTier && tierKeys.includes(categoryTier))
             ? categoryTier

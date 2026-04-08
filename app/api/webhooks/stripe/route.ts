@@ -555,6 +555,9 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     deep: 'Deep Clean',
     extra_deep: 'Extra Deep Clean',
     move: 'Move-In/Move-Out Clean',
+    move_good: 'Move-In/Move-Out Clean',
+    move_better: 'Move-In/Move-Out Clean',
+    move_best: 'Move-In/Move-Out Clean',
     custom: 'Custom Quote',
   }
   const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
@@ -972,6 +975,9 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     deep: 'Deep Clean',
     extra_deep: 'Extra Deep Clean',
     move: 'Move-In/Move-Out Clean',
+    move_good: 'Move-In/Move-Out Clean',
+    move_better: 'Move-In/Move-Out Clean',
+    move_best: 'Move-In/Move-Out Clean',
   }
   const serviceName = tierNames[selected_tier || ''] || selected_tier || 'Cleaning'
 

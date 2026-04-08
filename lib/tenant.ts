@@ -490,8 +490,10 @@ export function getTenantCurrency(tenant: Tenant): string {
   return tenant.currency || 'usd'
 }
 
-export function getTenantLocale(_tenant: Tenant): string {
-  // Always use en-US so non-USD currencies get distinguishing prefix (CA$ not $)
+export function getTenantLocale(tenant: Tenant): string {
+  // Use locale matching the currency so domestic customers see "$" not "CA$"
+  const currency = getTenantCurrency(tenant)
+  if (currency.toLowerCase() === 'cad') return 'en-CA'
   return 'en-US'
 }
 
@@ -501,8 +503,24 @@ export function formatTenantCurrency(tenant: Tenant, amount: number): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency: currency.toUpperCase(), minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
 }
 
-export function getCurrencySymbol(tenant: Tenant): string {
-  return tenant.currency === 'cad' ? 'C$' : '$'
+/**
+ * Format currency for voice/speech contexts (VAPI).
+ * Uses locale matching the currency so the AI says "$420" not "CA$420".
+ */
+export function formatCurrencyForSpeech(tenant: Tenant, amount: number): string {
+  const currency = getTenantCurrency(tenant)
+  const locale = currency.toLowerCase() === 'cad' ? 'en-CA' : 'en-US'
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+export function getCurrencySymbol(_tenant: Tenant): string {
+  // All tenants use "$" domestically — Canadian customers know "$" means CAD
+  return '$'
 }
 
 export function calculateCleanerPay(

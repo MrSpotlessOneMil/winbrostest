@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sendSMS } from '@/lib/openphone'
 import { toE164 } from '@/lib/phone-utils'
-import { getTenantBySlug, formatTenantCurrency } from '@/lib/tenant'
+import { getTenantBySlug, formatTenantCurrency, formatCurrencyForSpeech } from '@/lib/tenant'
 import { getSupabaseServiceClient } from '@/lib/supabase'
 
 // route-check:no-vercel-cron
@@ -74,7 +74,7 @@ function toServiceCategory(serviceType: string): string {
 function toSelectedTier(serviceType: string): string {
   if (serviceType === 'deep') return 'deep'
   const lower = serviceType.toLowerCase().replace(/[-_\s]/g, '')
-  if (lower.includes('move')) return 'move_good'
+  if (lower.includes('move')) return 'move'
   return 'standard'
 }
 
@@ -325,6 +325,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Return the actual price so the AI can quote it accurately on the call
-  const priceInfo = finalPrice ? ` The exact price is ${formatTenantCurrency(tenant, parseFloat(finalPrice))}.` : ''
+  // Use speech-friendly format so VAPI says "$420" not "CA$420"
+  const priceInfo = finalPrice ? ` The exact price is ${formatCurrencyForSpeech(tenant, parseFloat(finalPrice))}.` : ''
   return vapiResult(`SMS sent successfully.${priceInfo} Message: ${smsMessage}`)
 }

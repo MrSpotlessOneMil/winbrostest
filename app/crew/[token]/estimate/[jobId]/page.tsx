@@ -65,7 +65,8 @@ interface EstimateData {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function fmtCurrency(amount: number, currency = "USD"): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount)
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function formatDate(dateStr: string): string {

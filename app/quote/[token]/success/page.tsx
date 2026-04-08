@@ -5,8 +5,8 @@ import { useParams } from "next/navigation"
 import { CheckCircle, Loader2, Calendar, Phone } from "lucide-react"
 
 function fmtCurrency(amount: number, currency = "USD"): string {
-  // Always use en-US locale so non-USD currencies get a distinguishing prefix (CA$, not $)
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(amount)
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 export default function QuoteSuccessPage() {
