@@ -448,6 +448,7 @@ export default function JobsPage() {
   const [pmChargeResult, setPmChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
   const [pmChargeDesc, setPmChargeDesc] = useState("")
   const [pmError, setPmError] = useState<string | null>(null)
+  const [cardFormOpen, setCardFormOpen] = useState(false)
   const [pmPos, setPmPos] = useState<{ top: number; left: number } | null>(null)
   const pmRef = useRef<HTMLDivElement>(null)
   const pmBtnRef = useRef<HTMLButtonElement>(null)
@@ -1975,7 +1976,8 @@ export default function JobsPage() {
                       setPmError("No customer found — save a customer first before entering card details.")
                       return
                     }
-                    setPmType("enter_card")
+                    pmReset()
+                    setCardFormOpen(true)
                   } else if (opt.key === "payment") {
                     setPmType("payment")
                   } else if (opt.key === "invoice") {
@@ -2071,13 +2073,6 @@ export default function JobsPage() {
         )}
 
         {/* Enter Card — Stripe Elements */}
-        {pmType === "enter_card" && (
-          <StripeCardForm
-            customerId={pmGetCustomerId() || ""}
-            onSuccess={() => { setPmType(null); pmReset() }}
-            onCancel={() => setPmType(null)}
-          />
-        )}
 
         {/* Charge Card — amount input */}
         {pmType === "charge_card" && !pmChargeResult && (
@@ -4166,6 +4161,22 @@ export default function JobsPage() {
         </div>
       </div>
       {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile)}
+
+      {/* Standalone Enter Card modal — rendered at top level, no stacking context issues */}
+      {cardFormOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setCardFormOpen(false) }}
+        >
+          <div style={{ width: "100%", maxWidth: 360, borderRadius: 12, background: "#18181b", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
+            <StripeCardForm
+              customerId={pmGetCustomerId() || ""}
+              onSuccess={() => setCardFormOpen(false)}
+              onCancel={() => setCardFormOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </>
   )
 }
