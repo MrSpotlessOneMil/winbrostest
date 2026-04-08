@@ -90,26 +90,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Check for session cookie or Authorization header (mobile app support)
-  let sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
-
-  // Mobile apps (React Native) can't reliably send Cookie headers cross-origin.
-  // Accept the session token from an Authorization: Bearer header as fallback.
-  if (!sessionToken) {
-    const authHeader = request.headers.get('Authorization')
-    if (authHeader?.startsWith('Bearer ')) {
-      sessionToken = authHeader.slice(7)
-      // Inject the token as a cookie so downstream requireAuth() works
-      const response = NextResponse.next()
-      response.cookies.set(SESSION_COOKIE_NAME, sessionToken, { path: '/' })
-      // We need to also set it on the request for this pass-through
-      const requestHeaders = new Headers(request.headers)
-      requestHeaders.set('Cookie', `${SESSION_COOKIE_NAME}=${sessionToken}`)
-      return NextResponse.next({
-        request: { headers: requestHeaders },
-      })
-    }
-  }
+  // Check for session cookie or Authorization Bearer header (mobile app support)
+  const sessionToken = request.cookies.get(SESSION_COOKIE_NAME)?.value
+    || (request.headers.get('Authorization')?.startsWith('Bearer ')
+      ? request.headers.get('Authorization')!.slice(7)
+      : null)
 
   // If no session and trying to access protected page, redirect to login
   if (!sessionToken) {

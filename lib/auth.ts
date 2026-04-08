@@ -277,7 +277,17 @@ export async function deleteSession(token: string): Promise<void> {
 }
 
 export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  // Try cookie first (normal browser flow)
+  let token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+
+  // Fallback: Authorization Bearer header (mobile app flow)
+  // React Native on iOS can't reliably send Cookie headers cross-origin
+  if (!token) {
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7)
+    }
+  }
 
   if (!token) {
     return null
@@ -292,7 +302,11 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
  * Returns the AuthCleaner if so, null otherwise.
  */
 export async function getAuthCleaner(request: NextRequest): Promise<AuthCleaner | null> {
-  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  let token = request.cookies.get(SESSION_COOKIE_NAME)?.value
+  if (!token) {
+    const authHeader = request.headers.get('Authorization')
+    if (authHeader?.startsWith('Bearer ')) token = authHeader.slice(7)
+  }
   if (!token) return null
 
   const result = await getSession(token)
