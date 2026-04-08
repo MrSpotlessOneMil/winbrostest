@@ -1915,11 +1915,10 @@ export default function JobsPage() {
   }
 
   // ── Reusable payment menu popover ──
-  const renderPaymentMenu = (showCardOnFile: boolean, direction: "down" | "up" = "down") => (
+  const renderPaymentMenu = (showCardOnFile: boolean, _direction: "down" | "up" = "down") => (
     <>
-      {/* Backdrop for mobile */}
-      <div className="fixed inset-0 bg-black/40" style={{ zIndex: 60 }} onClick={pmReset} />
-      <div className={`fixed inset-x-4 top-1/4 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl md:absolute md:inset-auto md:right-0 md:w-72 md:mx-0 ${direction === "up" ? "md:bottom-9" : "md:top-9"}`} style={{ zIndex: 70, isolation: "isolate" }}>
+      <div className="fixed inset-0 bg-black/40" style={{ zIndex: 9998 }} onClick={pmReset} />
+      <div className="fixed inset-x-4 top-1/4 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" style={{ zIndex: 9999 }}>
         {pmError && (
           <div className="p-3 border-b border-zinc-700/50">
             <p className="text-xs text-red-400">{pmError}</p>
@@ -1953,6 +1952,17 @@ export default function JobsPage() {
                       setPmJobId(selectedEvent.jobId)
                     }
                     setPmType("invoice")
+                  } else if (opt.key === "card_on_file") {
+                    if (!pmGetCustomerId()) {
+                      setPmError("No customer found.")
+                      return
+                    }
+                    if (!selectedEvent?.customerEmail) {
+                      setPmError("Customer email required for card-on-file link. Add an email first via Edit.")
+                      return
+                    }
+                    setPmType(opt.key)
+                    pmGenerateLink(opt.key).then(ok => { if (!ok) setPmType(null) })
                   } else {
                     setPmType(opt.key)
                     pmGenerateLink(opt.key).then(ok => { if (!ok) setPmType(null) })
