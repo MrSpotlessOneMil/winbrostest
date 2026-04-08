@@ -647,7 +647,6 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 // Stripe webhook then triggers cleaner assignment after deposit payment.
               }
             }
-          }
         } else {
           console.log(`${tag} Lead already exists for ${maskPhone(phone)} (id: ${existingLead.id})`)
 
