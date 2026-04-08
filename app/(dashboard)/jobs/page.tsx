@@ -671,9 +671,9 @@ export default function JobsPage() {
     })
   }, [createForm.service_type, addonsList, isHouseCleaning])
 
-  // Fetch service plans for membership dropdown (WinBros only)
+  // Fetch service plans for membership dropdown + frequency discounts
   useEffect(() => {
-    if (!createOpen || isHouseCleaning || servicePlans.length > 0) return
+    if (!createOpen || servicePlans.length > 0) return
     fetch("/api/service-plans")
       .then((r) => r.json())
       .then((res) => {
@@ -1951,6 +1951,36 @@ export default function JobsPage() {
         resolvedMembershipId = memData.membership?.id
       }
 
+      // Compute frequency discount for house cleaning
+      let frequencyDiscount = 0
+      let frequencyPlanSlug: string | undefined
+      if (isHouseCleaning && createForm.frequency && createForm.frequency !== "one-time") {
+        const freqSlugMap: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+        const slug = freqSlugMap[createForm.frequency]
+        if (slug) {
+          const plan = servicePlans.find((p) => p.slug === slug)
+          if (plan) { frequencyDiscount = plan.discount_per_visit || 0; frequencyPlanSlug = plan.slug }
+        }
+      }
+
+      // If no override price, compute from base + addons - discount
+      let finalPrice = createForm.price ? Number(createForm.price) : undefined
+      if (!createForm.price && basePrice > 0) {
+        const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+          const addon = derivedAddonsList.find((a) => a.addon_key === key)
+          const st = (createForm.service_type || "").toLowerCase()
+          const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+          const TIER_INCLUDED: Record<string, string[]> = {
+            deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+            move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+          }
+          const included = (TIER_INCLUDED[tierKey] || []).includes(key) || (Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey))
+          if (included) return sum
+          return sum + (addon?.flat_price || 0)
+        }, 0)
+        finalPrice = Math.max(0, basePrice + addonTotal - frequencyDiscount)
+      }
+
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1963,7 +1993,7 @@ export default function JobsPage() {
           scheduled_date: createForm.date,
           scheduled_time: createForm.time || "09:00",
           duration_minutes: Number(createForm.duration_minutes) || 120,
-          estimated_value: createForm.price ? Number(createForm.price) : undefined,
+          estimated_value: finalPrice,
           notes: createForm.notes.trim() || undefined,
           bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
@@ -4216,8 +4246,9 @@ export default function JobsPage() {
                       }
                     }
 
-                    // Membership discount
+                    // Membership / frequency discount
                     let discount = 0
+                    let discountLabel = "Membership Discount"
                     if (createForm.membership_id) {
                       if (createForm.membership_id.startsWith("membership:")) {
                         const mem = customerMemberships.find((m) => m.id === createForm.membership_id.replace("membership:", ""))
@@ -4225,6 +4256,22 @@ export default function JobsPage() {
                       } else if (createForm.membership_id.startsWith("plan:")) {
                         const plan = servicePlans.find((p) => p.slug === createForm.membership_id.replace("plan:", ""))
                         discount = plan?.discount_per_visit || 0
+                      }
+                    }
+                    // House cleaning recurring frequency discount
+                    if (isHouseCleaning && createForm.frequency && createForm.frequency !== "one-time") {
+                      const freqMap: Record<string, { slug: string; label: string }> = {
+                        "weekly": { slug: "weekly", label: "Weekly Discount" },
+                        "bi-weekly": { slug: "biweekly", label: "Bi-Weekly Discount" },
+                        "monthly": { slug: "monthly", label: "Monthly Discount" },
+                      }
+                      const fm = freqMap[createForm.frequency]
+                      if (fm) {
+                        const plan = servicePlans.find((p) => p.slug === fm.slug)
+                        if (plan) {
+                          discount = plan.discount_per_visit || 0
+                          discountLabel = fm.label
+                        }
                       }
                     }
 
@@ -4245,7 +4292,7 @@ export default function JobsPage() {
                         ))}
                         {discount > 0 && (
                           <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#4ade80" }}>
-                            <span>Membership Discount</span>
+                            <span>{discountLabel}</span>
                             <span>-${discount}</span>
                           </div>
                         )}

@@ -233,6 +233,10 @@ export default function QuotePage() {
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
           setMembershipLocked(true)
+        } else if ((json.servicePlans as ServicePlan[])?.length > 0 && json.serviceType === 'house_cleaning') {
+          // Default to biweekly (best value balance) for house cleaning quotes
+          const biweekly = (json.servicePlans as ServicePlan[]).find(p => p.slug === 'biweekly')
+          if (biweekly) setSelectedMembership(biweekly.slug)
         }
 
         const q: Record<string, number> = {}
@@ -251,8 +255,7 @@ export default function QuotePage() {
 
   const handleTierChange = useCallback((tierKey: string) => {
     setSelectedTierKey(tierKey)
-    // Clear membership selection when switching away from standard (recurring is standard-only upsell)
-    if (tierKey !== 'standard' && !membershipLocked) setSelectedMembership(null)
+    // Keep membership selection when switching tiers (recurring works on all tiers)
     if (!data) return
     const tierDef = data.tiers.find((t) => t.key === tierKey)
     if (!tierDef) return
@@ -792,8 +795,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Recurring Savings Banner — only on standard tier as a cheeky upsell */}
-        {!isExpired && !isCustomPriced && servicePlans.length > 0 && selectedTierKey === 'standard' && (
+        {/* ── Recurring Savings Banner — all house cleaning tiers */}
+        {!isExpired && !isCustomPriced && servicePlans.length > 0 && serviceType === 'house_cleaning' && (
           <div>
             {membershipLocked ? (
               /* Locked membership — show as confirmed */
