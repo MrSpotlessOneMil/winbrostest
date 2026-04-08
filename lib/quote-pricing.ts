@@ -46,7 +46,7 @@ export interface QuotePricingResult {
   serviceType: 'window_cleaning' | 'house_cleaning'
 }
 
-// ── Standard House Cleaning Tier Definitions (3 tiers) ──────────────
+// ── Standard House Cleaning Tier Definitions (2 tiers) ──────────────
 
 const CLEANING_TIERS: TierDefinition[] = [
   {
@@ -84,32 +84,6 @@ const CLEANING_TIERS: TierDefinition[] = [
     ],
     description:
       'Everything in Standard plus baseboards, ceiling fans, light fixtures, window sills, inside microwave, inside fridge, and inside oven. A top-to-bottom refresh.',
-  },
-  {
-    key: 'extra_deep',
-    name: 'Extra Deep Clean',
-    tagline: 'Like brand new',
-    badge: 'Premium',
-    included: [
-      'kitchen_surfaces',
-      'bathroom_sanitize',
-      'vacuum_mop',
-      'dusting',
-      'trash_removal',
-      'baseboards',
-      'ceiling_fans',
-      'light_fixtures',
-      'window_sills',
-      'inside_microwave',
-      'inside_fridge',
-      'inside_oven',
-      'inside_cabinets',
-      'range_hood',
-      'blinds',
-      'wall_cleaning',
-    ],
-    description:
-      'The works — everything in Deep Clean plus inside fridge, oven, cabinets, range hood, blinds, and wall spot cleaning. Your home will feel brand new.',
   },
 ]
 
@@ -303,13 +277,6 @@ function buildStandardPricing(
   const stdPriceValue = standardPrice?.price ?? formulaPrice('standard', bedrooms, bathrooms)
   const deepPriceValue = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
 
-  // Extra deep = deep price + premium addons NOT already included in deep
-  // Fridge/oven are included in deep, so only add cabinets, range hood, blinds, wall cleaning
-  const premiumAddonKeys = ['inside_cabinets', 'range_hood', 'blinds', 'wall_cleaning']
-  const premiumAddons = pricingAddons.filter(a => premiumAddonKeys.includes(a.addon_key))
-  const premiumAddonTotal = premiumAddons.reduce((sum, a) => sum + (Number(a.flat_price) || 0), 0)
-  const extraDeepPrice = deepPriceValue + premiumAddonTotal
-
   const tierPrices: Record<string, TierPriceResult> = {
     standard: {
       price: stdPriceValue,
@@ -319,11 +286,6 @@ function buildStandardPricing(
     deep: {
       price: deepPriceValue,
       breakdown: buildCleaningBreakdown('deep', deepPrice || { price: deepPriceValue }, pricingAddons),
-      tier: bedbathLabel,
-    },
-    extra_deep: {
-      price: extraDeepPrice,
-      breakdown: buildCleaningBreakdown('extra_deep', deepPrice, pricingAddons, premiumAddons),
       tier: bedbathLabel,
     },
   }

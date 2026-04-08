@@ -553,7 +553,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     best: 'Full Detail',
     standard: 'Standard Clean',
     deep: 'Deep Clean',
-    extra_deep: 'Extra Deep Clean',
+    extra_deep: 'Deep Clean', // backward compat
     move: 'Move-In/Move-Out Clean',
     move_good: 'Move-In/Move-Out Clean',
     move_better: 'Move-In/Move-Out Clean',
@@ -973,7 +973,7 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     best: 'Full Detail',
     standard: 'Standard Clean',
     deep: 'Deep Clean',
-    extra_deep: 'Extra Deep Clean',
+    extra_deep: 'Deep Clean', // backward compat
     move: 'Move-In/Move-Out Clean',
     move_good: 'Move-In/Move-Out Clean',
     move_better: 'Move-In/Move-Out Clean',

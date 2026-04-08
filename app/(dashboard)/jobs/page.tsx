@@ -1899,11 +1899,16 @@ export default function JobsPage() {
               const st = (createForm.service_type || "").toLowerCase()
               if (st.includes("move")) return "move"
               if (st.includes("deep")) return "deep"
-              if (st.includes("extra")) return "extra_deep"
+              // extra_deep removed — add-ons cover premium items
               return "standard"
             })(),
             notes: createForm.notes.trim() || undefined,
             custom_base_price: createForm.price ? Number(createForm.price) : undefined,
+            membership_plan: (() => {
+              if (!isHouseCleaning || !createForm.frequency || createForm.frequency === "one-time") return undefined
+              const map: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+              return map[createForm.frequency]
+            })(),
             send_sms: false,
           }),
         })

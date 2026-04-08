@@ -94,8 +94,8 @@ ${deepTable}
 MOVE IN/OUT PRICES:
 ${moveTable}
 
-EXTRA DEEP (cabinets, organizing, OCD-level detail):
-- This is a custom quote. If someone describes inside cabinets, reorganizing, heavy detail work, say: "That sounds like our Extra Deep service, let me have someone reach out with an exact quote." Then tag [ESCALATE:special_request].
+CUSTOM REQUESTS (cabinets, organizing, heavy detail work):
+- If someone describes inside cabinets, reorganizing, or extra detail beyond deep clean, say: "We can definitely add those as extras! I'll have someone reach out with the exact quote." Then tag [ESCALATE:special_request].
 
 HOW TO USE THESE:
 - If they ask for a price and you know bed/bath: use the price list above. "A standard clean for a 2 bed 2 bath runs ${stdRows.find(r => r.bedrooms === 2 && r.bathrooms === 2) ? fmt(stdRows.find(r => r.bedrooms === 2 && r.bathrooms === 2)!.price) : `${sym}200`}.|||[BOOKING_COMPLETE]"

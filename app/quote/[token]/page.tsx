@@ -89,12 +89,7 @@ const DEEP_EXTRAS = [
   "Clean inside oven (racks, walls, and door glass)",
 ]
 
-const EXTRA_DEEP_EXTRAS = [
-  "Wipe down all cabinet interiors (shelves and doors)",
-  "Degrease range hood and exhaust filter",
-  "Deep clean all blinds and shutters",
-  "Spot clean walls (scuffs, marks, and fingerprints)",
-]
+// Extra Deep removed — those items are now available as individual add-ons
 
 const MOVE_CHECKLIST = [
   "Clean all kitchen countertops, stovetop, and sink",
@@ -124,7 +119,7 @@ function getDetailedChecklist(tierKey: string): string[] {
   switch (tierKey) {
     case "standard": return STANDARD_CHECKLIST
     case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
-    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS, ...EXTRA_DEEP_EXTRAS]
+    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS] // backward compat for old quotes
     case "move": return MOVE_CHECKLIST
     // Backward compat for old quotes
     case "move_good": return MOVE_CHECKLIST
@@ -233,10 +228,6 @@ export default function QuotePage() {
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
           setMembershipLocked(true)
-        } else if ((json.servicePlans as ServicePlan[])?.length > 0 && json.serviceType === 'house_cleaning') {
-          // Default to biweekly (best value balance) for house cleaning quotes
-          const biweekly = (json.servicePlans as ServicePlan[]).find(p => p.slug === 'biweekly')
-          if (biweekly) setSelectedMembership(biweekly.slug)
         }
 
         const q: Record<string, number> = {}
@@ -524,7 +515,7 @@ export default function QuotePage() {
           const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
           const customChecklist = getDetailedChecklist(customTierKey)
           // Show service type name
-          const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', extra_deep: 'Extra Deep Clean', move: 'Move-Out Clean' }
+          const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
           const serviceName = nameMap[customTierKey] || 'Custom Service Package'
           return (
           <div>
@@ -795,8 +786,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Recurring Savings Banner — all house cleaning tiers */}
-        {!isExpired && !isCustomPriced && servicePlans.length > 0 && serviceType === 'house_cleaning' && (
+        {/* ── Recurring Savings Banner — standard tier only */}
+        {!isExpired && !isCustomPriced && servicePlans.length > 0 && selectedTierKey === 'standard' && (
           <div>
             {membershipLocked ? (
               /* Locked membership — show as confirmed */
