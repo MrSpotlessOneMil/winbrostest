@@ -504,103 +504,88 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 }
               }
 
-              const { data: job, error: jobErr } = await client.from("jobs").insert({
-                tenant_id: tenant.id,
-                customer_id: customerId,
-                phone_number: phone,
-                address: bookAddress,
-                service_type: serviceType,
-                date: appointmentDate,
-                scheduled_at: appointmentTime,
-                price: jobPrice,
-                hours: estimateJobHours(serviceType),
-                cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-                status: "quoted",
-                booked: false,
-                paid: false,
-                notes: jobNotes || null,
-                payment_status: "pending",
-                job_type: isWinBros ? 'estimate' : 'cleaning',
-              }).select("id").single()
-
-              if (jobErr) {
-                console.error(`${tag} Failed to create job:`, jobErr.message)
-
-                // Log the failure as a system event so it's visible in the dashboard
-                await logSystemEvent({
-                  source: "vapi",
-                  event_type: "JOB_CREATION_FAILED",
-                  message: `Failed to create job from booked VAPI call: ${fullName || phone} — ${jobErr.message}`,
+              // WinBros: create estimate job. House cleaning: quote only, no job until card on file.
+              let job: { id: number } | null = null
+              if (isWinBros) {
+                const { data: newJob, error: jobErr } = await client.from("jobs").insert({
+                  tenant_id: tenant.id,
+                  customer_id: customerId,
                   phone_number: phone,
-                  metadata: {
-                    lead_id: lead.id,
-                    error: jobErr.message,
-                    booking_info: bookingInfo,
-                  },
-                })
-
-                // Job creation failed — do NOT mark lead as booked or send confirmation.
-                // Fall back to follow-up sequence so the lead isn't lost.
-                try {
-                  await scheduleLeadFollowUp(
-                    tenant.id,
-                    String(lead.id),
-                    phone,
-                    fullName || "there"
-                  )
-                  console.log(`${tag} Job creation failed — scheduled follow-up for lead ${lead.id} instead`)
-                } catch (followupErr) {
-                  console.error(`${tag} Failed to schedule fallback follow-up:`, followupErr)
-                }
-              } else if (job?.id) {
-                console.log(`${tag} Job created from booked call: ${job.id}`)
-
-                // Sync to HouseCall Pro
-                await syncNewJobToHCP({
-                  tenant,
-                  jobId: job.id,
-                  phone,
-                  firstName,
-                  lastName,
                   address: bookAddress,
-                  serviceType,
-                  scheduledDate: appointmentDate,
-                  scheduledTime: appointmentTime,
-                  durationHours: estimateJobHours(serviceType),
+                  service_type: serviceType,
+                  date: appointmentDate,
+                  scheduled_at: appointmentTime,
                   price: jobPrice,
-                  notes: jobNotes || `Booked via VAPI call`,
-                  source: 'vapi',
-                })
+                  hours: estimateJobHours(serviceType),
+                  cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
+                  status: "quoted",
+                  booked: false,
+                  paid: false,
+                  notes: jobNotes || null,
+                  payment_status: "pending",
+                  job_type: 'estimate',
+                }).select("id").single()
 
+                if (jobErr) {
+                  console.error(`${tag} Failed to create job:`, jobErr.message)
+                  await logSystemEvent({
+                    source: "vapi",
+                    event_type: "JOB_CREATION_FAILED",
+                    message: `Failed to create job from booked VAPI call: ${fullName || phone} — ${jobErr.message}`,
+                    phone_number: phone,
+                    metadata: { lead_id: lead.id, error: jobErr.message, booking_info: bookingInfo },
+                  })
+                  try {
+                    await scheduleLeadFollowUp(tenant.id, String(lead.id), phone, fullName || "there")
+                  } catch (followupErr) {
+                    console.error(`${tag} Failed to schedule fallback follow-up:`, followupErr)
+                  }
+                } else if (newJob?.id) {
+                  job = newJob
+                  console.log(`${tag} WinBros estimate job created: ${job.id}`)
+                  await syncNewJobToHCP({
+                    tenant, jobId: job.id, phone, firstName, lastName,
+                    address: bookAddress, serviceType,
+                    scheduledDate: appointmentDate, scheduledTime: appointmentTime,
+                    durationHours: estimateJobHours(serviceType), price: jobPrice,
+                    notes: jobNotes || `Estimate Visit | Booked via VAPI call`, source: 'vapi',
+                  })
+                }
+              } else {
+                console.log(`${tag} House cleaning — skipping job creation (quote-only flow)`)
+                // Tag customer as quoted
+                if (customerId) {
+                  await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customerId).is('lifecycle_stage_override', null)
+                }
+              }
+
+              if (job?.id) {
                 await logSystemEvent({
                   source: "vapi",
                   event_type: "JOB_CREATED_FROM_CALL",
                   message: `Job created from booked VAPI call: ${fullName || phone}`,
                   phone_number: phone,
-                  metadata: {
-                    job_id: job.id,
-                    lead_id: lead.id,
-                    booking_info: bookingInfo,
-                  },
+                  metadata: { job_id: job.id, lead_id: lead.id, booking_info: bookingInfo },
                 })
+              }
 
-                // Mark lead as qualified (not booked — booked requires payment + cleaner assigned)
+              // Mark lead as qualified
+              await client
+                .from("leads")
+                .update({
+                  status: "qualified",
+                  ...(job ? { converted_to_job_id: job.id } : {}),
+                })
+                .eq("id", lead.id)
+              console.log(`${tag} Lead ${lead.id} status set to "qualified"`)
+
+              // Link call record to lead and job
+              if (callId) {
                 await client
-                  .from("leads")
-                  .update({
-                    status: "qualified",
-                    converted_to_job_id: job.id,
-                  })
-                  .eq("id", lead.id)
-                console.log(`${tag} Lead ${lead.id} status set to "qualified"`)
-
-                // Link call record to lead and job
-                if (callId) {
-                  await client
-                    .from("calls")
-                    .update({ lead_id: lead.id, job_id: job.id })
-                    .eq("id", callId)
-                  console.log(`${tag} Call ${callId} linked to lead ${lead.id} + job ${job.id}`)
+                  .from("calls")
+                  .update({ lead_id: lead.id, ...(job ? { job_id: job.id } : {}) })
+                  .eq("id", callId)
+                console.log(`${tag} Call ${callId} linked to lead ${lead.id}${job ? ` + job ${job.id}` : ''}`)
                 }
 
                 // Send booking confirmation text
@@ -766,85 +751,81 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               }
             }
 
-            const { data: job, error: jobErr } = await client.from("jobs").insert({
-              tenant_id: tenant.id,
-              customer_id: customerId,
-              phone_number: phone,
-              address: bookAddress,
-              service_type: serviceType,
-              date: appointmentDate || null,
-              scheduled_at: appointmentTime || null,
-              price: existingJobPrice,
-              hours: null,
-              cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
-              status: "quoted",
-              booked: false,
-              paid: false,
-              notes: existingLeadNotes,
-              payment_status: "pending",
-              job_type: isWinBrosExisting ? 'estimate' : 'cleaning',
-            }).select("id").single()
-
-            if (jobErr) {
-              console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
-
-              // Log failure as system event
-              await logSystemEvent({
-                source: "vapi",
-                event_type: "JOB_CREATION_FAILED",
-                message: `Failed to create job for existing lead ${existingLead.id}: ${fullName || phone} — ${jobErr.message}`,
+            // WinBros: create estimate job. House cleaning: quote only.
+            let job: { id: number } | null = null
+            if (isWinBrosExisting) {
+              const { data: newJob, error: jobErr } = await client.from("jobs").insert({
+                tenant_id: tenant.id,
+                customer_id: customerId,
                 phone_number: phone,
-                metadata: {
-                  lead_id: existingLead.id,
-                  error: jobErr.message,
-                  booking_info: bookingInfo,
-                },
-              })
-
-              // Don't mark lead as booked or cancel follow-ups — let the follow-up sequence continue
-            } else if (job?.id) {
-              console.log(`${tag} Job created for existing lead: ${job.id}`)
-
-              // Sync to HouseCall Pro
-              await syncNewJobToHCP({
-                tenant,
-                jobId: job.id,
-                phone,
-                firstName,
-                lastName,
                 address: bookAddress,
-                serviceType,
-                scheduledDate: appointmentDate,
-                scheduledTime: appointmentTime,
+                service_type: serviceType,
+                date: appointmentDate || null,
+                scheduled_at: appointmentTime || null,
                 price: existingJobPrice,
-                notes: existingLeadNotes || `Booked via VAPI call (existing lead)`,
-              })
+                hours: null,
+                cleaners: bookingInfo.bedrooms ? Math.ceil(bookingInfo.bedrooms / 2) : 1,
+                status: "quoted",
+                booked: false,
+                paid: false,
+                notes: existingLeadNotes,
+                payment_status: "pending",
+                job_type: 'estimate',
+              }).select("id").single()
 
-              // Mark lead as qualified (booked requires payment + cleaner assigned)
-              await client
-                .from("leads")
-                .update({
-                  status: "qualified",
-                  converted_to_job_id: job.id,
-                  form_data: {
-                    ...bookingInfo,
-                    vapi_call_id: providerCallId,
-                    call_outcome: data.outcome,
-                    transcript_summary: data.transcript?.substring(0, 500),
-                  },
-                  last_contact_at: nowIso,
+              if (jobErr) {
+                console.error(`${tag} Failed to create job for existing lead:`, jobErr.message)
+                await logSystemEvent({
+                  source: "vapi",
+                  event_type: "JOB_CREATION_FAILED",
+                  message: `Failed to create job for existing lead ${existingLead.id}: ${fullName || phone} — ${jobErr.message}`,
+                  phone_number: phone,
+                  metadata: { lead_id: existingLead.id, error: jobErr.message, booking_info: bookingInfo },
                 })
-                .eq("id", existingLead.id)
-
-              // Link call record to lead and job
-              if (callId) {
-                await client
-                  .from("calls")
-                  .update({ lead_id: existingLead.id, job_id: job.id })
-                  .eq("id", callId)
-                console.log(`${tag} Call ${callId} linked to lead ${existingLead.id} + job ${job.id}`)
+              } else if (newJob?.id) {
+                job = newJob
+                console.log(`${tag} WinBros estimate job created for existing lead: ${job.id}`)
+                await syncNewJobToHCP({
+                  tenant, jobId: job.id, phone, firstName, lastName,
+                  address: bookAddress, serviceType,
+                  scheduledDate: appointmentDate, scheduledTime: appointmentTime,
+                  price: existingJobPrice,
+                  notes: existingLeadNotes || `Estimate Visit | Booked via VAPI call (existing lead)`,
+                })
               }
+            } else {
+              console.log(`${tag} House cleaning existing lead — skipping job (quote-only)`)
+              if (customerId) {
+                await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customerId).is('lifecycle_stage_override', null)
+              }
+            }
 
+            // Mark lead as qualified
+            await client
+              .from("leads")
+              .update({
+                status: "qualified",
+                ...(job ? { converted_to_job_id: job.id } : {}),
+                form_data: {
+                  ...bookingInfo,
+                  vapi_call_id: providerCallId,
+                  call_outcome: data.outcome,
+                  transcript_summary: data.transcript?.substring(0, 500),
+                },
+                last_contact_at: nowIso,
+              })
+              .eq("id", existingLead.id)
+
+            // Link call record to lead and job
+            if (callId) {
+              await client
+                .from("calls")
+                .update({ lead_id: existingLead.id, ...(job ? { job_id: job.id } : {}) })
+                .eq("id", callId)
+              console.log(`${tag} Call ${callId} linked to lead ${existingLead.id}${job ? ` + job ${job.id}` : ''}`)
+            }
+
+            if (job) {
               // Cancel any pending follow-up tasks for this lead
               try {
                 const { cancelTask } = await import("@/lib/scheduler")
