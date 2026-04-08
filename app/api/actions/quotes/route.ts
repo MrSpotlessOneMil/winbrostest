@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
     service_category,
     notes,
     custom_base_price,
+    selected_tier,
     send_sms,
     // Pre-confirm cleaner fields
     cleaner_ids,
@@ -161,6 +162,7 @@ export async function POST(request: NextRequest) {
       bathrooms: bathrooms || null,
       property_type: property_type || null,
       service_category: category,
+      selected_tier: selected_tier || null,
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
       ...(parsedCleanerPay != null ? { cleaner_pay: parsedCleanerPay } : {}),

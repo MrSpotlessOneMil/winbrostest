@@ -1895,6 +1895,13 @@ export default function JobsPage() {
             bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
             bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
             service_category: (createForm.service_type || "").toLowerCase().includes("move") ? "move_in_out" : "standard",
+            selected_tier: (() => {
+              const st = (createForm.service_type || "").toLowerCase()
+              if (st.includes("move")) return "move"
+              if (st.includes("deep")) return "deep"
+              if (st.includes("extra")) return "extra_deep"
+              return "standard"
+            })(),
             notes: createForm.notes.trim() || undefined,
             custom_base_price: createForm.price ? Number(createForm.price) : undefined,
             send_sms: false,
