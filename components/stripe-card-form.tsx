@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { loadStripe, type Stripe, type StripeCardNumberElement, type StripeCardExpiryElement, type StripeCardCvcElement } from "@stripe/stripe-js"
 import { Loader2, CreditCard, Check, AlertCircle } from "lucide-react"
 
@@ -22,9 +22,13 @@ const ELEMENT_STYLE = {
 
 export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFormProps) {
   const [stripe, setStripe] = useState<Stripe | null>(null)
+  const [stripeReady, setStripeReady] = useState(false)
   const cardNumberRef = useRef<StripeCardNumberElement | null>(null)
   const cardExpiryRef = useRef<StripeCardExpiryElement | null>(null)
   const cardCvcRef = useRef<StripeCardCvcElement | null>(null)
+  const numDivRef = useRef<HTMLDivElement>(null)
+  const expDivRef = useRef<HTMLDivElement>(null)
+  const cvcDivRef = useRef<HTMLDivElement>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,17 +37,19 @@ export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFo
   const [expiryComplete, setExpiryComplete] = useState(false)
   const [cvcComplete, setCvcComplete] = useState(false)
   const [brand, setBrand] = useState<string>("unknown")
+  const mountedRef = useRef(true)
 
   const cardReady = numberComplete && expiryComplete && cvcComplete
 
+  // Phase 1: Load Stripe instance
   useEffect(() => {
-    let mounted = true
+    mountedRef.current = true
 
     async function init() {
       try {
-        // Fetch publishable key from our API
         const res = await fetch("/api/actions/attach-card")
         const json = await res.json()
+        if (!mountedRef.current) return
         if (!res.ok || !json.publishable_key) {
           setError(json.error || "Stripe not configured")
           setLoading(false)
@@ -51,56 +57,13 @@ export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFo
         }
 
         const stripeInstance = await loadStripe(json.publishable_key)
-        if (!mounted || !stripeInstance) return
+        if (!mountedRef.current || !stripeInstance) return
 
         setStripe(stripeInstance)
-
-        const elements = stripeInstance.elements()
-
-        const cardNumber = elements.create("cardNumber", { style: ELEMENT_STYLE, showIcon: true })
-        const cardExpiry = elements.create("cardExpiry", { style: ELEMENT_STYLE })
-        const cardCvc = elements.create("cardCvc", { style: ELEMENT_STYLE })
-
-        // Mount after a tick to ensure DOM is ready
-        setTimeout(() => {
-          if (!mounted) return
-
-          const numEl = document.getElementById("stripe-card-number")
-          const expEl = document.getElementById("stripe-card-expiry")
-          const cvcEl = document.getElementById("stripe-card-cvc")
-
-          if (numEl) {
-            cardNumber.mount(numEl)
-            cardNumberRef.current = cardNumber
-            cardNumber.on("change", (event) => {
-              setNumberComplete(event.complete)
-              setBrand(event.brand || "unknown")
-              setError(event.error ? event.error.message : null)
-            })
-          }
-
-          if (expEl) {
-            cardExpiry.mount(expEl)
-            cardExpiryRef.current = cardExpiry
-            cardExpiry.on("change", (event) => {
-              setExpiryComplete(event.complete)
-              if (event.error) setError(event.error.message)
-            })
-          }
-
-          if (cvcEl) {
-            cardCvc.mount(cvcEl)
-            cardCvcRef.current = cardCvc
-            cardCvc.on("change", (event) => {
-              setCvcComplete(event.complete)
-              if (event.error) setError(event.error.message)
-            })
-          }
-
-          setLoading(false)
-        }, 50)
+        setStripeReady(true)
+        setLoading(false)
       } catch {
-        if (mounted) {
+        if (mountedRef.current) {
           setError("Failed to load Stripe")
           setLoading(false)
         }
@@ -110,12 +73,49 @@ export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFo
     init()
 
     return () => {
-      mounted = false
+      mountedRef.current = false
       cardNumberRef.current?.destroy()
       cardExpiryRef.current?.destroy()
       cardCvcRef.current?.destroy()
     }
   }, [])
+
+  // Phase 2: Mount Stripe Elements AFTER divs are in the DOM
+  // This runs when stripeReady becomes true and the div refs are available
+  const mountAttempted = useRef(false)
+  useEffect(() => {
+    if (!stripeReady || !stripe || mountAttempted.current) return
+    if (!numDivRef.current || !expDivRef.current || !cvcDivRef.current) return
+
+    mountAttempted.current = true
+    const elements = stripe.elements()
+
+    const cardNumber = elements.create("cardNumber", { style: ELEMENT_STYLE, showIcon: true })
+    const cardExpiry = elements.create("cardExpiry", { style: ELEMENT_STYLE })
+    const cardCvc = elements.create("cardCvc", { style: ELEMENT_STYLE })
+
+    cardNumber.mount(numDivRef.current)
+    cardNumberRef.current = cardNumber
+    cardNumber.on("change", (event) => {
+      setNumberComplete(event.complete)
+      setBrand(event.brand || "unknown")
+      setError(event.error ? event.error.message : null)
+    })
+
+    cardExpiry.mount(expDivRef.current)
+    cardExpiryRef.current = cardExpiry
+    cardExpiry.on("change", (event) => {
+      setExpiryComplete(event.complete)
+      if (event.error) setError(event.error.message)
+    })
+
+    cardCvc.mount(cvcDivRef.current)
+    cardCvcRef.current = cardCvc
+    cardCvc.on("change", (event) => {
+      setCvcComplete(event.complete)
+      if (event.error) setError(event.error.message)
+    })
+  }, [stripeReady, stripe])
 
   async function handleSubmit() {
     if (!stripe || !cardNumberRef.current || saving) return
@@ -135,7 +135,6 @@ export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFo
         return
       }
 
-      // Attach to customer via our API
       const res = await fetch("/api/actions/attach-card", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -180,64 +179,66 @@ export function StripeCardForm({ customerId, onSuccess, onCancel }: StripeCardFo
         )}
       </p>
 
-      {loading ? (
+      {loading && (
         <div className="flex items-center justify-center py-4 gap-2 text-sm text-zinc-400">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading...
         </div>
-      ) : (
-        <>
-          {/* Card Number */}
-          <div className="space-y-1">
-            <label className="text-xs text-zinc-500">Card Number</label>
+      )}
+
+      {/* Always render the mount targets so refs are available when Stripe loads */}
+      <div style={{ display: loading ? "none" : "block" }}>
+        <div className="space-y-1">
+          <label className="text-xs text-zinc-500">Card Number</label>
+          <div
+            ref={numDivRef}
+            className="px-3 py-3 bg-zinc-800 border border-zinc-700 rounded-lg"
+            style={{ minHeight: 44 }}
+          />
+        </div>
+
+        <div className="flex gap-3 mt-3">
+          <div className="flex-1 space-y-1">
+            <label className="text-xs text-zinc-500">Expiry</label>
             <div
-              id="stripe-card-number"
+              ref={expDivRef}
               className="px-3 py-3 bg-zinc-800 border border-zinc-700 rounded-lg"
+              style={{ minHeight: 44 }}
             />
           </div>
-
-          {/* Expiry + CVC side by side */}
-          <div className="flex gap-3">
-            <div className="flex-1 space-y-1">
-              <label className="text-xs text-zinc-500">Expiry</label>
-              <div
-                id="stripe-card-expiry"
-                className="px-3 py-3 bg-zinc-800 border border-zinc-700 rounded-lg"
-              />
-            </div>
-            <div className="flex-1 space-y-1">
-              <label className="text-xs text-zinc-500">CVC</label>
-              <div
-                id="stripe-card-cvc"
-                className="px-3 py-3 bg-zinc-800 border border-zinc-700 rounded-lg"
-              />
-            </div>
+          <div className="flex-1 space-y-1">
+            <label className="text-xs text-zinc-500">CVC</label>
+            <div
+              ref={cvcDivRef}
+              className="px-3 py-3 bg-zinc-800 border border-zinc-700 rounded-lg"
+              style={{ minHeight: 44 }}
+            />
           </div>
+        </div>
 
-          {error && (
-            <div className="flex items-center gap-1.5 text-xs text-red-400">
-              <AlertCircle className="w-3 h-3" />
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              onClick={onCancel}
-              className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
-            >
-              Back
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving || !cardReady}
-              className="flex-1 px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors"
-            >
-              {saving ? "Saving..." : "Save Card"}
-            </button>
+        {error && (
+          <div className="flex items-center gap-1.5 text-xs text-red-400 mt-3">
+            <AlertCircle className="w-3 h-3" />
+            {error}
           </div>
-        </>
-      )}
+        )}
+
+        <div className="flex gap-2 mt-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+          >
+            Back
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={saving || !cardReady}
+            className="flex-1 px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving..." : "Save Card"}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
