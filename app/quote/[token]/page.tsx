@@ -224,10 +224,9 @@ export default function QuotePage() {
         if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
-        // Pre-select and lock membership if salesman already set it
+        // Pre-select membership if salesman set a frequency (but let customer change it)
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
-          setMembershipLocked(true)
         }
 
         const q: Record<string, number> = {}
@@ -787,25 +786,8 @@ export default function QuotePage() {
         )}
 
         {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
-        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || membershipLocked) && (
+        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || isCustomPriced) && (
           <div>
-            {membershipLocked ? (
-              /* Locked membership — show as confirmed */
-              <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-5">
-                <div className="flex items-center gap-3">
-                  <div className="size-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
-                    <Sparkles className="size-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-emerald-800 font-bold text-sm">Recurring Plan Active</h3>
-                    <p className="text-emerald-600 text-xs mt-0.5">
-                      {selectedPlan?.name} &middot; Save {fmt(Number(selectedPlan?.discount_per_visit || 0))}/visit
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* Savings banner — prominent but not pushy */
               <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
                 selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
               }`}>
@@ -832,14 +814,15 @@ export default function QuotePage() {
                       }`}
                     >
                       <p className="text-slate-800 font-bold text-sm">One-Time</p>
-                      <p className="text-slate-800 font-bold text-lg mt-1">{selectedTierPrice ? fmt(selectedTierPrice.price) : '--'}</p>
+                      <p className="text-slate-800 font-bold text-lg mt-1">{selectedTierPrice ? fmt(selectedTierPrice.price) : isCustomPriced ? fmt(customBasePrice) : '--'}</p>
                     </button>
 
                     {/* Recurring plan options */}
                     {servicePlans.map((plan) => {
                       const isSelected = selectedMembership === plan.slug
-                      const discountedPrice = selectedTierPrice
-                        ? Math.max(0, selectedTierPrice.price - Number(plan.discount_per_visit))
+                      const baseForDiscount = selectedTierPrice ? selectedTierPrice.price : isCustomPriced ? customBasePrice : 0
+                      const discountedPrice = baseForDiscount
+                        ? Math.max(0, baseForDiscount - Number(plan.discount_per_visit))
                         : 0
                       return (
                         <button
@@ -861,7 +844,6 @@ export default function QuotePage() {
                   </div>
                 </div>
               </div>
-            )}
           </div>
         )}
 
