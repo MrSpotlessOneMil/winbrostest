@@ -1730,8 +1730,10 @@ export default function JobsPage() {
       })
       const data = await res.json()
       if (data.success) {
+        const jobId = selectedEvent.jobId
         setSelectedEvent(null)
         setEditMode(false)
+        pendingJobOpenRef.current = jobId
         await refreshJobs()
       } else {
         console.error("[edit-save] Failed:", data.error)
