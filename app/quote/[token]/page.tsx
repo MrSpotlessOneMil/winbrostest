@@ -156,6 +156,25 @@ export default function QuotePage() {
   const [customerNotes, setCustomerNotes] = useState("")
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [showAllTiers, setShowAllTiers] = useState(false)
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+
+  // ── Address autocomplete (debounced) ──────────────────────────────
+  useEffect(() => {
+    if (!customerAddress || customerAddress.length < 3) {
+      setAddressSuggestions([])
+      return
+    }
+    const timer = setTimeout(() => {
+      fetch(`/api/places/autocomplete?input=${encodeURIComponent(customerAddress)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) setAddressSuggestions(res.data)
+        })
+        .catch(() => {})
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [customerAddress])
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -855,13 +874,39 @@ export default function QuotePage() {
               Service Address
             </h2>
             <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
-            <input
-              type="text"
-              value={customerAddress}
-              onChange={(e) => setCustomerAddress(e.target.value)}
-              placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
-              className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                value={customerAddress}
+                onChange={(e) => {
+                  setCustomerAddress(e.target.value)
+                  setShowAddressSuggestions(true)
+                }}
+                onFocus={() => setShowAddressSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
+                placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
+                className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
+              />
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-white border-2 border-blue-100 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-lg">
+                  {addressSuggestions.map((s) => (
+                    <button
+                      key={s.place_id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setCustomerAddress(s.description)
+                        setShowAddressSuggestions(false)
+                      }}
+                      className="block w-full text-left px-4 py-3 text-sm text-slate-700 border-b border-blue-50 last:border-0 hover:bg-blue-50 transition-colors"
+                    >
+                      <MapPin className="size-3.5 text-blue-400 inline mr-2 -mt-0.5" />
+                      {s.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
