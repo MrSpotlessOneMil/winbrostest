@@ -626,7 +626,7 @@ export default function QuotePage() {
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Package"}</h2>
             <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your recurring service." : "Select the service level that fits your needs."}</p>
 
-            <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
+            <div className={`space-y-3 sm:space-y-0 ${tiers.length === 1 ? "sm:max-w-md sm:mx-auto" : tiers.length === 2 ? "sm:grid sm:grid-cols-2 sm:gap-5" : "sm:grid sm:grid-cols-3 sm:gap-4"}`}>
               {tiers.map((tier, idx) => {
                 const isSelected = selectedTierKey === tier.key
                 const price = tierPrices[tier.key]?.price ?? 0
