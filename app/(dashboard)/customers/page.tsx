@@ -1795,7 +1795,12 @@ export default function CustomersPage() {
                           markAsRead(customer.id)
                           if (typeof window !== "undefined") localStorage.setItem("selectedCustomerId", String(customer.id))
                           if (searchQuery.trim()) setPendingScrollSearch(searchQuery.trim().toLowerCase())
-                          switchTab("messages")
+                          // Auto-open Quotes tab if customer has a pending quote
+                          if (customer.lifecycle_stage === 'quoted_not_booked') {
+                            switchTab("quotes")
+                          } else {
+                            switchTab("messages")
+                          }
                         }}
                         className={`w-full text-left px-3 py-2.5 border-b border-zinc-800/50 ${
                           isSelected ? "bg-zinc-800/80" : "hover:bg-zinc-800/40"
@@ -1833,6 +1838,11 @@ export default function CustomersPage() {
                                   if (srcBadge) {
                                     return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
                                   }
+                                  return null
+                                })()}
+                                {(() => {
+                                  const lcBadge = getLifecycleBadge(customer)
+                                  if (lcBadge) return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lcBadge.bg} ${lcBadge.color} leading-none`}>{lcBadge.label}</span>
                                   return null
                                 })()}
                                 {customer.card_on_file_at && (
