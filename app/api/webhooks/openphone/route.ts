@@ -3245,64 +3245,69 @@ export async function POST(request: NextRequest) {
                 console.log(`[OpenPhone] No preferred date provided — using next business day: ${jobDate}`)
               }
 
-              // Create job (WinBros: estimate type for salesman visit; others: cleaning)
-              const { data: newJob, error: jobError } = await client.from("jobs").insert({
-                tenant_id: tenant?.id,
-                customer_id: customer.id,
-                phone_number: phone,
-                service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-                address: bookingData.address || customer.address || null,
-                price: servicePrice || null,
-                date: jobDate,
-                scheduled_at: bookingData.preferredTime || '09:00',
-                status: 'quoted',
-                booked: false,
-                notes: jobNotes || null,
-                frequency: bookingData.frequency || 'one-time',
-                job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
-              }).select("id").single()
-
-              if (jobError || !newJob?.id) {
-                console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
-                console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
-                // Don't proceed with Stripe link — we need a valid job first
-                await updateDisposition(client, currentMsgId, 'error_ai')
-                return NextResponse.json({
-                  success: false,
-                  error: "job_creation_failed",
-                  flow: "sms_booking_job_error",
-                  existingLeadId: existingLead.id,
-                  details: jobError?.message || "Job insert returned no data",
-                })
-              }
-              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}`)
-
-              // Sync to HouseCall Pro
-              if (tenant) {
-                await syncNewJobToHCP({
-                  tenant,
-                  jobId: newJob.id,
-                  phone,
-                  firstName: customer.first_name,
-                  lastName: customer.last_name,
-                  email: finalEmail || customer.email || null,
+              // WinBros: create job (estimate visit for salesman)
+              // House cleaning: NO job yet — job is created when customer puts card on file via quote page
+              let newJob: { id: number } | null = null
+              if (isWindowCleaningTenant) {
+                const { data: job, error: jobError } = await client.from("jobs").insert({
+                  tenant_id: tenant?.id,
+                  customer_id: customer.id,
+                  phone_number: phone,
+                  service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
                   address: bookingData.address || customer.address || null,
-                  serviceType: bookingData.serviceType || null,
-                  scheduledDate: jobDate,
-                  scheduledTime: bookingData.preferredTime || '09:00',
-                  price: servicePrice,
-                  notes: isWindowCleaningTenant ? 'Estimate Visit | Booked via SMS' : 'Booked via SMS',
-                  source: 'sms',
-                  isEstimate: isWindowCleaningTenant,
-                })
+                  price: servicePrice || null,
+                  date: jobDate,
+                  scheduled_at: bookingData.preferredTime || '09:00',
+                  status: 'quoted',
+                  booked: false,
+                  notes: jobNotes || null,
+                  frequency: bookingData.frequency || 'one-time',
+                  job_type: 'estimate',
+                }).select("id").single()
+
+                if (jobError || !job?.id) {
+                  console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
+                  await updateDisposition(client, currentMsgId, 'error_ai')
+                  return NextResponse.json({
+                    success: false,
+                    error: "job_creation_failed",
+                    flow: "sms_booking_job_error",
+                    existingLeadId: existingLead.id,
+                    details: jobError?.message || "Job insert returned no data",
+                  })
+                }
+                newJob = job
+                console.log(`[OpenPhone] WinBros estimate job created: ${newJob.id}`)
+
+                // Sync to HouseCall Pro
+                if (tenant) {
+                  await syncNewJobToHCP({
+                    tenant,
+                    jobId: newJob.id,
+                    phone,
+                    firstName: customer.first_name,
+                    lastName: customer.last_name,
+                    email: finalEmail || customer.email || null,
+                    address: bookingData.address || customer.address || null,
+                    serviceType: bookingData.serviceType || null,
+                    scheduledDate: jobDate,
+                    scheduledTime: bookingData.preferredTime || '09:00',
+                    price: servicePrice,
+                    notes: 'Estimate Visit | Booked via SMS',
+                    source: 'sms',
+                    isEstimate: true,
+                  })
+                }
+              } else {
+                console.log(`[OpenPhone] House cleaning — skipping job creation (quote-only flow for ${maskPhone(phone)})`)
               }
 
-              // Update lead to qualified (booked requires payment + cleaner assigned)
+              // Update lead to qualified
               await client
                 .from("leads")
                 .update({
                   status: "qualified",
-                  converted_to_job_id: newJob.id,
+                  ...(newJob ? { converted_to_job_id: newJob.id } : {}),
                   form_data: {
                     ...parseFormData(existingLead.form_data),
                     booking_data: bookingData,
@@ -3355,6 +3360,9 @@ export async function POST(request: NextRequest) {
                     jobId: newJob?.id,
                   })
                 }
+
+                // Tag customer as quoted (shows "Quoted" badge in dashboard)
+                await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customer.id).is('lifecycle_stage_override', null)
 
                 // Get app domain for quote URL (quote page lives on Vercel, not tenant marketing site)
                 const { getClientConfig } = await import("@/lib/client-config")
@@ -4007,36 +4015,42 @@ export async function POST(request: NextRequest) {
             jobDate = candidate.toISOString().split('T')[0]
           }
 
-          // Create job
+          // WinBros: create job (estimate). House cleaning: quote only, no job until card on file.
           const defaultServiceType = isWindowCleaningTenant
             ? (bookingData.serviceType?.replace(/_/g, ' ') || 'window cleaning')
             : 'Standard cleaning'
 
-          const { data: newJob, error: jobError } = await client.from("jobs").insert({
-            tenant_id: tenant.id,
-            customer_id: customer.id,
-            phone_number: phone,
-            service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
-            address: bookingData.address || customer.address || null,
-            price: servicePrice || null,
-            date: jobDate,
-            scheduled_at: bookingData.preferredTime || '09:00',
-            status: 'quoted',
-            booked: false,
-            notes: jobNotes || null,
-            frequency: bookingData.frequency || 'one-time',
-            job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
-          }).select("id").single()
+          let newJob: { id: number } | null = null
+          if (isWindowCleaningTenant) {
+            const { data: job, error: jobError } = await client.from("jobs").insert({
+              tenant_id: tenant.id,
+              customer_id: customer.id,
+              phone_number: phone,
+              service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+              address: bookingData.address || customer.address || null,
+              price: servicePrice || null,
+              date: jobDate,
+              scheduled_at: bookingData.preferredTime || '09:00',
+              status: 'quoted',
+              booked: false,
+              notes: jobNotes || null,
+              frequency: bookingData.frequency || 'one-time',
+              job_type: 'estimate',
+            }).select("id").single()
 
-          if (jobError || !newJob?.id) {
-            console.error(`[OpenPhone] New inquiry job creation failed:`, jobError)
-          } else {
-            console.log(`[OpenPhone] New inquiry job created: ${newJob.id}`)
+            if (jobError || !job?.id) {
+              console.error(`[OpenPhone] New inquiry job creation failed:`, jobError)
+            } else {
+              newJob = job
+              console.log(`[OpenPhone] WinBros new inquiry job created: ${newJob.id}`)
+            }
+          }
 
+          {
             // Update lead to qualified
             await client.from("leads").update({
               status: "qualified",
-              converted_to_job_id: newJob.id,
+              ...(newJob ? { converted_to_job_id: newJob.id } : {}),
               form_data: {
                 ...parseFormData(lead ? { original_message: combinedMessage, intent_analysis: intentResult, extracted_info: intentResult.extractedInfo } : {}),
                 booking_data: bookingData,
@@ -4072,6 +4086,9 @@ export async function POST(request: NextRequest) {
                 const fallbackMsg = `Your booking is confirmed! We'll be in touch with pricing details shortly.`
                 await sendSMS(tenant as any, phone, fallbackMsg, { skipThrottle: true, bypassFilters: true })
               } else {
+                // Tag customer as quoted
+                await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customer.id).is('lifecycle_stage_override', null)
+
                 const { getClientConfig } = await import("@/lib/client-config")
                 const appDomain = getClientConfig().domain.replace(/\/+$/, '')
                 const quoteUrl = `${appDomain}/quote/${newQuote.token}`
@@ -4094,7 +4111,7 @@ export async function POST(request: NextRequest) {
                     ai_generated: false,
                     timestamp: new Date().toISOString(),
                     source: "estimate_booked",
-                    metadata: { lead_id: lead.id, job_id: newJob.id, quote_id: newQuote.id, quote_token: newQuote.token },
+                    metadata: { lead_id: lead.id, job_id: newJob?.id, quote_id: newQuote.id, quote_token: newQuote.token },
                   })
                 }
                 console.log(`[OpenPhone] New inquiry quote SMS sent — quote ${newQuote.id}`)
@@ -4116,9 +4133,9 @@ export async function POST(request: NextRequest) {
                   tenant_id: tenant.id,
                   source: "openphone",
                   event_type: "SMS_BOOKING_COMPLETED",
-                  message: `New inquiry SMS booking completed for ${phone} — job ${newJob.id}, quote ${newQuote.id} sent`,
+                  message: `New inquiry SMS booking completed for ${phone} — ${newJob ? `job ${newJob.id}, ` : ''}quote ${newQuote.id} sent`,
                   phone_number: phone,
-                  metadata: { lead_id: lead.id, job_id: newJob.id, quote_id: newQuote.id, quote_url: quoteUrl, booking_data: bookingData, flow: "new_inquiry_quote_link" },
+                  metadata: { lead_id: lead.id, job_id: newJob?.id, quote_id: newQuote.id, quote_url: quoteUrl, booking_data: bookingData, flow: "new_inquiry_quote_link" },
                 })
               }
             }
