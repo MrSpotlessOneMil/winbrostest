@@ -164,15 +164,12 @@ const MOVE_TIERS: TierDefinition[] = [
 const MOVE_ADDON_KEYS = [
   'windows_exterior',
   'windows_interior',
-  'carpet_steam',
   'garage_sweep',
   'patio_balcony',
   'inside_washer_dryer',
   'pet_hair_removal',
   'blinds',
   'full_wall_washing',
-  'mineral_deposit_removal',
-  'mold_mildew_treatment',
   'exhaust_fans',
 ]
 
@@ -391,15 +388,12 @@ function buildMoveInOutPricing(
       const fallbacks: Record<string, { name: string; price: number }> = {
         windows_exterior: { name: 'Exterior Window Washing', price: 75 },
         windows_interior: { name: 'Interior Window Cleaning', price: 60 },
-        carpet_steam: { name: 'Carpet Steam Cleaning', price: 150 },
         garage_sweep: { name: 'Garage Sweep & Cobwebs', price: 50 },
         patio_balcony: { name: 'Patio / Balcony Cleaning', price: 50 },
-        inside_washer_dryer: { name: 'Inside Washer & Dryer', price: 40 },
+        inside_washer_dryer: { name: 'Inside Washer & Dryer', price: 50 },
         pet_hair_removal: { name: 'Pet Hair Deep Removal', price: 40 },
         blinds: { name: 'Blinds / Shutters Deep Clean', price: 40 },
-        full_wall_washing: { name: 'Full Wall Washing', price: 75 },
-        mineral_deposit_removal: { name: 'Mineral Deposit & Hard Water Removal', price: 25 },
-        mold_mildew_treatment: { name: 'Mold & Mildew Treatment', price: 25 },
+        full_wall_washing: { name: 'Full Wall Washing', price: 200 },
         exhaust_fans: { name: 'Exhaust Fans Removed & Cleaned', price: 25 },
       }
       const fb = fallbacks[key]

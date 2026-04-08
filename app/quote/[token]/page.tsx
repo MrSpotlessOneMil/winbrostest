@@ -513,13 +513,16 @@ export default function QuotePage() {
 
         {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
         {isCustomPriced ? (() => {
-          // Determine checklist from service_category
-          const catMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
-          const customTierKey = catMap[(quote as any).service_category as string] || ''
+          // Determine checklist from selected_tier (most specific) or service_category
+          const tier = (quote as any).selected_tier as string || ''
+          const cat = (quote as any).service_category as string || 'standard'
+          const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
+          const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
+          const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
           const customChecklist = getDetailedChecklist(customTierKey)
           // Show service type name
-          const serviceNames: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move_in_out: 'Move-Out Clean', move: 'Move-Out Clean' }
-          const serviceName = serviceNames[(quote as any).service_category as string] || 'Custom Service Package'
+          const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', extra_deep: 'Extra Deep Clean', move: 'Move-Out Clean' }
+          const serviceName = nameMap[customTierKey] || 'Custom Service Package'
           return (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
