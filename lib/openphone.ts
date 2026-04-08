@@ -109,8 +109,10 @@ export async function sendSMS(
         return { success: false, error: 'Customer opted out of SMS' }
       }
 
-      // 2. Auto-Response Paused Check — block customers with paused auto-texts
-      if (customer?.auto_response_paused) {
+      // 2. Auto-Response Paused Check — block AI auto-responses when human took over.
+      // Skip for priority/system sends (skipThrottle) since those are manual dashboard sends,
+      // quote links, payment links, etc. — not AI auto-responses.
+      if (customer?.auto_response_paused && !options?.skipThrottle) {
         console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} has auto_response_paused`)
         return { success: false, error: 'Customer auto-response paused' }
       }

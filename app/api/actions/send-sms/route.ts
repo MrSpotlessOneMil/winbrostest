@@ -96,7 +96,27 @@ export async function POST(request: NextRequest) {
       console.error('[send-sms] Failed to save message to DB:', msgError)
     }
 
+    // Send the SMS (use tenant for proper OpenPhone routing)
+    // skipDedup: the route pre-inserts the DB record above, so the dedup check
+    // inside sendSMS would find it and block the send as a false positive.
+    // skipThrottle: manual dashboard sends should never be throttled by automated message counts.
+    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true, skipThrottle: true })
+
+    if (!result.success) {
+      // Clean up the pre-inserted record since send failed
+      if (msgRecord?.id) {
+        await client.from('messages').delete().eq('id', msgRecord.id)
+      }
+      return NextResponse.json(
+        { error: result.error || 'Failed to send SMS' },
+        { status: 500 }
+      )
+    }
+
+    console.log(`[send-sms] Saved outbound message to DB for ${e164Phone}`)
+
     // Pause AI auto-response for this customer (manual takeover)
+    // Done AFTER send so the pause doesn't block our own message.
     if (customer?.id) {
       await serviceClient
         .from('customers')
@@ -122,25 +142,6 @@ export async function POST(request: NextRequest) {
         await serviceClient.from('leads').update({ form_data: { ...fd, followup_paused: true } }).eq('id', activeLead.id)
       }
     }
-
-    // Send the SMS (use tenant for proper OpenPhone routing)
-    // skipDedup: the route pre-inserts the DB record above, so the dedup check
-    // inside sendSMS would find it and block the send as a false positive.
-    // skipThrottle: manual dashboard sends should never be throttled by automated message counts.
-    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true, skipThrottle: true })
-
-    if (!result.success) {
-      // Clean up the pre-inserted record since send failed
-      if (msgRecord?.id) {
-        await client.from('messages').delete().eq('id', msgRecord.id)
-      }
-      return NextResponse.json(
-        { error: result.error || 'Failed to send SMS' },
-        { status: 500 }
-      )
-    }
-
-    console.log(`[send-sms] Saved outbound message to DB for ${e164Phone}`)
 
     // Update texting transcript (legacy)
     const timestamp = new Date().toISOString()
