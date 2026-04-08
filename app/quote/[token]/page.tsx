@@ -786,8 +786,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Recurring Savings Banner — standard tier only */}
-        {!isExpired && !isCustomPriced && servicePlans.length > 0 && selectedTierKey === 'standard' && (
+        {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
+        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || membershipLocked) && (
           <div>
             {membershipLocked ? (
               /* Locked membership — show as confirmed */
