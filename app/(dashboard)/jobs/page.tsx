@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { createPortal } from "react-dom"
 import { useAuth } from "@/lib/auth-context"
 import CubeLoader from "@/components/ui/cube-loader"
 import FullCalendar from "@fullcalendar/react"
@@ -447,7 +448,9 @@ export default function JobsPage() {
   const [pmChargeResult, setPmChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
   const [pmChargeDesc, setPmChargeDesc] = useState("")
   const [pmError, setPmError] = useState<string | null>(null)
+  const [pmPos, setPmPos] = useState<{ top: number; left: number } | null>(null)
   const pmRef = useRef<HTMLDivElement>(null)
+  const pmBtnRef = useRef<HTMLButtonElement>(null)
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
   const [servicePlans, setServicePlans] = useState<ServicePlan[]>([])
@@ -1461,7 +1464,31 @@ export default function JobsPage() {
   // ── Payment menu helpers (used in quote success + event detail) ──
   const pmReset = () => {
     setPmOpen(false); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId("")
-    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false); setPmError(null)
+    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false); setPmError(null); setPmPos(null)
+  }
+
+  const pmToggle = (jobId?: string) => {
+    if (pmOpen) { pmReset(); return }
+    // Calculate position from button
+    const rect = pmBtnRef.current?.getBoundingClientRect()
+    if (rect) {
+      const menuWidth = 288 // w-72
+      const menuHeight = 300 // approx
+      let top = rect.bottom + 4
+      let left = rect.right - menuWidth
+      // If overflows bottom, open upward
+      if (top + menuHeight > window.innerHeight) top = rect.top - menuHeight - 4
+      // Keep on screen
+      if (left < 8) left = 8
+      if (top < 8) top = 8
+      setPmPos({ top, left })
+    } else {
+      // Fallback: center
+      setPmPos({ top: window.innerHeight / 4, left: Math.max(8, (window.innerWidth - 288) / 2) })
+    }
+    setPmType(null); setPmResult(null); setPmAmount(""); setPmChargeResult(null); setPmChargeDesc(""); setPmError(null)
+    if (jobId) setPmJobId(jobId)
+    setPmOpen(true)
   }
 
   const pmGetCustomerId = (): string | null => {
@@ -1573,7 +1600,10 @@ export default function JobsPage() {
   useEffect(() => {
     if (!pmOpen) return
     const handler = (e: MouseEvent) => {
-      if (pmRef.current && !pmRef.current.contains(e.target as Node)) pmReset()
+      const t = e.target as Node
+      if (pmRef.current?.contains(t)) return
+      if (pmBtnRef.current?.contains(t)) return
+      pmReset()
     }
     document.addEventListener("mousedown", handler)
     return () => document.removeEventListener("mousedown", handler)
@@ -1915,10 +1945,12 @@ export default function JobsPage() {
   }
 
   // ── Reusable payment menu popover ──
-  const renderPaymentMenu = (showCardOnFile: boolean, _direction: "down" | "up" = "down") => (
+  const renderPaymentMenu = (showCardOnFile: boolean) => {
+    if (!pmPos) return null
+    const content = (
     <>
-      <div className="fixed inset-0 bg-black/40" style={{ zIndex: 9998 }} onClick={pmReset} />
-      <div className="fixed inset-x-4 top-1/4 w-auto max-w-sm mx-auto bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl" style={{ zIndex: 9999 }}>
+      <div className="fixed inset-0 bg-black/20" style={{ zIndex: 9998 }} onClick={pmReset} />
+      <div ref={pmRef} className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-72" style={{ zIndex: 9999, position: "fixed", top: pmPos.top, left: pmPos.left, maxHeight: "80vh", overflowY: "auto" }}>
         {pmError && (
           <div className="p-3 border-b border-zinc-700/50">
             <p className="text-xs text-red-400">{pmError}</p>
@@ -2142,7 +2174,9 @@ export default function JobsPage() {
         )}
       </div>
     </>
-  )
+    )
+    return typeof document !== "undefined" ? createPortal(content, document.body) : null
+  }
 
   return (
     <>
@@ -2951,17 +2985,15 @@ export default function JobsPage() {
                       + Charge
                     </button>
                   )}
-                  <div className="relative" ref={pmRef}>
-                    <button
-                      onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(selectedEvent?.jobId || ""); setPmChargeResult(null); setPmChargeDesc("") }}
-                      className={`cal-modal-btn ${pmOpen ? "text-purple-400" : ""}`}
-                      title="Payment links"
-                      style={{ padding: "0.4rem 0.5rem" }}
-                    >
-                      <DollarSign className="w-4 h-4" />
-                    </button>
-                    {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile, "up")}
-                  </div>
+                  <button
+                    ref={pmBtnRef}
+                    onClick={() => pmToggle(selectedEvent?.jobId)}
+                    className={`cal-modal-btn ${pmOpen ? "text-purple-400" : ""}`}
+                    title="Payment links"
+                    style={{ padding: "0.4rem 0.5rem" }}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                  </button>
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}
@@ -3297,17 +3329,15 @@ export default function JobsPage() {
                   {quoteSuccess.sending ? "Sending..." : quoteSuccess.sent ? "Sent!" : "Text to Customer"}
                 </button>
                 {/* Payment menu ($) */}
-                <div className="relative" ref={pmRef}>
-                  <button
-                    onClick={() => { setPmOpen(!pmOpen); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId(""); setPmChargeResult(null); setPmChargeDesc("") }}
-                    className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
-                    title="Payment links"
-                    style={{ border: "1px solid rgba(63,63,70,0.5)" }}
-                  >
-                    <DollarSign className="w-4 h-4" />
-                  </button>
-                  {pmOpen && renderPaymentMenu(false, "up")}
-                </div>
+                <button
+                  ref={pmBtnRef}
+                  onClick={() => pmToggle()}
+                  className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
+                  title="Payment links"
+                  style={{ border: "1px solid rgba(63,63,70,0.5)" }}
+                >
+                  <DollarSign className="w-4 h-4" />
+                </button>
                 <button
                   className="cal-modal-btn"
                   onClick={() => {
@@ -4135,6 +4165,7 @@ export default function JobsPage() {
           </>)}
         </div>
       </div>
+      {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile)}
     </>
   )
 }
