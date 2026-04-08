@@ -3887,9 +3887,21 @@ export default function JobsPage() {
                       <select
                         className="cal-form-control"
                         value={createForm.frequency}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const freq = e.target.value
+                          setCreateForm((prev) => {
+                            // Recalculate price with frequency discount
+                            const freqSlugMap: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+                            const oldSlug = freqSlugMap[prev.frequency] || null
+                            const newSlug = freqSlugMap[freq] || null
+                            const oldDiscount = oldSlug ? (servicePlans.find(p => p.slug === oldSlug)?.discount_per_visit || 0) : 0
+                            const newDiscount = newSlug ? (servicePlans.find(p => p.slug === newSlug)?.discount_per_visit || 0) : 0
+                            const currentPrice = Number(prev.price) || 0
+                            // Add back old discount, subtract new discount
+                            const adjusted = currentPrice > 0 ? Math.max(0, currentPrice + oldDiscount - newDiscount) : 0
+                            return { ...prev, frequency: freq, price: adjusted > 0 ? String(adjusted) : prev.price }
+                          })
+                        }}
                       >
                         <option value="one-time">One-time</option>
                         <option value="weekly">Weekly</option>
