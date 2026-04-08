@@ -2565,6 +2565,14 @@ export default function JobsPage() {
                     </a>
                   </div>
                 )}
+                {selectedEvent?.customerEmail && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Email:</strong>{" "}
+                    <a href={`mailto:${selectedEvent.customerEmail}`} style={{ color: "#8b5cf6", textDecoration: "none" }}>
+                      {selectedEvent.customerEmail}
+                    </a>
+                  </div>
+                )}
                 {selectedEvent?.leadSource && (() => {
                   const cfg = getLeadSourceConfig(selectedEvent.leadSource)
                   return (
