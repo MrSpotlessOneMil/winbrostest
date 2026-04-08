@@ -660,6 +660,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
 
   // Create job from the approved quote (with membership_id if applicable)
   const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
+  const hasServiceTime = quote.service_time && typeof quote.service_time === 'string'
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -673,9 +674,10 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     payment_status: 'pending',
     confirmed_at: new Date().toISOString(),
     stripe_checkout_session_id: session.id,
-    notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved — card on file — ${serviceName} package`,
+    notes: null,
     quote_id: quote.id,
     ...(hasServiceDate ? { date: quote.service_date } : {}),
+    ...(hasServiceTime ? { scheduled_at: quote.service_time } : {}),
     ...(membershipId ? { membership_id: membershipId } : {}),
     // Set frequency from membership plan so recurring cron creates future instances
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
@@ -712,7 +714,14 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       let message: string
       if (hasServiceDate) {
         const dateStr = new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is booked for ${dateStr}. We'll send you a reminder before your appointment. Thank you!`
+        let timeStr = ''
+        if (hasServiceTime) {
+          const [h, m] = quote.service_time.split(':').map(Number)
+          const ampm = h >= 12 ? 'PM' : 'AM'
+          const hour12 = h % 12 || 12
+          timeStr = ` at ${hour12}:${String(m).padStart(2, '0')} ${ampm}`
+        }
+        message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is booked for ${dateStr}${timeStr}. We'll send you a reminder before your appointment. Thank you!`
       } else {
         message = `Hey ${customerName}! Your card is on file and your ${serviceName.toLowerCase()} with ${businessName} is confirmed. We'll be in touch to schedule your service. Thank you!`
       }

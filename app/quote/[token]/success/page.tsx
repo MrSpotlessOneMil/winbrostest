@@ -46,7 +46,7 @@ export default function QuoteSuccessPage() {
   const businessPhone = data?.tenant?.phone
   const tenantCurrency = data?.tenant?.currency?.toUpperCase() || "USD"
   const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
-  const depositAmount = data?.quote?.deposit_amount ? fmt(Number(data.quote.deposit_amount)) : null
+  // No deposits — card on file only, charged when cleaner completes the job
 
   return (
     <div className="min-h-screen bg-white">
@@ -66,7 +66,7 @@ export default function QuoteSuccessPage() {
             You&apos;re All Set!
           </h1>
           <p className="text-slate-500 text-lg leading-relaxed">
-            Thank you, {customerName}! Your card is on file{depositAmount ? ` and your deposit of ${depositAmount} has been processed` : ''}. We&apos;ll be in touch!
+            Thank you, {customerName}! Your card is on file and your booking is confirmed. We&apos;ll be in touch!
           </p>
         </div>
 

@@ -140,8 +140,9 @@ export async function notifyCleanerAssignment(
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
 
-  // Notes preview (first 100 chars — contains package info, special instructions)
-  const notesPreview = job.notes ? `\n${job.notes.slice(0, 100)}${job.notes.length > 100 ? '...' : ''}` : ''
+  // Notes preview (first 100 chars — strip internal quote metadata, keep special instructions)
+  const rawNotes = (job.notes || '').replace(/^Quote #[A-F0-9]+ approved[^\n]*\n?/i, '').trim()
+  const notesPreview = rawNotes ? `\n${rawNotes.slice(0, 100)}${rawNotes.length > 100 ? '...' : ''}` : ''
 
   let link = ''
   if (cleaner.portal_token && job.id) {
