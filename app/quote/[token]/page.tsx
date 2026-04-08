@@ -786,7 +786,7 @@ export default function QuotePage() {
         )}
 
         {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
-        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || isCustomPriced) && (
+        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || (isCustomPriced && (quote as any).service_category !== 'move_in_out')) && (
           <div>
               <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
                 selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
