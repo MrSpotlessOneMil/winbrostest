@@ -2212,11 +2212,11 @@ export default function JobsPage() {
                   </button>
                   <button
                     onClick={pmSendSms}
-                    disabled={pmSmsSent}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-purple-600 hover:bg-purple-500 disabled:bg-emerald-600 text-white rounded-lg transition-colors"
+                    disabled={pmSmsSending || pmSmsSent}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg transition-colors ${pmSmsSent ? "bg-emerald-600" : "bg-purple-600 hover:bg-purple-500"} disabled:opacity-80`}
                   >
-                    {pmSmsSent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
-                    {pmSmsSent ? "Sent" : "Send SMS"}
+                    {pmSmsSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : pmSmsSent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                    {pmSmsSending ? "Sending..." : pmSmsSent ? "Sent" : "Send SMS"}
                   </button>
                 </div>
               </>
