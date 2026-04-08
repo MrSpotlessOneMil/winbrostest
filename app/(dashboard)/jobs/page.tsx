@@ -468,6 +468,9 @@ export default function JobsPage() {
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
   const [phoneSuggestions, setPhoneSuggestions] = useState<any[]>([])
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false)
+  const [customerSearch, setCustomerSearch] = useState("")
+  const [customerSearchResults, setCustomerSearchResults] = useState<any[]>([])
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   // Refs for values read inside closures/timeouts to avoid stale captures
   const pendingJobOpenRef = useRef<string | null>(null)
@@ -858,6 +861,34 @@ export default function JobsPage() {
     return () => { clearTimeout(timer); controller.abort() }
   }, [createForm.customer_phone, createOpen])
 
+  // Customer search (name/phone/email) — debounced
+  useEffect(() => {
+    if (!createOpen || customerSearch.length < 2) {
+      setCustomerSearchResults([])
+      return
+    }
+    if (lookedUpCustomerIdRef.current) return
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/lookup?search=${encodeURIComponent(customerSearch)}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && res.data?.length) {
+            setCustomerSearchResults(res.data)
+            setShowCustomerSearch(true)
+          } else {
+            setCustomerSearchResults([])
+          }
+        })
+        .catch((err) => {
+          if (err?.name !== "AbortError") setCustomerSearchResults([])
+        })
+    }, 350)
+
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [customerSearch, createOpen])
+
   // Preview highlight helper — highlights all populated fields during hover preview
   const previewClass = (field: keyof CreateForm) =>
     isPreviewing && createForm[field] ? " previewing" : ""
@@ -1133,6 +1164,9 @@ export default function JobsPage() {
     setPhoneLookedUp("")
     setPhoneSuggestions([])
     setShowPhoneSuggestions(false)
+    setCustomerSearch("")
+    setCustomerSearchResults([])
+    setShowCustomerSearch(false)
     formSnapshotRef.current = null
     isPreviewingRef.current = false
     basePriceSnapshotRef.current = 0
@@ -1952,6 +1986,8 @@ export default function JobsPage() {
       setPhoneLookedUp("")
       setPhoneSuggestions([])
       setShowPhoneSuggestions(false)
+      setCustomerSearch("")
+      setCustomerSearchResults([])
       formSnapshotRef.current = null
       isPreviewingRef.current = false
       basePriceSnapshotRef.current = 0
@@ -2472,6 +2508,8 @@ export default function JobsPage() {
           setPhoneLookedUp("")
           setPhoneSuggestions([])
           setShowPhoneSuggestions(false)
+          setCustomerSearch("")
+          setCustomerSearchResults([])
           formSnapshotRef.current = null
           isPreviewingRef.current = false
           basePriceSnapshotRef.current = 0
@@ -3383,6 +3421,8 @@ export default function JobsPage() {
                     setPhoneLookedUp("")
                     setPhoneSuggestions([])
                     setShowPhoneSuggestions(false)
+                    setCustomerSearch("")
+                    setCustomerSearchResults([])
                     formSnapshotRef.current = null
                     isPreviewingRef.current = false
                     basePriceSnapshotRef.current = 0
@@ -3401,6 +3441,76 @@ export default function JobsPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               {/* ── LEFT COLUMN ── */}
               <div>
+                {/* Customer search */}
+                <div style={{ position: "relative", marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Search Customers</label>
+                  <input
+                    type="text"
+                    className="cal-form-control"
+                    placeholder="Type a customer name, phone number, or email"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value)
+                      setLookedUpCustomerId(null)
+                      lookedUpCustomerIdRef.current = null
+                      if (!e.target.value) { setCustomerSearchResults([]); setShowCustomerSearch(false) }
+                    }}
+                    onFocus={() => { if (customerSearchResults.length > 0) setShowCustomerSearch(true) }}
+                    onBlur={() => setTimeout(() => { if (!isPreviewingRef.current) setShowCustomerSearch(false) }, 200)}
+                  />
+                  {showCustomerSearch && customerSearchResults.length > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      zIndex: 100,
+                      background: "#1e1e21",
+                      border: "1px solid rgba(63, 63, 70, 0.6)",
+                      borderRadius: 8,
+                      marginTop: 2,
+                      maxHeight: 220,
+                      overflowY: "auto",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                    }}>
+                      {customerSearchResults.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectPhoneCustomer(s)
+                            setCustomerSearch([s.first_name, s.last_name].filter(Boolean).join(" "))
+                            setShowCustomerSearch(false)
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "0.5rem 0.75rem",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                            color: "#e4e4e7",
+                            fontSize: "0.8rem",
+                            cursor: "pointer",
+                          }}
+                          onMouseEnter={() => previewPhoneCustomer(s)}
+                          onMouseLeave={() => revertPreview()}
+                        >
+                          <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {[s.first_name, s.last_name].filter(Boolean).join(" ") || "Unknown"}
+                          </div>
+                          <div style={{ color: "#71717a", fontSize: "0.75rem" }}>
+                            {s.phone_number}
+                            {s.email && <span style={{ marginLeft: "0.5rem" }}>{s.email}</span>}
+                            {s.address && <span style={{ color: "#52525b", marginLeft: "0.5rem" }}>{s.address}</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {/* Row 1: Phone, Service Type */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                   <div style={{ position: "relative" }}>

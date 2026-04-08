@@ -23,8 +23,57 @@ export async function GET(request: NextRequest) {
 
   const phone = request.nextUrl.searchParams.get("phone")
   const q = request.nextUrl.searchParams.get("q")
+  const search = request.nextUrl.searchParams.get("search")
 
   try {
+    // General search — matches name, phone, or email
+    if (search && search.length >= 2) {
+      const term = search.trim()
+      const digits = term.replace(/\D/g, "")
+      const isPhoneSearch = digits.length >= 3 && digits.length === term.replace(/[\s\-\(\)\+]/g, "").length
+
+      let query = client
+        .from("customers")
+        .select("id, first_name, last_name, email, phone_number, address, bedrooms, bathrooms, sqft, notes")
+
+      if (isPhoneSearch) {
+        const matchDigits = digits.length >= 10 ? digits.slice(-10) : digits
+        query = query.like("phone_number", `%${matchDigits}%`)
+      } else {
+        // Search by name or email using OR
+        query = query.or(`first_name.ilike.%${term}%,last_name.ilike.%${term}%,email.ilike.%${term}%`)
+      }
+
+      const { data, error } = await query.limit(8)
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+      }
+
+      const customers = data || []
+      if (customers.length > 0) {
+        const customerIds = customers.map((c: { id: string }) => c.id)
+        const { data: lastJobs } = await client
+          .from("jobs")
+          .select("customer_id, service_type, addons, price")
+          .in("customer_id", customerIds)
+          .in("status", ["completed", "scheduled", "in_progress"])
+          .order("scheduled_at", { ascending: false })
+          .limit(20)
+
+        const jobByCustomer = new Map<string, any>()
+        for (const job of lastJobs || []) {
+          if (!jobByCustomer.has(job.customer_id)) {
+            jobByCustomer.set(job.customer_id, job)
+          }
+        }
+        for (const c of customers as (typeof customers[0] & { last_job?: unknown })[]) {
+          c.last_job = jobByCustomer.get(c.id) || null
+        }
+      }
+
+      return NextResponse.json({ success: true, data: customers })
+    }
+
     if (phone) {
       // Strip non-digits for matching
       const digits = phone.replace(/\D/g, "")
