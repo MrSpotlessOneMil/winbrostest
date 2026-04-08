@@ -66,6 +66,7 @@ type CalendarEventDetails = {
   jobType: string
   leadSource: string
   customerPhone: string
+  customerEmail: string
   customerId: string
 }
 
@@ -859,7 +860,7 @@ export default function JobsPage() {
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "" })
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "", customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "" })
   const [saving, setSaving] = useState(false)
   const [autoScheduling, setAutoScheduling] = useState(false)
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
@@ -992,6 +993,7 @@ export default function JobsPage() {
           isCommercial: !!customer?.is_commercial,
           leadSource: resolveLeadSource(job),
           customerPhone: customer?.phone_number || job.phone_number || "",
+          customerEmail: customer?.email || "",
           customerId: customer?.id ? String(customer.id) : "",
         },
       }
@@ -1043,6 +1045,7 @@ export default function JobsPage() {
       jobType: (job as any).job_type || "",
       leadSource: resolveLeadSource(job),
       customerPhone: customer?.phone_number || job.phone_number || "",
+      customerEmail: customer?.email || "",
       customerId: customer?.id ? String(customer.id) : "",
     }
     setSelectedEvent(details)
@@ -1163,6 +1166,7 @@ export default function JobsPage() {
       jobType: info.event.extendedProps.jobType || "",
       leadSource: info.event.extendedProps.leadSource || "",
       customerPhone: info.event.extendedProps.customerPhone || "",
+      customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
     }
     setSelectedEvent(details)
@@ -1305,7 +1309,18 @@ export default function JobsPage() {
     const d = selectedEvent.start
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-    setEditForm({ date, time, cleanerId: selectedEvent.cleanerId || "" })
+    setEditForm({
+      date, time,
+      cleanerId: selectedEvent.cleanerId || "",
+      customerName: selectedEvent.client || "",
+      customerPhone: selectedEvent.customerPhone || "",
+      customerEmail: selectedEvent.customerEmail || "",
+      address: selectedEvent.location || "",
+      price: selectedEvent.price ? String(selectedEvent.price) : "",
+      notes: selectedEvent.notes || "",
+      serviceType: selectedEvent.service || "",
+      status: selectedEvent.status || "",
+    })
     setEditMode(true)
 
     // Fetch cleaners list if not already loaded
@@ -1643,6 +1658,16 @@ export default function JobsPage() {
 
     // Always send cleaner_id so unassign works even when cleanerId wasn't on the direct FK
     body.cleaner_id = editForm.cleanerId || null
+
+    // Customer + job fields
+    if (editForm.customerName !== (selectedEvent.client || "")) body.customer_name = editForm.customerName
+    if (editForm.customerPhone !== (selectedEvent.customerPhone || "")) body.customer_phone = editForm.customerPhone
+    if (editForm.customerEmail !== (selectedEvent.customerEmail || "")) body.customer_email = editForm.customerEmail
+    if (editForm.address !== (selectedEvent.location || "")) { body.customer_address = editForm.address; body.address = editForm.address }
+    if (editForm.price !== (selectedEvent.price ? String(selectedEvent.price) : "")) body.price = editForm.price ? Number(editForm.price) : null
+    if (editForm.notes !== (selectedEvent.notes || "")) body.notes = editForm.notes
+    if (editForm.serviceType !== (selectedEvent.service || "")) body.service_type = editForm.serviceType
+    if (editForm.status !== (selectedEvent.status || "")) body.status = editForm.status
 
     try {
       const res = await fetch("/api/jobs", {
@@ -2659,39 +2684,72 @@ export default function JobsPage() {
               </>
             ) : (
               <>
-                <div style={{ marginBottom: "0.75rem" }}>
-                  <label className="cal-form-label">Date</label>
-                  <input
-                    type="date"
-                    className="cal-form-control"
-                    value={editForm.date}
-                    onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
-                  />
-                </div>
-                <div style={{ marginBottom: "0.75rem" }}>
-                  <label className="cal-form-label">Start Time</label>
-                  <input
-                    type="time"
-                    className="cal-form-control"
-                    value={editForm.time}
-                    onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
-                  />
+                {/* Scheduling */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Date</label>
+                    <input type="date" className="cal-form-control" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Time</label>
+                    <input type="time" className="cal-form-control" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
+                  </div>
                 </div>
                 <div style={{ marginBottom: "0.5rem" }}>
                   <label className="cal-form-label">Assigned Cleaner</label>
-                  <select
-                    className="cal-form-control"
-                    value={editForm.cleanerId}
-                    onChange={(e) => setEditForm((f) => ({ ...f, cleanerId: e.target.value }))}
-                  >
+                  <select className="cal-form-control" value={editForm.cleanerId} onChange={(e) => setEditForm((f) => ({ ...f, cleanerId: e.target.value }))}>
                     <option value="">— Unassigned —</option>
                     {cleanersList.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
                 </div>
-                <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
-                  Duration: {selectedEvent?.hours || 2} hours
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Status</label>
+                    <select className="cal-form-control" value={editForm.status} onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}>
+                      {["pending", "scheduled", "in_progress", "completed", "cancelled", "quoted"].map((s) => (
+                        <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Price</label>
+                    <input type="number" className="cal-form-control" placeholder="0.00" step="0.01" value={editForm.price} onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))} />
+                  </div>
+                </div>
+                {/* Customer info */}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Customer Name</label>
+                  <input type="text" className="cal-form-control" value={editForm.customerName} onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Phone</label>
+                    <input type="tel" className="cal-form-control" value={editForm.customerPhone} onChange={(e) => setEditForm((f) => ({ ...f, customerPhone: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Email</label>
+                    <input type="email" className="cal-form-control" value={editForm.customerEmail} onChange={(e) => setEditForm((f) => ({ ...f, customerEmail: e.target.value }))} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Address</label>
+                  <input type="text" className="cal-form-control" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Service Type</label>
+                    <input type="text" className="cal-form-control" value={editForm.serviceType} onChange={(e) => setEditForm((f) => ({ ...f, serviceType: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Duration</label>
+                    <div style={{ fontSize: "0.8rem", color: "#71717a", padding: "0.45rem 0" }}>{selectedEvent?.hours || 2} hours</div>
+                  </div>
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Notes</label>
+                  <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
                 </div>
                 {/* Send to cleaners (also in edit mode) */}
                 <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>

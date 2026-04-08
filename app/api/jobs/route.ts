@@ -193,6 +193,32 @@ export async function PATCH(request: NextRequest) {
     if (body.price !== undefined) updates.price = body.price
     if (body.status !== undefined) updates.status = body.status
     if (body.notes !== undefined) updates.notes = body.notes
+    if (body.phone_number !== undefined) updates.phone_number = body.phone_number
+
+    // Update linked customer record if customer fields provided
+    if (oldJob?.customer_id && (body.customer_name !== undefined || body.customer_email !== undefined || body.customer_phone !== undefined || body.customer_address !== undefined)) {
+      const custUpdates: Record<string, any> = {}
+      if (body.customer_name !== undefined) {
+        const parts = String(body.customer_name).trim().split(" ")
+        custUpdates.first_name = parts[0] || null
+        custUpdates.last_name = parts.slice(1).join(" ") || null
+      }
+      if (body.customer_email !== undefined) custUpdates.email = body.customer_email || null
+      if (body.customer_phone !== undefined) {
+        custUpdates.phone_number = body.customer_phone || null
+        updates.phone_number = body.customer_phone || null
+      }
+      if (body.customer_address !== undefined) {
+        custUpdates.address = body.customer_address || null
+        updates.address = body.customer_address || null
+      }
+      if (Object.keys(custUpdates).length > 0) {
+        await getSupabaseServiceClient()
+          .from("customers")
+          .update(custUpdates)
+          .eq("id", oldJob.customer_id)
+      }
+    }
 
     // Handle cleaner reassignment
     const { cleaner_id } = body
