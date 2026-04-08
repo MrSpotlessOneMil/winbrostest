@@ -759,51 +759,59 @@ async function handleEmailBookingCompletion(
     jobDate = candidate.toISOString().split('T')[0]
   }
 
-  // ── Create job ──
-  const { data: newJob, error: jobError } = await client.from('jobs').insert({
-    tenant_id: tenant.id,
-    customer_id: customer.id,
-    phone_number: phoneNumber || customer.phone_number || null,
-    service_type: serviceType || 'Standard cleaning',
-    address: address || customer.address || null,
-    price: servicePrice || null,
-    date: jobDate,
-    scheduled_at: preferredTime || '09:00',
-    status: 'quoted',
-    booked: false,
-    notes: jobNotes || null,
-    job_type: isWinBros ? 'estimate' : 'cleaning',
-  }).select('id').single()
+  // ── Create job (WinBros only — house cleaning gets quote only, job after card on file) ──
+  let newJob: { id: number } | null = null
+  if (isWinBros) {
+    const { data: job, error: jobError } = await client.from('jobs').insert({
+      tenant_id: tenant.id,
+      customer_id: customer.id,
+      phone_number: phoneNumber || customer.phone_number || null,
+      service_type: serviceType || 'window cleaning',
+      address: address || customer.address || null,
+      price: servicePrice || null,
+      date: jobDate,
+      scheduled_at: preferredTime || '09:00',
+      status: 'quoted',
+      booked: false,
+      notes: jobNotes || null,
+      job_type: 'estimate',
+    }).select('id').single()
 
-  if (jobError || !newJob?.id) {
-    console.error(`[Email Cron] Job creation failed for ${senderEmail}:`, jobError)
-    return
+    if (jobError || !job?.id) {
+      console.error(`[Email Cron] Job creation failed for ${senderEmail}:`, jobError)
+      return
+    }
+    newJob = job
+    console.log(`[Email Cron] WinBros estimate job created: #${newJob.id}`)
+
+    // Sync job to HouseCall Pro
+    const { syncNewJobToHCP } = await import('@/lib/hcp-job-sync')
+    await syncNewJobToHCP({
+      tenant,
+      jobId: newJob.id,
+      phone: customer.phone_number,
+      firstName: firstName || customer.first_name,
+      lastName: lastName || customer.last_name,
+      email: finalEmail,
+      address: address || customer.address,
+      serviceType: serviceType || null,
+      scheduledDate: jobDate,
+      scheduledTime: preferredTime || '09:00',
+      price: servicePrice,
+      notes: 'Estimate Visit | Booked via email',
+      source: 'email',
+      isEstimate: true,
+    })
+  } else {
+    // House cleaning: tag customer as quoted (badge in dashboard)
+    await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customer.id).is('lifecycle_stage_override', null)
+    console.log(`[Email Cron] House cleaning — skipping job, quote-only for ${senderEmail}`)
   }
-  console.log(`[Email Cron] Job created: #${newJob.id}`)
 
-  // Sync job to HouseCall Pro
-  const { syncNewJobToHCP } = await import('@/lib/hcp-job-sync')
-  await syncNewJobToHCP({
-    tenant,
-    jobId: newJob.id,
-    phone: customer.phone_number,
-    firstName: firstName || customer.first_name,
-    lastName: lastName || customer.last_name,
-    email: finalEmail,
-    address: address || customer.address,
-    serviceType: serviceType || null,
-    scheduledDate: jobDate,
-    scheduledTime: preferredTime || '09:00',
-    price: servicePrice,
-    notes: 'Booked via email',
-    source: 'email',
-    isEstimate: isWinBros,
-  })
-
-  // ── Update lead to qualified (booked requires payment + cleaner assigned) ──
+  // ── Update lead to qualified ──
   await client.from('leads').update({
     status: 'qualified',
-    converted_to_job_id: newJob.id,
+    ...(newJob ? { converted_to_job_id: newJob.id } : {}),
     form_data: {
       ...(typeof lead.form_data === 'object' && lead.form_data ? lead.form_data : {}),
       booking_data: bookingData,
@@ -878,7 +886,7 @@ async function handleEmailBookingCompletion(
         email_message_id: sendResult.messageId || null,
         metadata: {
           subject: confirmSubject,
-          job_id: newJob.id,
+          job_id: newJob?.id,
         },
         timestamp: new Date().toISOString(),
       })
@@ -961,7 +969,7 @@ async function handleEmailBookingCompletion(
             quote_id: newQuote.id,
             quote_token: newQuote.token,
             quote_url: quoteUrl,
-            job_id: newJob.id,
+            job_id: newJob?.id,
           },
           timestamp: new Date().toISOString(),
         })
@@ -1005,10 +1013,10 @@ async function handleEmailBookingCompletion(
     tenant_id: tenant.id,
     source: 'email_cron',
     event_type: 'EMAIL_BOOKING_COMPLETED',
-    message: `Email booking completed for ${senderEmail} — job ${newJob.id}`,
+    message: `Email booking completed for ${senderEmail}${newJob ? ` — job ${newJob.id}` : ' — quote only'}`,
     metadata: {
       lead_id: lead.id,
-      job_id: newJob.id,
+      job_id: newJob?.id,
       booking_data: bookingData,
       email: finalEmail,
       deposit_url: paymentUrl || null,
