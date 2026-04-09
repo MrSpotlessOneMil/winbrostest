@@ -404,7 +404,7 @@ export async function sendCleanerPortalMessage(
   const businessName = tenant.business_name_short || tenant.name
   const taggedContent = `${content}\n\n— ${firstName} from ${businessName}, your cleaner`
 
-  const result = await sendSMS(tenant, customerPhone, taggedContent)
+  const result = await sendSMS(tenant, customerPhone, taggedContent, { skipThrottle: true, bypassFilters: true })
 
   if (result.success) {
     try {
@@ -463,7 +463,7 @@ export async function notifyCustomerStatus(
         done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
       }
 
-  return await sendSMS(tenant, customerPhone, messages[status])
+  return await sendSMS(tenant, customerPhone, messages[status], { skipThrottle: true, bypassFilters: true })
 }
 
 /**

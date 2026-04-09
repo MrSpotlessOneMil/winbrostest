@@ -77,7 +77,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   await sendSMS(
     tenant,
     customerPhone,
-    `Hey ${customerName}! Thank you for choosing ${businessName}. If you'd like to leave a tip for your crew, you can do so here: ${tipLink}`
+    `Hey ${customerName}! Thank you for choosing ${businessName}. If you'd like to leave a tip for your crew, you can do so here: ${tipLink}`,
+    { skipThrottle: true, bypassFilters: true }
   )
 
   return NextResponse.json({ success: true })

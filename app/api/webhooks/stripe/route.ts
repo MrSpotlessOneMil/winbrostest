@@ -771,12 +771,14 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   let preconfirmHandled = false
   if (newJob?.id) {
     try {
+      // Check for confirmed OR pending preconfirms (pending = operator picked cleaner, didn't wait for confirmation)
       const { data: confirmedCleaners } = await serviceClient
         .from('quote_cleaner_preconfirms')
-        .select('cleaner_id, cleaner_pay')
+        .select('cleaner_id, cleaner_pay, status')
         .eq('quote_id', quote.id)
         .eq('tenant_id', quote.tenant_id)
-        .eq('status', 'confirmed')
+        .in('status', ['confirmed', 'pending'])
+        .order('status', { ascending: true }) // 'confirmed' sorts before 'pending'
 
       if (confirmedCleaners?.length) {
         // Use the first confirmed cleaner
