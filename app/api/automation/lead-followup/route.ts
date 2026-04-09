@@ -86,6 +86,34 @@ export async function POST(request: NextRequest) {
   const businessName = tenant ? getTenantBusinessName(tenant) : getClientConfig(lead.brand).businessName
   const firstName = leadName || lead.first_name || "there"
 
+  // Business hours guard: follow-ups only fire during business hours (default 8 AM - 5 PM tenant time)
+  // Real-time AI responses to inbound messages are NOT affected — this only gates automated follow-ups.
+  if (tenant) {
+    const tz = tenant.timezone || 'America/Chicago'
+    const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: tz }))
+    const minutesSinceMidnight = nowInTz.getHours() * 60 + nowInTz.getMinutes()
+    const wc = tenant.workflow_config || {}
+    const hoursStart = typeof wc.business_hours_start === 'number' ? wc.business_hours_start : 480  // 8 AM
+    const hoursEnd = typeof wc.business_hours_end === 'number' ? wc.business_hours_end : 1200       // 8 PM
+    if (minutesSinceMidnight < hoursStart || minutesSinceMidnight > hoursEnd) {
+      console.log(`[lead-followup] Outside business hours (${minutesSinceMidnight}min vs ${hoursStart}-${hoursEnd}) for ${tenant.slug} — rescheduling`)
+      // Reschedule for next business hours window (hoursStart tomorrow in tenant tz)
+      const tomorrow = new Date(nowInTz)
+      tomorrow.setDate(tomorrow.getDate() + (minutesSinceMidnight < hoursStart ? 0 : 1))
+      tomorrow.setHours(Math.floor(hoursStart / 60), hoursStart % 60, 0, 0)
+      // Convert back to UTC for the scheduled_tasks table
+      const rescheduleUtc = new Date(tomorrow.toLocaleString('en-US', { timeZone: 'UTC' }))
+      // Find and reschedule the task
+      const client = getSupabaseClient()
+      const taskKey = `lead-${leadId}-stage-${stage}`
+      await client.from('scheduled_tasks')
+        .update({ scheduled_for: rescheduleUtc.toISOString(), status: 'pending' })
+        .eq('task_key', taskKey)
+        .eq('status', 'pending')
+      return NextResponse.json({ success: true, skipped: true, reason: 'Outside business hours — rescheduled' })
+    }
+  }
+
   try {
     // 4. Execute based on stage/action
     let result: { success: boolean; error?: string; details?: Record<string, unknown> }
@@ -196,12 +224,7 @@ async function executeStage1(
     console.error(`[lead-followup] Stage has no tenant — skipping SMS to ${phone}`)
     return { success: false, error: 'No tenant for SMS' }
   }
-  const result = await sendSMS(tenant, phone, message)
-
-  // Save to messages table
-  if (result.success) {
-    await saveOutboundMessage(phone, message, tenant, customerId)
-  }
+  const result = await sendSMS(tenant, phone, message, { source: 'lead_followup', customerId })
 
   return {
     success: result.success,
@@ -298,12 +321,7 @@ async function executeStage4(
     console.error(`[lead-followup] Stage has no tenant — skipping SMS to ${phone}`)
     return { success: false, error: 'No tenant for SMS' }
   }
-  const result = await sendSMS(tenant, phone, message)
-
-  // Save to messages table
-  if (result.success) {
-    await saveOutboundMessage(phone, message, tenant, customerId)
-  }
+  const result = await sendSMS(tenant, phone, message, { source: 'lead_followup', customerId })
 
   return {
     success: result.success,
@@ -361,12 +379,9 @@ async function executeStage5(
         if (!tenant) {
           console.error(`[lead-followup] Stage 5 has no tenant — skipping payment link SMS to ${phone}`)
         }
-        const smsResult = tenant ? await sendSMS(tenant, phone, paymentMessage) : { success: false, error: 'No tenant' }
+        const smsResult = tenant ? await sendSMS(tenant, phone, paymentMessage, { source: 'lead_followup', customerId: lead.customer_id }) : { success: false, error: 'No tenant' }
 
-        if (smsResult.success) {
-          // Save to messages table
-          await saveOutboundMessage(phone, paymentMessage, tenant, lead.customer_id)
-        } else {
+        if (!smsResult.success) {
           console.warn(`[lead-followup] Failed to send payment link SMS: ${smsResult.error}`)
         }
 
