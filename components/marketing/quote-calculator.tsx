@@ -37,8 +37,8 @@ const DB_PRICES: Record<string, Record<string, number>> = {
 
 const FREQUENCY_DISCOUNTS: Record<string, number> = {
   one_time: 0,
-  bimonthly: 0.1,
-  monthly: 0.15,
+  biweekly: 0.15,
+  monthly: 0.1,
   weekly: 0.2,
 }
 
@@ -76,8 +76,8 @@ const CLEANING_TYPES = [
 const FREQUENCY_OPTIONS = [
   { value: "one_time", label: "One-time" },
   { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Bi-weekly" },
   { value: "monthly", label: "Monthly" },
-  { value: "bimonthly", label: "Bi-monthly" },
 ]
 
 // ---------------------------------------------------------------------------
