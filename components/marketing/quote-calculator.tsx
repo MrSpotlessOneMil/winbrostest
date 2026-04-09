@@ -15,22 +15,41 @@ function getUtmParams(): Record<string, string> {
 }
 
 // ---------------------------------------------------------------------------
-// Pricing constants
+// Pricing constants — exact values from Supabase pricing_tiers (Spotless Scrubbers)
+// Keyed by `${bedrooms}_${bathrooms}`, covers all calculator combos (1-6 bed, 1-4 bath)
 // ---------------------------------------------------------------------------
-const BASE_PRICES: Record<string, number> = {
-  standard: 120,
-  deep: 200,
-  move_in_out: 250,
-  post_construction: 300,
-}
 
-const BEDROOM_ADD = 30
-const BATHROOM_ADD = 25
+const DB_PRICES: Record<string, Record<string, number>> = {
+  standard: {
+    '1_1': 150, '1_2': 175, '1_3': 200, '1_4': 225,
+    '2_1': 175, '2_2': 200, '2_3': 225, '2_4': 250,
+    '3_1': 210, '3_2': 260, '3_3': 310, '3_4': 360,
+    '4_1': 280, '4_2': 340, '4_3': 400, '4_4': 455,
+    '5_1': 365, '5_2': 420, '5_3': 475, '5_4': 530,
+    '6_1': 440, '6_2': 495, '6_3': 550, '6_4': 605,
+  },
+  deep: {
+    '1_1': 250, '1_2': 275, '1_3': 300, '1_4': 325,
+    '2_1': 285, '2_2': 325, '2_3': 365, '2_4': 405,
+    '3_1': 325, '3_2': 400, '3_3': 475, '3_4': 550,
+    '4_1': 450, '4_2': 525, '4_3': 600, '4_4': 675,
+    '5_1': 550, '5_2': 625, '5_3': 700, '5_4': 775,
+    '6_1': 650, '6_2': 725, '6_3': 800, '6_4': 875,
+  },
+  move_in_out: {
+    '1_1': 300, '1_2': 325, '1_3': 350, '1_4': 375,
+    '2_1': 342, '2_2': 390, '2_3': 440, '2_4': 485,
+    '3_1': 390, '3_2': 480, '3_3': 570, '3_4': 660,
+    '4_1': 540, '4_2': 630, '4_3': 720, '4_4': 810,
+    '5_1': 660, '5_2': 750, '5_3': 840, '5_4': 930,
+    '6_1': 780, '6_2': 870, '6_3': 960, '6_4': 1050,
+  },
+}
 
 const FREQUENCY_DISCOUNTS: Record<string, number> = {
   one_time: 0,
-  monthly: 0.1,
-  biweekly: 0.15,
+  bimonthly: 0.1,
+  monthly: 0.15,
   weekly: 0.2,
 }
 
@@ -44,10 +63,12 @@ function calculatePrice(
   bathrooms: number,
   frequency: string,
 ): number {
-  const base = BASE_PRICES[cleaningType] ?? BASE_PRICES.standard
+  const table = DB_PRICES[cleaningType]
+  // Post-construction uses deep prices as baseline + 25%
+  const base = table?.[`${bedrooms}_${bathrooms}`]
+    ?? Math.round((DB_PRICES.deep[`${bedrooms}_${bathrooms}`] ?? 400) * 1.25)
   const discount = FREQUENCY_DISCOUNTS[frequency] ?? 0
-  const raw = (base + bedrooms * BEDROOM_ADD + bathrooms * BATHROOM_ADD) * (1 - discount)
-  return roundToNearest5(raw)
+  return roundToNearest5(base * (1 - discount))
 }
 
 // ---------------------------------------------------------------------------
@@ -66,8 +87,8 @@ const CLEANING_TYPES = [
 const FREQUENCY_OPTIONS = [
   { value: "one_time", label: "One-time" },
   { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Bi-weekly" },
   { value: "monthly", label: "Monthly" },
+  { value: "bimonthly", label: "Bi-monthly" },
 ]
 
 // ---------------------------------------------------------------------------

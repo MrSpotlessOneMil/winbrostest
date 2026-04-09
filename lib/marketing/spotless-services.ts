@@ -34,7 +34,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Families with children",
       "Recurring weekly or biweekly maintenance",
     ],
-    priceRange: "Starting at $120",
+    priceRange: "Starting at $150",
     icon: "Sparkles",
   },
   {
@@ -61,7 +61,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "Seasonal deep refreshes",
       "Homes that haven't been cleaned in a while",
     ],
-    priceRange: "Starting at $200",
+    priceRange: "Starting at $250",
     icon: "Search",
   },
   {
@@ -87,7 +87,7 @@ export const SPOTLESS_SERVICES: SpotlessService[] = [
       "New homeowners moving in",
       "Property managers between tenants",
     ],
-    priceRange: "Starting at $250",
+    priceRange: "Starting at $300",
     icon: "Home",
   },
   {

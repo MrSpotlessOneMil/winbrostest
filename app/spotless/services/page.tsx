@@ -25,9 +25,9 @@ const SERVICE_IMAGES: Record<string, string> = {
 }
 
 const SERVICE_STARTING_PRICES: Record<string, number> = {
-  "standard-cleaning": 120,
-  "deep-cleaning": 200,
-  "move-in-out-cleaning": 250,
+  "standard-cleaning": 150,
+  "deep-cleaning": 250,
+  "move-in-out-cleaning": 300,
   "post-construction-cleaning": 300,
   "commercial-cleaning": 150,
   "airbnb-cleaning": 100,
