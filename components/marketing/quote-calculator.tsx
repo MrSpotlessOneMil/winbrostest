@@ -82,7 +82,11 @@ const CLEANING_TYPES = [
   { value: "deep", label: "Deep Cleaning" },
   { value: "move_in_out", label: "Move-In / Move-Out" },
   { value: "post_construction", label: "Post-Construction" },
+  { value: "commercial", label: "Commercial / Office" },
+  { value: "airbnb", label: "Airbnb / Short-Term Rental" },
 ]
+
+const REQUEST_ONLY_TYPES = new Set(["commercial", "post_construction", "airbnb"])
 
 const FREQUENCY_OPTIONS = [
   { value: "one_time", label: "One-time" },
@@ -109,6 +113,9 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
+  const [notes, setNotes] = useState("")
+
+  const isRequestOnly = REQUEST_ONLY_TYPES.has(cleaningType)
 
   // Submit state
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
@@ -122,14 +129,14 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
   const [displayedPrice, setDisplayedPrice] = useState(0)
   const animFrameRef = useRef<number | null>(null)
 
-  const estimatedPrice = calculatePrice(cleaningType, bedrooms, bathrooms, frequency)
+  const estimatedPrice = isRequestOnly ? 0 : calculatePrice(cleaningType, bedrooms, bathrooms, frequency)
 
   // Reveal the price section once all step-1 fields have a selection
   useEffect(() => {
-    if (bedrooms && bathrooms && cleaningType && frequency) {
+    if (!isRequestOnly && bedrooms && bathrooms && cleaningType && frequency) {
       setPriceRevealed(true)
     }
-  }, [bedrooms, bathrooms, cleaningType, frequency])
+  }, [bedrooms, bathrooms, cleaningType, frequency, isRequestOnly])
 
   // Animate the price number when it changes
   useEffect(() => {
@@ -182,10 +189,9 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
       phone,
       email: email || undefined,
       service_type: cleaningType,
-      bedrooms,
-      bathrooms,
-      frequency,
-      estimated_price: estimatedPrice,
+      ...(isRequestOnly
+        ? { message: notes || undefined }
+        : { bedrooms, bathrooms, frequency, estimated_price: estimatedPrice }),
       source: source === "homepage" ? "quote_calculator" : `quote_calculator_${source}`,
       ...utmParams,
     }
@@ -238,11 +244,15 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         </div>
         <h3 className="text-2xl font-bold text-slate-900 mb-2">You&apos;re All Set!</h3>
         <p className="text-slate-600 mb-1">
-          Your cleaning request is confirmed! We will reach out shortly to finalize the details.
+          {isRequestOnly
+            ? "We'll reach out shortly with a custom quote for your project."
+            : "Your cleaning request is confirmed! We will reach out shortly to finalize the details."}
         </p>
-        <p className="text-sm text-slate-500">
-          Your estimated price: <span className="font-semibold text-[#2195b4]">${estimatedPrice}</span>
-        </p>
+        {!isRequestOnly && (
+          <p className="text-sm text-slate-500">
+            Your estimated price: <span className="font-semibold text-[#2195b4]">${estimatedPrice}</span>
+          </p>
+        )}
       </div>
     )
   }
@@ -256,7 +266,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             Step {step} of 2
           </span>
           <span className="text-xs text-slate-400">
-            {step === 1 ? "Home Details" : "Contact Info"}
+            {step === 1 ? (isRequestOnly ? "Service Details" : "Home Details") : "Contact Info"}
           </span>
         </div>
         <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
@@ -288,6 +298,63 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             : "opacity-0 -translate-x-8 h-0 overflow-hidden px-6 pb-0"
         }`}
       >
+        {/* Cleaning Type — always shown first */}
+        <div className="mt-4">
+          <label htmlFor="qc-cleaning-type" className="block text-sm font-semibold text-slate-700 mb-2">
+            Cleaning Type
+          </label>
+          <select
+            id="qc-cleaning-type"
+            value={cleaningType}
+            onChange={(e) => setCleaningType(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#2195b4] focus:border-transparent bg-white appearance-none"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: "no-repeat",
+              backgroundPosition: "right 12px center",
+            }}
+          >
+            {CLEANING_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {isRequestOnly ? (
+          <>
+            <div className="mt-6 rounded-xl bg-gradient-to-r from-[#2195b4]/5 to-[#2195b4]/10 border border-[#2195b4]/20 p-5 text-center">
+              <p className="text-sm font-medium text-slate-700 mb-1">Custom Quote</p>
+              <p className="text-sm text-slate-500">
+                Tell us about the job and we&apos;ll get back to you within the hour with a personalized quote.
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <label htmlFor="qc-notes" className="block text-sm font-semibold text-slate-700 mb-2">
+                Tell us about the job <span className="text-slate-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                id="qc-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Approximate size, timeline, any special requirements..."
+                rows={3}
+                className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#2195b4] focus:border-transparent text-sm resize-none"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={goToStep2}
+              className="mt-5 w-full px-6 py-3.5 rounded-xl bg-[#2195b4] text-white font-semibold text-base hover:bg-[#1a7a94] active:bg-[#155f73] transition-colors shadow-lg shadow-[#2195b4]/20"
+            >
+              Request a Quote
+            </button>
+          </>
+        ) : (
+        <>
         {/* Bedrooms */}
         <fieldset className="mt-4">
           <legend className="block text-sm font-semibold text-slate-700 mb-2">Bedrooms</legend>
@@ -329,30 +396,6 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             ))}
           </div>
         </fieldset>
-
-        {/* Cleaning Type */}
-        <div className="mt-5">
-          <label htmlFor="qc-cleaning-type" className="block text-sm font-semibold text-slate-700 mb-2">
-            Cleaning Type
-          </label>
-          <select
-            id="qc-cleaning-type"
-            value={cleaningType}
-            onChange={(e) => setCleaningType(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-lg border border-slate-200 text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#2195b4] focus:border-transparent bg-white appearance-none"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2364748b' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
-              backgroundRepeat: "no-repeat",
-              backgroundPosition: "right 12px center",
-            }}
-          >
-            {CLEANING_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
 
         {/* Frequency */}
         <fieldset className="mt-5">
@@ -415,6 +458,8 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         >
           Get My Quote
         </button>
+        </>
+        )}
       </div>
 
       {/* ---- Step 2: Contact info ---- */}
@@ -432,10 +477,14 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
               <span className="font-medium text-slate-800">
                 {CLEANING_TYPES.find((t) => t.value === cleaningType)?.label}
               </span>
-              <span className="mx-1">-</span>
-              {bedrooms} bed, {bathrooms} bath
-              <span className="mx-1">-</span>
-              {FREQUENCY_OPTIONS.find((f) => f.value === frequency)?.label}
+              {!isRequestOnly && (
+                <>
+                  <span className="mx-1">-</span>
+                  {bedrooms} bed, {bathrooms} bath
+                  <span className="mx-1">-</span>
+                  {FREQUENCY_OPTIONS.find((f) => f.value === frequency)?.label}
+                </>
+              )}
             </div>
             <button
               type="button"
@@ -446,11 +495,13 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             </button>
           </div>
 
-          {/* Price summary */}
-          <div className="text-center py-2">
-            <p className="text-sm text-slate-500">Estimated Price</p>
-            <p className="text-3xl font-bold text-[#2195b4]">${estimatedPrice}</p>
-          </div>
+          {/* Price summary — only for calculator types */}
+          {!isRequestOnly && (
+            <div className="text-center py-2">
+              <p className="text-sm text-slate-500">Estimated Price</p>
+              <p className="text-3xl font-bold text-[#2195b4]">${estimatedPrice}</p>
+            </div>
+          )}
 
           {/* Name */}
           <div>
