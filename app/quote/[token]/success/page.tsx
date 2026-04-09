@@ -95,13 +95,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">1</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Booking Confirmed</p>
-                <p className="text-slate-500 text-xs">
-                  {dateTimeDisplay
-                    ? `Your cleaning is scheduled for ${dateTimeDisplay}. You'll receive a confirmation text shortly.`
-                    : `You'll receive a confirmation text shortly with your scheduling details.`
-                  }
-                </p>
+                <p className="text-slate-800 text-sm font-medium">Confirmation</p>
+                <p className="text-slate-500 text-xs">You&apos;ll get a text confirming your cleaner and appointment details.</p>
               </div>
             </div>
 
@@ -111,7 +106,7 @@ export default function QuoteSuccessPage() {
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Day Before Reminder</p>
-                <p className="text-slate-500 text-xs">We&apos;ll send you a reminder and your team&apos;s arrival time the day before.</p>
+                <p className="text-slate-500 text-xs">You&apos;ll get a reminder the day before your appointment.</p>
               </div>
             </div>
 
@@ -121,7 +116,7 @@ export default function QuoteSuccessPage() {
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
-                <p className="text-slate-500 text-xs">Your team arrives, cleans, and your card is only charged once the job is complete.</p>
+                <p className="text-slate-500 text-xs">You&apos;ll get a text when your team is on the way and when they&apos;ve arrived.</p>
               </div>
             </div>
           </div>
