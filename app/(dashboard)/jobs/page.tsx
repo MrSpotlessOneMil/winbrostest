@@ -2985,15 +2985,6 @@ export default function JobsPage() {
                   </div>
                   <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
                     {cleanersList.map((c) => (
-                      <label key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: "0.8rem", color: "#e4e4e7", padding: "0.25rem 0.4rem", borderRadius: 4, background: sendToCleanerIds.includes(c.id) ? "rgba(16, 185, 129, 0.15)" : "transparent" }}>
-                        <input
-                          type="checkbox"
-                          checked={sendToCleanerIds.includes(c.id)}
-                          onChange={(e) => {
-                            setSendToCleanerResult(null)
-                            if (e.target.checked) {
-                              setSendToCleanerIds(prev => [...prev, c.id])
-                            } else {
               </>
             )}
           </div>
