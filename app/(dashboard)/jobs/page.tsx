@@ -2822,11 +2822,6 @@ export default function JobsPage() {
                   >
                     {sendingToCleaner ? "Sending..." : `Send to ${sendToCleanerIds.length || ''} cleaner${sendToCleanerIds.length !== 1 ? 's' : ''}`}
                   </button>
-                  {sendToCleanerResult && (
-                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
-                      {sendToCleanerResult}
-                    </div>
-                  )}
               </>
             ) : (
               <>
