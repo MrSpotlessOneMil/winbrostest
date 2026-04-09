@@ -512,8 +512,8 @@ export default function HomePage() {
             </div>
             <div>
               <img
-                src="/images/marketing/airbnb-cleaning.jpg"
-                alt="Modern styled living room after professional Airbnb turnover cleaning in Los Angeles"
+                src="/images/marketing/airbnb-turnover-branded.jpg"
+                alt="Spotless Scrubbers team member preparing Airbnb bedroom with fresh towels in Los Angeles"
                 className="w-full h-64 object-cover"
               />
               <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Airbnb Turnover</p>
