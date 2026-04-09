@@ -211,8 +211,12 @@ export async function POST(
   // The SMS bot picks up from here — ask for what's still missing so it can
   // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
+  const isSpecializedService = ['commercial', 'post_construction', 'airbnb'].includes(serviceType)
   let smsMessage: string
-  if (bedrooms && bathrooms && estimatedPrice && address) {
+  if (isSpecializedService) {
+    // Specialized services — don't ask for bedrooms/bathrooms, collect project details instead
+    smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! We'd love to learn more about the job — what's the address and roughly how big is the space? We'll get you a custom quote fast.`
+  } else if (bedrooms && bathrooms && estimatedPrice && address) {
     // Everything we need — tell them quote is on the way (bot will fire [BOOKING_COMPLETE])
     smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for your quote request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm sending over your cleaning options right now!`
   } else if (bedrooms && bathrooms && estimatedPrice) {
