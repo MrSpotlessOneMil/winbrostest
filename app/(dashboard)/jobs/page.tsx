@@ -2994,15 +2994,6 @@ export default function JobsPage() {
                             if (e.target.checked) {
                               setSendToCleanerIds(prev => [...prev, c.id])
                             } else {
-                              setSendToCleanerIds(prev => prev.filter(id => id !== c.id))
-                            }
-                          }}
-                          style={{ accentColor: "#10b981" }}
-                        />
-                        {c.name}
-                      </label>
-                    ))}
-                  </div>
               </>
             )}
           </div>
