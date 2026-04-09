@@ -2836,16 +2836,6 @@ export default function JobsPage() {
                         width: "100%",
                         padding: "0.5rem 0.75rem",
                         borderRadius: 6,
-                        border: "none",
-                        background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                        color: "#fff",
-                        fontWeight: 600,
-                        fontSize: "0.8rem",
-                        cursor: sendingRanked ? "not-allowed" : "pointer",
-                        opacity: sendingRanked ? 0.5 : 1,
-                      }}
-                    >
-                      {sendingRanked ? "Sending..." : "Send Ranked (Best → Worst)"}
               </>
             ) : (
               <>
