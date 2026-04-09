@@ -2814,14 +2814,6 @@ export default function JobsPage() {
                       border: "none",
                       background: sendToCleanerIds.length > 0 ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
                       color: "#fff",
-                      fontWeight: 600,
-                      fontSize: "0.8rem",
-                      cursor: sendToCleanerIds.length === 0 || sendingToCleaner ? "not-allowed" : "pointer",
-                      opacity: sendToCleanerIds.length === 0 || sendingToCleaner ? 0.5 : 1,
-                    }}
-                  >
-                    {sendingToCleaner ? "Sending..." : `Send to ${sendToCleanerIds.length || ''} cleaner${sendToCleanerIds.length !== 1 ? 's' : ''}`}
-                  </button>
               </>
             ) : (
               <>
