@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
-import { CheckCircle, Loader2, Phone, CalendarCheck, Bell, Sparkles } from "lucide-react"
+import { CheckCircle, Loader2, Phone } from "lucide-react"
 
 export default function QuoteSuccessPage() {
   const params = useParams()
@@ -92,7 +92,7 @@ export default function QuoteSuccessPage() {
           <div className="space-y-3">
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <CalendarCheck className="size-3.5 text-emerald-600" />
+                <span className="text-emerald-600 text-xs font-bold">1</span>
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Booking Confirmed</p>
@@ -107,7 +107,7 @@ export default function QuoteSuccessPage() {
 
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <Bell className="size-3.5 text-emerald-600" />
+                <span className="text-emerald-600 text-xs font-bold">2</span>
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Day Before Reminder</p>
@@ -117,7 +117,7 @@ export default function QuoteSuccessPage() {
 
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <Sparkles className="size-3.5 text-emerald-600" />
+                <span className="text-emerald-600 text-xs font-bold">3</span>
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
