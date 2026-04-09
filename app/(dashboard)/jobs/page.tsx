@@ -2790,13 +2790,6 @@ export default function JobsPage() {
                         <input
                           type="checkbox"
                           checked={sendToCleanerIds.includes(c.id)}
-                          onChange={(e) => {
-                            setSendToCleanerResult(null)
-                            if (e.target.checked) {
-                              setSendToCleanerIds(prev => [...prev, c.id])
-                            } else {
-                              setSendToCleanerIds(prev => prev.filter(id => id !== c.id))
-                            }
               </>
             ) : (
               <>
