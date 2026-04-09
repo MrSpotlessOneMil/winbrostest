@@ -27,11 +27,16 @@ export async function POST(request: NextRequest) {
   const supabase = getSupabaseServiceClient()
 
   // Look up quote and verify tenant ownership
-  const { data: quote } = await supabase
+  const { data: quote, error: quoteError } = await supabase
     .from("quotes")
-    .select("id, token, customer_name, customer_phone, status, tenant_id, preconfirm_status")
+    .select("id, token, customer_name, customer_phone, status, tenant_id")
     .eq("id", quote_id)
     .single()
+
+  if (quoteError) {
+    console.error(`[quotes/send] Query error for id=${quote_id}:`, quoteError.message)
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 })
+  }
 
   if (!quote || quote.tenant_id !== tenant.id) {
     console.error(`[quotes/send] Quote not found: id=${quote_id}, tenant=${tenant.id}`)
@@ -40,11 +45,6 @@ export async function POST(request: NextRequest) {
 
   if (quote.status !== "pending") {
     return NextResponse.json({ error: `Cannot send — quote is ${quote.status}` }, { status: 400 })
-  }
-
-  // Guard: don't send to client if cleaners haven't confirmed yet
-  if ((quote as any).preconfirm_status === 'awaiting_cleaners') {
-    return NextResponse.json({ error: "Cleaners haven't confirmed yet — send pre-confirm first" }, { status: 400 })
   }
 
   if (!quote.customer_phone) {
