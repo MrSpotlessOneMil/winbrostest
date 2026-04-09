@@ -2779,7 +2779,6 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
-                {/* Send job to cleaners (they must accept) */}
               </>
             ) : (
               <>
