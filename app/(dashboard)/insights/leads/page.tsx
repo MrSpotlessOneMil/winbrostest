@@ -6,6 +6,9 @@ import { BarChart3, TrendingUp, DollarSign, Clock } from "lucide-react"
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
+  Legend,
   XAxis,
   YAxis,
   ResponsiveContainer,
@@ -45,6 +48,13 @@ interface TrendRow {
   conversions: number
 }
 
+interface RevenueTimelineEntry {
+  date: string
+  revenue: number
+  profit: number
+  bySource: Record<string, { revenue: number; profit: number }>
+}
+
 interface InsightsData {
   bySource: SourceRow[]
   trends: TrendRow[]
@@ -55,6 +65,7 @@ interface InsightsData {
     previousConversions: number
     revenue: number
     previousRevenue: number
+    profit?: number
     avgResponseMinutes: number
     previousAvgResponseMinutes: number
   }
@@ -63,6 +74,8 @@ interface InsightsData {
     conversions: number[]
     revenue: number[]
   }
+  revenueTimeline?: RevenueTimelineEntry[]
+  revenueSources?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +88,7 @@ export default function LeadSourcesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [chartMode, setChartMode] = useState<string>("revenue")
+  const [revenueSourceFilter, setRevenueSourceFilter] = useState<string>("all")
 
   // Build the query string from search params
   const queryString = useMemo(() => {
@@ -181,14 +195,14 @@ export default function LeadSourcesPage() {
           sparklineColor="#4ade80"
         />
         <MetricCard
-          label="Revenue from Leads"
+          label="Revenue"
           value={totals.revenue}
           previousValue={totals.previousRevenue}
           format="currency"
           prefix="$"
           icon={DollarSign}
           sparklineData={sparklines.revenue}
-          sparklineColor="#a78bfa"
+          sparklineColor="#3b82f6"
         />
         <MetricCard
           label="Avg Response Time"
@@ -204,18 +218,27 @@ export default function LeadSourcesPage() {
       {/* Charts row                                                         */}
       {/* ----------------------------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Bar chart — Revenue / Volume by Source */}
+        {/* Line chart — Revenue + Profit */}
         <div className="lg:col-span-3">
-          <ChartCard
-            title="Revenue by Source"
-            toggleOptions={[
-              { label: "Revenue", value: "revenue" },
-              { label: "Volume", value: "volume" },
-            ]}
-            onToggle={setChartMode}
-            activeToggle={chartMode}
-          >
-            <BarChartSection data={bySource} mode={chartMode} />
+          <ChartCard title="Revenue & Profit">
+            <div className="mb-3 flex items-center gap-2">
+              <select
+                value={revenueSourceFilter}
+                onChange={(e) => setRevenueSourceFilter(e.target.value)}
+                className="text-xs bg-muted border border-border rounded-md px-2 py-1 text-foreground"
+              >
+                <option value="all">All Sources</option>
+                {(data.revenueSources ?? []).map((src) => (
+                  <option key={src} value={src}>
+                    {getSourceConfig(src).label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <RevenueLineChart
+              data={data.revenueTimeline ?? []}
+              sourceFilter={revenueSourceFilter}
+            />
           </ChartCard>
         </div>
 
@@ -239,19 +262,25 @@ export default function LeadSourcesPage() {
 // Bar chart sub-component
 // ---------------------------------------------------------------------------
 
-function BarChartSection({ data, mode }: { data: SourceRow[]; mode: string }) {
-  const chartData = data.map((r) => ({
-    name: getSourceConfig(r.source).label,
-    value: mode === "revenue" ? r.revenue : r.leads,
-    color: getSourceConfig(r.source).color,
-  }))
+function RevenueLineChart({ data, sourceFilter }: { data: RevenueTimelineEntry[]; sourceFilter: string }) {
+  const chartData = data.map((d) => {
+    if (sourceFilter === "all") {
+      return { date: d.date.slice(5), revenue: d.revenue, profit: d.profit }
+    }
+    const src = d.bySource[sourceFilter]
+    return { date: d.date.slice(5), revenue: Math.round(src?.revenue ?? 0), profit: Math.round(src?.profit ?? 0) }
+  })
+
+  if (chartData.length === 0) {
+    return <p className="text-muted-foreground text-sm py-12 text-center">No revenue data for this period</p>
+  }
 
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+      <LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
         <XAxis
-          dataKey="name"
-          tick={{ fontSize: 11 }}
+          dataKey="date"
+          tick={{ fontSize: 10 }}
           tickLine={false}
           axisLine={false}
           className="fill-muted-foreground"
@@ -261,9 +290,7 @@ function BarChartSection({ data, mode }: { data: SourceRow[]; mode: string }) {
           tickLine={false}
           axisLine={false}
           className="fill-muted-foreground"
-          tickFormatter={(v: number) =>
-            mode === "revenue" ? `$${v.toLocaleString()}` : String(v)
-          }
+          tickFormatter={(v: number) => `$${v.toLocaleString()}`}
         />
         <Tooltip
           contentStyle={{
@@ -272,18 +299,19 @@ function BarChartSection({ data, mode }: { data: SourceRow[]; mode: string }) {
             borderRadius: 8,
             fontSize: 12,
           }}
-          formatter={(value: number) =>
-            mode === "revenue"
-              ? [`$${value.toLocaleString()}`, "Revenue"]
-              : [value, "Leads"]
-          }
+          formatter={(value: number, name: string) => [
+            `$${value.toLocaleString()}`,
+            name === "revenue" ? "Revenue" : "Profit",
+          ]}
         />
-        <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={48}>
-          {chartData.map((entry, i) => (
-            <Cell key={i} fill={entry.color} />
-          ))}
-        </Bar>
-      </BarChart>
+        <Legend
+          verticalAlign="top"
+          height={28}
+          formatter={(value: string) => (value === "revenue" ? "Revenue" : "Profit")}
+        />
+        <Line type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={2} dot={false} />
+        <Line type="monotone" dataKey="profit" stroke="#22c55e" strokeWidth={2} dot={false} />
+      </LineChart>
     </ResponsiveContainer>
   )
 }

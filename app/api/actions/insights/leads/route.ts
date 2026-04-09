@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { getStripeClientForTenant } from "@/lib/stripe-client"
+import { calculateCleanerPay } from "@/lib/tenant"
+import type Stripe from "stripe"
 
 // ---------------------------------------------------------------------------
 // Date-range helpers
@@ -325,14 +328,120 @@ export async function GET(request: NextRequest) {
   const sparklineConversions = sortedDays.map((d) => dailyConversions[d] || 0)
   const sparklineRevenue = sortedDays.map((d) => dailyRevenue[d] || 0)
 
+  // -----------------------------------------------------------------------
+  // Revenue + Profit timeline (from ALL completed jobs or Stripe charges)
+  // -----------------------------------------------------------------------
+  const revenueByDay: Record<string, { revenue: number; profit: number; bySource: Record<string, { revenue: number; profit: number }> }> = {}
+
+  // Try Stripe first (source of truth for actual collected revenue)
+  let usedStripe = false
+  if (tenant.stripe_secret_key) {
+    try {
+      const stripe = getStripeClientForTenant(tenant.stripe_secret_key)
+      const startTs = Math.floor(new Date(start).getTime() / 1000)
+      const endTs = Math.floor(new Date(end).getTime() / 1000)
+      let hasMore = true
+      let startingAfter: string | undefined
+      while (hasMore) {
+        const params: Stripe.ChargeListParams = { limit: 100, created: { gte: startTs, lte: endTs } }
+        if (startingAfter) params.starting_after = startingAfter
+        const batch = await stripe.charges.list(params)
+        const succeeded = batch.data.filter(c => c.status === 'succeeded')
+        for (const charge of succeeded) {
+          const day = new Date(charge.created * 1000).toISOString().slice(0, 10)
+          const amount = charge.amount / 100
+          const cleanerPay = calculateCleanerPay(tenant, amount, 0) ?? 0
+          const profit = amount - cleanerPay
+          if (!revenueByDay[day]) revenueByDay[day] = { revenue: 0, profit: 0, bySource: {} }
+          revenueByDay[day].revenue += amount
+          revenueByDay[day].profit += profit
+          // Try to trace source from charge metadata
+          const src = (charge.metadata?.source || charge.metadata?.lead_source || 'direct') as string
+          if (!revenueByDay[day].bySource[src]) revenueByDay[day].bySource[src] = { revenue: 0, profit: 0 }
+          revenueByDay[day].bySource[src].revenue += amount
+          revenueByDay[day].bySource[src].profit += profit
+        }
+        hasMore = batch.has_more
+        if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id
+        else hasMore = false
+      }
+      usedStripe = true
+    } catch {
+      // Stripe failed — fall through to job-based fallback
+    }
+  }
+
+  // Fallback: use all completed jobs with prices
+  if (!usedStripe) {
+    const { data: completedJobs } = await supabase
+      .from("jobs")
+      .select("id, price, date, completed_at, service_type, hours, customer_id")
+      .eq("tenant_id", tenant.id)
+      .eq("status", "completed")
+      .not("price", "is", null)
+      .or(`and(completed_at.gte.${start},completed_at.lte.${end}),and(completed_at.is.null,date.gte.${start.slice(0,10)},date.lte.${end.slice(0,10)})`)
+
+    // Get customer → lead source mapping for source attribution
+    const customerIds = [...new Set((completedJobs ?? []).map(j => j.customer_id).filter(Boolean))]
+    let customerSourceMap: Record<number, string> = {}
+    if (customerIds.length > 0) {
+      const { data: custLeads } = await supabase
+        .from("leads")
+        .select("customer_id, source")
+        .eq("tenant_id", tenant.id)
+        .in("customer_id", customerIds)
+      for (const cl of custLeads ?? []) {
+        if (cl.customer_id && cl.source) customerSourceMap[cl.customer_id] = cl.source
+      }
+    }
+
+    for (const job of completedJobs ?? []) {
+      const day = job.completed_at ? job.completed_at.slice(0, 10) : (job.date || 'unknown')
+      if (day === 'unknown') continue
+      const amount = Number(job.price) || 0
+      const cleanerPay = calculateCleanerPay(tenant, amount, Number(job.hours) || 0, job.service_type) ?? 0
+      const profit = amount - cleanerPay
+      if (!revenueByDay[day]) revenueByDay[day] = { revenue: 0, profit: 0, bySource: {} }
+      revenueByDay[day].revenue += amount
+      revenueByDay[day].profit += profit
+      const src = (job.customer_id && customerSourceMap[job.customer_id]) || 'direct'
+      if (!revenueByDay[day].bySource[src]) revenueByDay[day].bySource[src] = { revenue: 0, profit: 0 }
+      revenueByDay[day].bySource[src].revenue += amount
+      revenueByDay[day].bySource[src].profit += profit
+    }
+  }
+
+  // Build sorted timeline array
+  const revenueDays = Object.keys(revenueByDay).sort()
+  const revenueTimeline = revenueDays.map(day => ({
+    date: day,
+    revenue: Math.round(revenueByDay[day].revenue),
+    profit: Math.round(revenueByDay[day].profit),
+    bySource: revenueByDay[day].bySource,
+  }))
+
+  // Revenue totals (from actual data, not lead-linked)
+  const realRevenue = revenueTimeline.reduce((s, d) => s + d.revenue, 0)
+  const realProfit = revenueTimeline.reduce((s, d) => s + d.profit, 0)
+
+  // Collect all revenue sources
+  const revenueSources = [...new Set(revenueTimeline.flatMap(d => Object.keys(d.bySource)))]
+
   return NextResponse.json({
     bySource,
     trends,
-    totals,
+    totals: {
+      ...totals,
+      revenue: realRevenue || totals.revenue,
+      profit: realProfit,
+    },
     sparklines: {
       leads: sparklineLeads,
       conversions: sparklineConversions,
       revenue: sparklineRevenue,
     },
+    revenueTimeline,
+    revenueSources,
+    usedStripe,
   })
 }
