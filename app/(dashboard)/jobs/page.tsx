@@ -2978,13 +2978,6 @@ export default function JobsPage() {
                   <label className="cal-form-label">Notes</label>
                   <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
                 </div>
-                {/* Send to cleaners (also in edit mode) */}
-                <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
-                  <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
-                    Send job to cleaners
-                  </div>
-                  <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
-                    {cleanersList.map((c) => (
               </>
             )}
           </div>
