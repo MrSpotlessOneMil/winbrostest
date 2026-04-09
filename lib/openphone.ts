@@ -47,18 +47,33 @@ const OPENPHONE_API_BASE = 'https://api.openphone.com/v1'
 interface SendSMSResponse {
   success: boolean
   messageId?: string
+  msgRecordId?: string
   error?: string
 }
 
 /**
  * Send an SMS message via OpenPhone
  * Tenant is REQUIRED — no more fallback to WinBros default tenant.
+ *
+ * When `source` is provided, a messages DB record is pre-inserted BEFORE
+ * calling the OpenPhone API. This prevents the outbound webhook from
+ * misidentifying the message as a manual send and triggering
+ * auto_response_paused (customer ghosting bug). All automated callers
+ * (crons, automations, webhooks) MUST pass a source.
  */
 export async function sendSMS(
   tenant: Tenant,
   to: string,
   message: string,
-  options?: { skipThrottle?: boolean; skipDedup?: boolean; bypassFilters?: boolean }
+  options?: {
+    skipThrottle?: boolean
+    skipDedup?: boolean
+    bypassFilters?: boolean
+    /** When provided, pre-inserts a DB record so the outbound webhook skips manual takeover */
+    source?: string
+    /** Optional customer ID for the pre-inserted record */
+    customerId?: string | number | null
+  }
 ): Promise<SendSMSResponse> {
 
   if (!tenant) {
@@ -140,7 +155,9 @@ export async function sendSMS(
   // Prevents the exact same message from being sent twice within 5 minutes.
   // Uses full content match (not prefix) to avoid false positives when
   // different templates share a similar opening (e.g. "Hey {name} it's {business}...")
-  if (!options?.skipDedup) try {
+  // Auto-skip dedup when source is provided (we just pre-inserted the record)
+  const shouldSkipDedup = options?.skipDedup || !!options?.source
+  if (!shouldSkipDedup) try {
     const dedupClient = getSupabaseServiceClient()
     const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
     const { data: recentDupes } = await dedupClient
@@ -167,6 +184,38 @@ export async function sendSMS(
   // All sendSMS calls pass through freely — the crons themselves decide whether
   // to call sendSMS based on conversation state.
 
+  // ── Pre-insert DB record when source is provided ──
+  // This prevents the OpenPhone outbound webhook from misidentifying the message
+  // as manual and triggering auto_response_paused. The webhook's content-based
+  // dedup (messages table match on phone+content+5min window) will find this
+  // record and skip manual takeover.
+  let preInsertedId: string | null = null
+  if (options?.source) {
+    try {
+      const preInsertClient = getSupabaseServiceClient()
+      const { data: preRecord } = await preInsertClient.from('messages').insert({
+        tenant_id: tenant.id,
+        customer_id: options.customerId || null,
+        phone_number: toE164Format,
+        role: 'assistant',
+        content: message,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: true,
+        timestamp: new Date().toISOString(),
+        source: options.source,
+      }).select('id').single()
+      preInsertedId = preRecord?.id || null
+      if (preInsertedId) {
+        console.log(`[${tenant.slug}] Pre-inserted message record (source: ${options.source}) for ${toE164Format}`)
+      }
+    } catch (preInsertErr) {
+      // Non-blocking: if pre-insert fails, still send the SMS.
+      // The outbound webhook may trigger a false takeover, but at least the message goes out.
+      console.error(`[${tenant.slug}] Pre-insert failed (non-blocking):`, preInsertErr)
+    }
+  }
+
   try {
     const controller = new AbortController()
     const fetchTimeout = setTimeout(() => controller.abort(), 15_000)
@@ -188,6 +237,11 @@ export async function sendSMS(
     if (!response.ok) {
       const errorText = await response.text()
       console.error(`[${tenant.slug}] OpenPhone API error:`, response.status, errorText)
+      // Clean up pre-inserted record on send failure
+      if (preInsertedId) {
+        const cleanupClient = getSupabaseServiceClient()
+        await cleanupClient.from('messages').delete().eq('id', preInsertedId)
+      }
       return {
         success: false,
         error: `OpenPhone API error: ${response.status} - ${errorText}`
@@ -198,10 +252,18 @@ export async function sendSMS(
     console.log(`[${tenant.slug}] SMS sent to ${toE164Format}: ${message.slice(0, 50)}...`)
     return {
       success: true,
-      messageId: data.data?.id || data.id
+      messageId: data.data?.id || data.id,
+      msgRecordId: preInsertedId || undefined,
     }
   } catch (error) {
     console.error(`[${tenant.slug}] Error sending SMS:`, error)
+    // Clean up pre-inserted record on send failure
+    if (preInsertedId) {
+      try {
+        const cleanupClient = getSupabaseServiceClient()
+        await cleanupClient.from('messages').delete().eq('id', preInsertedId)
+      } catch { /* cleanup is best-effort */ }
+    }
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
