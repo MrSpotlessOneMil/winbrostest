@@ -390,7 +390,12 @@ function getSavedIsGantt(): boolean {
 
 function getSavedDate(): string | undefined {
   if (typeof window === "undefined") return undefined
-  return localStorage.getItem(STORAGE_KEY_DATE) || undefined
+  const saved = localStorage.getItem(STORAGE_KEY_DATE)
+  if (!saved) return new Date().toISOString().split("T")[0]
+  // If saved date is more than 1 day from today, snap to today
+  const diff = Math.abs(Date.now() - new Date(saved).getTime())
+  if (diff > 86_400_000) return new Date().toISOString().split("T")[0]
+  return saved
 }
 
 export default function JobsPage() {
