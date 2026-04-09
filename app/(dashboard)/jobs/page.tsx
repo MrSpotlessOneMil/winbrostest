@@ -2785,7 +2785,6 @@ export default function JobsPage() {
                     Send job to cleaners
                   </div>
                   <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
-                    {cleanersList.filter(c => c.id !== selectedEvent?.cleanerId).map((c) => (
               </>
             ) : (
               <>
