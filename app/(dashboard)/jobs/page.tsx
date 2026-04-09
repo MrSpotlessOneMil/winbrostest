@@ -2827,15 +2827,6 @@ export default function JobsPage() {
                       {sendToCleanerResult}
                     </div>
                   )}
-                  {/* Ranked dispatch button */}
-                  <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: "1px solid #333" }}>
-                    <button
-                      onClick={handleSendRanked}
-                      disabled={sendingRanked}
-                      style={{
-                        width: "100%",
-                        padding: "0.5rem 0.75rem",
-                        borderRadius: 6,
               </>
             ) : (
               <>
