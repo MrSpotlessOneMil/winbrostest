@@ -2846,14 +2846,6 @@ export default function JobsPage() {
                       }}
                     >
                       {sendingRanked ? "Sending..." : "Send Ranked (Best → Worst)"}
-                    </button>
-                    {sendRankedResult && (
-                      <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendRankedResult.startsWith('Error') ? "#f87171" : "#fbbf24" }}>
-                        {sendRankedResult}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </>
             ) : (
               <>
