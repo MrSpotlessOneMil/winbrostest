@@ -96,7 +96,7 @@ export default function QuoteSuccessPage() {
               </div>
               <div>
                 <p className="text-slate-800 text-sm font-medium">Confirmation</p>
-                <p className="text-slate-500 text-xs">You&apos;ll get a text confirming your cleaner and appointment details.</p>
+                <p className="text-slate-500 text-xs">You&apos;ll get a text confirming your cleaner.</p>
               </div>
             </div>
 
