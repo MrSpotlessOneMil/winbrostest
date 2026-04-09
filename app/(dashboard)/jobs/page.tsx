@@ -2784,7 +2784,6 @@ export default function JobsPage() {
                   <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
                     Send job to cleaners
                   </div>
-                  <div style={{ maxHeight: 160, overflowY: "auto", marginBottom: "0.5rem", display: "flex", flexDirection: "column", gap: 4 }}>
               </>
             ) : (
               <>
