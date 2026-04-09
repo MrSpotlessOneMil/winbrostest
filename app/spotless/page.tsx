@@ -445,7 +445,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <img src="/images/marketing/team-branded.jpg" alt="Spotless Scrubbers team member in branded shirt at Los Angeles property" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-kitchen-clean.jpg" alt="Team member cleaning kitchen in branded shirt" className="w-full h-64 object-cover" />
-            <img src="/images/marketing/team-bathroom-clean.jpg" alt="Team member cleaning bathroom in Spotless Scrubbers shirt" className="w-full h-64 object-cover" />
+            <img src="/images/marketing/team-branded-windows.jpg" alt="Spotless Scrubbers team cleaning windows and floors in branded shirts" className="w-full h-64 object-cover" />
           </div>
         </div>
       </section>
@@ -496,19 +496,19 @@ export default function HomePage() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <img
-                src="/images/marketing/clean-sink-result.jpg"
-                alt="Sparkling clean kitchen sink after professional deep cleaning in Los Angeles"
+                src="/images/marketing/sink-scrub-action.jpg"
+                alt="Professional cleaner scrubbing kitchen sink during deep clean in Los Angeles"
                 className="w-full h-64 object-cover"
               />
               <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Kitchen Deep Clean</p>
             </div>
             <div>
               <img
-                src="/images/marketing/clean-bedroom.jpg"
-                alt="Perfectly made bedroom after standard house cleaning in LA County"
+                src="/images/marketing/bathroom-clean-result.jpg"
+                alt="Spotless modern bathroom after professional cleaning in LA County"
                 className="w-full h-64 object-cover"
               />
-              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Bedroom Standard Clean</p>
+              <p className="text-center text-sm font-medium text-[#2195b4] mt-2">Bathroom Clean</p>
             </div>
             <div>
               <img
