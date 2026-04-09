@@ -2,18 +2,19 @@
 
 import { useEffect, useState } from "react"
 import { useParams } from "next/navigation"
-import { CheckCircle, Loader2, Calendar, Phone } from "lucide-react"
-
-function fmtCurrency(amount: number, currency = "USD"): string {
-  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
-  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
-}
+import { CheckCircle, Loader2, Phone, CalendarCheck, Bell, Sparkles } from "lucide-react"
 
 export default function QuoteSuccessPage() {
   const params = useParams()
   const token = params.token as string
   const [data, setData] = useState<{
-    quote: { customer_name: string | null; selected_tier: string | null; total: string | null; deposit_amount: string | null }
+    quote: {
+      customer_name: string | null
+      selected_tier: string | null
+      total: string | null
+      service_date: string | null
+      service_time: string | null
+    }
     tenant: { name: string; phone?: string; currency?: string | null }
   } | null>(null)
   const [loading, setLoading] = useState(true)
@@ -44,9 +45,21 @@ export default function QuoteSuccessPage() {
   const customerName = data?.quote?.customer_name?.split(" ")[0] || "there"
   const businessName = data?.tenant?.name || "us"
   const businessPhone = data?.tenant?.phone
-  const tenantCurrency = data?.tenant?.currency?.toUpperCase() || "USD"
-  const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
-  // No deposits — card on file only, charged when cleaner completes the job
+
+  // Format the confirmed date/time for display
+  let dateTimeDisplay: string | null = null
+  if (data?.quote?.service_date) {
+    const d = new Date(data.quote.service_date + 'T12:00:00')
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    if (data.quote.service_time) {
+      const [h, m] = data.quote.service_time.split(':').map(Number)
+      const ampm = h >= 12 ? 'PM' : 'AM'
+      const hour12 = h % 12 || 12
+      dateTimeDisplay = `${dateStr} at ${hour12}:${String(m).padStart(2, '0')} ${ampm}`
+    } else {
+      dateTimeDisplay = dateStr
+    }
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -63,10 +76,10 @@ export default function QuoteSuccessPage() {
         {/* Title */}
         <div className="space-y-3">
           <h1 className="text-3xl font-bold text-slate-800">
-            You&apos;re All Set!
+            You&apos;re All Set, {customerName}!
           </h1>
           <p className="text-slate-500 text-lg leading-relaxed">
-            Thank you, {customerName}! Your card is on file and your booking is confirmed. We&apos;ll be in touch!
+            Your card is on file and your cleaning is confirmed{dateTimeDisplay ? ` for ${dateTimeDisplay}` : ''}.
           </p>
         </div>
 
@@ -79,31 +92,36 @@ export default function QuoteSuccessPage() {
           <div className="space-y-3">
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-emerald-600 text-xs font-bold">1</span>
+                <CalendarCheck className="size-3.5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Confirmation</p>
-                <p className="text-slate-500 text-xs">You&apos;ll receive a confirmation text shortly.</p>
+                <p className="text-slate-800 text-sm font-medium">Booking Confirmed</p>
+                <p className="text-slate-500 text-xs">
+                  {dateTimeDisplay
+                    ? `Your cleaning is scheduled for ${dateTimeDisplay}. You'll receive a confirmation text shortly.`
+                    : `You'll receive a confirmation text shortly with your scheduling details.`
+                  }
+                </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-emerald-600 text-xs font-bold">2</span>
+                <Bell className="size-3.5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Scheduling</p>
-                <p className="text-slate-500 text-xs">We&apos;ll reach out to confirm the best date and time for your service.</p>
+                <p className="text-slate-800 text-sm font-medium">Day Before Reminder</p>
+                <p className="text-slate-500 text-xs">We&apos;ll send you a reminder and your team&apos;s arrival time the day before.</p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
               <div className="size-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
-                <span className="text-emerald-600 text-xs font-bold">3</span>
+                <Sparkles className="size-3.5 text-emerald-600" />
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Day of Service</p>
-                <p className="text-slate-500 text-xs">You&apos;ll get a reminder and your team&apos;s ETA the day before.</p>
+                <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
+                <p className="text-slate-500 text-xs">Your team arrives, cleans, and your card is only charged once the job is complete.</p>
               </div>
             </div>
           </div>
@@ -120,10 +138,6 @@ export default function QuoteSuccessPage() {
               {businessPhone}
             </a>
           )}
-          <div className="flex items-center gap-2 text-slate-400">
-            <Calendar className="size-4" />
-            We&apos;ll be in touch soon
-          </div>
         </div>
 
         {/* Footer */}
