@@ -3003,17 +3003,6 @@ export default function JobsPage() {
                       </label>
                     ))}
                   </div>
-                  <button
-                    onClick={handleSendToCleaner}
-                    disabled={sendToCleanerIds.length === 0 || sendingToCleaner}
-                    style={{
-                      width: "100%",
-                      padding: "0.5rem 0.75rem",
-                      borderRadius: 6,
-                      border: "none",
-                      background: sendToCleanerIds.length > 0 ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
-                      color: "#fff",
-                      fontWeight: 600,
               </>
             )}
           </div>
