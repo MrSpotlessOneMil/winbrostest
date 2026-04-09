@@ -95,8 +95,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">1</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Confirmation</p>
-                <p className="text-slate-500 text-xs">You&apos;ll get a text confirming your cleaner.</p>
+                <p className="text-slate-800 text-sm font-medium">Cleaner Assigned</p>
+                <p className="text-slate-500 text-xs">We&apos;ll assign a cleaner and send you a text with their details.</p>
               </div>
             </div>
 
@@ -105,8 +105,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">2</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Day Before Reminder</p>
-                <p className="text-slate-500 text-xs">You&apos;ll get a reminder the day before your appointment.</p>
+                <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
+                <p className="text-slate-500 text-xs">Your cleaner will text you when they&apos;re on the way and when they&apos;ve arrived.</p>
               </div>
             </div>
 
@@ -115,8 +115,8 @@ export default function QuoteSuccessPage() {
                 <span className="text-emerald-600 text-xs font-bold">3</span>
               </div>
               <div>
-                <p className="text-slate-800 text-sm font-medium">Cleaning Day</p>
-                <p className="text-slate-500 text-xs">You&apos;ll get a text when your team is on the way and when they&apos;ve arrived.</p>
+                <p className="text-slate-800 text-sm font-medium">Payment</p>
+                <p className="text-slate-500 text-xs">Your card is only charged once the cleaning is complete.</p>
               </div>
             </div>
           </div>
