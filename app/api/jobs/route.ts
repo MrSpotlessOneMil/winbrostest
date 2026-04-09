@@ -220,11 +220,16 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Handle cleaner reassignment
-    const { cleaner_id } = body
-    if (cleaner_id !== undefined) {
-      // Update the direct cleaner_id on jobs table so the calendar join reflects the change
-      updates.cleaner_id = cleaner_id ? Number(cleaner_id) : null
+    // Handle cleaner reassignment (supports multiple cleaners via cleaner_ids array)
+    const { cleaner_id, cleaner_ids } = body
+    const resolvedCleanerIds: number[] = Array.isArray(cleaner_ids)
+      ? cleaner_ids.map((cid: string | number) => Number(cid)).filter(Boolean)
+      : cleaner_id ? [Number(cleaner_id)] : []
+    const hasCleaner = cleaner_id !== undefined || cleaner_ids !== undefined
+
+    if (hasCleaner) {
+      // Set primary cleaner_id on jobs table (first selected cleaner)
+      updates.cleaner_id = resolvedCleanerIds[0] || null
       const tenantId = tenant?.id || (oldJob as any)?.tenant_id
       if (tenantId) {
         // Cancel all active assignments for this job
@@ -233,29 +238,32 @@ export async function PATCH(request: NextRequest) {
           .update({ status: "cancelled" })
           .eq("job_id", Number(id))
           .in("status", ["pending", "accepted", "confirmed"])
-        if (cleaner_id) {
-          await getSupabaseServiceClient().from("cleaner_assignments").insert({
-            job_id: Number(id),
-            cleaner_id: Number(cleaner_id),
-            status: "confirmed",
-            tenant_id: tenantId,
-            assigned_at: new Date().toISOString(),
-            responded_at: new Date().toISOString(),
-          })
 
-          // Notify cleaner via Telegram + send customer confirmation SMS (fire-and-forget)
+        if (resolvedCleanerIds.length > 0) {
+          // Insert confirmed assignments for all selected cleaners
+          await getSupabaseServiceClient().from("cleaner_assignments").insert(
+            resolvedCleanerIds.map(cid => ({
+              job_id: Number(id),
+              cleaner_id: cid,
+              status: "confirmed",
+              tenant_id: tenantId,
+              assigned_at: new Date().toISOString(),
+              responded_at: new Date().toISOString(),
+            }))
+          )
+
+          // Notify each cleaner via SMS (fire-and-forget)
           const assignTenant = tenant || (tenantId ? await getTenantById(tenantId) : null)
           if (assignTenant) {
             const svc = getSupabaseServiceClient()
-            const { data: cleaner } = await svc
-              .from("cleaners")
-              .select("id, name, phone, portal_token")
-              .eq("id", Number(cleaner_id))
-              .single()
+            for (const cid of resolvedCleanerIds) {
+              const { data: cleaner } = await svc
+                .from("cleaners")
+                .select("id, name, phone, portal_token")
+                .eq("id", cid)
+                .single()
 
-            if (cleaner) {
-              // SMS info message to cleaner with portal link
-              if (cleaner.phone) {
+              if (cleaner?.phone) {
                 const jobDate = date || oldJob?.date || "TBD"
                 const jobTime = scheduled_at || oldJob?.scheduled_at || ""
                 const jobAddress = body.address || oldJob?.address || "TBD"
@@ -275,50 +283,6 @@ export async function PATCH(request: NextRequest) {
                   console.error("[Jobs PATCH] Failed to send SMS to cleaner:", err)
                 )
               }
-
-              // Customer SMS on reassignment — DISABLED (customers complained about spam)
-              // Cleaner changes are internal; customer doesn't need to know
-              if (false) {
-              const customer = Array.isArray(oldJob?.customers) ? oldJob.customers[0] : oldJob?.customers
-              const customerPhone = customer?.phone_number || oldJob?.phone_number
-              const customerName = [customer?.first_name, customer?.last_name].filter(Boolean).join(" ").trim() || "there"
-              if (customerPhone) {
-                const jobDate = date || oldJob?.date
-                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
-                const dateFormatted = jobDate
-                  ? new Date(jobDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
-                  : "your scheduled date"
-                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
-                let timeFormatted = "your scheduled time"
-                if (timeParts) {
-                  const h = parseInt(timeParts[1])
-                  const m = timeParts[2]
-                  const ampm = h >= 12 ? "PM" : "AM"
-                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-                  timeFormatted = `${h12}:${m} ${ampm}`
-                }
-                const smsMsg = cleanerAssigned(customerName, cleaner.name || "Your cleaner", dateFormatted, timeFormatted)
-                sendSMS(assignTenant as any, customerPhone, smsMsg).catch((err) =>
-                  console.error("[Jobs PATCH] Failed to send assignment SMS:", err)
-                )
-                // Log outbound SMS
-                svc.from("messages").insert({
-                  tenant_id: assignTenant.id,
-                  customer_id: customer?.id || oldJob?.customer_id || null,
-                  phone_number: customerPhone,
-                  role: "assistant",
-                  content: smsMsg,
-                  direction: "outbound",
-                  message_type: "sms",
-                  ai_generated: false,
-                  source: "calendar_assign",
-                  job_id: Number(id),
-                  timestamp: new Date().toISOString(),
-                }).then(({ error: logErr }) => {
-                  if (logErr) console.error("[Jobs PATCH] Failed to log assignment message:", logErr)
-                })
-              }
-              } // end disabled customer SMS block
             }
           }
         }

@@ -922,7 +922,9 @@ export default function JobsPage() {
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "", customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "" })
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "" })
+  const [cleanerDropdownOpen, setCleanerDropdownOpen] = useState(false)
+  const cleanerDropdownRef = useRef<HTMLDivElement>(null)
   const [saving, setSaving] = useState(false)
   const [autoScheduling, setAutoScheduling] = useState(false)
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
@@ -942,6 +944,18 @@ export default function JobsPage() {
   const [rainResult, setRainResult] = useState<RainDayResult | null>(null)
   const [rainError, setRainError] = useState("")
   const [rainLoading, setRainLoading] = useState(false)
+
+  // Close cleaner dropdown on outside click
+  useEffect(() => {
+    if (!cleanerDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (cleanerDropdownRef.current && !cleanerDropdownRef.current.contains(e.target as Node)) {
+        setCleanerDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [cleanerDropdownOpen])
 
   const timeFormat = useMemo(
     () =>
@@ -1376,7 +1390,7 @@ export default function JobsPage() {
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
     setEditForm({
       date, time,
-      cleanerId: selectedEvent.cleanerId || "",
+      cleanerIds: selectedEvent.cleanerId ? [selectedEvent.cleanerId] : [],
       customerName: selectedEvent.client || "",
       customerPhone: selectedEvent.customerPhone || "",
       customerEmail: selectedEvent.customerEmail || "",
@@ -1386,6 +1400,7 @@ export default function JobsPage() {
       serviceType: selectedEvent.service || "",
       status: selectedEvent.status || "",
     })
+    setCleanerDropdownOpen(false)
     setEditMode(true)
 
     // Fetch cleaners list if not already loaded
@@ -1716,9 +1731,10 @@ export default function JobsPage() {
     const newEnd = new Date(newStart.getTime() + hours * 3600000)
     const jobId = selectedEvent.jobId
 
-    // Use the NEW cleaner from the edit form for conflict detection
-    const newCleanerName = editForm.cleanerId
-      ? cleanersList.find((c) => c.id === editForm.cleanerId)?.name || ""
+    // Use the NEW cleaners from the edit form for conflict detection (check first/primary cleaner)
+    const primaryCleanerId = editForm.cleanerIds[0] || ""
+    const newCleanerName = primaryCleanerId
+      ? cleanersList.find((c) => c.id === primaryCleanerId)?.name || ""
       : ""
 
     if (newCleanerName) {
@@ -1748,8 +1764,9 @@ export default function JobsPage() {
     const scheduled_at = editForm.time
     const body: Record<string, any> = { id: jobId, date, scheduled_at }
 
-    // Always send cleaner_id so unassign works even when cleanerId wasn't on the direct FK
-    body.cleaner_id = editForm.cleanerId || null
+    // Send cleaner_ids array; API will set primary cleaner_id and create assignments for all
+    body.cleaner_ids = editForm.cleanerIds.length > 0 ? editForm.cleanerIds : null
+    body.cleaner_id = primaryCleanerId || null
 
     // Customer + job fields
     if (editForm.customerName !== (selectedEvent.client || "")) body.customer_name = editForm.customerName
@@ -2851,14 +2868,68 @@ export default function JobsPage() {
                     <input type="time" className="cal-form-control" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
                   </div>
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Assigned Cleaner</label>
-                  <select className="cal-form-control" value={editForm.cleanerId} onChange={(e) => setEditForm((f) => ({ ...f, cleanerId: e.target.value }))}>
-                    <option value="">— Unassigned —</option>
-                    {cleanersList.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                <div style={{ marginBottom: "0.5rem", position: "relative" }} ref={cleanerDropdownRef}>
+                  <label className="cal-form-label">Assigned Cleaners</label>
+                  <div
+                    onClick={() => setCleanerDropdownOpen(!cleanerDropdownOpen)}
+                    className="cal-form-control"
+                    style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: "2.2rem", gap: "0.25rem", flexWrap: "wrap" }}
+                  >
+                    {editForm.cleanerIds.length === 0 ? (
+                      <span style={{ color: "#71717a" }}>— Select cleaners —</span>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                        {editForm.cleanerIds.map(id => {
+                          const c = cleanersList.find(cl => cl.id === id)
+                          return c ? (
+                            <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(16, 185, 129, 0.15)", color: "#6ee7b7", padding: "1px 8px", borderRadius: 12, fontSize: "0.75rem", fontWeight: 500 }}>
+                              {c.name}
+                              <span
+                                onClick={(e) => { e.stopPropagation(); setEditForm(f => ({ ...f, cleanerIds: f.cleanerIds.filter(x => x !== id) })) }}
+                                style={{ cursor: "pointer", opacity: 0.7, fontSize: "0.85rem", lineHeight: 1 }}
+                              >×</span>
+                            </span>
+                          ) : null
+                        })}
+                      </div>
+                    )}
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, transform: cleanerDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                      <path d="M2.5 4.5L6 8L9.5 4.5" stroke="#71717a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  {cleanerDropdownOpen && (
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 4, background: "#1c1c1e", border: "1px solid #333", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxHeight: 200, overflowY: "auto" }}>
+                      {cleanersList.map((c) => {
+                        const checked = editForm.cleanerIds.includes(c.id)
+                        return (
+                          <label
+                            key={c.id}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.45rem 0.75rem", cursor: "pointer", fontSize: "0.8rem", color: "#e4e4e7", background: checked ? "rgba(16, 185, 129, 0.1)" : "transparent", transition: "background 0.1s" }}
+                            onMouseEnter={(e) => { if (!checked) (e.currentTarget.style.background = "rgba(255,255,255,0.04)") }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = checked ? "rgba(16, 185, 129, 0.1)" : "transparent" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setEditForm(f => ({
+                                  ...f,
+                                  cleanerIds: checked
+                                    ? f.cleanerIds.filter(id => id !== c.id)
+                                    : [...f.cleanerIds, c.id]
+                                }))
+                              }}
+                              style={{ accentColor: "#10b981", width: 14, height: 14 }}
+                            />
+                            {c.name}
+                          </label>
+                        )
+                      })}
+                      {cleanersList.length === 0 && (
+                        <div style={{ padding: "0.75rem", fontSize: "0.8rem", color: "#71717a", textAlign: "center" }}>No cleaners available</div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                   <div>
