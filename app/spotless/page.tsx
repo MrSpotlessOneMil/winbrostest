@@ -443,11 +443,10 @@ export default function HomePage() {
               Real Crew. Real Work. Real Results.
             </h2>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <img src="/images/marketing/team-floor-mop.jpg" alt="Spotless Scrubbers cleaner mopping hardwood floors in branded shirt" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-bedroom-prep.jpg" alt="Team member preparing Airbnb bedroom with fresh towels" className="w-full h-64 object-cover" />
             <img src="/images/marketing/team-windows-ladder.jpg" alt="Spotless Scrubbers team cleaning windows on ladders in branded shirts" className="w-full h-64 object-cover" />
-            <img src="/images/marketing/team-real-1.jpg" alt="Spotless Scrubbers team on the job in Los Angeles" className="w-full h-64 object-cover" />
           </div>
           <div className="grid grid-cols-3 gap-4 mt-4">
             <img src="/images/marketing/team-real-2.jpg" alt="Spotless Scrubbers crew cleaning residential property" className="w-full h-64 object-cover" />
