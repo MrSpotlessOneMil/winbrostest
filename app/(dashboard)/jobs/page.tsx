@@ -2783,7 +2783,6 @@ export default function JobsPage() {
                 <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
                   <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
                     Send job to cleaners
-                  </div>
               </>
             ) : (
               <>
