@@ -40,9 +40,9 @@ const SERVICE_ALTS: Record<string, string> = {
 }
 
 const SERVICE_PRICE_RANGES: Record<string, string> = {
-  "standard-cleaning": "Starting at $120",
-  "deep-cleaning": "Starting at $200",
-  "move-in-out-cleaning": "Starting at $250",
+  "standard-cleaning": "Starting at $150",
+  "deep-cleaning": "Starting at $250",
+  "move-in-out-cleaning": "Starting at $300",
   "post-construction-cleaning": "Starting at $300",
   "commercial-cleaning": "Starting at $150",
   "airbnb-cleaning": "Starting at $100",
@@ -166,7 +166,7 @@ const FAQS = [
   {
     question: "How much does a cleaning cost?",
     answer:
-      "It depends on your home size and what you need done. A standard cleaning starts at $120, deep cleans start at $200. Just call us or fill out the form and we will give you an honest quote - no surprises, no hidden fees.",
+      "It depends on your home size and what you need done. A standard cleaning starts at $150, deep cleans start at $250. Just call us or fill out the form and we will give you an honest quote - no surprises, no hidden fees.",
   },
   {
     question: "What do you actually clean?",

@@ -47,7 +47,7 @@ export default async function CityPage({ params }: CityPageProps) {
   const faqs = [
     {
       question: `How much does house cleaning cost in ${area.city}?`,
-      answer: `House cleaning prices in ${area.city} typically range from $120 to $500 depending on the service type, home size, and condition. Our standard cleaning starts at $120, deep cleaning at $200, and move-in/out cleaning at $250. Call us at ${SPOTLESS_BUSINESS.phone} for a personalized quote.`,
+      answer: `House cleaning prices in ${area.city} typically range from $150 to $700 depending on the service type, home size, and condition. Our standard cleaning starts at $150, deep cleaning at $250, and move-in/out cleaning at $300. Call us at ${SPOTLESS_BUSINESS.phone} for a personalized quote.`,
     },
     {
       question: `What areas of ${area.city} do you serve?`,
