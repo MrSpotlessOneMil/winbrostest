@@ -2,9 +2,6 @@
 > osiris-house-cleaning@0.0.1 build
 > next build
 
-⚠ Invalid next.config.mjs options detected: 
-⚠     Unrecognized key(s) in object: 'bundler'
-⚠ See more info here: https://nextjs.org/docs/messages/invalid-next-config
 ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
  We detected multiple lockfiles and selected the directory of C:\Users\dal02\package-lock.json as the root directory.
  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
@@ -13,17 +10,72 @@
    * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\pnpm-lock.yaml
 
 ▲ Next.js 16.1.1 (Turbopack)
+- Environments: .env.local
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 31.3s
+✓ Compiled successfully in 28.4s
   Skipping validation of types
   Collecting page data using 11 workers ...
   Generating static pages using 11 workers (0/355) ...
   Generating static pages using 11 workers (88/355) 
   Generating static pages using 11 workers (177/355) 
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
   Generating static pages using 11 workers (266/355) 
-✓ Generating static pages using 11 workers (355/355) in 3.3s
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+✓ Generating static pages using 11 workers (355/355) in 3.5s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire

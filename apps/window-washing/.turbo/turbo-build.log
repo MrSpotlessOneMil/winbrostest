@@ -10,17 +10,72 @@
    * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\pnpm-lock.yaml
 
 ▲ Next.js 16.1.1 (Turbopack)
+- Environments: .env.local
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 50s
+✓ Compiled successfully in 28.2s
   Skipping validation of types
   Collecting page data using 11 workers ...
   Generating static pages using 11 workers (0/358) ...
   Generating static pages using 11 workers (89/358) 
   Generating static pages using 11 workers (178/358) 
   Generating static pages using 11 workers (268/358) 
-✓ Generating static pages using 11 workers (358/358) in 6.0s
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+✓ Generating static pages using 11 workers (358/358) in 3.9s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire
