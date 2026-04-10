@@ -29,6 +29,92 @@ async function sendMultiPartSMS(
   customerId: number,
   metadata: Record<string, any>
 ): Promise<{ success: boolean; fullContent: string; messageIds: string[] }> {
+  // ── Pre-Send Guard: catch dangerous AI outputs before they reach the customer ──
+  try {
+    const { guardMessage } = await import('@/lib/sms-guard')
+
+    // Load conversation history for stage detection
+    const { data: recentMsgs } = await client
+      .from('messages')
+      .select('direction, content')
+      .eq('customer_id', customerId)
+      .eq('tenant_id', tenant.id)
+      .order('created_at', { ascending: true })
+      .limit(20)
+
+    const convHistory = (recentMsgs || []).map((m: any) => ({
+      role: m.direction === 'inbound' ? 'client' : 'assistant',
+      content: m.content || '',
+    }))
+
+    // Load customer bed/bath for price accuracy check
+    const { data: custData } = await client
+      .from('customers')
+      .select('bedrooms, bathrooms')
+      .eq('id', customerId)
+      .limit(1)
+      .maybeSingle()
+
+    const hasActiveJob = !!(await client
+      .from('jobs')
+      .select('id')
+      .eq('customer_id', customerId)
+      .eq('tenant_id', tenant.id)
+      .in('status', ['quoted', 'scheduled', 'in_progress'])
+      .limit(1)
+      .maybeSingle()).data
+
+    const guard = await guardMessage(fullResponse, tenant.id, convHistory, {
+      bedrooms: custData?.bedrooms,
+      bathrooms: custData?.bathrooms,
+      hasActiveJob,
+      hasPriceBeenQuoted: convHistory.some((m: any) => m.role === 'assistant' && /\$\d/.test(m.content)),
+    })
+
+    // HARD BLOCK: discount language or price accuracy failure
+    if (guard.blocked) {
+      console.error(`[${tenant.slug}] SMS GUARD BLOCKED: ${guard.reason}`)
+      // Log the blocked message for review
+      await client.from('messages').insert({
+        tenant_id: tenant.id,
+        customer_id: customerId,
+        phone_number: phone,
+        role: 'assistant',
+        content: fullResponse,
+        direction: 'outbound',
+        message_type: 'sms',
+        ai_generated: true,
+        timestamp: new Date().toISOString(),
+        source: 'openphone',
+        metadata: { ...metadata, blocked: true, guard_reason: guard.reason, guard_stage: guard.conversationStage },
+      })
+      // If escalation needed, notify owner
+      if (guard.shouldEscalate && tenant.owner_phone) {
+        await sendSMS(tenant, tenant.owner_phone,
+          `[GUARD] AI tried to send blocked message to ${phone}: ${guard.reason}. Please follow up manually.`,
+          { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
+        )
+      }
+      return { success: false, fullContent: fullResponse, messageIds: [] }
+    }
+
+    // Warnings (don't block, just log)
+    if (guard.warnings.length > 0) {
+      console.warn(`[${tenant.slug}] SMS Guard warnings for ${phone}:`, guard.warnings)
+    }
+
+    // Escalation (send the message but also notify owner)
+    if (guard.shouldEscalate && tenant.owner_phone) {
+      await sendSMS(tenant, tenant.owner_phone,
+        `[ESCALATE] Conversation with ${phone} needs attention: ${guard.escalationReason}`,
+        { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
+      )
+    }
+  } catch (guardErr) {
+    // Guard failure should NOT block sending — fail open
+    console.error(`[${tenant.slug}] SMS Guard error (non-blocking):`, guardErr)
+  }
+
   const parts = fullResponse.split('|||').map(p => p.trim()).filter(Boolean)
   const messageIds: string[] = []
   let allSuccess = true
