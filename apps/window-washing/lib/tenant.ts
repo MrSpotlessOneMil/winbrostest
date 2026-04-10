@@ -114,12 +114,15 @@ export interface SeasonalCampaign {
   last_sent_at: string | null
 }
 
+export type ServiceType = 'house_cleaning' | 'window_washing'
+
 export interface Tenant {
   id: string
   name: string
   slug: string
   email: string | null
   password_hash: string | null
+  service_type: ServiceType
 
   // Business info
   business_name: string | null
@@ -376,6 +379,31 @@ export async function getAllActiveTenants(): Promise<Tenant[]> {
 
   if (error || !data) {
     console.error("[Tenant] Error fetching active tenants:", error)
+    return []
+  }
+
+  return data as Tenant[]
+}
+
+/**
+ * Get active tenants filtered by service type.
+ * Used by each app to only process its own tenants.
+ * Falls back to getAllActiveTenants if SERVICE_TYPE env var is not set.
+ */
+export async function getActiveTenantsByServiceType(serviceType?: ServiceType): Promise<Tenant[]> {
+  const type = serviceType || process.env.SERVICE_TYPE as ServiceType
+  if (!type) return getAllActiveTenants()
+
+  const client = getAdminClient()
+  const { data, error } = await client
+    .from("tenants")
+    .select("*")
+    .eq("active", true)
+    .eq("service_type", type)
+    .order("name")
+
+  if (error || !data) {
+    console.error("[Tenant] Error fetching tenants by service type:", error)
     return []
   }
 
