@@ -55,6 +55,7 @@ interface Customer {
   address?: string
   notes?: string
   auto_response_paused?: boolean
+  auto_response_disabled?: boolean
   is_commercial?: boolean
   card_on_file_at?: string | null
   stripe_customer_id?: string | null
@@ -1268,33 +1269,35 @@ export default function CustomersPage() {
     }
   }
 
-  // Per-customer auto-response toggle (stored on customers table)
+  // Per-customer auto-response toggle — uses auto_response_disabled (PERMANENT, owner-controlled)
+  // This is different from auto_response_paused which is temporary (manual takeover, auto-unpauses).
+  // When the owner clicks this toggle OFF, it stays OFF. No cron, no timeout, no webhook can override it.
   const handleToggleCustomerAutoResponse = async (customer: Customer) => {
-    const newPaused = !customer.auto_response_paused
+    const newDisabled = !customer.auto_response_disabled
 
     // Optimistic update
     setCustomers((prev) =>
-      prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: newPaused } : c)
+      prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: newDisabled } : c)
     )
     if (selectedCustomer?.id === customer.id) {
-      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: newPaused } : prev)
+      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: newDisabled } : prev)
     }
 
     try {
-      // Update customer flag
+      // Update customer flag — auto_response_disabled is PERMANENT
       const res = await fetch("/api/customers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: customer.id, auto_response_paused: newPaused }),
+        body: JSON.stringify({ id: customer.id, auto_response_disabled: newDisabled }),
       })
       const json = await res.json()
       if (!json.success) {
         // Rollback
         setCustomers((prev) =>
-          prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+          prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: !newDisabled } : c)
         )
         if (selectedCustomer?.id === customer.id) {
-          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: !newDisabled } : prev)
         }
         return
       }
@@ -1305,23 +1308,23 @@ export default function CustomersPage() {
         fetch(`/api/leads/${lead.id}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "toggle_followup", paused: newPaused }),
+          body: JSON.stringify({ action: "toggle_followup", paused: newDisabled }),
         }).catch(() => {})
         // Optimistic lead update
         const parsedFormData = parseFormData(lead.form_data)
         setLeads((prev) =>
           prev.map((l) =>
-            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newPaused } } : l
+            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newDisabled } } : l
           )
         )
       }
     } catch {
       // Rollback
       setCustomers((prev) =>
-        prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+        prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: !newDisabled } : c)
       )
       if (selectedCustomer?.id === customer.id) {
-        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: !newDisabled } : prev)
       }
     }
   }
@@ -2497,15 +2500,15 @@ export default function CustomersPage() {
                         <button
                           onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
                           className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            selectedCustomer.auto_response_paused
-                              ? "bg-zinc-600"
+                            selectedCustomer.auto_response_disabled
+                              ? "bg-red-600"
                               : "bg-emerald-500"
                           }`}
-                          title={selectedCustomer.auto_response_paused ? "Enable auto-texting for this customer" : "Pause auto-texting for this customer"}
+                          title={selectedCustomer.auto_response_disabled ? "Enable auto-texting for this customer (currently OFF — stays off until you turn it back on)" : "Disable auto-texting for this customer (stays off permanently until you turn it back on)"}
                         >
                           <span
                             className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                              selectedCustomer.auto_response_paused
+                              selectedCustomer.auto_response_disabled
                                 ? "translate-x-1"
                                 : "translate-x-[18px]"
                             }`}

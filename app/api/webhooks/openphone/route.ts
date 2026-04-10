@@ -1274,6 +1274,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // PERMANENT auto-response disable — owner toggled this off in dashboard. NOTHING overrides it.
+  // Different from auto_response_paused which is temporary (manual takeover, auto-unpauses after 15min).
+  if (customer?.auto_response_disabled === true) {
+    console.log(`[OpenPhone] Auto-response PERMANENTLY DISABLED for customer ${customer.id} (${maskPhone(phone)}) — owner set this in dashboard`)
+    await updateDisposition(client, currentMsgId, 'filtered_paused')
+    // Still store the message so it shows in conversation history
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: inboundContent,
+      direction: "inbound",
+      message_type: "sms",
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "auto_response_disabled_permanent" },
+    })
+    return NextResponse.json({ success: true, stored: true, filtered: "auto_response_disabled_permanent" })
+  }
+
   // Per-customer auto-response kill switch (with auto-unpause after 15 min of no manual activity)
   if (customer?.auto_response_paused === true) {
     // If customer is replying to a retargeting sequence, auto-unpause immediately
