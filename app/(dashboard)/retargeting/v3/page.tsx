@@ -21,6 +21,7 @@ import {
 } from "../constants"
 import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useRouter } from "next/navigation"
 
 const SALES_STAGES: PipelineStageKey[] = ["new_lead", "engaged", "paid", "booked"]
 
@@ -173,9 +174,15 @@ function PipelinePageInner() {
 
 function PipelineCard({ item }: { item: PipelineItem }) {
   const sourceColor = item.source ? SOURCE_COLORS[item.source] || "bg-muted-foreground" : null
+  const router = useRouter()
 
   return (
-    <Card className="hover:shadow-md transition-all cursor-pointer">
+    <Card
+      className="hover:shadow-md transition-all cursor-pointer"
+      onClick={() => {
+        if (item.phone) router.push(`/customers?phone=${encodeURIComponent(item.phone)}`)
+      }}
+    >
       <CardContent className="p-3">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-sm font-semibold truncate">{item.name}</span>
