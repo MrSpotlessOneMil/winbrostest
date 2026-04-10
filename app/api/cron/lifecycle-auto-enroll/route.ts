@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
           const name = cust.first_name || 'there'
           const msg = `Hey ${name}, your quote from ${tenant.business_name_short || tenant.name} has expired. If you're still interested, we'd love to send you an updated one - just reply and we'll get it over to you!`
           try {
-            await sendSMS(tenant, cust.phone_number, msg)
+            await sendSMS(tenant, cust.phone_number, msg, { source: 'lifecycle_auto_enroll' })
           } catch (smsErr) {
             console.error(`[Lifecycle Auto-Enroll] Failed to send quote expiry SMS for quote ${q.id}:`, smsErr)
           }

@@ -387,9 +387,13 @@ function findPricingRow(
   bedrooms: number,
   bathrooms: number
 ): { price: number; labor_hours: number; cleaners: number } | null {
+  // Round up half baths to next full bath so we never undercharge
+  // e.g. 2.5 baths → charges the 3 bath price
+  const roundedBathrooms = Math.ceil(bathrooms)
+
   // Find exact match first
   const exact = tiers.find(
-    t => t.service_type === serviceType && t.bedrooms === bedrooms && Number(t.bathrooms) === bathrooms
+    t => t.service_type === serviceType && t.bedrooms === bedrooms && Number(t.bathrooms) === roundedBathrooms
   )
   if (exact) {
     return { price: Number(exact.price), labor_hours: Number(exact.labor_hours), cleaners: exact.cleaners }
@@ -401,8 +405,8 @@ function findPricingRow(
 
   // Sort by distance to requested bed/bath
   const sorted = sametype.sort((a, b) => {
-    const distA = Math.abs(a.bedrooms - bedrooms) + Math.abs(Number(a.bathrooms) - bathrooms)
-    const distB = Math.abs(b.bedrooms - bedrooms) + Math.abs(Number(b.bathrooms) - bathrooms)
+    const distA = Math.abs(a.bedrooms - bedrooms) + Math.abs(Number(a.bathrooms) - roundedBathrooms)
+    const distB = Math.abs(b.bedrooms - bedrooms) + Math.abs(Number(b.bathrooms) - roundedBathrooms)
     return distA - distB
   })
 

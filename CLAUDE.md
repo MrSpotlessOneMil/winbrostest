@@ -14,7 +14,7 @@
 
 **Osiris** — multi-tenant SaaS automating operations for service businesses (cleaning). Next.js 16 (App Router) on Vercel, Supabase (Postgres + RLS), Stripe. Tenants: WinBros, Cedar Rapids, Spotless Scrubbers, and West Niagara Cleaning.
 
-**Core flow:** Lead intake (VAPI, OpenPhone, HCP, GHL, Meta, website) → AI qualification → Job scheduling (FullCalendar) → Cleaner dispatch (Telegram) → Payment (Stripe deposit→final) → Lifecycle automation (reviews, re-engagement, campaigns)
+**Core flow:** Lead intake (VAPI, OpenPhone, HCP, GHL, Meta, website) → AI qualification → Job scheduling (FullCalendar) → Cleaner dispatch (Telegram) → Payment (Stripe card-on-file → charge on completion) → Lifecycle automation (reviews, re-engagement, campaigns)
 
 ### Tech Stack
 Next.js 16 / TypeScript / Tailwind / Shadcn/ui • Supabase (Postgres + RLS via HS256 JWT) • Stripe • OpenPhone (SMS) • Telegram (dispatch) • VAPI (voice AI) • HouseCall Pro • GoHighLevel • HubSpot • Google Maps • Vercel • Vitest

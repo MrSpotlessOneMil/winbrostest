@@ -201,36 +201,41 @@ interface TimelineItem {
   data: Message | Call
 }
 
-// Lifecycle stage badge config
-const LIFECYCLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  new: { label: "New", color: "text-blue-300", bg: "bg-blue-500/15" },
-  new_lead: { label: "New Lead", color: "text-blue-300", bg: "bg-blue-500/15" },
-  contacted: { label: "Following Up", color: "text-yellow-300", bg: "bg-yellow-500/15" },
-  qualified: { label: "Qualified", color: "text-cyan-300", bg: "bg-cyan-500/15" },
-  quoted_not_booked: { label: "Quoted", color: "text-orange-300", bg: "bg-orange-500/15" },
-  booked: { label: "Booked", color: "text-green-300", bg: "bg-green-500/15" },
-  active: { label: "Active", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  repeat: { label: "Repeat", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  completed: { label: "Completed", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  one_time: { label: "One-Time", color: "text-yellow-300", bg: "bg-yellow-500/15" },
-  unresponsive: { label: "Unresponsive", color: "text-red-300", bg: "bg-red-500/15" },
-  lapsed: { label: "Lapsed", color: "text-amber-300", bg: "bg-amber-500/15" },
-  recurring_accepted: { label: "Recurring", color: "text-purple-300", bg: "bg-purple-500/15" },
-  satisfaction_sent: { label: "Follow Up", color: "text-amber-300", bg: "bg-amber-500/15" },
-  recurring_offered: { label: "Offered Recurring", color: "text-indigo-300", bg: "bg-indigo-500/15" },
-  lost: { label: "Lost", color: "text-red-300", bg: "bg-red-500/15" },
-  opted_out: { label: "Opted Out", color: "text-zinc-400", bg: "bg-zinc-500/15" },
+// Primary lifecycle badge — exactly ONE per customer
+const LIFECYCLE_CONFIG = {
+  new_lead:    { label: "New Lead",     color: "text-blue-300",    bg: "bg-blue-500/15" },
+  quoted:      { label: "Quoted",       color: "text-orange-300",  bg: "bg-orange-500/15" },
+  scheduled:   { label: "Scheduled",    color: "text-emerald-300", bg: "bg-emerald-500/15" },
+  completed:   { label: "Completed",    color: "text-green-300",   bg: "bg-green-500/15" },
+  retargeting: { label: "Retargeting",  color: "text-violet-300",  bg: "bg-violet-500/15" },
+} as const
+
+function getPrimaryLifecycleBadge(
+  customer: Customer,
+  customerJobs: { status?: string; frequency?: string }[],
+  lead: { status?: string; stripe_payment_link?: string | null } | null
+): { label: string; color: string; bg: string } {
+  // Retargeting overrides everything
+  if (customer.lead_source === 'retargeting') return LIFECYCLE_CONFIG.retargeting
+  const stage = customer.lifecycle_stage
+  if (stage === 'lapsed' || stage === 'unresponsive') return LIFECYCLE_CONFIG.retargeting
+
+  // Check jobs for highest lifecycle stage
+  const hasCompleted = customerJobs.some(j => j.status === 'completed')
+  if (hasCompleted) return LIFECYCLE_CONFIG.completed
+
+  const hasScheduled = customerJobs.some(j => j.status === 'scheduled' || j.status === 'in_progress')
+  if (hasScheduled) return LIFECYCLE_CONFIG.scheduled
+
+  // Quoted
+  if (stage === 'quoted_not_booked') return LIFECYCLE_CONFIG.quoted
+  if (lead?.status === 'quoted' || lead?.stripe_payment_link) return LIFECYCLE_CONFIG.quoted
+
+  return LIFECYCLE_CONFIG.new_lead
 }
 
-function getLifecycleBadge(customer: Customer) {
-  if (customer.sms_opt_out) return LIFECYCLE_BADGE.opted_out
-  // Retargeting customers should show "Retargeting", not "New Lead"
-  if (customer.lead_source === 'retargeting' && (!customer.lifecycle_stage || customer.lifecycle_stage === 'new_lead')) {
-    return { label: "Retargeting", color: "text-cyan-300", bg: "bg-cyan-500/15" }
-  }
-  const stage = customer.lifecycle_stage
-  if (!stage) return null
-  return LIFECYCLE_BADGE[stage] || null
+function isRecurringCustomer(customerJobs: { frequency?: string }[]): boolean {
+  return customerJobs.some(j => j.frequency && j.frequency !== 'one-time')
 }
 
 const LEAD_SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -921,23 +926,6 @@ export default function CustomersPage() {
   const getJobLeadSource = (jobId: number): string => {
     const lead = leads.find((l) => l.converted_to_job_id === jobId)
     return lead?.source || ""
-  }
-
-  // Get badge config for a lead's current stage
-  const getLeadBadge = (lead: Lead | null): { label: string; className: string } => {
-    if (!lead) return { label: "Customer", className: "bg-zinc-700/50 text-zinc-300" }
-    if (lead.status === "lost") return { label: "Inactive", className: "bg-red-500/20 text-red-400" }
-    if (lead.status === "completed" || lead.status === "fulfilled") return { label: "Completed", className: "bg-zinc-600/30 text-zinc-300" }
-    if (lead.status === "assigned" || lead.status === "scheduled") return { label: "Assigned", className: "bg-emerald-500/20 text-emerald-400" }
-    if (lead.status === "paid") return { label: "Paid", className: "bg-green-500/20 text-green-400" }
-    if (lead.status === "booked") return { label: "Booked", className: "bg-yellow-500/20 text-yellow-400" }
-    if (lead.status === "qualified") return { label: "Qualified", className: "bg-violet-500/20 text-violet-400" }
-    if (lead.status === "quoted" || lead.stripe_payment_link) return { label: "Quoted", className: "bg-cyan-500/20 text-cyan-400" }
-    if (lead.status === "responded" || lead.status === "engaged") return { label: "Engaged", className: "bg-purple-500/20 text-purple-400" }
-    if (lead.status === "contacted") return { label: "Contacted", className: "bg-sky-500/20 text-sky-400" }
-    const stage = lead.followup_stage || 0
-    if (stage <= 1) return { label: "New", className: "bg-blue-500/20 text-blue-400" }
-    return { label: "Following Up", className: "bg-amber-500/20 text-amber-400" }
   }
 
   // Handle move to stage (drag & drop) - executes the action
@@ -1963,20 +1951,32 @@ export default function CustomersPage() {
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
-                                {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
-                                  <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
-                                ) : (() => {
-                                  const srcBadge = getSourceBadge(customer)
-                                  if (srcBadge) {
-                                    return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
-                                  }
-                                  return null
-                                })()}
+                                {/* Primary lifecycle badge */}
                                 {(() => {
-                                  const lcBadge = getLifecycleBadge(customer)
-                                  if (lcBadge) return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lcBadge.bg} ${lcBadge.color} leading-none`}>{lcBadge.label}</span>
+                                  const custJobs = getCustomerJobs(customer.phone_number)
+                                  const lead = getCustomerLead(customer.phone_number)
+                                  const lc = getPrimaryLifecycleBadge(customer, custJobs, lead)
+                                  return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.color} leading-none`}>{lc.label}</span>
+                                })()}
+                                {/* Secondary: Crew */}
+                                {cleanerPhones.includes(normalizePhone(customer.phone_number)) && (
+                                  <span className="flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
+                                )}
+                                {/* Secondary: Lead source */}
+                                {(() => {
+                                  const srcBadge = getSourceBadge(customer)
+                                  if (srcBadge) return <span className={`flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full ${srcBadge.className} leading-none opacity-80`}>{srcBadge.label}</span>
                                   return null
                                 })()}
+                                {/* Secondary: Recurring */}
+                                {isRecurringCustomer(getCustomerJobs(customer.phone_number)) && (
+                                  <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-purple-500/20 text-purple-300 leading-none opacity-80">Recurring</span>
+                                )}
+                                {/* Secondary: Opted Out */}
+                                {customer.sms_opt_out && (
+                                  <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-zinc-500/20 text-zinc-400 leading-none opacity-80">Opted Out</span>
+                                )}
+                                {/* Secondary: Card on file */}
                                 {customer.card_on_file_at && (
                                   <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
                                 )}

@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
         const daysSince = Math.floor((Date.now() - new Date(job.completed_at!).getTime()) / (24 * 60 * 60 * 1000))
         const message = frequencyNudge(customerName, daysSince, businessName)
 
-        const smsResult = await sendSMS(tenant, phone, message)
+        const smsResult = await sendSMS(tenant, phone, message, { source: 'frequency_nudge' })
 
         if (smsResult.success) {
           // frequency_nudge_sent_at already set by RPC

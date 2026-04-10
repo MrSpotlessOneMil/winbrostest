@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
         const businessName = tenant.business_name_short || tenant.name || 'us'
         const message = `Hey ${customerName}! How was your cleaning today?`
 
-        const smsResult = await sendSMS(tenant, phone, message)
+        const smsResult = await sendSMS(tenant, phone, message, { source: 'post_job_followup', customerId: job.customer_id })
 
         if (smsResult.success) {
           // Update customer post-job stage

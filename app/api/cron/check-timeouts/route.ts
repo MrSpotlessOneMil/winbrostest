@@ -343,7 +343,7 @@ async function executeCheckTimeouts(request: NextRequest) {
             const customerMessage = `We're still confirming your cleaner for ${dateStr}. We'll update you shortly!`
             const jobTenant = job.tenant_id ? await getTenantById(job.tenant_id) : null
             if (jobTenant) {
-              await sendSMS(jobTenant, customer.phone_number, customerMessage)
+              await sendSMS(jobTenant, customer.phone_number, customerMessage, { source: 'customer_delay_notice' })
             } else {
               console.error(`[check-timeouts] No tenant for job ${jobId} — cannot send customer delay SMS`)
             }

@@ -88,27 +88,10 @@ export async function POST(request: NextRequest) {
 
             const message = `Hi ${customerName}! This is a reminder from ${businessName} that your cleaning is scheduled for tomorrow (${dateFormatted}) at ${time}. Please make sure someone is home or leave a key. Reply with any questions!`
 
-            const result = await sendSMS(tenant, customer.phone_number, message)
+            const result = await sendSMS(tenant, customer.phone_number, message, { source: 'day_before_reminder', customerId: customer.id })
             if (result.success) {
               remindersSent++
               console.log(`[Reminder] Day-before SMS sent to ${customer.phone_number}`)
-
-              // Log the outbound message to the database
-              client.from("messages").insert({
-                tenant_id: tenant.id,
-                customer_id: customer.id || null,
-                phone_number: customer.phone_number,
-                role: "assistant",
-                content: message,
-                direction: "outbound",
-                message_type: "sms",
-                ai_generated: false,
-                source: "day_before_reminder",
-                job_id: job.id ? Number(job.id) : null,
-                timestamp: new Date().toISOString(),
-              }).then(({ error: logErr }) => {
-                if (logErr) console.error("[Reminder] Failed to log reminder message:", logErr)
-              })
             } else {
               errors++
             }

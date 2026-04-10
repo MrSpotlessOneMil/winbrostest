@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
         )
 
         const message = monthlyReengagement(customerName, discount, daysSince)
-        const smsResult = await sendSMS(tenant, phone, message)
+        const smsResult = await sendSMS(tenant, phone, message, { source: 'monthly_reengagement' })
 
         if (smsResult.success) {
           // monthly_followup_sent_at already set by RPC

@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
             const customerName = customer.first_name || 'there'
             const message = seasonalReminder(customerName, campaign.message)
 
-            const smsResult = await sendSMS(tenant, customer.phone_number, message)
+            const smsResult = await sendSMS(tenant, customer.phone_number, message, { source: 'seasonal_reminder', customerId: customer.id })
 
             if (!smsResult.success) {
               console.error(`[Seasonal Reminders] SMS failed for ${customer.id}:`, smsResult.error)
@@ -125,24 +125,16 @@ export async function GET(request: NextRequest) {
               continue
             }
 
-            // Save to messages table with seasonal_reminder source tag
-            await client.from('messages').insert({
-              tenant_id: tenant.id,
-              customer_id: customer.id,
-              phone_number: customer.phone_number,
-              role: 'assistant',
-              content: message,
-              direction: 'outbound',
-              message_type: 'sms',
-              ai_generated: false,
-              timestamp: new Date().toISOString(),
-              source: 'seasonal_reminder',
-              metadata: {
-                campaign_id: campaign.id,
-                campaign_name: campaign.name,
-                target_segment: campaign.target_segment,
-              },
-            })
+            // Update the pre-inserted message record with campaign metadata
+            if (smsResult.msgRecordId) {
+              await client.from('messages').update({
+                metadata: {
+                  campaign_id: campaign.id,
+                  campaign_name: campaign.name,
+                  target_segment: campaign.target_segment,
+                },
+              }).eq('id', smsResult.msgRecordId)
+            }
 
             // Update customer's seasonal_reminder_tracker
             const tracker = (customer.seasonal_reminder_tracker || {}) as Record<string, string>

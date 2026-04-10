@@ -8,6 +8,7 @@ import { normalizePhoneNumber } from "@/lib/phone-utils"
 import { syncNewJobToHCP } from "@/lib/hcp-job-sync"
 import { cleanerAssigned } from "@/lib/sms-templates"
 import { triggerCleanerAssignment } from "@/lib/cleaner-assignment"
+import { notifyCleanerAssignment } from "@/lib/cleaner-sms"
 
 function mapDbStatusToApi(status: string | null | undefined): Job["status"] {
   switch ((status || "").toLowerCase()) {
@@ -252,34 +253,45 @@ export async function PATCH(request: NextRequest) {
             }))
           )
 
-          // Notify each cleaner via SMS (fire-and-forget)
+          // Notify each cleaner via notifyCleanerAssignment (rich format with
+          // full job details, cleaner pay, portal link, bypassFilters + useCleaner)
           const assignTenant = tenant || (tenantId ? await getTenantById(tenantId) : null)
           if (assignTenant) {
             const svc = getSupabaseServiceClient()
+            const customer = oldJob?.customer_id
+              ? (await svc.from("customers").select("*").eq("id", oldJob.customer_id).single()).data
+              : null
+
+            const jobInfo = {
+              id: Number(id),
+              date: date || oldJob?.date,
+              scheduled_at: scheduled_at || oldJob?.scheduled_at,
+              address: body.address || oldJob?.address,
+              service_type: body.service_type || oldJob?.service_type,
+              notes: body.notes || oldJob?.notes,
+              bedrooms: oldJob?.bedrooms,
+              bathrooms: oldJob?.bathrooms,
+              square_footage: oldJob?.square_footage,
+              hours: hours || oldJob?.hours,
+              price: body.price ?? oldJob?.price,
+              phone_number: oldJob?.phone_number,
+              frequency: oldJob?.frequency,
+            }
+
             for (const cid of resolvedCleanerIds) {
               const { data: cleaner } = await svc
                 .from("cleaners")
-                .select("id, name, phone, portal_token")
+                .select("id, name, phone, portal_token, hourly_rate")
                 .eq("id", cid)
                 .single()
 
               if (cleaner?.phone) {
-                const jobDate = date || oldJob?.date || "TBD"
-                const jobTime = scheduled_at || oldJob?.scheduled_at || ""
-                const jobAddress = body.address || oldJob?.address || "TBD"
-                const timeParts = String(jobTime).match(/^(\d{1,2}):(\d{2})/)
-                let timeDisplay = ""
-                if (timeParts) {
-                  const h = parseInt(timeParts[1])
-                  const m = timeParts[2]
-                  const ampm = h >= 12 ? "PM" : "AM"
-                  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-                  timeDisplay = ` at ${h12}:${m} ${ampm}`
-                }
-                const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
-                const portalLink = cleaner.portal_token ? `\n\nView details & checklist:\n${baseUrl}/crew/${cleaner.portal_token}/job/${id}` : ''
-                const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}.${portalLink}`
-                sendSMS(assignTenant as any, cleaner.phone, smsMsg, { bypassFilters: true }).catch((err) =>
+                notifyCleanerAssignment(
+                  assignTenant as any,
+                  cleaner,
+                  jobInfo,
+                  customer || undefined
+                ).catch((err) =>
                   console.error("[Jobs PATCH] Failed to send SMS to cleaner:", err)
                 )
               }
