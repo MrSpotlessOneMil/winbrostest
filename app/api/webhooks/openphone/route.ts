@@ -71,10 +71,11 @@ async function sendMultiPartSMS(
       hasPriceBeenQuoted: convHistory.some((m: any) => m.role === 'assistant' && /\$\d/.test(m.content)),
     })
 
-    // HARD BLOCK: discount language or price accuracy failure
+    // HARD BLOCK: discount language or price accuracy failure — regenerate a better message
     if (guard.blocked) {
-      console.error(`[${tenant.slug}] SMS GUARD BLOCKED: ${guard.reason}`)
-      // Log the blocked message for review
+      console.error(`[${tenant.slug}] SMS GUARD BLOCKED: ${guard.reason} — regenerating`)
+
+      // Log the blocked message for learning
       await client.from('messages').insert({
         tenant_id: tenant.id,
         customer_id: customerId,
@@ -88,14 +89,101 @@ async function sendMultiPartSMS(
         source: 'openphone',
         metadata: { ...metadata, blocked: true, guard_reason: guard.reason, guard_stage: guard.conversationStage },
       })
-      // If escalation needed, notify owner
-      if (guard.shouldEscalate && tenant.owner_phone) {
-        await sendSMS(tenant, tenant.owner_phone,
-          `[GUARD] AI tried to send blocked message to ${phone}: ${guard.reason}. Please follow up manually.`,
-          { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
-        )
+
+      // Regenerate: tell the AI exactly what was wrong and what to do instead
+      try {
+        const Anthropic = (await import('@anthropic-ai/sdk')).default
+        const anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+        const lastCustomerMsg = convHistory
+          .filter((m: any) => m.role === 'client')
+          .slice(-1)[0]?.content || ''
+
+        const regenResponse = await anthropicClient.messages.create({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          system: `You are a friendly SMS assistant for a cleaning business. You just tried to send this message but it was BLOCKED because it violated a business rule:
+
+BLOCKED MESSAGE: "${fullResponse}"
+REASON BLOCKED: ${guard.reason}
+
+CRITICAL RULES:
+- You have ZERO authority to change, reduce, or discount prices. EVER.
+- NEVER offer discounts, deals, free add-ons, or any price reduction.
+- If the customer wants a lower price, build VALUE instead: satisfaction guarantee, insured & bonded, background-checked cleaners, 5-star reviews, professional supplies included.
+- If they keep pushing, say: "I totally understand — let me have the owner reach out to discuss options with you"
+- Keep it to 1-3 sentences. This is SMS.
+- Do NOT use emojis.
+
+Write a CORRECTED message that handles the customer's request without violating any rules.`,
+          messages: [{
+            role: 'user',
+            content: `Customer said: "${lastCustomerMsg}"\n\nWrite the corrected SMS response. ONLY the message text, nothing else.`
+          }],
+        })
+
+        const regenText = regenResponse.content.find(b => b.type === 'text')
+        const correctedMessage = regenText?.type === 'text' ? regenText.text.trim() : ''
+
+        if (correctedMessage) {
+          // Verify the corrected message also passes the guard
+          const recheck = await guardMessage(correctedMessage, tenant.id, convHistory, {
+            bedrooms: custData?.bedrooms,
+            bathrooms: custData?.bathrooms,
+            hasActiveJob,
+            hasPriceBeenQuoted: convHistory.some((m: any) => m.role === 'assistant' && /\$\d/.test(m.content)),
+          })
+
+          if (!recheck.blocked) {
+            // Corrected message is safe — swap it in and continue to send
+            console.log(`[${tenant.slug}] SMS GUARD: Regenerated safe message for ${phone}`)
+            fullResponse = correctedMessage
+            // Log the correction for the learning loop
+            await client.from('messages').insert({
+              tenant_id: tenant.id,
+              customer_id: customerId,
+              phone_number: phone,
+              role: 'system',
+              content: `[GUARD CORRECTION] Original blocked: "${fullResponse}" → Corrected: "${correctedMessage}" | Reason: ${guard.reason}`,
+              direction: 'internal',
+              message_type: 'system',
+              ai_generated: true,
+              timestamp: new Date().toISOString(),
+              source: 'sms_guard',
+              metadata: { guard_correction: true, original_blocked: true, guard_reason: guard.reason },
+            })
+          } else {
+            // Corrected message ALSO blocked — give up and escalate to owner
+            console.error(`[${tenant.slug}] SMS GUARD: Regenerated message also blocked — escalating`)
+            if (tenant.owner_phone) {
+              await sendSMS(tenant, tenant.owner_phone,
+                `[GUARD] AI can't generate safe response for ${phone}. Customer needs manual follow-up. Issue: ${guard.reason}`,
+                { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
+              )
+            }
+            return { success: false, fullContent: fullResponse, messageIds: [] }
+          }
+        } else {
+          // Regeneration produced empty — escalate to owner
+          if (tenant.owner_phone) {
+            await sendSMS(tenant, tenant.owner_phone,
+              `[GUARD] AI blocked for ${phone}: ${guard.reason}. Regen failed. Please follow up manually.`,
+              { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
+            )
+          }
+          return { success: false, fullContent: fullResponse, messageIds: [] }
+        }
+      } catch (regenErr) {
+        // Regeneration failed — escalate to owner rather than sending the bad message
+        console.error(`[${tenant.slug}] SMS GUARD regen failed:`, regenErr)
+        if (tenant.owner_phone) {
+          await sendSMS(tenant, tenant.owner_phone,
+            `[GUARD] AI blocked for ${phone}: ${guard.reason}. Regen error. Please follow up.`,
+            { skipThrottle: true, bypassFilters: true, source: 'sms_guard' }
+          )
+        }
+        return { success: false, fullContent: fullResponse, messageIds: [] }
       }
-      return { success: false, fullContent: fullResponse, messageIds: [] }
     }
 
     // Warnings (don't block, just log)
