@@ -279,7 +279,7 @@ export async function PATCH(request: NextRequest) {
                 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
                 const portalLink = cleaner.portal_token ? `\n\nView details & checklist:\n${baseUrl}/crew/${cleaner.portal_token}/job/${id}` : ''
                 const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}.${portalLink}`
-                sendSMS(assignTenant as any, cleaner.phone, smsMsg).catch((err) =>
+                sendSMS(assignTenant as any, cleaner.phone, smsMsg, { bypassFilters: true }).catch((err) =>
                   console.error("[Jobs PATCH] Failed to send SMS to cleaner:", err)
                 )
               }
@@ -631,7 +631,7 @@ export async function POST(request: NextRequest) {
             const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
             const portalLink = cleaner.portal_token ? `\n\nView details & checklist:\n${baseUrl}/crew/${cleaner.portal_token}/job/${row.id}` : ''
             const smsMsg = `You've been assigned a new job! ${jobAddress}, ${jobDate}${timeDisplay}.${portalLink}`
-            sendSMS(tenant as any, cleaner.phone, smsMsg).catch((err) =>
+            sendSMS(tenant as any, cleaner.phone, smsMsg, { bypassFilters: true }).catch((err) =>
               console.error("[Jobs POST] Failed to send SMS to cleaner:", err)
             )
           }
