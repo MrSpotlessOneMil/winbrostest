@@ -25,8 +25,8 @@ import { test, expect } from '@playwright/test'
 // Branch database for testing (no production data affected)
 // To run these tests: create a Supabase branch, seed it, and set these env vars:
 //   E2E_SUPABASE_URL=https://xxx.supabase.co E2E_SUPABASE_ANON_KEY=xxx npx playwright test crew-full-flow
-const SUPABASE_URL = process.env.E2E_SUPABASE_URL || 'https://zlqhlpufsumqpnrfbgso.supabase.co'
-const SUPABASE_ANON_KEY = process.env.E2E_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpscWhscHVmc3VtcXBucmZiZ3NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUwMjI5MzYsImV4cCI6MjA5MDU5ODkzNn0.pfD3ANRJs_ZJC8kA-CbnrL4OwdvaBDBXMzgJw-gAMjs'
+const SUPABASE_URL = process.env.E2E_SUPABASE_URL!
+const SUPABASE_ANON_KEY = process.env.E2E_SUPABASE_ANON_KEY!
 
 // Skip all tests if no test branch is available
 const SKIP = !process.env.E2E_SUPABASE_URL

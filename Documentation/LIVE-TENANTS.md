@@ -6,7 +6,7 @@
 
 ### Cedar Rapids House Cleaners (`cedar-rapids`)
 - **Status:** LIVE as of Feb 25, 2026
-- **Owner:** Caleb — cedarrapidshousecleaners@gmail.com / 319-826-4311
+- **Owner:** Caleb — (see Supabase tenants table for contact)
 - **Service:** House cleaning — Cedar Rapids, Iowa City, Linn County, Johnson County
 - **Integrations:** VAPI, OpenPhone (+1 319-261-9670), Stripe, Telegram
 - **Invoicing:** Stripe (NOT Wave)
