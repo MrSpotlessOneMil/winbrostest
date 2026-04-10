@@ -1,7 +1,12 @@
 {
-  "name": "cleaning-business-automation",
+  "name": "osiris-platform",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
   "scripts": {
     "build": "next build",
     "dev": "next dev",
@@ -116,6 +121,7 @@
     "tsx": "^4.21.0",
     "tw-animate-css": "1.3.3",
     "typescript": "^5",
+    "turbo": "^2.5.3",
     "vitest": "^4.0.18"
   }
 }
