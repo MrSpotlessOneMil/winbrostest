@@ -263,6 +263,13 @@ export default function CustomersPage() {
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTask[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null)
   const urlParamsHandled = useRef(false)
+  // Block auto-select in fetchCustomers when URL has phone/customerId params pending
+  const hasUrlSelectionPending = useRef(
+    typeof window !== "undefined" && (
+      new URLSearchParams(window.location.search).has("phone") ||
+      new URLSearchParams(window.location.search).has("customerId")
+    )
+  )
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("customers_active_tab")
@@ -383,12 +390,8 @@ export default function CustomersPage() {
         setLeads(json.data.leads || [])
         setScheduledTasks(json.data.scheduledTasks || [])
         setCleanerPhones(json.data.cleanerPhones || [])
-        // Auto-select a customer only if no URL params are pending (phone/customerId)
-        const hasUrlTarget = typeof window !== "undefined" && (
-          new URLSearchParams(window.location.search).has("phone") ||
-          new URLSearchParams(window.location.search).has("customerId")
-        )
-        if (!search && json.data.customers.length > 0 && !selectedCustomer && !hasUrlTarget) {
+        // Skip auto-select if URL params are pending — the URL param effect owns selection
+        if (!search && json.data.customers.length > 0 && !selectedCustomer && !hasUrlSelectionPending.current) {
           const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
           const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
           setSelectedCustomer(restored || json.data.customers[0])
@@ -734,6 +737,10 @@ export default function CustomersPage() {
       if (typeof window !== "undefined") {
         window.history.replaceState({}, "", "/customers")
       }
+      hasUrlSelectionPending.current = false
+    } else {
+      // No URL params present — allow auto-select in fetchCustomers
+      hasUrlSelectionPending.current = false
     }
   }, [loading, customers, urlParams])
 
