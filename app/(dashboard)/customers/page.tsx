@@ -712,10 +712,14 @@ export default function CustomersPage() {
   }
 
   // Handle URL params from global search (e.g. ?customerId=123&q=term&phone=+1234)
+  // Reset the handled flag when new URL params arrive (e.g. navigating back from pipeline)
+  const paramCustomerId = urlParams.get("customerId")
+  const paramPhone = urlParams.get("phone")
+  if ((paramCustomerId || paramPhone) && urlParamsHandled.current) {
+    urlParamsHandled.current = false
+  }
   useEffect(() => {
     if (urlParamsHandled.current || loading || customers.length === 0) return
-    const paramCustomerId = urlParams.get("customerId")
-    const paramPhone = urlParams.get("phone")
     const paramQ = urlParams.get("q")
 
     if (paramCustomerId || paramPhone) {
