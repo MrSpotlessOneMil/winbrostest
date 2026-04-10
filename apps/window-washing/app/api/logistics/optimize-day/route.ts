@@ -1,0 +1,57 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth, getAuthTenant } from '@/lib/auth'
+import { verifyCronAuth } from '@/lib/cron-auth'
+import { sendSMS } from '@/lib/openphone'
+import { optimizeRoutesForDate } from '@/lib/route-optimizer'
+
+export async function POST(request: NextRequest) {
+  // Allow both dashboard auth and cron auth
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) {
+    if (!verifyCronAuth(request)) {
+      return authResult
+    }
+  }
+
+  const tenant = await getAuthTenant(request)
+  if (!tenant) {
+    return NextResponse.json({ success: false, error: 'Tenant could not be resolved from auth context' }, { status: 401 })
+  }
+
+  try {
+    const body = await request.json()
+    const { date, options } = body
+
+    if (!date) {
+      return NextResponse.json({ success: false, error: 'date is required (YYYY-MM-DD)' }, { status: 400 })
+    }
+
+    console.log(`[Logistics] Optimizing routes for ${date}`)
+
+    const result = await optimizeRoutesForDate(date, tenant.id, options)
+
+    // Alert owner if there were warnings or issues
+    if (result.warnings.length > 0 && tenant.owner_phone) {
+      const warningLines = result.warnings.map(w => `  - ${w}`).join('\n')
+      const unassignedLine = result.unassignedJobs.length > 0
+        ? `\n\nUNASSIGNED JOBS: ${result.unassignedJobs.length}`
+        : ''
+      const msg = `ROUTE OPTIMIZATION - ${date}\n\n${result.stats.assignedJobs} of ${result.stats.totalJobs} jobs assigned to ${result.stats.activeTeams} teams.\n\nWARNINGS:\n${warningLines}${unassignedLine}`
+      await sendSMS(tenant, tenant.owner_phone, msg).catch(err =>
+        console.error('[Logistics] Failed to alert owner:', err)
+      )
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result,
+      message: `Optimized ${result.stats.assignedJobs} of ${result.stats.totalJobs} jobs across ${result.stats.activeTeams} teams`,
+    })
+  } catch (error) {
+    console.error('[Logistics] Optimization error:', error)
+    return NextResponse.json(
+      { success: false, error: error instanceof Error ? error.message : 'Optimization failed' },
+      { status: 500 }
+    )
+  }
+}

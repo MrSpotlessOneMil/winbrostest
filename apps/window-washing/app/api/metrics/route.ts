@@ -1,0 +1,203 @@
+import { NextRequest, NextResponse } from "next/server"
+import type { DailyMetrics, ApiResponse } from "@/lib/types"
+import { getSupabaseServiceClient, getTenantScopedClient } from "@/lib/supabase"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + days)
+  return d
+}
+
+function startOfDayUTC(dateIso: string): string {
+  return `${dateIso}T00:00:00.000Z`
+}
+
+function endOfDayUTC(dateIso: string): string {
+  return `${dateIso}T23:59:59.999Z`
+}
+
+function dailyTargetPerCrew(): number {
+  const raw = process.env.DAILY_TARGET_PER_CREW || process.env.DAILY_TARGET || process.env.BOOKING_DAILY_TARGET
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) ? parsed : 1200
+}
+
+function safePct(numerator: number, denominator: number): number {
+  if (!denominator) return 0
+  return Math.round((numerator / denominator) * 100)
+}
+
+type DbJob = { id?: number; date: string | null; completed_at?: string | null; status: string | null; price: number | null; service_type?: string | null; address?: string | null; phone_number?: string | null }
+type DbLead = { id?: number; created_at: string; status: string | null; source?: string | null; phone_number?: string | null; form_data?: any }
+type DbCall = { id?: number; created_at: string | null; date: string | null; started_at: string | null; phone_number?: string | null; caller_name?: string | null; direction?: string | null; duration_seconds?: number | null }
+
+function pickTimestamp(row: DbCall): string | null {
+  return (row.date || row.started_at || row.created_at) ? String(row.date || row.started_at || row.created_at) : null
+}
+
+function bucketIso(ts: string): string {
+  // Bucket by UTC day
+  return new Date(ts).toISOString().slice(0, 10)
+}
+
+function computeDayMetrics(params: {
+  day: string
+  activeCrews: number
+  jobs: DbJob[]
+  leads: DbLead[]
+  calls: DbCall[]
+}): DailyMetrics {
+  const { day, activeCrews, jobs, leads, calls } = params
+
+  const jobsForDay = jobs.filter((j) => String(j.date || "") === day)
+  // Revenue: count completed jobs by their actual completion date (fall back to scheduled date)
+  const completedJobs = jobs.filter((j) => {
+    if (String(j.status || "") !== "completed") return false
+    const completionDay = j.completed_at ? bucketIso(j.completed_at) : String(j.date || "")
+    return completionDay === day
+  })
+  const scheduledJobs = jobsForDay.filter((j) => {
+    const s = String(j.status || "")
+    return s === "scheduled" || s === "in_progress" || s === "completed"
+  })
+  const totalRevenue = completedJobs.reduce((sum, j) => sum + (j.price != null ? Number(j.price) : 0), 0)
+
+  const leadsForDay = leads.filter((l) => bucketIso(l.created_at) === day)
+  const leadsIn = leadsForDay.length
+  const leadsBooked = leadsForDay.filter((l) => String(l.status || "").toLowerCase() === "booked").length
+
+  const callsForDay = calls.filter((c) => {
+    const ts = pickTimestamp(c)
+    return ts ? bucketIso(ts) === day : false
+  })
+
+  return {
+    date: day,
+    total_revenue: totalRevenue,
+    target_revenue: activeCrews * dailyTargetPerCrew(),
+    jobs_completed: completedJobs.length,
+    jobs_scheduled: scheduledJobs.length,
+    leads_in: leadsIn,
+    leads_booked: leadsBooked,
+    close_rate: safePct(leadsBooked, leadsIn),
+    tips_collected: 0,
+    upsells_value: 0,
+    calls_handled: callsForDay.length,
+    after_hours_calls: 0,
+  }
+}
+
+export async function GET(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  // Get tenant for multi-tenant filtering
+  const tenant = await getAuthTenant(request)
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+
+  const searchParams = request.nextUrl.searchParams
+  const range = searchParams.get("range") || "today"
+  const date = searchParams.get("date")
+  const includeDetails = searchParams.get("details") === "true"
+
+  let responseData: DailyMetrics | DailyMetrics[]
+
+  const client = tenant ? await getTenantScopedClient(tenant.id) : getSupabaseServiceClient()
+  const baseDate = date ? new Date(`${date}T00:00:00Z`) : new Date()
+
+  let cleanersQuery = client.from("cleaners").select("id").eq("active", true)
+  if (tenant) cleanersQuery = cleanersQuery.eq("tenant_id", tenant.id)
+  const cleanersRes = await cleanersQuery
+  const activeCrews = cleanersRes.data ? cleanersRes.data.length : 0
+
+  let startDate: string
+  let endDate: string
+  if (range === "week") {
+    startDate = isoDate(addDays(baseDate, -6))
+    endDate = isoDate(baseDate)
+  } else if (range === "specific" && date) {
+    startDate = date
+    endDate = date
+  } else {
+    const today = isoDate(baseDate)
+    startDate = today
+    endDate = today
+  }
+
+  const jobFields = includeDetails ? "id,date,completed_at,status,price,service_type,address,phone_number" : "date,completed_at,status,price"
+  // Fetch jobs by scheduled date OR completed_at in range (so completed jobs show on the right day)
+  let jobsQuery = client
+    .from("jobs")
+    .select(jobFields)
+    .neq("status", "cancelled")
+    .or(`and(date.gte.${startDate},date.lte.${endDate}),and(completed_at.gte.${startOfDayUTC(startDate)},completed_at.lte.${endOfDayUTC(endDate)})`)
+  if (tenant) jobsQuery = jobsQuery.eq("tenant_id", tenant.id)
+  const jobsRes = await jobsQuery
+
+  const leadFields = includeDetails ? "id,created_at,status,source,phone_number,form_data" : "created_at,status"
+  let leadsQuery = client
+    .from("leads")
+    .select(leadFields)
+    .gte("created_at", startOfDayUTC(startDate))
+    .lte("created_at", endOfDayUTC(endDate))
+  if (tenant) leadsQuery = leadsQuery.eq("tenant_id", tenant.id)
+  const leadsRes = await leadsQuery
+
+  const callFields = includeDetails ? "id,created_at,date,started_at,phone_number,caller_name,direction,duration_seconds" : "created_at,date,started_at"
+  let callsQuery = client
+    .from("calls")
+    .select(callFields)
+    .gte("created_at", startOfDayUTC(startDate))
+    .lte("created_at", endOfDayUTC(endDate))
+  if (tenant) callsQuery = callsQuery.eq("tenant_id", tenant.id)
+  const callsRes = await callsQuery
+
+  const jobs: DbJob[] = (jobsRes.data || []) as any
+  const leads: DbLead[] = (leadsRes.data || []) as any
+  const calls: DbCall[] = (callsRes.data || []) as any
+
+  if (range === "week") {
+    const days: string[] = []
+    for (let i = 0; i < 7; i++) days.push(isoDate(addDays(baseDate, i - 6)))
+    responseData = days.map((day) => computeDayMetrics({ day, activeCrews, jobs, leads, calls }))
+  } else {
+    const day = range === "specific" && date ? date : isoDate(baseDate)
+    responseData = computeDayMetrics({ day, activeCrews, jobs, leads, calls })
+  }
+
+  const response: Record<string, unknown> = {
+    success: true,
+    data: responseData,
+  }
+
+  // Include detail items for expandable stats cards
+  if (includeDetails && range !== "week") {
+    const day = range === "specific" && date ? date : isoDate(baseDate)
+    const dayJobs = jobs.filter((j) => String(j.date || "") === day)
+    const dayLeads = leads.filter((l) => bucketIso(l.created_at) === day)
+    const dayCalls = calls.filter((c) => {
+      const ts = pickTimestamp(c)
+      return ts ? bucketIso(ts) === day : false
+    })
+
+    response.items = {
+      completed_jobs: dayJobs.filter(j => String(j.status || "") === "completed"),
+      scheduled_jobs: dayJobs.filter(j => {
+        const s = String(j.status || "")
+        return s === "scheduled" || s === "in_progress"
+      }),
+      leads: dayLeads,
+      calls: dayCalls,
+    }
+  }
+
+  return NextResponse.json(response)
+}
