@@ -345,6 +345,10 @@ export default function CustomersPage() {
   // Quotes state (lazy-loaded when Quotes tab is opened)
   const [customerQuotes, setCustomerQuotes] = useState<any[]>([])
   const [quotesLoading, setQuotesLoading] = useState(false)
+  const [editingQuoteId, setEditingQuoteId] = useState<number | null>(null)
+  const [editQuoteForm, setEditQuoteForm] = useState<Record<string, any>>({})
+  const [savingQuote, setSavingQuote] = useState(false)
+  const [quoteEditError, setQuoteEditError] = useState("")
   const prevSelectedCustomerIdRef = useRef<number | null>(null)
   const [createMembershipError, setCreateMembershipError] = useState("")
 
@@ -524,6 +528,68 @@ export default function CustomersPage() {
       setCustomerQuotes([])
     } finally {
       setQuotesLoading(false)
+    }
+  }
+
+  const startEditQuote = (q: any) => {
+    setEditingQuoteId(q.id)
+    setQuoteEditError("")
+    setEditQuoteForm({
+      customer_name: q.customer_name || "",
+      customer_email: q.customer_email || "",
+      customer_address: q.customer_address || "",
+      square_footage: q.square_footage || "",
+      bedrooms: q.bedrooms ?? "",
+      bathrooms: q.bathrooms ?? "",
+      property_type: q.property_type || "",
+      service_category: q.service_category || "standard",
+      selected_tier: q.selected_tier || "",
+      custom_base_price: q.custom_base_price ?? "",
+      total: q.total ?? "",
+      subtotal: q.subtotal ?? "",
+      discount: q.discount ?? "",
+      deposit_amount: q.deposit_amount ?? "",
+      cleaner_pay: q.cleaner_pay ?? "",
+      notes: q.notes || "",
+      description: q.description || "",
+      service_date: q.service_date || "",
+      service_time: q.service_time || "",
+      status: q.status || "pending",
+    })
+  }
+
+  const handleSaveQuote = async () => {
+    if (!editingQuoteId) return
+    setSavingQuote(true)
+    setQuoteEditError("")
+    try {
+      const body: Record<string, any> = { id: editingQuoteId }
+      // Only send fields that have values (convert empty strings to null for numeric fields)
+      const numericFields = ["square_footage", "bedrooms", "bathrooms", "custom_base_price", "total", "subtotal", "discount", "deposit_amount", "cleaner_pay"]
+      for (const [key, val] of Object.entries(editQuoteForm)) {
+        if (numericFields.includes(key)) {
+          body[key] = val === "" || val == null ? null : Number(val)
+        } else {
+          body[key] = val === "" ? null : val
+        }
+      }
+      const res = await fetch("/api/actions/quotes", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.success) {
+        // Update local state with the edited quote
+        setCustomerQuotes(prev => prev.map(q => q.id === editingQuoteId ? data.quote : q))
+        setEditingQuoteId(null)
+      } else {
+        setQuoteEditError(data.error || "Failed to save")
+      }
+    } catch {
+      setQuoteEditError("Network error")
+    } finally {
+      setSavingQuote(false)
     }
   }
 
@@ -2504,6 +2570,7 @@ export default function CustomersPage() {
                         ) : (
                           <div className="space-y-2">
                             {customerQuotes.map((q: any) => {
+                              const isEditing = editingQuoteId === q.id
                               const isApproved = q.status === "approved"
                               const isPending = q.status === "pending"
                               const statusColor = isApproved
@@ -2513,6 +2580,110 @@ export default function CustomersPage() {
                                 : "bg-red-400/10 text-red-400"
                               const addons = Array.isArray(q.selected_addons) ? q.selected_addons : []
                               const baseUrl = typeof window !== "undefined" ? window.location.origin : ""
+                              const qInput = "w-full px-2 py-1 text-xs bg-zinc-800/80 border border-zinc-700/50 rounded text-zinc-200 focus:outline-none focus:border-purple-500/50"
+
+                              if (isEditing) {
+                                return (
+                                  <div key={q.id} className="border border-purple-500/30 rounded-lg p-3 space-y-2 bg-zinc-900/50">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-xs font-semibold text-purple-400 uppercase tracking-wider">Editing Quote</span>
+                                      <div className="flex items-center gap-1">
+                                        <button onClick={() => setEditingQuoteId(null)} className="p-1 text-zinc-500 hover:text-zinc-300"><X className="w-3.5 h-3.5" /></button>
+                                      </div>
+                                    </div>
+                                    {/* Status */}
+                                    <div>
+                                      <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Status</label>
+                                      <select className={qInput} value={editQuoteForm.status} onChange={e => setEditQuoteForm(f => ({ ...f, status: e.target.value }))}>
+                                        {["pending", "approved", "expired", "cancelled"].map(s => <option key={s} value={s}>{s}</option>)}
+                                      </select>
+                                    </div>
+                                    {/* Pricing row */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Total $</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.total} onChange={e => setEditQuoteForm(f => ({ ...f, total: e.target.value }))} placeholder="0" />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Custom Price $</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.custom_base_price} onChange={e => setEditQuoteForm(f => ({ ...f, custom_base_price: e.target.value }))} placeholder="0" />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Deposit $</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.deposit_amount} onChange={e => setEditQuoteForm(f => ({ ...f, deposit_amount: e.target.value }))} placeholder="0" />
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Subtotal $</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.subtotal} onChange={e => setEditQuoteForm(f => ({ ...f, subtotal: e.target.value }))} placeholder="0" />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Cleaner Pay $</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.cleaner_pay} onChange={e => setEditQuoteForm(f => ({ ...f, cleaner_pay: e.target.value }))} placeholder="0" />
+                                      </div>
+                                    </div>
+                                    {/* Property */}
+                                    <div className="grid grid-cols-3 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Bedrooms</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.bedrooms} onChange={e => setEditQuoteForm(f => ({ ...f, bedrooms: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Bathrooms</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.bathrooms} onChange={e => setEditQuoteForm(f => ({ ...f, bathrooms: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Sq Ft</label>
+                                        <input type="number" className={qInput} value={editQuoteForm.square_footage} onChange={e => setEditQuoteForm(f => ({ ...f, square_footage: e.target.value }))} />
+                                      </div>
+                                    </div>
+                                    {/* Service */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Service Date</label>
+                                        <input type="date" className={qInput} value={editQuoteForm.service_date} onChange={e => setEditQuoteForm(f => ({ ...f, service_date: e.target.value }))} />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Service Time</label>
+                                        <input type="time" className={qInput} value={editQuoteForm.service_time} onChange={e => setEditQuoteForm(f => ({ ...f, service_time: e.target.value }))} />
+                                      </div>
+                                    </div>
+                                    {/* Address + description */}
+                                    <div>
+                                      <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Address</label>
+                                      <input type="text" className={qInput} value={editQuoteForm.customer_address} onChange={e => setEditQuoteForm(f => ({ ...f, customer_address: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Description</label>
+                                      <input type="text" className={qInput} value={editQuoteForm.description} onChange={e => setEditQuoteForm(f => ({ ...f, description: e.target.value }))} />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Notes</label>
+                                      <textarea className={qInput} rows={2} value={editQuoteForm.notes} onChange={e => setEditQuoteForm(f => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
+                                    </div>
+                                    {/* Error + buttons */}
+                                    {quoteEditError && <div className="text-xs text-red-400">{quoteEditError}</div>}
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <button
+                                        onClick={handleSaveQuote}
+                                        disabled={savingQuote}
+                                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-purple-500/20 text-purple-400 border border-purple-500/30 hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+                                      >
+                                        {savingQuote ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                        {savingQuote ? "Saving..." : "Save"}
+                                      </button>
+                                      <button
+                                        onClick={() => setEditingQuoteId(null)}
+                                        className="px-3 py-1.5 text-xs font-medium rounded-md text-zinc-400 border border-zinc-700/50 hover:bg-zinc-800 transition-colors"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                )
+                              }
+
                               return (
                                 <div key={q.id} className="border border-zinc-800 rounded-lg p-3 space-y-2">
                                   {/* Header row */}
@@ -2526,9 +2697,14 @@ export default function CustomersPage() {
                                         {q.status}
                                       </span>
                                     </div>
-                                    <span className="text-sm font-semibold text-zinc-200">
-                                      ${q.total || q.subtotal || 0}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-semibold text-zinc-200">
+                                        ${q.total || q.subtotal || 0}
+                                      </span>
+                                      <button onClick={() => startEditQuote(q)} className="p-1 text-zinc-600 hover:text-purple-400 transition-colors" title="Edit quote">
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
 
                                   {/* Date + agreement status */}

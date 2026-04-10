@@ -5,6 +5,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 /**
  * GET — List quotes for the tenant
  * POST — Create a new quote
+ * PATCH — Edit an existing quote
  */
 
 export async function GET(request: NextRequest) {
@@ -235,4 +236,87 @@ export async function POST(request: NextRequest) {
     quote_url: `/quote/${quote.token}`,
     ...(preconfirms.length > 0 ? { preconfirms } : {}),
   })
+}
+
+export async function PATCH(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+  const { tenant } = authResult
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
+  }
+
+  const { id } = body
+  if (!id) {
+    return NextResponse.json({ error: "Quote id is required" }, { status: 400 })
+  }
+
+  const supabase = getSupabaseServiceClient()
+
+  // Verify quote belongs to tenant
+  const { data: existing } = await supabase
+    .from("quotes")
+    .select("id, tenant_id, status")
+    .eq("id", Number(id))
+    .eq("tenant_id", tenant.id)
+    .single()
+
+  if (!existing) {
+    return NextResponse.json({ error: "Quote not found" }, { status: 404 })
+  }
+
+  // Build update object from allowed fields
+  const ALLOWED_FIELDS = [
+    "customer_name", "customer_phone", "customer_email", "customer_address",
+    "square_footage", "bedrooms", "bathrooms", "property_type",
+    "service_category", "selected_tier", "selected_addons",
+    "subtotal", "discount", "total", "deposit_amount",
+    "membership_plan", "notes", "custom_base_price", "cleaner_pay",
+    "description", "status", "service_date", "service_time",
+  ] as const
+
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  for (const field of ALLOWED_FIELDS) {
+    if (field in body) {
+      updates[field] = body[field] ?? null
+    }
+  }
+
+  // Validate numeric fields
+  for (const numField of ["square_footage", "bedrooms", "bathrooms", "subtotal", "discount", "total", "deposit_amount", "custom_base_price", "cleaner_pay"]) {
+    if (numField in updates && updates[numField] != null) {
+      const val = Number(updates[numField])
+      if (isNaN(val)) {
+        return NextResponse.json({ error: `${numField} must be a number` }, { status: 400 })
+      }
+      updates[numField] = val
+    }
+  }
+
+  // Validate status if changing
+  if ("status" in updates && updates.status != null) {
+    const validStatuses = ["pending", "approved", "expired", "cancelled"]
+    if (!validStatuses.includes(updates.status as string)) {
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+    }
+  }
+
+  const { data: updated, error } = await supabase
+    .from("quotes")
+    .update(updates)
+    .eq("id", Number(id))
+    .eq("tenant_id", tenant.id)
+    .select()
+    .single()
+
+  if (error) {
+    console.error("[quotes/PATCH] Update failed:", error)
+    return NextResponse.json({ error: "Failed to update quote" }, { status: 500 })
+  }
+
+  return NextResponse.json({ success: true, quote: updated })
 }
