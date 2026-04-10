@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -155,6 +156,7 @@ const PIPELINE_GROUPS = [
 ]
 
 export default function CampaignsPage() {
+  const router = useRouter()
   const [settings, setSettings] = useState<CampaignSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -777,7 +779,16 @@ export default function CampaignsPage() {
                                           />
                                         )}
                                         <div className="flex-1 min-w-0 grid grid-cols-2 md:grid-cols-4 gap-2">
-                                          <span className="truncate font-medium">{c.first_name} {c.last_name}</span>
+                                          <button
+                                            className="truncate font-medium text-left hover:underline hover:text-blue-400 transition-colors"
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              localStorage.setItem("selectedCustomerId", String(c.id))
+                                              router.push("/customers")
+                                            }}
+                                          >
+                                            {c.first_name} {c.last_name}
+                                          </button>
                                           <span className="text-muted-foreground hidden md:block">{c.phone_number}</span>
                                           <span className="text-muted-foreground truncate hidden md:block">{c.email || "—"}</span>
                                           <span className="flex items-center gap-1">
