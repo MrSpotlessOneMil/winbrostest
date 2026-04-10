@@ -1,12 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  bundler: 'webpack',
   typescript: {
     ignoreBuildErrors: true,
   },
   images: {
     unoptimized: true,
   },
-  transpilePackages: ['@osiris/core', '@osiris/ui', '@osiris/types'],
+  // transpilePackages enabled later when imports migrate to @osiris/core
+  // transpilePackages: ['@osiris/core', '@osiris/ui', '@osiris/types'],
   async headers() {
     return [
       {

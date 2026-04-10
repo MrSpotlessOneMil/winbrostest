@@ -1,0 +1,838 @@
+.calendar-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.calendar-shell > * {
+  min-height: 0;
+}
+
+.calendar-card {
+  background: transparent;
+  border-radius: 12px;
+  padding: 0;
+  border: none;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.calendar-card #calendar {
+  position: absolute;
+  inset: 0;
+}
+
+/* Event fade-in animation */
+.fc-event {
+  animation: eventFadeIn 0.3s ease-out both;
+}
+
+@keyframes eventFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* FullCalendar Dark Theme */
+.fc {
+  --fc-border-color: rgba(63, 63, 70, 0.5);
+  --fc-page-bg-color: transparent;
+  --fc-neutral-bg-color: rgba(39, 39, 42, 0.3);
+  --fc-today-bg-color: rgba(139, 92, 246, 0.05);
+  --fc-now-indicator-color: #a78bfa;
+  --fc-event-text-color: #ffffff;
+  --fc-list-event-hover-bg-color: rgba(39, 39, 42, 0.5);
+  color: #d4d4d8;
+  font-size: 0.9rem;
+}
+
+.fc .fc-toolbar-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
+.fc .fc-button {
+  background: rgba(39, 39, 42, 0.5);
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  color: #a1a1aa;
+  font-weight: 500;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+}
+
+.fc .fc-button:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background: rgba(139, 92, 246, 0.2);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+}
+
+.fc .fc-button-primary:focus {
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+}
+
+.fc .fc-daygrid-day-number {
+  color: #a1a1aa;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.fc .fc-col-header-cell-cushion {
+  color: #71717a;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.fc .fc-timegrid-axis-cushion,
+.fc .fc-timegrid-slot-label-cushion {
+  color: #52525b;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.fc .fc-day-today {
+  background: rgba(139, 92, 246, 0.08);
+  border-left: 2px solid rgba(139, 92, 246, 0.3);
+  border-right: 2px solid rgba(139, 92, 246, 0.3);
+}
+
+.fc .fc-daygrid-day.fc-day-today .fc-daygrid-day-number {
+  color: #fff;
+  background: rgba(139, 92, 246, 0.85);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px;
+}
+
+.fc .fc-event {
+  border-radius: 4px;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.fc .fc-event *,
+.fc .fc-event-time,
+.fc .fc-event-title {
+  font-weight: 400 !important;
+}
+
+/* Status-specific event colors — solid, distinct, scannable */
+.fc .event-completed {
+  background: rgba(34, 197, 94, 0.9);  /* green — done */
+  border-left: 3px solid #16a34a;
+}
+
+.fc .event-in-progress {
+  background: rgba(234, 179, 8, 0.9);  /* yellow — ongoing */
+  border-left: 3px solid #ca8a04;
+  color: #000 !important;
+}
+
+.fc .event-in-progress *,
+.fc .event-in-progress .fc-event-time,
+.fc .event-in-progress .fc-event-title {
+  color: #000 !important;
+}
+
+.fc .event-scheduled,
+.fc .event-confirmed {
+  background: rgba(59, 130, 246, 0.9);  /* blue — upcoming */
+  border-left: 3px solid #2563eb;
+}
+
+.fc .event-pending,
+.fc .event-quoted {
+  background: rgba(139, 92, 246, 0.9);  /* purple — needs action */
+  border-left: 3px solid #7c3aed;
+}
+
+.fc .event-rescheduled {
+  background: rgba(245, 158, 11, 0.85);  /* amber — rescheduled */
+  border-left: 3px solid #d97706;
+}
+
+.fc .event-membership {
+  border: 1.5px solid rgba(255, 215, 0, 0.8) !important;
+}
+
+.fc .event-cancelled {
+  background: rgba(113, 113, 122, 0.6);  /* grey — cancelled */
+  border-left: 3px solid #71717a;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.fc .fc-list-event-title a,
+.fc .fc-list-event-time {
+  color: #d4d4d8;
+}
+
+.fc .fc-list-event-dot {
+  border-color: #a78bfa;
+}
+
+.fc .fc-scrollgrid {
+  border-color: rgba(63, 63, 70, 0.5);
+}
+
+.fc td,
+.fc th {
+  border-color: rgba(63, 63, 70, 0.3);
+}
+
+/* Month-view day cells: fill available space, scroll events on hover */
+.fc .fc-daygrid-day-frame {
+  min-height: 0 !important;
+  overflow-y: hidden;
+}
+
+.fc .fc-daygrid-day-frame:hover {
+  overflow-y: auto;
+}
+
+.fc .fc-daygrid-day-events {
+  min-height: 0 !important;
+  gap: 2px;
+}
+
+/* Month-view events: thicker, more visible */
+.fc .fc-daygrid-event {
+  min-height: 22px;
+  padding: 2px 4px;
+  line-height: 1.3;
+  border-radius: 4px;
+  margin-top: 1px;
+  margin-bottom: 1px;
+}
+
+.fc .fc-daygrid-dot-event {
+  padding: 4px 6px;
+}
+
+.fc .fc-daygrid-dot-event .fc-event-title {
+  font-weight: 500 !important;
+}
+
+/* Force the daygrid body scroller to expand and fill the calendar height */
+.fc .fc-scroller {
+  overflow: auto !important;
+}
+
+.fc .fc-daygrid-body,
+.fc .fc-scrollgrid-sync-table {
+  min-height: 100% !important;
+}
+
+
+.fc .fc-day-other .fc-daygrid-day-number {
+  color: #3f3f46;
+}
+
+.fc .fc-popover {
+  background: #18181b;
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  border-radius: 8px;
+}
+
+.fc .fc-popover-header {
+  background: rgba(39, 39, 42, 0.5);
+  color: #a1a1aa;
+}
+
+/* Event detail modal */
+.cal-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 50;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.cal-modal-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.cal-modal {
+  width: 100%;
+  max-width: 480px;
+  background: #18181b;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 4rem);
+  animation: modalScaleIn 0.2s ease-out;
+}
+
+@keyframes modalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.cal-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: none;
+  position: relative;
+}
+
+.cal-modal-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.3), transparent);
+}
+
+.cal-modal-header h5 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  margin: 0;
+}
+
+.cal-modal-body {
+  padding: 1rem;
+  font-size: 0.875rem;
+  color: #a1a1aa;
+  overflow-y: auto;
+}
+
+.cal-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: none;
+  position: relative;
+}
+
+.cal-modal-footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(139, 92, 246, 0.2), transparent);
+}
+
+.cal-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.cal-modal-close:hover {
+  color: #e4e4e7;
+  background: rgba(63, 63, 70, 0.4);
+}
+
+.cal-modal-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid rgba(63, 63, 70, 0.6);
+  background: rgba(39, 39, 42, 0.5);
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.cal-modal-btn:hover {
+  background: rgba(63, 63, 70, 0.5);
+  color: #e4e4e7;
+}
+
+.cal-modal-btn-primary {
+  border: none;
+  background: linear-gradient(135deg, #7c3aed, #4f46e5);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(124, 58, 237, 0.25);
+}
+
+.cal-modal-btn-primary:hover {
+  box-shadow: 0 0 24px rgba(124, 58, 237, 0.4);
+  filter: brightness(1.1);
+}
+
+.cal-form-control {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  color: #e4e4e7;
+  background: rgba(24, 24, 27, 0.6);
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+}
+
+.cal-form-control:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.1), 0 0 12px rgba(139, 92, 246, 0.1);
+}
+
+.cal-form-control::placeholder {
+  color: #52525b;
+}
+
+select.cal-form-control {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2371717a' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+  cursor: pointer;
+}
+
+.cal-form-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #71717a;
+  margin-bottom: 0.25rem;
+}
+
+.cal-form-control.previewing {
+  border-color: rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.08);
+}
+
+/* Rainy Day Reschedule */
+.rain-day-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.rain-day-btn:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: rgba(245, 158, 11, 0.5);
+}
+
+.rain-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.rain-stat {
+  background: rgba(39, 39, 42, 0.5);
+  border: 1px solid rgba(63, 63, 70, 0.4);
+  border-radius: 8px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rain-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e4e4e7;
+}
+
+.rain-stat-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rain-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.rain-job-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(39, 39, 42, 0.3);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.rain-job-name {
+  flex: 1;
+  color: #d4d4d8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rain-job-time {
+  color: #71717a;
+  font-size: 0.75rem;
+}
+
+.rain-job-value {
+  color: #a78bfa;
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.rain-error {
+  color: #f87171;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.rain-confirm-btn {
+  border-color: rgba(245, 158, 11, 0.3) !important;
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fbbf24 !important;
+}
+
+.rain-confirm-btn:hover {
+  background: rgba(245, 158, 11, 0.3) !important;
+}
+
+.rain-spread-table {
+  border: 1px solid rgba(63, 63, 70, 0.4);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rain-spread-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: rgba(39, 39, 42, 0.5);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rain-spread-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  color: #d4d4d8;
+  border-top: 1px solid rgba(63, 63, 70, 0.3);
+}
+
+.rain-spinner {
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid rgba(63, 63, 70, 0.4);
+  border-top-color: #fbbf24;
+  border-radius: 50%;
+  margin: 0 auto;
+  animation: rain-spin 0.8s linear infinite;
+}
+
+@keyframes rain-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Mobile responsiveness ─────────────────────────────── */
+
+@media (max-width: 767px) {
+  .fc .fc-toolbar {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .fc .fc-toolbar-title {
+    font-size: 0.95rem;
+  }
+
+  .fc .fc-button {
+    font-size: 0.7rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  .fc .fc-event {
+    font-size: 0.7rem;
+    min-height: 28px;
+  }
+
+  .gantt-view-switcher {
+    position: relative;
+    top: auto;
+    right: auto;
+    margin-bottom: 0.5rem;
+    justify-content: center;
+  }
+
+  .gantt-view-btn {
+    padding: 6px 12px;
+    font-size: 0.75rem;
+  }
+
+  /* List view on mobile — larger tap targets */
+  .fc .fc-list-event {
+    min-height: 44px;
+  }
+
+  .fc .fc-list-event-title a {
+    padding: 0.5rem 0;
+    display: block;
+  }
+}
+
+/* Hover lift effect — visual feedback for clickable events */
+.fc .fc-daygrid-event-harness:hover {
+  z-index: 10 !important;
+}
+
+.fc .fc-daygrid-event:hover,
+.fc .fc-timegrid-event:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4), 0 2px 6px rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+/* Drag-and-drop styles */
+.fc .fc-event {
+  cursor: grab;
+  transition: box-shadow 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+}
+
+.fc .fc-event:active {
+  cursor: grabbing;
+}
+
+.fc .fc-event-mirror {
+  opacity: 0.75;
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.35), 0 2px 8px rgba(0, 0, 0, 0.3);
+  border: 1px dashed rgba(139, 92, 246, 0.5);
+  border-radius: 4px;
+  transform: scale(1.02);
+}
+
+.fc .fc-event.fc-event-dragging:not(.fc-event-mirror) {
+  opacity: 0.3;
+}
+
+/* Edit button in modal */
+.cal-modal-btn-edit {
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(59, 130, 246, 0.15);
+  color: #93c5fd;
+}
+
+.cal-modal-btn-edit:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+/* Conflict dialog warning */
+.cal-modal-btn-warning {
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.cal-modal-btn-warning:hover {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.conflict-info {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.conflict-info-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #fbbf24;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.35rem;
+}
+
+.conflict-info-title {
+  font-size: 0.85rem;
+  color: #e4e4e7;
+  font-weight: 500;
+}
+
+.conflict-info-time {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  margin-top: 0.15rem;
+}
+
+.saving-spinner {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(139, 92, 246, 0.3);
+  border-top-color: #c4b5fd;
+  border-radius: 50%;
+  animation: rain-spin 0.6s linear infinite;
+}
+
+.cal-modal-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Hide FC's built-in right toolbar buttons — replaced by custom switcher */
+.fc .fc-toolbar .fc-toolbar-chunk:last-child .fc-button-group {
+  display: none;
+}
+
+/* ── Gantt view switcher ─────────────────────────────────── */
+
+.gantt-view-switcher {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  gap: 0;
+  z-index: 20;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.gantt-view-btn {
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  border-right: 1px solid rgba(63, 63, 70, 0.4);
+}
+
+.gantt-view-btn:last-child {
+  border-right: none;
+}
+
+.gantt-view-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
+
+.gantt-view-btn-active {
+  background: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+/* ── Gantt nav buttons ──────────────────────────────────── */
+
+.gantt-nav-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 5px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.gantt-nav-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
+
+.gantt-today-btn {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid rgba(63, 63, 70, 0.5);
+  background: rgba(39, 39, 42, 0.6);
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.gantt-today-btn:hover {
+  background: rgba(63, 63, 70, 0.6);
+  color: #e4e4e7;
+}
