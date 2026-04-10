@@ -383,7 +383,12 @@ export default function CustomersPage() {
         setLeads(json.data.leads || [])
         setScheduledTasks(json.data.scheduledTasks || [])
         setCleanerPhones(json.data.cleanerPhones || [])
-        if (!search && json.data.customers.length > 0 && !selectedCustomer) {
+        // Auto-select a customer only if no URL params are pending (phone/customerId)
+        const hasUrlTarget = typeof window !== "undefined" && (
+          new URLSearchParams(window.location.search).has("phone") ||
+          new URLSearchParams(window.location.search).has("customerId")
+        )
+        if (!search && json.data.customers.length > 0 && !selectedCustomer && !hasUrlTarget) {
           const savedId = typeof window !== "undefined" ? localStorage.getItem("selectedCustomerId") : null
           const restored = savedId ? json.data.customers.find((c: Customer) => String(c.id) === savedId) : null
           setSelectedCustomer(restored || json.data.customers[0])
