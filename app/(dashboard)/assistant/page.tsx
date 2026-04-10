@@ -181,6 +181,25 @@ function InlineMarkdown({ text }: { text: string }) {
       continue
     }
 
+    // Markdown headers
+    const headerMatch = line.match(/^(#{1,4})\s+(.+)/)
+    if (headerMatch) {
+      const level = headerMatch[1].length
+      const headerText = headerMatch[2]
+      const headerClasses: Record<number, string> = {
+        1: "text-lg font-bold text-zinc-100",
+        2: "text-base font-semibold text-zinc-100",
+        3: "text-sm font-semibold text-zinc-200",
+        4: "text-sm font-medium text-zinc-200",
+      }
+      elements.push(
+        <p key={`h-${idx}`} className={`${headerClasses[level]} leading-relaxed`}>
+          <InlineText text={headerText} />
+        </p>
+      )
+      continue
+    }
+
     // Regular paragraph line
     elements.push(
       <p key={`p-${idx}`} className="text-sm leading-relaxed">
