@@ -349,6 +349,9 @@ export default function CustomersPage() {
   const [editQuoteForm, setEditQuoteForm] = useState<Record<string, any>>({})
   const [savingQuote, setSavingQuote] = useState(false)
   const [quoteEditError, setQuoteEditError] = useState("")
+  const [newQuoteForm, setNewQuoteForm] = useState({ custom_base_price: "", notes: "", description: "", bedrooms: "", bathrooms: "", square_footage: "", property_type: "", service_category: "standard", send_sms: true })
+  const [creatingQuote, setCreatingQuote] = useState(false)
+  const [createQuoteResult, setCreateQuoteResult] = useState<{ url?: string; error?: string } | null>(null)
   const prevSelectedCustomerIdRef = useRef<number | null>(null)
   const [createMembershipError, setCreateMembershipError] = useState("")
 
@@ -590,6 +593,51 @@ export default function CustomersPage() {
       setQuoteEditError("Network error")
     } finally {
       setSavingQuote(false)
+    }
+  }
+
+  const handleCreateQuote = async () => {
+    if (!selectedCustomer) return
+    setCreatingQuote(true)
+    setCreateQuoteResult(null)
+    try {
+      const body: Record<string, any> = {
+        customer_id: selectedCustomer.id,
+        customer_name: [selectedCustomer.first_name, selectedCustomer.last_name].filter(Boolean).join(" ") || "Customer",
+        customer_phone: selectedCustomer.phone_number || null,
+        customer_email: selectedCustomer.email || null,
+        customer_address: selectedCustomer.address || null,
+        service_category: newQuoteForm.service_category,
+        send_sms: newQuoteForm.send_sms,
+      }
+      if (newQuoteForm.custom_base_price) body.custom_base_price = Number(newQuoteForm.custom_base_price)
+      if (newQuoteForm.notes) body.notes = newQuoteForm.notes
+      if (newQuoteForm.description) body.description = newQuoteForm.description
+      if (newQuoteForm.bedrooms) body.bedrooms = Number(newQuoteForm.bedrooms)
+      if (newQuoteForm.bathrooms) body.bathrooms = Number(newQuoteForm.bathrooms)
+      if (newQuoteForm.square_footage) body.square_footage = Number(newQuoteForm.square_footage)
+      if (newQuoteForm.property_type) body.property_type = newQuoteForm.property_type
+
+      const res = await fetch("/api/actions/quotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.success) {
+        const domain = typeof window !== "undefined" ? window.location.origin : ""
+        setCreateQuoteResult({ url: `${domain}${data.quote_url}` })
+        // Refresh quotes list if on quotes tab
+        if (activeTab === "quotes") {
+          fetchCustomerQuotes(selectedCustomer.id, selectedCustomer.phone_number)
+        }
+      } else {
+        setCreateQuoteResult({ error: data.error || "Failed to create quote" })
+      }
+    } catch {
+      setCreateQuoteResult({ error: "Network error" })
+    } finally {
+      setCreatingQuote(false)
     }
   }
 
@@ -2042,11 +2090,14 @@ export default function CustomersPage() {
                                   { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
                                   { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
                                   { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
+                                  { key: "create_quote", label: "Create Quote", desc: "Send pricing quote", icon: FileText },
                                 ].map((opt) => (
                                   <button
                                     key={opt.key}
                                     onClick={() => {
-                                      if (opt.key === "enter_card") {
+                                      if (opt.key === "create_quote") {
+                                        setPaymentType("create_quote")
+                                      } else if (opt.key === "enter_card") {
                                         setPaymentType("enter_card")
                                       } else if (opt.key === "payment") {
                                         setPaymentType("payment")
@@ -2253,6 +2304,91 @@ export default function CustomersPage() {
                             {paymentType === "card_on_file" && !paymentResult && paymentLoading && (
                               <div className="p-4 flex items-center justify-center gap-2 text-sm text-zinc-400">
                                 <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+                              </div>
+                            )}
+
+                            {/* Create Quote form */}
+                            {paymentType === "create_quote" && !createQuoteResult && (
+                              <div className="p-4 space-y-3">
+                                <p className="text-sm font-medium text-zinc-200">Create Quote</p>
+                                <div>
+                                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Custom Price $</label>
+                                  <input type="number" className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.custom_base_price} onChange={e => setNewQuoteForm(f => ({ ...f, custom_base_price: e.target.value }))} placeholder="Leave blank for tier-based pricing" />
+                                </div>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Beds</label>
+                                    <input type="number" className="w-full px-2 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.bedrooms} onChange={e => setNewQuoteForm(f => ({ ...f, bedrooms: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Baths</label>
+                                    <input type="number" className="w-full px-2 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.bathrooms} onChange={e => setNewQuoteForm(f => ({ ...f, bathrooms: e.target.value }))} />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Sq Ft</label>
+                                    <input type="number" className="w-full px-2 py-1.5 text-xs bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.square_footage} onChange={e => setNewQuoteForm(f => ({ ...f, square_footage: e.target.value }))} />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Property Type</label>
+                                  <select className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.property_type} onChange={e => setNewQuoteForm(f => ({ ...f, property_type: e.target.value }))}>
+                                    <option value="">Not specified</option>
+                                    <option value="single_story">Single Story</option>
+                                    <option value="two_story">Two Story</option>
+                                    <option value="larger_two_story">Larger Two Story</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Description</label>
+                                  <input type="text" className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" value={newQuoteForm.description} onChange={e => setNewQuoteForm(f => ({ ...f, description: e.target.value }))} placeholder="Service details" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Notes</label>
+                                  <textarea className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-200 focus:outline-none focus:border-purple-500" rows={2} value={newQuoteForm.notes} onChange={e => setNewQuoteForm(f => ({ ...f, notes: e.target.value }))} placeholder="Internal notes" style={{ resize: "vertical" }} />
+                                </div>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input type="checkbox" checked={newQuoteForm.send_sms} onChange={e => setNewQuoteForm(f => ({ ...f, send_sms: e.target.checked }))} style={{ accentColor: "#a855f7" }} />
+                                  <span className="text-xs text-zinc-400">Send quote link via SMS</span>
+                                </label>
+                                <button
+                                  onClick={handleCreateQuote}
+                                  disabled={creatingQuote}
+                                  className="w-full px-3 py-2 text-sm font-medium bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+                                >
+                                  {creatingQuote ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Creating...</> : "Create Quote"}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Create Quote result */}
+                            {paymentType === "create_quote" && createQuoteResult && (
+                              <div className="p-4 space-y-3">
+                                {createQuoteResult.error ? (
+                                  <p className="text-sm text-red-400">{createQuoteResult.error}</p>
+                                ) : (
+                                  <>
+                                    <p className="text-sm font-medium text-emerald-400">Quote Created!</p>
+                                    {createQuoteResult.url && (
+                                      <div className="px-3 py-2 bg-zinc-800 rounded-lg text-xs text-zinc-300 break-all max-h-20 overflow-y-auto">
+                                        {createQuoteResult.url}
+                                      </div>
+                                    )}
+                                    {createQuoteResult.url && (
+                                      <button
+                                        onClick={() => { navigator.clipboard.writeText(createQuoteResult.url!); }}
+                                        className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                                      >
+                                        <Copy className="w-3.5 h-3.5" /> Copy Link
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                <button
+                                  onClick={() => { setPaymentType(null); setCreateQuoteResult(null); setPaymentOpen(false); setNewQuoteForm({ custom_base_price: "", notes: "", description: "", bedrooms: "", bathrooms: "", square_footage: "", property_type: "", service_category: "standard", send_sms: true }) }}
+                                  className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors"
+                                >
+                                  Done
+                                </button>
                               </div>
                             )}
 
