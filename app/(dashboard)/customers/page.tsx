@@ -438,16 +438,23 @@ export default function CustomersPage() {
 
   // Initial data fetch + re-fetch when account switches
   const currentUserId = user?.id
+  const prevUserIdRef = useRef<string | undefined>(undefined)
   useEffect(() => {
-    // Reset ALL state when account changes to prevent stale cross-tenant data
-    setSelectedCustomer(null)
-    setCustomers([])
-    setMessages([])
-    setJobs([])
-    setCalls([])
-    setLeads([])
-    setScheduledTasks([])
-    setCleanerPhones([])
+    // Skip until auth is ready — avoids undefined→real transition wiping URL-param selection
+    if (!currentUserId) return
+    const isAccountSwitch = prevUserIdRef.current !== undefined && prevUserIdRef.current !== currentUserId
+    prevUserIdRef.current = currentUserId
+    if (isAccountSwitch) {
+      // Reset ALL state when account actually changes to prevent stale cross-tenant data
+      setSelectedCustomer(null)
+      setCustomers([])
+      setMessages([])
+      setJobs([])
+      setCalls([])
+      setLeads([])
+      setScheduledTasks([])
+      setCleanerPhones([])
+    }
     setLoading(true)
     fetchCustomers()
     if (!isHouseCleaning) {
@@ -738,11 +745,14 @@ export default function CustomersPage() {
 
   // Debounced server-side search
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasLoadedOnce = useRef(false)
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     if (!searchQuery) {
       setSearchLoading(false)
-      // Reset to default when search cleared
+      // On mount, skip — the currentUserId effect handles the initial fetch
+      // Only re-fetch here when the user clears a search they previously typed
+      if (!hasLoadedOnce.current) { hasLoadedOnce.current = true; return }
       fetchCustomers()
       return
     }
