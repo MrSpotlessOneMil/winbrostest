@@ -7,61 +7,19 @@
  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
  Detected additional lockfiles: 
-   * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\pnpm-lock.yaml
+   * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\package-lock.json
 
 ▲ Next.js 16.1.1 (Turbopack)
 - Environments: .env.local
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 28.4s
+✓ Compiled successfully in 19.9s
   Skipping validation of types
   Collecting page data using 11 workers ...
   Generating static pages using 11 workers (0/355) ...
   Generating static pages using 11 workers (88/355) 
   Generating static pages using 11 workers (177/355) 
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
 [Tenant] Error fetching tenant by slug 'spotless': {
   code: 'PGRST116',
   details: 'The result contains 0 rows',
@@ -75,7 +33,49 @@
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-✓ Generating static pages using 11 workers (355/355) in 3.5s
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+✓ Generating static pages using 11 workers (355/355) in 2.6s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire

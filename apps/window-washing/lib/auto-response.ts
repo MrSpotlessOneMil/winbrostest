@@ -8,8 +8,6 @@ import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
 import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
-import { buildWinBrosEstimatePrompt, detectEscalation, detectBookingComplete, detectScheduleReady, stripEscalationTags } from './winbros-sms-prompt'
-import { buildHouseCleaningSmsSystemPrompt } from './house-cleaning-sms-prompt'
 
 export interface AutoResponseResult {
   response: string
@@ -1518,11 +1516,28 @@ async function generateHouseCleaningResponse(
   }).format(hcNow)
   const today = `${hcDateStr} (current time: ${hcTimeStr})`
 
-  // AI learning: frustration detection + winning pattern injection (all tenants)
+  // AI learning: conversation stage + frustration detection + winning pattern injection (all tenants)
   let aiLearningBlock = ''
   {
     try {
       const { detectFrustration, findSimilarWinningConversations } = await import('./conversation-scoring')
+      const { detectConversationStage, getStageGuidance } = await import('./sms-guard')
+
+      // Conversation stage detection — adapt tone to where we are in the funnel
+      if (conversationHistory?.length) {
+        const convForStage = conversationHistory.map(m => ({
+          role: m.role === 'client' ? 'client' : 'assistant',
+          content: m.content,
+        }))
+        const hasPriceQuoted = conversationHistory.some(m =>
+          m.role === 'assistant' && /\$\d/.test(m.content)
+        )
+        const stage = detectConversationStage(convForStage, false, hasPriceQuoted)
+        const guidance = getStageGuidance(stage)
+        if (guidance) {
+          aiLearningBlock += `\n\nCONVERSATION STAGE: ${stage}\n${guidance}\n`
+        }
+      }
 
       // Frustration detection
       if (conversationHistory?.length) {

@@ -323,11 +323,11 @@ function analyzeWithHeuristics(input: PricingInsightInput): PricingInsight {
 
   if (priceSensitive) {
     priceSensitivity = 'high'
-    strategy = 'discount'
-    recommendedAdjustmentPct = recurring ? -7 : -5
+    strategy = 'value_stack'
+    recommendedAdjustmentPct = 0
     offerMessage = recurring
-      ? 'We can apply a recurring-service rate to keep your total lower.'
-      : 'We can work within your budget and keep this fair.'
+      ? 'Highlight value of recurring service: consistent quality, priority scheduling, satisfaction guarantee. Do NOT reduce the price.'
+      : 'Build value: satisfaction guarantee, background-checked cleaners, insured and bonded, professional supplies. Do NOT reduce the price.'
   } else if (premium) {
     priceSensitivity = 'low'
     strategy = 'premium'
@@ -348,7 +348,7 @@ function analyzeWithHeuristics(input: PricingInsightInput): PricingInsight {
     strategy,
     offerMessage,
     upsellAddOns: [],
-    downsellSuggestion: priceSensitive ? 'Offer a smaller scope or flexible timing.' : null,
+    downsellSuggestion: priceSensitive ? 'Escalate to owner if customer keeps pushing on price. Do NOT reduce price or scope.' : null,
     confidence: priceSensitive || premium ? 0.65 : 0.4,
     reasoning: priceSensitive
       ? 'Customer mentioned pricing or budget sensitivity.'

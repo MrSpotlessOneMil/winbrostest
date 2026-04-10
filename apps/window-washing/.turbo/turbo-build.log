@@ -7,14 +7,14 @@
  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
  Detected additional lockfiles: 
-   * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\pnpm-lock.yaml
+   * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\package-lock.json
 
 ▲ Next.js 16.1.1 (Turbopack)
 - Environments: .env.local
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 28.2s
+✓ Compiled successfully in 17.7s
   Skipping validation of types
   Collecting page data using 11 workers ...
   Generating static pages using 11 workers (0/358) ...
@@ -75,7 +75,7 @@
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-✓ Generating static pages using 11 workers (358/358) in 3.9s
+✓ Generating static pages using 11 workers (358/358) in 2.5s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire
