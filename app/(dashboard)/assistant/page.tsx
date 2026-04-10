@@ -213,8 +213,8 @@ function InlineMarkdown({ text }: { text: string }) {
 }
 
 function InlineText({ text }: { text: string }) {
-  // Parse bold (**text**), inline code (`text`), and URLs (https://...)
-  const tokens = text.split(/(\*\*[^*]+\*\*|`[^`]+`|https?:\/\/[^\s<>"']+)/g)
+  // Parse bold (**text**), italic (*text*), inline code (`text`), and URLs (https://...)
+  const tokens = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|https?:\/\/[^\s<>"']+)/g)
   return (
     <>
       {tokens.map((token, i) => {
@@ -223,6 +223,13 @@ function InlineText({ text }: { text: string }) {
             <strong key={i} className="font-semibold text-zinc-100">
               {token.slice(2, -2)}
             </strong>
+          )
+        }
+        if (token.startsWith("*") && token.endsWith("*") && token.length > 2) {
+          return (
+            <em key={i} className="italic text-zinc-200">
+              {token.slice(1, -1)}
+            </em>
           )
         }
         if (token.startsWith("`") && token.endsWith("`")) {
