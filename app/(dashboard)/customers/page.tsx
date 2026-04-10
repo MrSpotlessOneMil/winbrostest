@@ -1951,35 +1951,35 @@ export default function CustomersPage() {
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-1.5 min-w-0">
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
-                                {/* Primary lifecycle badge */}
-                                {(() => {
-                                  const custJobs = getCustomerJobs(customer.phone_number)
-                                  const lead = getCustomerLead(customer.phone_number)
-                                  const lc = getPrimaryLifecycleBadge(customer, custJobs, lead)
-                                  return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.color} leading-none`}>{lc.label}</span>
-                                })()}
-                                {/* Secondary: Crew */}
-                                {cleanerPhones.includes(normalizePhone(customer.phone_number)) && (
-                                  <span className="flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
-                                )}
-                                {/* Secondary: Lead source */}
-                                {(() => {
-                                  const srcBadge = getSourceBadge(customer)
-                                  if (srcBadge) return <span className={`flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full ${srcBadge.className} leading-none opacity-80`}>{srcBadge.label}</span>
-                                  return null
-                                })()}
-                                {/* Secondary: Recurring */}
-                                {isRecurringCustomer(getCustomerJobs(customer.phone_number)) && (
-                                  <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-purple-500/20 text-purple-300 leading-none opacity-80">Recurring</span>
-                                )}
-                                {/* Secondary: Opted Out */}
-                                {customer.sms_opt_out && (
-                                  <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-zinc-500/20 text-zinc-400 leading-none opacity-80">Opted Out</span>
-                                )}
-                                {/* Secondary: Card on file */}
-                                {customer.card_on_file_at && (
-                                  <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
-                                )}
+                                {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
+                                  <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
+                                ) : (<>
+                                  {/* Primary lifecycle badge */}
+                                  {(() => {
+                                    const custJobs = getCustomerJobs(customer.phone_number)
+                                    const lead = getCustomerLead(customer.phone_number)
+                                    const lc = getPrimaryLifecycleBadge(customer, custJobs, lead)
+                                    return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.color} leading-none`}>{lc.label}</span>
+                                  })()}
+                                  {/* Secondary: Lead source */}
+                                  {(() => {
+                                    const srcBadge = getSourceBadge(customer)
+                                    if (srcBadge) return <span className={`flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full ${srcBadge.className} leading-none opacity-80`}>{srcBadge.label}</span>
+                                    return null
+                                  })()}
+                                  {/* Secondary: Recurring */}
+                                  {isRecurringCustomer(getCustomerJobs(customer.phone_number)) && (
+                                    <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-purple-500/20 text-purple-300 leading-none opacity-80">Recurring</span>
+                                  )}
+                                  {/* Secondary: Opted Out */}
+                                  {customer.sms_opt_out && (
+                                    <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-zinc-500/20 text-zinc-400 leading-none opacity-80">Opted Out</span>
+                                  )}
+                                  {/* Secondary: Card on file */}
+                                  {customer.card_on_file_at && (
+                                    <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
+                                  )}
+                                </>)}
                               </div>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
