@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { createPortal } from "react-dom"
 import { useAuth } from "@/lib/auth-context"
 import CubeLoader from "@/components/ui/cube-loader"
@@ -400,6 +401,7 @@ function getSavedDate(): string | undefined {
 
 export default function JobsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [loading, setLoading] = useState(true)
@@ -2663,7 +2665,17 @@ export default function JobsPage() {
                   {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
                 </div>
                 <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
-                  <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+                  <strong>Customer:</strong>{" "}
+                  {selectedEvent?.customerPhone ? (
+                    <span
+                      style={{ color: "#8b5cf6", cursor: "pointer", textDecoration: "underline" }}
+                      onClick={() => router.push(`/customers?phone=${encodeURIComponent(selectedEvent.customerPhone)}`)}
+                    >
+                      {selectedEvent?.client || emptyValue}
+                    </span>
+                  ) : (
+                    selectedEvent?.client || emptyValue
+                  )}
                   {selectedEvent?.cardOnFile && (
                     <span style={{
                       display: "inline-flex",
