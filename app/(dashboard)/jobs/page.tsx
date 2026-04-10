@@ -1388,9 +1388,28 @@ export default function JobsPage() {
     const d = selectedEvent.start
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+
+    // Resolve all assigned cleaner IDs from cleaner_assignments (not just the primary FK)
+    const job = jobs.find(j => String(j.id) === selectedEvent.jobId)
+    const assignments = job?.cleaner_assignments
+    let initialCleanerIds: string[] = []
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      initialCleanerIds = assignments
+        .filter((a: any) => a.status === "confirmed" || a.status === "accepted" || a.status === "pending")
+        .map((a: any) => {
+          const c = Array.isArray(a.cleaners) ? a.cleaners[0] : a.cleaners
+          return c?.id ? String(c.id) : String(a.cleaner_id)
+        })
+        .filter(Boolean)
+    }
+    // Fallback to primary cleaner if no assignments found
+    if (initialCleanerIds.length === 0 && selectedEvent.cleanerId) {
+      initialCleanerIds = [selectedEvent.cleanerId]
+    }
+
     setEditForm({
       date, time,
-      cleanerIds: selectedEvent.cleanerId ? [selectedEvent.cleanerId] : [],
+      cleanerIds: initialCleanerIds,
       customerName: selectedEvent.client || "",
       customerPhone: selectedEvent.customerPhone || "",
       customerEmail: selectedEvent.customerEmail || "",
