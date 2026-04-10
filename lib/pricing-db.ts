@@ -110,8 +110,21 @@ export async function getPricingAddons(tenantId?: string): Promise<PricingAddon[
       return getDefaultAddons()
     }
 
-    if (!data || data.length === 0) {
+    if (!data) {
       return getDefaultAddons()
+    }
+
+    // Empty array means user deliberately deleted all addons — don't restore defaults.
+    // Only fall back to defaults when no rows exist at all (fresh tenant).
+    if (data.length === 0) {
+      // Check if tenant has ANY addons (including inactive) to distinguish
+      // "never initialized" from "user deleted all"
+      const { count } = await client
+        .from('pricing_addons')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', tId)
+      if (count === 0) return getDefaultAddons()
+      return []
     }
 
     return data
@@ -270,11 +283,10 @@ export async function savePricingAddons(
       return { success: false, error: 'Failed to update addons' }
     }
 
-    // Insert new addons
-    const addonsWithTenant = addons.map((addon) => ({
-      ...addon,
+    // Insert new addons (strip id so Postgres auto-generates it)
+    const addonsWithTenant = addons.map(({ id, ...rest }) => ({
+      ...rest,
       tenant_id: tenantId,
-      id: undefined,
     }))
 
     const { error: insertError } = await client

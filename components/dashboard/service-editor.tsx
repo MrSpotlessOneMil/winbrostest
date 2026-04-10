@@ -28,6 +28,11 @@ type AddonRow = {
   label: string
   flat_price: number | null
   active: boolean
+  // Preserve DB fields through load→edit→save cycle
+  minutes?: number
+  price_multiplier?: number | null
+  included_in?: string[] | null
+  keywords?: string[] | null
 }
 
 type PricingTierRow = {
@@ -189,13 +194,17 @@ export function ServiceEditor() {
         setServiceTypes(types)
         setSelectedType(types[0] || "")
 
-        // Load addons
+        // Load addons (preserve all DB fields for round-trip save)
         const addonsData: AddonRow[] = (pricingData.data?.addons || []).map((a: any) => ({
           id: a.id,
           addon_key: a.addon_key,
           label: a.label,
           flat_price: a.flat_price,
           active: a.active ?? true,
+          minutes: a.minutes ?? 0,
+          price_multiplier: a.price_multiplier ?? 1,
+          included_in: a.included_in ?? null,
+          keywords: a.keywords ?? null,
         }))
         setAddons(addonsData)
 
@@ -303,11 +312,11 @@ export function ServiceEditor() {
             addons: addons.map((a) => ({
               addon_key: a.addon_key,
               label: a.label,
-              minutes: 0,
+              minutes: a.minutes ?? 0,
               flat_price: a.flat_price,
-              price_multiplier: 1,
-              included_in: null,
-              keywords: null,
+              price_multiplier: a.price_multiplier ?? 1,
+              included_in: a.included_in ?? null,
+              keywords: a.keywords ?? null,
               active: a.active,
             })),
           }),
@@ -1310,7 +1319,7 @@ export function ServiceEditor() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
-                    setAddons([...addons, { addon_key: "", label: "", flat_price: 0, active: true }])
+                    setAddons([...addons, { addon_key: "", label: "", flat_price: 0, active: true, minutes: 0, price_multiplier: 1, included_in: null, keywords: null }])
                     setOpenSections((prev) => ({ ...prev, hcAddons: true }))
                   }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 rounded-lg transition-colors"
