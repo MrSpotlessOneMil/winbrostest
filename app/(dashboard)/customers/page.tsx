@@ -6,7 +6,7 @@ import { MessageBubble } from "@/components/message-bubble"
 import { CallBubble } from "@/components/call-bubble"
 import { parseFormData } from "@/lib/utils"
 import { useAuth } from "@/lib/auth-context"
-import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, ChevronUp, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown, ExternalLink } from "lucide-react"
+import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, ChevronUp, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown, ExternalLink, Calendar, MapPin } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import CubeLoader from "@/components/ui/cube-loader"
 
@@ -2532,17 +2532,58 @@ export default function CustomersPage() {
                                   </div>
 
                                   {/* Date + agreement status */}
-                                  <div className="text-xs text-zinc-500 flex items-center gap-2">
+                                  <div className="text-xs text-zinc-500 flex flex-wrap items-center gap-2">
                                     {q.created_at && new Date(q.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                                    {isApproved && q.approved_at && (
+                                      <span className="text-emerald-400 font-medium">
+                                        Approved {new Date(q.approved_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                      </span>
+                                    )}
                                     {isApproved && q.service_agreement_accepted && (
                                       <span className="text-emerald-400 font-medium">
                                         Agreement signed {q.service_agreement_accepted_at ? new Date(q.service_agreement_accepted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
                                       </span>
                                     )}
-                                    {isPending && (
+                                    {isPending && q.valid_until && (
+                                      <span className={`font-medium ${new Date(q.valid_until) < new Date() ? "text-red-400" : "text-yellow-400"}`}>
+                                        {new Date(q.valid_until) < new Date() ? "Expired" : `Expires ${new Date(q.valid_until).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+                                      </span>
+                                    )}
+                                    {isPending && !q.valid_until && (
                                       <span className="text-yellow-400 font-medium">Awaiting response</span>
                                     )}
+                                    {q.preconfirm_status === "awaiting_cleaners" && (
+                                      <span className="text-orange-400 font-medium">Awaiting cleaner confirmation</span>
+                                    )}
+                                    {q.preconfirm_status === "cleaners_confirmed" && (
+                                      <span className="text-emerald-400 font-medium">Cleaners confirmed</span>
+                                    )}
                                   </div>
+
+                                  {/* Service date & time */}
+                                  {(q.service_date || q.service_time) && (
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <Calendar className="w-3 h-3 text-zinc-500" />
+                                      <span className="text-zinc-300">
+                                        {q.service_date && new Date(q.service_date + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                        {q.service_date && q.service_time && " at "}
+                                        {q.service_time && q.service_time}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Address */}
+                                  {q.customer_address && (
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <MapPin className="w-3 h-3 text-zinc-500" />
+                                      <span className="text-zinc-400">{q.customer_address}</span>
+                                    </div>
+                                  )}
+
+                                  {/* Description */}
+                                  {q.description && (
+                                    <div className="text-xs text-zinc-400 bg-zinc-900 rounded px-2 py-1.5">{q.description}</div>
+                                  )}
 
                                   {/* Property details */}
                                   {(q.bedrooms || q.bathrooms || q.square_footage) && (
@@ -2578,8 +2619,8 @@ export default function CustomersPage() {
                                   )}
 
                                   {/* Pricing breakdown */}
-                                  {(q.subtotal != null || q.discount != null || q.total != null) && (
-                                    <div className="grid grid-cols-3 gap-3 text-xs">
+                                  {(q.subtotal != null || q.discount != null || q.total != null || q.deposit_amount != null || q.cleaner_pay != null) && (
+                                    <div className="grid grid-cols-3 gap-x-3 gap-y-2 text-xs">
                                       {q.subtotal != null && (
                                         <div>
                                           <span className="text-zinc-500">Subtotal</span>
@@ -2596,6 +2637,24 @@ export default function CustomersPage() {
                                         <div>
                                           <span className="text-zinc-500">Total</span>
                                           <p className="text-zinc-200 font-semibold">${q.total}</p>
+                                        </div>
+                                      )}
+                                      {q.deposit_amount != null && Number(q.deposit_amount) > 0 && (
+                                        <div>
+                                          <span className="text-zinc-500">Deposit</span>
+                                          <p className="text-blue-400 font-medium">${q.deposit_amount}</p>
+                                        </div>
+                                      )}
+                                      {q.cleaner_pay != null && Number(q.cleaner_pay) > 0 && (
+                                        <div>
+                                          <span className="text-zinc-500">Cleaner Pay</span>
+                                          <p className="text-zinc-200 font-medium">${q.cleaner_pay}</p>
+                                        </div>
+                                      )}
+                                      {q.custom_base_price != null && (
+                                        <div>
+                                          <span className="text-zinc-500">Custom Price</span>
+                                          <p className="text-zinc-200 font-medium">${q.custom_base_price}</p>
                                         </div>
                                       )}
                                     </div>
