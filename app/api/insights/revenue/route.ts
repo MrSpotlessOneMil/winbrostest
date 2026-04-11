@@ -4,6 +4,13 @@ import { requireAuth, getAuthTenant } from "@/lib/auth"
 
 // route-check:no-vercel-cron
 
+interface TopCustomer {
+  customerId: string
+  name: string
+  revenue: number
+  jobCount: number
+}
+
 interface RevenueInsightsResponse {
   totalRevenue: number
   recurringRevenue: number
@@ -13,8 +20,19 @@ interface RevenueInsightsResponse {
   recurringJobCount: number
   oneTimeJobCount: number
   totalJobCount: number
+  averageJobValue: number
+  estimatedProfit: number
+  profitMargin: number
+  topCustomers: TopCustomer[]
   dailyBreakdown: {
     date: string
+    recurring: number
+    oneTime: number
+  }[]
+  monthlyTrend: {
+    month: string
+    label: string
+    revenue: number
     recurring: number
     oneTime: number
   }[]
@@ -40,6 +58,18 @@ function getDaysInMonth(month: string): string[] {
     current.setUTCDate(current.getUTCDate() + 1)
   }
   return days
+}
+
+function getLast12Months(): string[] {
+  const months: string[] = []
+  const now = new Date()
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    months.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    )
+  }
+  return months
 }
 
 export async function GET(request: NextRequest) {
@@ -73,7 +103,7 @@ export async function GET(request: NextRequest) {
   // 1. Get all completed jobs in the month
   const { data: monthJobs, error: jobsError } = await client
     .from("jobs")
-    .select("id, price, customer_id, completed_at, date, status")
+    .select("id, price, customer_id, completed_at, date, status, cleaner_pay")
     .eq("status", "completed")
     .eq("tenant_id", tenant.id)
     .or(
@@ -97,9 +127,6 @@ export async function GET(request: NextRequest) {
   const recurringCustomerIds = new Set<string>()
 
   if (customerIds.length > 0) {
-    // Batch query: count completed jobs per customer (all time)
-    // Supabase doesn't support GROUP BY in the JS client easily,
-    // so we fetch completed job counts per customer
     for (let i = 0; i < customerIds.length; i += 50) {
       const batch = customerIds.slice(i, i + 50)
       const { data: customerJobs } = await client
@@ -110,7 +137,6 @@ export async function GET(request: NextRequest) {
         .in("customer_id", batch)
 
       if (customerJobs) {
-        // Count jobs per customer
         const counts = new Map<string, number>()
         for (const j of customerJobs) {
           if (j.customer_id) {
@@ -126,11 +152,37 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // 4. Split jobs into recurring vs one-time
+  // 4. Get customer names for top customers
+  const customerNameMap = new Map<string, string>()
+  if (customerIds.length > 0) {
+    for (let i = 0; i < customerIds.length; i += 50) {
+      const batch = customerIds.slice(i, i + 50)
+      const { data: customers } = await client
+        .from("customers")
+        .select("id, first_name, last_name")
+        .in("id", batch)
+
+      if (customers) {
+        for (const c of customers) {
+          const name =
+            [c.first_name, c.last_name].filter(Boolean).join(" ") ||
+            "Unknown"
+          customerNameMap.set(c.id, name)
+        }
+      }
+    }
+  }
+
+  // 5. Split jobs into recurring vs one-time, compute totals
   let recurringRevenue = 0
   let oneTimeRevenue = 0
   let recurringJobCount = 0
   let oneTimeJobCount = 0
+  let totalCleanerPay = 0
+  let hasCleanerPayData = false
+
+  // Per-customer revenue tracking for top customers
+  const customerRevenue = new Map<string, { revenue: number; jobCount: number }>()
 
   // Daily breakdown
   const days = getDaysInMonth(month)
@@ -143,31 +195,135 @@ export async function GET(request: NextRequest) {
 
   for (const job of jobs) {
     const price = Number(job.price || 0)
+    const cleanerPay = Number(job.cleaner_pay || 0)
     const completionDay = job.completed_at
       ? new Date(job.completed_at).toISOString().slice(0, 10)
       : String(job.date || "")
     const isRecurring = job.customer_id && recurringCustomerIds.has(job.customer_id)
 
+    if (cleanerPay > 0) {
+      hasCleanerPayData = true
+      totalCleanerPay += cleanerPay
+    }
+
+    // Track per-customer revenue
+    if (job.customer_id) {
+      const existing = customerRevenue.get(job.customer_id) || {
+        revenue: 0,
+        jobCount: 0,
+      }
+      existing.revenue += price
+      existing.jobCount += 1
+      customerRevenue.set(job.customer_id, existing)
+    }
+
     if (isRecurring) {
       recurringRevenue += price
       recurringJobCount++
-      dailyRecurring.set(completionDay, (dailyRecurring.get(completionDay) || 0) + price)
+      dailyRecurring.set(
+        completionDay,
+        (dailyRecurring.get(completionDay) || 0) + price
+      )
     } else {
       oneTimeRevenue += price
       oneTimeJobCount++
-      dailyOneTime.set(completionDay, (dailyOneTime.get(completionDay) || 0) + price)
+      dailyOneTime.set(
+        completionDay,
+        (dailyOneTime.get(completionDay) || 0) + price
+      )
     }
   }
 
   const totalRevenue = recurringRevenue + oneTimeRevenue
+  const totalJobCount = recurringJobCount + oneTimeJobCount
   const mrr = recurringRevenue
   const arr = mrr * 12
+  const averageJobValue = totalJobCount > 0 ? Math.round(totalRevenue / totalJobCount) : 0
+
+  // Profit: use actual cleaner_pay if available, otherwise estimate at 50% margin
+  const estimatedProfit = hasCleanerPayData
+    ? totalRevenue - totalCleanerPay
+    : Math.round(totalRevenue * 0.5)
+  const profitMargin =
+    totalRevenue > 0
+      ? Math.round((estimatedProfit / totalRevenue) * 100)
+      : 0
+
+  // Top 5 customers by revenue
+  const topCustomers: TopCustomer[] = [...customerRevenue.entries()]
+    .sort((a, b) => b[1].revenue - a[1].revenue)
+    .slice(0, 5)
+    .map(([cid, data]) => ({
+      customerId: cid,
+      name: customerNameMap.get(cid) || "Unknown",
+      revenue: data.revenue,
+      jobCount: data.jobCount,
+    }))
 
   const dailyBreakdown = days.map((day) => ({
     date: day,
     recurring: dailyRecurring.get(day) || 0,
     oneTime: dailyOneTime.get(day) || 0,
   }))
+
+  // 6. Monthly trend (last 12 months)
+  const last12 = getLast12Months()
+  const monthlyTrend: RevenueInsightsResponse["monthlyTrend"] = []
+
+  // Fetch all completed jobs in the last 12 months range
+  const oldestMonth = last12[last12.length - 1]
+  const { start: trendStart } = getMonthRange(oldestMonth)
+  const { end: trendEnd } = getMonthRange(last12[0])
+
+  const { data: trendJobs } = await client
+    .from("jobs")
+    .select("id, price, customer_id, completed_at, date, status")
+    .eq("status", "completed")
+    .eq("tenant_id", tenant.id)
+    .or(
+      `and(completed_at.gte.${trendStart}T00:00:00.000Z,completed_at.lte.${trendEnd}T23:59:59.999Z),` +
+      `and(date.gte.${trendStart},date.lte.${trendEnd},completed_at.is.null)`
+    )
+
+  // Bucket trend jobs into months
+  const monthBuckets = new Map<string, { revenue: number; recurring: number; oneTime: number }>()
+  for (const m of last12) {
+    monthBuckets.set(m, { revenue: 0, recurring: 0, oneTime: 0 })
+  }
+
+  if (trendJobs) {
+    for (const job of trendJobs) {
+      const price = Number(job.price || 0)
+      const jobDate = job.completed_at
+        ? new Date(job.completed_at).toISOString().slice(0, 7)
+        : String(job.date || "").slice(0, 7)
+
+      if (monthBuckets.has(jobDate)) {
+        const bucket = monthBuckets.get(jobDate)!
+        bucket.revenue += price
+        const isRecurring =
+          job.customer_id && recurringCustomerIds.has(job.customer_id)
+        if (isRecurring) {
+          bucket.recurring += price
+        } else {
+          bucket.oneTime += price
+        }
+      }
+    }
+  }
+
+  for (const m of [...last12].reverse()) {
+    const bucket = monthBuckets.get(m) || { revenue: 0, recurring: 0, oneTime: 0 }
+    const [y, mo] = m.split("-").map(Number)
+    const d = new Date(y, mo - 1, 1)
+    monthlyTrend.push({
+      month: m,
+      label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+      revenue: Math.round(bucket.revenue),
+      recurring: Math.round(bucket.recurring),
+      oneTime: Math.round(bucket.oneTime),
+    })
+  }
 
   const response: RevenueInsightsResponse = {
     totalRevenue,
@@ -177,8 +333,13 @@ export async function GET(request: NextRequest) {
     arr,
     recurringJobCount,
     oneTimeJobCount,
-    totalJobCount: recurringJobCount + oneTimeJobCount,
+    totalJobCount,
+    averageJobValue,
+    estimatedProfit,
+    profitMargin,
+    topCustomers,
     dailyBreakdown,
+    monthlyTrend,
     month,
   }
 
