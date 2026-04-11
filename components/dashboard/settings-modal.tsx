@@ -88,7 +88,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     setLoading(true)
     setError("")
     setSuccess(false)
-    fetch("/api/actions/settings")
+    fetch("/api/actions/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (data.success) {

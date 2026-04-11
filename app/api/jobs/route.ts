@@ -233,12 +233,12 @@ export async function PATCH(request: NextRequest) {
       updates.cleaner_id = resolvedCleanerIds[0] || null
       const tenantId = tenant?.id || (oldJob as any)?.tenant_id
       if (tenantId) {
-        // Cancel all active assignments for this job
+        // Delete all existing assignments for this job (unique constraint on job_id+cleaner_id
+        // prevents re-inserting if we only soft-cancel)
         await getSupabaseServiceClient()
           .from("cleaner_assignments")
-          .update({ status: "cancelled" })
+          .delete()
           .eq("job_id", Number(id))
-          .in("status", ["pending", "accepted", "confirmed"])
 
         if (resolvedCleanerIds.length > 0) {
           // Insert confirmed assignments for all selected cleaners
