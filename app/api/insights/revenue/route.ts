@@ -136,6 +136,8 @@ export async function GET(request: NextRequest) {
       const startTs = Math.floor(new Date(`${start}T00:00:00.000Z`).getTime() / 1000)
       const endTs = Math.floor(new Date(`${end}T23:59:59.999Z`).getTime() / 1000)
 
+      // Collect all Stripe charges in the date range
+      const stripeCharges: Array<{ amount: number; day: string; metaCustomerId: string; stripeCustomerId: string }> = []
       let hasMore = true
       let startingAfter: string | undefined
       while (hasMore) {
@@ -144,19 +146,54 @@ export async function GET(request: NextRequest) {
         const batch = await stripe.charges.list(params)
         const succeeded = batch.data.filter(c => c.status === 'succeeded')
         for (const charge of succeeded) {
-          const day = new Date(charge.created * 1000).toISOString().slice(0, 10)
-          jobs.push({
-            id: 0,
-            price: charge.amount / 100,
-            customer_id: (charge.metadata?.customer_id || charge.metadata?.customerId || '') as string,
-            completed_at: day,
-            date: day,
-            status: 'completed',
+          stripeCharges.push({
+            amount: charge.amount / 100,
+            day: new Date(charge.created * 1000).toISOString().slice(0, 10),
+            metaCustomerId: (charge.metadata?.customer_id || charge.metadata?.customerId || '') as string,
+            stripeCustomerId: (charge.customer || '') as string,
           })
         }
         hasMore = batch.has_more
         if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id
         else hasMore = false
+      }
+
+      // For charges missing customer_id in metadata, look up by stripe_customer_id in DB
+      const missingCustomerIds = stripeCharges.filter(c => !c.metaCustomerId && c.stripeCustomerId)
+      if (missingCustomerIds.length > 0) {
+        const uniqueStripeIds = [...new Set(missingCustomerIds.map(c => c.stripeCustomerId))]
+        // Batch lookup in groups of 50
+        const stripeToDbMap = new Map<string, string>()
+        for (let i = 0; i < uniqueStripeIds.length; i += 50) {
+          const batch = uniqueStripeIds.slice(i, i + 50)
+          const { data: customers } = await client
+            .from('customers')
+            .select('id, stripe_customer_id')
+            .in('stripe_customer_id', batch)
+          if (customers) {
+            for (const c of customers) {
+              if (c.stripe_customer_id) stripeToDbMap.set(c.stripe_customer_id, String(c.id))
+            }
+          }
+        }
+        // Fill in missing customer_ids
+        for (const charge of stripeCharges) {
+          if (!charge.metaCustomerId && charge.stripeCustomerId) {
+            charge.metaCustomerId = stripeToDbMap.get(charge.stripeCustomerId) || ''
+          }
+        }
+      }
+
+      // Convert to jobs format
+      for (const charge of stripeCharges) {
+        jobs.push({
+          id: 0,
+          price: charge.amount,
+          customer_id: charge.metaCustomerId,
+          completed_at: charge.day,
+          date: charge.day,
+          status: 'completed',
+        })
       }
       usedStripe = true
     } catch (stripeErr) {
