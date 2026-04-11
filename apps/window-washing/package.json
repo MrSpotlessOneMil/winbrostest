@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "prebuild": "node -e \"const fs=require('fs');const path=require('path');const src='../../packages/core/src';const dst='./lib';if(fs.existsSync(src)){fs.readdirSync(src).forEach(f=>{const s=path.join(src,f);const d=path.join(dst,f);if(fs.statSync(s).isFile()&&!fs.existsSync(d)){fs.copyFileSync(s,d);console.log('synced:',f)}else if(fs.statSync(s).isDirectory()&&!fs.existsSync(d)){fs.cpSync(s,d,{recursive:true});console.log('synced dir:',f)}})}\"",
+    "build": "npm run prebuild && next build",
     "dev": "next dev --port 3002",
     "start": "next start",
     "lint": "eslint ."
