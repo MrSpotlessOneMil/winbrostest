@@ -14,7 +14,7 @@
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 19.1s
+✓ Compiled successfully in 30.1s
   Skipping validation of types
   Collecting page data using 11 workers ...
   Generating static pages using 11 workers (0/360) ...
@@ -75,7 +75,7 @@
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-✓ Generating static pages using 11 workers (360/360) in 2.5s
+✓ Generating static pages using 11 workers (360/360) in 4.0s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire

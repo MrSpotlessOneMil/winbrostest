@@ -200,7 +200,7 @@ export async function getPricingRow(
     const price = pricingTier === 'deep' ? formulaDeep : formulaStd
     const hours = Math.max(3, bedrooms * 0.75 + bathrooms * 0.5 + 1.5)
     const cleaners = bedrooms >= 3 ? 2 : 1
-    console.log(`[pricing-db] No DB pricing for ${bedrooms}bed/${bathrooms}bath ${pricingTier} — using formula: $${price}`)
+    console.warn(`⚠️ [PRICING FALLBACK] No pricing_tiers rows for ${bedrooms}bed/${bathrooms}bath ${pricingTier} — using generic formula: $${price}. This likely means pricing tiers were never seeded for this tenant. Run admin onboard or insert manually.`)
     return { service_type: pricingTier, bedrooms, bathrooms, max_sq_ft: 9999, price, price_min: price, price_max: price, labor_hours: Math.round(hours * 10) / 10, cleaners, hours_per_cleaner: Math.round((hours / cleaners) * 10) / 10 }
   }
 

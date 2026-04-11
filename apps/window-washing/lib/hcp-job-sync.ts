@@ -5,8 +5,8 @@
  */
 
 import { createHCPJob, createHCPLead, findOrCreateHCPCustomer, listHCPEmployees, updateHCPCustomer, updateHCPJob } from './housecall-pro-api'
-import { getSupabaseServiceClient } from './supabase'
-import { getTenantById, isHcpSyncEnabled, type Tenant } from './tenant'
+import { getSupabaseServiceClient } from '@/lib/supabase'
+import { getTenantById, isHcpSyncEnabled, type Tenant } from '@/lib/tenant'
 
 export async function syncNewJobToHCP(params: {
   tenant: Tenant

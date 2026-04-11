@@ -10,13 +10,13 @@
  * daily cron and the manual dashboard trigger.
  */
 
-import { getSupabaseServiceClient } from './supabase'
-import { sendSMS } from './openphone'
-import { notifyScheduleChange } from './cleaner-sms'
+import { getSupabaseServiceClient } from '@/lib/supabase'
+import { sendSMS } from '@/lib/openphone'
+import { notifyScheduleChange } from '@/lib/cleaner-sms'
 import { checkRainDay as checkRainDayWeather, formatWeatherBriefing } from './weather'
 import type { DailyForecast } from './weather'
-import type { Tenant } from './tenant'
-import { getTenantById, getTenantBusinessName } from './tenant'
+import type { Tenant } from '@/lib/tenant'
+import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
 
 // ── Types ──────────────────────────────────────────────────────
 

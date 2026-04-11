@@ -5,8 +5,8 @@
  * API Docs: https://docs.housecallpro.com/
  */
 
-import { getDefaultTenant, isHcpSyncEnabled, type Tenant } from './tenant'
-import { maskPhone } from './phone-utils'
+import { getDefaultTenant, isHcpSyncEnabled, type Tenant } from '@/lib/tenant'
+import { maskPhone } from '@/lib/phone-utils'
 
 const HCP_API_BASE = 'https://api.housecallpro.com'
 const DEFAULT_TIMEZONE_OFFSET = '-06:00' // Central Time (WinBros is in Illinois)

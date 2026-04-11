@@ -3,7 +3,7 @@
 // Retrieves relevant knowledge chunks via vector similarity,
 // combines with business context, and uses Claude to reason.
 
-import { getSupabaseServiceClient } from '../supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { generateEmbedding } from './embed'
 import type { BrainQueryOptions, BrainAnswer, MatchedChunk } from './types'
 

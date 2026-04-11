@@ -5,7 +5,7 @@
  * rain days, and service radius violations.
  */
 
-import { getSupabaseServiceClient } from './supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { checkRainDay, getUpcomingRainDays, formatWeatherBriefing } from './weather'
 import { HIGH_VALUE_CONFIG, UNDERFILL_CONFIG, SERVICE_RADIUS_CONFIG } from '@/integrations/housecall-pro/constants'
 
@@ -358,8 +358,8 @@ async function notifyOwner(alert: CreateAlertInput): Promise<void> {
   }
 
   try {
-    const { sendSMS } = await import('./openphone')
-    const { getTenantBySlug } = await import('./tenant')
+    const { sendSMS } = await import('@/lib/openphone')
+    const { getTenantBySlug } = await import('@/lib/tenant')
     const winbrosTenant = await getTenantBySlug('winbros')
     if (winbrosTenant) {
       await sendSMS(winbrosTenant, ownerPhone, `[WinBros Alert]\n${alert.message}`)

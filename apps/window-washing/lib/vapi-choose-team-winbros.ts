@@ -9,9 +9,9 @@
  * - Only looks at WinBros salesmen and estimate jobs
  */
 
-import { getSupabaseServiceClient } from './supabase'
-import { getCleanerBlockedDates } from './supabase'
-import type { VapiAvailabilityResponse, VapiAlternative } from './vapi-choose-team'
+import { getSupabaseServiceClient } from '@/lib/supabase'
+import { getCleanerBlockedDates } from '@/lib/supabase'
+import type { VapiAvailabilityResponse, VapiAlternative } from '@/lib/vapi-choose-team'
 
 // ── Constants (defaults — overridden by tenant workflow_config) ──
 const TIMEZONE = 'America/Chicago'

@@ -26,6 +26,13 @@
       "@/*": [
         "./*"
       ],
+      "@/lib/*": [
+        "./lib/*",
+        "../../packages/core/src/*"
+      ],
+      "@/integrations/*": [
+        "./integrations/*"
+      ],
       "@osiris/core": [
         "../../packages/core/src"
       ],

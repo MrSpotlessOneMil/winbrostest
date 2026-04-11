@@ -6,8 +6,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  // transpilePackages enabled later when imports migrate to @osiris/core
-  // transpilePackages: ['@osiris/core', '@osiris/ui', '@osiris/types'],
+  transpilePackages: ['@osiris/core', '@osiris/ui', '@osiris/types'],
   async headers() {
     return [
       {

@@ -14,8 +14,8 @@
  * 7. Run feasibility checks
  */
 
-import { getSupabaseServiceClient } from './supabase'
-import { batchGeocodeAddresses, getPairwiseDistanceMatrix } from './google-maps'
+import { getSupabaseServiceClient } from '@/lib/supabase'
+import { batchGeocodeAddresses, getPairwiseDistanceMatrix } from '@/lib/google-maps'
 
 // ── Types ──────────────────────────────────────────────────────
 

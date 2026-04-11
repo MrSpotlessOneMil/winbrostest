@@ -1,7 +1,7 @@
 // lib/brain/ingest.ts
 // YouTube content ingestion: fetch video metadata, transcripts, chunk, and store.
 
-import { getSupabaseServiceClient } from '../supabase'
+import { getSupabaseServiceClient } from '@/lib/supabase'
 import { CHUNK_CONFIG, DOMAIN_CLASSIFICATION_PROMPT } from './types'
 import type { KnowledgeDomain } from './types'
 
