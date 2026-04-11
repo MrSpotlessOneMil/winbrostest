@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import {
   DollarSign,
   Repeat,
@@ -178,12 +179,43 @@ export default function RevenueInsightsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Read the insights layout date range picker params from URL (reacts to client nav)
+  const searchParams = useSearchParams()
+  const urlRange = searchParams.get("range")
+  const urlFrom = searchParams.get("from")
+  const urlTo = searchParams.get("to")
+
+  // Build query string — use URL range params if set, otherwise fall back to month selector
+  const queryString = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    if (urlRange === "custom" && urlFrom) {
+      return `start=${urlFrom}&end=${urlTo || today}`
+    }
+    if (urlRange === "7d") {
+      const d = new Date(); d.setDate(d.getDate() - 7)
+      return `start=${d.toISOString().slice(0, 10)}&end=${today}`
+    }
+    if (urlRange === "30d") {
+      const d = new Date(); d.setDate(d.getDate() - 30)
+      return `start=${d.toISOString().slice(0, 10)}&end=${today}`
+    }
+    if (urlRange === "90d") {
+      const d = new Date(); d.setDate(d.getDate() - 90)
+      return `start=${d.toISOString().slice(0, 10)}&end=${today}`
+    }
+    if (urlRange === "ytd") {
+      const year = new Date().getFullYear()
+      return `start=${year}-01-01&end=${today}`
+    }
+    return `month=${selectedMonth}`
+  }, [urlRange, urlFrom, urlTo, selectedMonth])
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
 
-    fetch(`/api/insights/revenue?month=${selectedMonth}`, { cache: "no-store" })
+    fetch(`/api/insights/revenue?${queryString}`, { cache: "no-store" })
       .then(async (res) => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
@@ -208,7 +240,7 @@ export default function RevenueInsightsPage() {
     return () => {
       cancelled = true
     }
-  }, [selectedMonth])
+  }, [queryString])
 
   const chartPoints: ChartPoint[] = useMemo(() => {
     if (!data?.dailyBreakdown) return []

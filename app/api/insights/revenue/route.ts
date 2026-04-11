@@ -86,21 +86,44 @@ export async function GET(request: NextRequest) {
 
   const searchParams = request.nextUrl.searchParams
   const now = new Date()
-  const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
-  const month = searchParams.get("month") || defaultMonth
+  const today = now.toISOString().slice(0, 10)
 
-  // Validate month format
-  if (!/^\d{4}-\d{2}$/.test(month)) {
-    return NextResponse.json(
-      { success: false, error: "Invalid month format. Use YYYY-MM." },
-      { status: 400 }
-    )
+  // Accept either start/end date range OR month param
+  let start: string
+  let end: string
+  let month: string
+
+  const paramStart = searchParams.get("start")
+  const paramEnd = searchParams.get("end")
+  const paramMonth = searchParams.get("month")
+
+  if (paramStart) {
+    // Date range mode (from insights date picker: 7d, 30d, 90d, YTD, custom)
+    start = paramStart
+    end = paramEnd || today
+    // Cap end at today so future-scheduled jobs don't inflate numbers
+    if (end > today) end = today
+    month = start.slice(0, 7) // for display label
+  } else {
+    // Month mode (from month dropdown)
+    const defaultMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`
+    month = paramMonth || defaultMonth
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid month format. Use YYYY-MM." },
+        { status: 400 }
+      )
+    }
+    const range = getMonthRange(month)
+    start = range.start
+    end = range.end
+    // Cap at today for current month
+    if (end > today) end = today
   }
 
-  const { start, end } = getMonthRange(month)
   const client = await getTenantScopedClient(tenant.id)
 
-  // 1. Get all jobs with revenue in the month (completed, scheduled, in_progress — anything with a price that happened this month)
+  // 1. Get all jobs with revenue in the date range — only jobs up to today (not future-scheduled)
   const { data: monthJobs, error: jobsError } = await client
     .from("jobs")
     .select("id, price, customer_id, completed_at, date, status")
@@ -183,8 +206,14 @@ export async function GET(request: NextRequest) {
   // Per-customer revenue tracking for top customers
   const customerRevenue = new Map<string, { revenue: number; jobCount: number }>()
 
-  // Daily breakdown
-  const days = getDaysInMonth(month)
+  // Daily breakdown — use actual start/end range, not month
+  const days: string[] = []
+  const current = new Date(`${start}T00:00:00Z`)
+  const last = new Date(`${end}T00:00:00Z`)
+  while (current <= last) {
+    days.push(current.toISOString().slice(0, 10))
+    current.setUTCDate(current.getUTCDate() + 1)
+  }
   const dailyRecurring = new Map<string, number>()
   const dailyOneTime = new Map<string, number>()
   for (const day of days) {
