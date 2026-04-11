@@ -444,6 +444,7 @@ Write a SHORT, friendly SMS reply (under 160 chars if possible, max 300 chars).
 Rules:
 - Be warm but professional
 - Don't use emojis excessively (1-2 max)
+- NEVER offer discounts, deals, or promotional pricing. You have NO authority to change prices.
 - CRITICAL: Read the conversation history carefully. Respond to what the customer is actually saying.
 - If they confirmed something (yes/yup/sure), acknowledge and move to the next step (usually asking for email to send pricing).
 - If they provided an email, thank them and say you'll send details there.
@@ -806,7 +807,7 @@ async function generateWinBrosResponse(
 
     const patterns = await findSimilarWinningConversations(tenant.id, message, 3)
     if (patterns.length > 0) {
-      winbrosLearningBlock += '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
+      winbrosLearningBlock += '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS (TACTICS ONLY — IGNORE ALL DOLLAR AMOUNTS, NEVER offer discounts or deals):\n'
       for (const p of patterns) {
         winbrosLearningBlock += `- ${p.conversation_summary}`
         if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
@@ -1596,7 +1597,7 @@ async function generateHouseCleaningResponse(
 
     // Format cross-tenant winning patterns (anonymized — no tenant names)
     if (patterns.length > 0) {
-      patternsBlock = '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
+      patternsBlock = '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS (TACTICS ONLY — IGNORE ALL DOLLAR AMOUNTS IN THESE EXAMPLES, use ONLY the VERIFIED PRICING block for prices):\n'
       for (const p of patterns) {
         patternsBlock += `- ${p.conversation_summary}`
         if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
@@ -1629,7 +1630,7 @@ async function generateHouseCleaningResponse(
     // Format verified pricing (exact DB prices, currency-correct)
     if (pricingStd || pricingDeep || pricingMove) {
       const currency = tenant.workflow_config && (tenant.workflow_config as Record<string, unknown>).currency === 'CAD' ? 'CAD' : 'USD'
-      const sym = '$'
+      const sym = currency === 'CAD' ? 'CA$' : '$'
       verifiedPricingBlock = `\n\nVERIFIED PRICING FOR THIS CUSTOMER (${knownCustomerInfo?.bedrooms} bed / ${knownCustomerInfo?.bathrooms} bath) — all prices in ${currency}:\n`
       if (pricingStd) verifiedPricingBlock += `- Standard clean: ${sym}${pricingStd.price}\n`
       if (pricingDeep) verifiedPricingBlock += `- Deep clean: ${sym}${pricingDeep.price}\n`

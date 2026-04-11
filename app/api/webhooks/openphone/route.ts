@@ -1047,8 +1047,7 @@ export async function POST(request: NextRequest) {
           // Immediately send review link + recurring offer (no tip — strike while iron is hot)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
 
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings and never have to think about scheduling. Would that be something you'd be interested in?`
           const replyResult = await sendSMS(tenant, phone, replyMsg, { skipThrottle: true })
 
           // Only save outbound message if SMS was actually sent (prevents ghost messages)
@@ -1137,8 +1136,7 @@ export async function POST(request: NextRequest) {
         } else {
           // Neutral — treat as positive (any reply to "how was your cleaning" is engagement)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
+          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - never have to think about scheduling. Would that be something you'd be interested in?`
           await sendSMS(tenant, phone, neutralMsg, { skipThrottle: true })
 
           await client.from("messages").insert({
