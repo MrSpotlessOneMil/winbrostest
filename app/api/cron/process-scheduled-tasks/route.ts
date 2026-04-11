@@ -404,7 +404,7 @@ async function processLeadFollowup(
   if (leadPhone && tenant?.id) {
     const { data: retargetCustomer } = await client
       .from('customers')
-      .select('id, retargeting_sequence, retargeting_completed_at, auto_response_paused')
+      .select('id, retargeting_sequence, retargeting_completed_at, auto_response_paused, auto_response_disabled')
       .eq('phone_number', leadPhone)
       .eq('tenant_id', tenant.id)
       .maybeSingle()
@@ -413,8 +413,8 @@ async function processLeadFollowup(
       console.log(`[lead-followup] Phone ${leadPhone} has active retargeting sequence, skipping lead follow-up for lead ${leadId}`)
       return
     }
-    if (retargetCustomer?.auto_response_paused) {
-      console.log(`[lead-followup] Phone ${leadPhone} has auto_response_paused, skipping lead follow-up for lead ${leadId}`)
+    if (retargetCustomer?.auto_response_paused || retargetCustomer?.auto_response_disabled) {
+      console.log(`[lead-followup] Phone ${leadPhone} has auto_response_paused/disabled, skipping lead follow-up for lead ${leadId}`)
       return
     }
   }

@@ -56,6 +56,7 @@ interface Customer {
   notes?: string
   auto_response_paused?: boolean
   auto_response_disabled?: boolean
+  manual_takeover_at?: string | null
   is_commercial?: boolean
   card_on_file_at?: string | null
   stripe_customer_id?: string | null
@@ -270,7 +271,18 @@ export default function CustomersPage() {
   const [selectedCustomer, _setSelectedCustomer] = useState<Customer | null>(null)
   const selectedCustomerRef = useRef<Customer | null>(null)
   // Wrapper that keeps the ref in sync so fetchCustomers never reads a stale closure
-  const setSelectedCustomer = (c: Customer | null) => { selectedCustomerRef.current = c; _setSelectedCustomer(c) }
+  const setSelectedCustomer = (c: Customer | null | ((prev: Customer | null) => Customer | null)) => {
+    if (typeof c === "function") {
+      _setSelectedCustomer((prev) => {
+        const next = c(prev)
+        selectedCustomerRef.current = next
+        return next
+      })
+    } else {
+      selectedCustomerRef.current = c
+      _setSelectedCustomer(c)
+    }
+  }
   const urlParamsHandled = useRef(false)
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
@@ -1273,58 +1285,82 @@ export default function CustomersPage() {
   // This is different from auto_response_paused which is temporary (manual takeover, auto-unpauses).
   // When the owner clicks this toggle OFF, it stays OFF. No cron, no timeout, no webhook can override it.
   const handleToggleCustomerAutoResponse = async (customer: Customer) => {
-    const newDisabled = !customer.auto_response_disabled
+    // The toggle reflects the EFFECTIVE auto-text state: OFF when either
+    // auto_response_disabled (permanent) or auto_response_paused (temporary) is true.
+    const isCurrentlyOff = customer.auto_response_disabled || customer.auto_response_paused
+    const turningOn = isCurrentlyOff // clicking = opposite of current effective state
+
+    // Build the update payload. When turning ON, clear BOTH flags so nothing blocks auto-text.
+    // When turning OFF, set auto_response_disabled (permanent).
+    const patch: Record<string, unknown> = turningOn
+      ? { auto_response_disabled: false, auto_response_paused: false }
+      : { auto_response_disabled: true }
 
     // Optimistic update
+    const optimisticFields = turningOn
+      ? { auto_response_disabled: false, auto_response_paused: false, manual_takeover_at: null }
+      : { auto_response_disabled: true }
     setCustomers((prev) =>
-      prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: newDisabled } : c)
+      prev.map((c) => c.id === customer.id ? { ...c, ...optimisticFields } : c)
     )
     if (selectedCustomer?.id === customer.id) {
-      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: newDisabled } : prev)
+      const updated = { ...selectedCustomer, ...optimisticFields }
+      setSelectedCustomer(updated)
     }
 
     try {
-      // Update customer flag — auto_response_disabled is PERMANENT
+      // Update customer flags — clear both when enabling, set disabled when disabling
       const res = await fetch("/api/customers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: customer.id, auto_response_disabled: newDisabled }),
+        body: JSON.stringify({ id: customer.id, ...patch }),
       })
       const json = await res.json()
       if (!json.success) {
-        // Rollback
+        // Rollback to original customer state
+        const rollback = {
+          auto_response_disabled: customer.auto_response_disabled,
+          auto_response_paused: customer.auto_response_paused,
+          manual_takeover_at: customer.manual_takeover_at,
+        }
         setCustomers((prev) =>
-          prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: !newDisabled } : c)
+          prev.map((c) => c.id === customer.id ? { ...c, ...rollback } : c)
         )
         if (selectedCustomer?.id === customer.id) {
-          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: !newDisabled } : prev)
+          setSelectedCustomer({ ...selectedCustomer, ...rollback })
         }
         return
       }
 
       // Also sync lead followup_paused (fire-and-forget, don't refresh full data)
+      const newFollowupPaused = !turningOn // paused when turning OFF
       const lead = getCustomerLead(customer.phone_number)
       if (lead) {
         fetch(`/api/leads/${lead.id}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "toggle_followup", paused: newDisabled }),
+          body: JSON.stringify({ action: "toggle_followup", paused: newFollowupPaused }),
         }).catch(() => {})
         // Optimistic lead update
         const parsedFormData = parseFormData(lead.form_data)
         setLeads((prev) =>
           prev.map((l) =>
-            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newDisabled } } : l
+            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newFollowupPaused } } : l
           )
         )
       }
     } catch {
-      // Rollback
+      // Rollback to original customer state
+      const rollback = {
+        auto_response_disabled: customer.auto_response_disabled,
+        auto_response_paused: customer.auto_response_paused,
+        manual_takeover_at: customer.manual_takeover_at,
+      }
       setCustomers((prev) =>
-        prev.map((c) => c.id === customer.id ? { ...c, auto_response_disabled: !newDisabled } : c)
+        prev.map((c) => c.id === customer.id ? { ...c, ...rollback } : c)
       )
       if (selectedCustomer?.id === customer.id) {
-        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_disabled: !newDisabled } : prev)
+        setSelectedCustomer({ ...selectedCustomer, ...rollback })
       }
     }
   }
@@ -1562,7 +1598,7 @@ export default function CustomersPage() {
       `Stripe Customer: ${selectedCustomer.stripe_customer_id || "—"}`,
       `SMS Opt-Out: ${selectedCustomer.sms_opt_out ? "Yes" : "No"}`,
       `Commercial: ${selectedCustomer.is_commercial ? "Yes" : "No"}`,
-      `Auto-Response Paused: ${selectedCustomer.auto_response_paused ? "Yes" : "No"}`,
+      `Auto-Text: ${selectedCustomer.auto_response_disabled || selectedCustomer.auto_response_paused ? "OFF" : "ON"}`,
       `Preferred Frequency: ${selectedCustomer.preferred_frequency || "—"}`,
       `Preferred Day: ${selectedCustomer.preferred_day || "—"}`,
       `Total Jobs: ${custJobs.length}`,
@@ -2495,26 +2531,31 @@ export default function CustomersPage() {
                       )}
 
                       {/* Per-Customer Auto-Response Toggle */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400">Auto-text</span>
-                        <button
-                          onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            selectedCustomer.auto_response_disabled
-                              ? "bg-red-600"
-                              : "bg-emerald-500"
-                          }`}
-                          title={selectedCustomer.auto_response_disabled ? "Enable auto-texting for this customer (currently OFF — stays off until you turn it back on)" : "Disable auto-texting for this customer (stays off permanently until you turn it back on)"}
-                        >
-                          <span
-                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                              selectedCustomer.auto_response_disabled
-                                ? "translate-x-1"
-                                : "translate-x-[18px]"
-                            }`}
-                          />
-                        </button>
-                      </div>
+                      {(() => {
+                        const isOff = selectedCustomer.auto_response_disabled || selectedCustomer.auto_response_paused
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-zinc-400">Auto-text</span>
+                            <button
+                              onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                isOff
+                                  ? "bg-red-600"
+                                  : "bg-emerald-500"
+                              }`}
+                              title={isOff ? "Enable auto-texting for this customer (currently OFF)" : "Disable auto-texting for this customer (stays off permanently until you turn it back on)"}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                  isOff
+                                    ? "translate-x-1"
+                                    : "translate-x-[18px]"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Tab navigation */}
