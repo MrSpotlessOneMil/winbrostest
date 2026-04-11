@@ -1,0 +1,43 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_JWT_SECRET",
+    "SUPABASE_JWT_KEY",
+    "SUPABASE_JWT_ALG",
+    "SUPABASE_JWT_AUD",
+    "SUPABASE_JWT_SUB",
+    "SUPABASE_JWT_ISS",
+    "SUPABASE_JWT_EXPIRY",
+    "SUPABASE_ACCESS_TOKEN",
+    "CRON_SECRET",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "SERVICE_TYPE",
+    "STRIPE_SECRET_KEY",
+    "STRIPE_WEBHOOK_SECRET",
+    "OPENPHONE_API_KEY",
+    "OPENPHONE_WEBHOOK_SECRET",
+    "VAPI_API_KEY",
+    "GOOGLE_MAPS_API_KEY",
+    "YOUTUBE_API_KEY"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

@@ -36,13 +36,15 @@ interface QuoteAddon { key: string; name: string; description: string; priceType
 interface TierPrice { price: number; breakdown: { service: string; price: number }[]; tier: string }
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
-interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null } }
+interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null; notes: string | null }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function fmt(amount: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount)
+function fmtCurrency(amount: number, currency = "USD"): string {
+  // Use locale matching currency so domestic customers see "$" not "CA$"
+  const locale = currency.toUpperCase() === "CAD" ? "en-CA" : "en-US"
+  return new Intl.NumberFormat(locale, { style: "currency", currency: currency.toUpperCase() }).format(amount)
 }
 
 function fmtDate(iso: string): string {
@@ -61,6 +63,71 @@ const TIER_COLORS = [
   { bg: "bg-blue-50", border: "border-blue-500", ring: "ring-blue-200", icon: "bg-blue-600", check: "text-blue-600", badge: "bg-blue-600" },
   { bg: "bg-indigo-50", border: "border-indigo-500", ring: "ring-indigo-200", icon: "bg-indigo-600", check: "text-indigo-600", badge: "bg-indigo-600" },
 ]
+
+// ── Detailed Checklists (what the cleaner actually does) ────────────
+
+const STANDARD_CHECKLIST = [
+  "Wipe down all kitchen countertops and stovetop",
+  "Clean and sanitize kitchen sink",
+  "Wipe exterior of all appliances (fridge, microwave, oven, dishwasher)",
+  "Scrub and sanitize all toilets (inside and out)",
+  "Clean bathtub and shower surfaces",
+  "Clean bathroom vanity, sink, and mirrors",
+  "Vacuum all carpeted areas",
+  "Mop all hard floors",
+  "Dust all reachable surfaces, furniture, and shelves",
+  "Empty all trash cans and replace liners",
+]
+
+const DEEP_EXTRAS = [
+  "Hand-wipe all baseboards throughout home",
+  "Dust and wipe all ceiling fan blades",
+  "Clean light fixtures and switch plates",
+  "Clean all window sills and ledges",
+  "Clean inside microwave",
+  "Clean inside fridge (shelves, drawers, and door compartments)",
+  "Clean inside oven (racks, walls, and door glass)",
+]
+
+// Extra Deep removed — those items are now available as individual add-ons
+
+const MOVE_CHECKLIST = [
+  "Clean all kitchen countertops, stovetop, and sink",
+  "Clean inside microwave",
+  "Clean inside oven (racks, walls, door glass)",
+  "Clean inside fridge (shelves, drawers, compartments)",
+  "Clean inside dishwasher",
+  "Wipe all cabinet and drawer interiors and exteriors",
+  "Degrease range hood and filter",
+  "Clean garbage disposal area",
+  "Clean behind and under appliances",
+  "Scrub and sanitize all toilets, tubs, and showers",
+  "Scrub bathroom grout",
+  "Clean bathroom vanity, sink, and all mirrors",
+  "Vacuum all carpeted areas and mop all hard floors",
+  "Dust all surfaces and remove cobwebs",
+  "Detailed hand-wipe all baseboards",
+  "Detailed cleaning of all ceiling fans and light fixtures",
+  "Clean all window sills, ledges, and window tracks",
+  "Clean light switches, door knobs, and outlet covers",
+  "Sweep and wipe all closet interiors",
+  "Spot clean walls (scuffs and marks)",
+  "Empty all trash and replace liners",
+]
+
+function getDetailedChecklist(tierKey: string): string[] {
+  switch (tierKey) {
+    case "standard": return STANDARD_CHECKLIST
+    case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
+    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS] // backward compat for old quotes
+    case "move": return MOVE_CHECKLIST
+    // Backward compat for old quotes
+    case "move_good": return MOVE_CHECKLIST
+    case "move_better": return MOVE_CHECKLIST
+    case "move_best": return MOVE_CHECKLIST
+    default: return []
+  }
+}
 
 // ── Component ────────────────────────────────────────────────────────
 
@@ -82,9 +149,36 @@ export default function QuotePage() {
   const [agreementAccepted, setAgreementAccepted] = useState(false)
   const [customerName, setCustomerName] = useState("")
   const [customerEmail, setCustomerEmail] = useState("")
+  const [customerAddress, setCustomerAddress] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
+<<<<<<< HEAD
   const [customerNotes, setCustomerNotes] = useState("")
+=======
+  const [serviceTime, setServiceTime] = useState("")
+  const [customerNotes, setCustomerNotes] = useState("")
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [showAllTiers, setShowAllTiers] = useState(false)
+  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
+  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
+
+  // ── Address autocomplete (debounced) ──────────────────────────────
+  useEffect(() => {
+    if (!customerAddress || customerAddress.length < 3) {
+      setAddressSuggestions([])
+      return
+    }
+    const timer = setTimeout(() => {
+      fetch(`/api/places/autocomplete?input=${encodeURIComponent(customerAddress)}`)
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && Array.isArray(res.data)) setAddressSuggestions(res.data)
+        })
+        .catch(() => {})
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [customerAddress])
+>>>>>>> Test
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -100,8 +194,14 @@ export default function QuotePage() {
         if (json.custom_base_price != null) {
           setSelectedTierKey('custom')
         } else if (json.quote.selected_tier && (json.tiers as QuoteTier[]).some((t) => t.key === json.quote.selected_tier)) {
+<<<<<<< HEAD
           // Salesman pre-selected a tier — lock it so customer can't change
           setTierLocked(true)
+=======
+          // Pre-selected tier: VAPI quotes get pre-select only, salesman quotes get locked
+          const isVapiQuote = (json.quote.notes as string || '').toLowerCase().includes('vapi')
+          if (!isVapiQuote) setTierLocked(true)
+>>>>>>> Test
           const preselectedTier = json.quote.selected_tier as string
           setSelectedTierKey(preselectedTier)
 
@@ -127,8 +227,13 @@ export default function QuotePage() {
           }
         } else {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
-          const middleIndex = Math.min(1, tierKeys.length - 1)
-          const defaultTier = tierKeys[middleIndex] || tierKeys[0]
+          // Default to the tier matching the quote's service_category (e.g. customer asked for standard on the call)
+          // Fall back to middle tier (best value) if no match
+          const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
+          const categoryTier = categoryTierMap[json.quote.service_category as string]
+          const defaultTier = (categoryTier && tierKeys.includes(categoryTier))
+            ? categoryTier
+            : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
           setSelectedTierKey(defaultTier)
 
           // Pre-select included addons for default tier
@@ -142,12 +247,21 @@ export default function QuotePage() {
 
         if (json.quote.customer_name) setCustomerName(json.quote.customer_name)
         if (json.quote.customer_email) setCustomerEmail(json.quote.customer_email)
+        if (json.quote.customer_address) setCustomerAddress(json.quote.customer_address)
+        if (json.quote.service_date) setServiceDate(json.quote.service_date)
+        if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
+<<<<<<< HEAD
         // Pre-select and lock membership if salesman already set it
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
           setMembershipLocked(true)
+=======
+        // Pre-select membership if salesman set a frequency (but let customer change it)
+        if (json.quote.membership_plan) {
+          setSelectedMembership(json.quote.membership_plan)
+>>>>>>> Test
         }
 
         const q: Record<string, number> = {}
@@ -166,6 +280,7 @@ export default function QuotePage() {
 
   const handleTierChange = useCallback((tierKey: string) => {
     setSelectedTierKey(tierKey)
+    // Keep membership selection when switching tiers (recurring works on all tiers)
     if (!data) return
     const tierDef = data.tiers.find((t) => t.key === tierKey)
     if (!tierDef) return
@@ -175,7 +290,7 @@ export default function QuotePage() {
       tierDef.included.forEach((k) => { next[k] = true })
       return next
     })
-  }, [data])
+  }, [data, membershipLocked])
 
   // ── Computed values ──────────────────────────────────────────────
 
@@ -184,8 +299,14 @@ export default function QuotePage() {
   const addons = data?.addons ?? []
   const tierPrices = data?.tierPrices ?? {}
   const servicePlans = data?.servicePlans ?? []
-  const serviceAgreement = data?.serviceAgreement ?? null
+  const rawAgreement = data?.serviceAgreement ?? null
+  // Use custom terms from the quote if available (custom-priced quotes)
+  const serviceAgreement = data?.custom_terms
+    ? { ...rawAgreement!, terms: data.custom_terms, satisfaction_guarantee: true }
+    : rawAgreement
   const tenant = data?.tenant ?? null
+  const tenantCurrency = tenant?.currency?.toUpperCase() || "USD"
+  const fmt = (amount: number) => fmtCurrency(amount, tenantCurrency)
   const serviceType = data?.serviceType ?? "house_cleaning"
   const customBasePrice = data?.custom_base_price ?? null
   const isCustomPriced = customBasePrice != null
@@ -194,9 +315,18 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
+  // For custom-priced quotes, pre-selected addons are treated as INCLUDED (free)
+  const originalSelectedAddons = data?.quote?.selected_addons as Array<string | { key: string }> | null
+  const customIncludedKeys = isCustomPriced && originalSelectedAddons
+    ? new Set(originalSelectedAddons.map(a => typeof a === 'string' ? a : a.key))
+    : null
+
   const isAddonIncluded = useCallback(
-    (addonKey: string): boolean => !!selectedTier && selectedTier.included.includes(addonKey),
-    [selectedTier]
+    (addonKey: string): boolean => {
+      if (customIncludedKeys?.has(addonKey)) return true
+      return !!selectedTier && selectedTier.included.includes(addonKey)
+    },
+    [selectedTier, customIncludedKeys]
   )
 
   const getAddonPrice = useCallback(
@@ -255,7 +385,12 @@ export default function QuotePage() {
           membership_plan: selectedPlan?.slug || null,
           customer_name: customerName || undefined,
           customer_email: customerEmail || undefined,
+          customer_address: customerAddress || undefined,
           service_date: serviceDate || undefined,
+<<<<<<< HEAD
+=======
+          service_time: serviceTime || undefined,
+>>>>>>> Test
           customer_notes: customerNotes || undefined,
           service_agreement_accepted: true,
         }),
@@ -302,6 +437,9 @@ export default function QuotePage() {
 
   const isExpired = quote.status === "expired"
   const isApproved = quote.status === "approved"
+  const isVapiQuote = (quote.notes || '').toLowerCase().includes('vapi')
+  // VAPI quotes show single-price hero; expand to all tiers only on demand
+  const singleTierMode = isVapiQuote && !tierLocked && selectedTierKey && !showAllTiers
   const quoteNumber = token.slice(0, 8).toUpperCase()
   const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
   const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).length
@@ -405,18 +543,30 @@ export default function QuotePage() {
         )}
 
         {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
-        {isCustomPriced ? (
+        {isCustomPriced ? (() => {
+          // Determine checklist from selected_tier (most specific) or service_category
+          const tier = (quote as any).selected_tier as string || ''
+          const cat = (quote as any).service_category as string || 'standard'
+          const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
+          const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
+          const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
+          const customChecklist = getDetailedChecklist(customTierKey)
+          // Show service type name
+          const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
+          const serviceName = nameMap[customTierKey] || 'Custom Service Package'
+          return (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Custom Quote</h2>
-            <p className="text-slate-400 text-sm mb-3">Prepared by our team after your on-site estimate.</p>
+            <p className="text-slate-400 text-sm mb-3">Prepared by our team specifically for your property.</p>
             <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="text-slate-800 font-bold text-lg">Base Service</h3>
-                  <p className="text-slate-500 text-sm mt-1">Custom-quoted price</p>
+                  <h3 className="text-slate-800 font-bold text-lg">{serviceName}</h3>
+                  <p className="text-slate-500 text-sm mt-1">{quote.customer_address || "Your property"}</p>
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
               </div>
+<<<<<<< HEAD
             </div>
           </div>
         ) : (
@@ -473,29 +623,191 @@ export default function QuotePage() {
                       <div key={item.service} className="flex items-start gap-2">
                         <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
                         <span className="text-sm text-slate-600">{item.service}</span>
+=======
+              {data?.quote_notes && (
+                <div className="border-t border-blue-200 pt-4 space-y-3">
+                  {data.quote_notes.split('\n\n').map((section, si) => {
+                    const lines = section.split('\n')
+                    const heading = lines[0]
+                    const items = lines.slice(1).filter(l => l.startsWith('•') || l.startsWith('-'))
+                    const isHeading = !heading.startsWith('•') && !heading.startsWith('-') && items.length > 0
+                    return (
+                      <div key={si}>
+                        {isHeading && (
+                          <h4 className="text-sm font-bold text-slate-700 mb-1.5">{heading}</h4>
+                        )}
+                        {!isHeading && !items.length && heading && (
+                          <p className="text-sm text-slate-600">{heading}</p>
+                        )}
+                        {items.length > 0 && (
+                          <ul className="space-y-1">
+                            {items.map((item, ii) => (
+                              <li key={ii} className="flex items-start gap-2 text-sm text-slate-600">
+                                <Check className="size-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                <span>{item.replace(/^[•\-]\s*/, '')}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+              {/* What's included checklist (from service_category) */}
+              {customChecklist.length > 0 && (
+                <div className="border-t border-blue-200 pt-4 space-y-2">
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {customChecklist.map((task, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{task}</span>
+>>>>>>> Test
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+            </div>
+          </div>
+          )
+        })() : (
+        <div>
+          {/* Single-price hero view for VAPI quotes */}
+          {singleTierMode && selectedTier && selectedTierPrice ? (
+            <div>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Cleaning Quote</h2>
+              <p className="text-slate-400 text-sm mb-4">Based on your {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath home.</p>
 
-                  <div className="border-t border-blue-50 pt-3 mt-auto">
-                    <span className="text-2xl font-bold text-slate-800">{fmt(price)}</span>
+              <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5 sm:p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="size-12 rounded-xl bg-blue-600 flex items-center justify-center shrink-0 text-white shadow-sm">
+                    {TIER_ICONS[tiers.findIndex(t => t.key === selectedTierKey)] ?? <Shield className="size-6" />}
                   </div>
+                  <div className="flex-1">
+                    <h3 className="text-slate-800 font-bold text-lg">{selectedTier.name}</h3>
+                    <p className="text-slate-500 text-sm">{selectedTier.description}</p>
+                  </div>
+                  <span className="text-3xl font-bold text-slate-800">{fmt(selectedTierPrice.price)}</span>
+                </div>
 
-                  {isSelected && (
-                    <div className="absolute top-4 right-4">
-                      <div className={`size-7 rounded-full flex items-center justify-center text-white shadow-md ${colors.icon}`}>
-                        <Check className="size-4" />
+                {/* What's included checklist */}
+                <div className="border-t border-blue-200 pt-4 space-y-2">
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* "See other options" link */}
+              {tiers.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllTiers(true)}
+                  className="mt-3 text-sm text-blue-500 hover:text-blue-600 font-medium flex items-center gap-1 mx-auto"
+                >
+                  Want to upgrade? See all options <ChevronDown className="size-4" />
+                </button>
+              )}
+            </div>
+          ) : (
+          /* Full tier selection (locked salesman quotes, expanded view, or non-VAPI) */
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Package"}</h2>
+            <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your recurring service." : "Select the service level that fits your needs."}</p>
+
+            <div className={`space-y-3 sm:space-y-0 ${tiers.length === 1 ? "sm:max-w-md sm:mx-auto" : tiers.length === 2 ? "sm:grid sm:grid-cols-2 sm:gap-5" : "sm:grid sm:grid-cols-3 sm:gap-4"}`}>
+              {tiers.map((tier, idx) => {
+                const isSelected = selectedTierKey === tier.key
+                const price = tierPrices[tier.key]?.price ?? 0
+                const breakdown = tierPrices[tier.key]?.breakdown ?? []
+                const colors = TIER_COLORS[idx] || TIER_COLORS[0]
+
+                return (
+                  <button
+                    key={tier.key}
+                    type="button"
+                    disabled={isExpired || tierLocked}
+                    onClick={() => handleTierChange(tier.key)}
+                    className={`
+                      relative w-full text-left rounded-2xl border-2 transition-all duration-200 p-5 flex flex-col
+                      ${isSelected
+                        ? `${colors.bg} ${colors.border} ring-2 ${colors.ring} shadow-lg`
+                        : "bg-white border-blue-100 hover:border-blue-200 hover:shadow-md"
+                      }
+                      ${isExpired ? "opacity-50 cursor-not-allowed" : tierLocked ? "cursor-default" : "cursor-pointer active:scale-[0.98]"}
+                    `}
+                  >
+                    {tier.badge && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
+                        <span className={`${colors.badge} text-white text-xs font-bold px-4 py-1 rounded-full shadow-md whitespace-nowrap`}>
+                          {tier.badge}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`size-11 rounded-xl flex items-center justify-center shrink-0 text-white shadow-sm ${isSelected ? colors.icon : "bg-slate-200 text-slate-400"}`}>
+                        {TIER_ICONS[idx] ?? <Shield className="size-6" />}
+                      </div>
+                      <div>
+                        <h3 className="text-slate-800 font-bold text-base sm:text-lg">{tier.name}</h3>
+                        <p className="text-slate-400 text-xs">{tier.tagline}</p>
                       </div>
                     </div>
-                  )}
-                </button>
-              )
-            })}
+
+                    {tier.description && (
+                      <p className="text-slate-400 text-xs leading-relaxed mb-3">{tier.description}</p>
+                    )}
+
+                    <div className="flex-1 space-y-1.5 mb-4">
+                      {breakdown.map((item) => (
+                        <div key={item.service} className="flex items-start gap-2">
+                          <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
+                          <span className="text-sm text-slate-600">{item.service}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="border-t border-blue-50 pt-3 mt-auto">
+                      <span className="text-2xl font-bold text-slate-800">{fmt(price)}</span>
+                    </div>
+
+                    {isSelected && (
+                      <div className="absolute top-4 right-4">
+                        <div className={`size-7 rounded-full flex items-center justify-center text-white shadow-md ${colors.icon}`}>
+                          <Check className="size-4" />
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Collapse back to single view */}
+            {showAllTiers && isVapiQuote && (
+              <button
+                type="button"
+                onClick={() => setShowAllTiers(false)}
+                className="mt-3 text-sm text-slate-400 hover:text-slate-500 font-medium flex items-center gap-1 mx-auto"
+              >
+                Show less <ChevronUp className="size-4" />
+              </button>
+            )}
           </div>
+          )}
         </div>
         )}
 
-        {/* ── Add-ons ─────────────────────────────────────────── */}
+        {/* ── Add-ons */}
         {addons.length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
@@ -570,6 +882,7 @@ export default function QuotePage() {
           </div>
         )}
 
+<<<<<<< HEAD
         {/* ── Membership Plans (hidden for custom-priced — discount already applied) */}
         {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
           <div>
@@ -624,37 +937,181 @@ export default function QuotePage() {
                   </button>
                 )
               })}
+=======
+        {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
+        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || (isCustomPriced && !['deep', 'extra_deep', 'move'].includes((quote as any).selected_tier || '') && (quote as any).service_category !== 'move_in_out')) && (
+          <div>
+              <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
+                selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
+              }`}>
+                <div className="p-5">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="size-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
+                      <Sparkles className="size-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-slate-800 font-bold text-base">Save on Every Clean</h3>
+                      <p className="text-slate-500 text-sm mt-0.5">Book recurring and pay less every visit. Cancel anytime.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {/* One-time option */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMembership(null)}
+                      className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
+                        selectedMembership === null
+                          ? "border-slate-400 bg-white shadow-sm"
+                          : "border-slate-200 bg-white/50 hover:border-slate-300"
+                      }`}
+                    >
+                      <p className="text-slate-800 font-bold text-sm">One-Time</p>
+                      <p className="text-slate-800 font-bold text-lg mt-1">{selectedTierPrice ? fmt(selectedTierPrice.price) : isCustomPriced ? fmt(customBasePrice) : '--'}</p>
+                    </button>
+
+                    {/* Recurring plan options */}
+                    {servicePlans.map((plan) => {
+                      const isSelected = selectedMembership === plan.slug
+                      const baseForDiscount = selectedTierPrice ? selectedTierPrice.price : isCustomPriced ? customBasePrice : 0
+                      const discountedPrice = baseForDiscount
+                        ? Math.max(0, baseForDiscount - Number(plan.discount_per_visit))
+                        : 0
+                      return (
+                        <button
+                          key={plan.slug}
+                          type="button"
+                          onClick={() => setSelectedMembership(plan.slug)}
+                          className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
+                            isSelected
+                              ? "border-emerald-400 bg-emerald-50 shadow-sm"
+                              : "border-emerald-200 bg-white/50 hover:border-emerald-300"
+                          }`}
+                        >
+                          <p className="text-slate-800 font-bold text-sm">{plan.name}</p>
+                          <p className="text-emerald-600 font-bold text-lg mt-1">{fmt(discountedPrice)}</p>
+                          <p className="text-emerald-500 text-xs font-medium">Save {fmt(Number(plan.discount_per_visit))}</p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+          </div>
+        )}
+
+        {/* ── Service Address ─────────────────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <MapPin className="size-5 text-blue-500" />
+              Service Address
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
+            <div className="relative">
+              <input
+                type="text"
+                value={customerAddress}
+                onChange={(e) => {
+                  setCustomerAddress(e.target.value)
+                  setShowAddressSuggestions(true)
+                }}
+                onFocus={() => setShowAddressSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
+                placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
+                className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
+              />
+              {showAddressSuggestions && addressSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 bg-white border-2 border-blue-100 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-lg">
+                  {addressSuggestions.map((s) => (
+                    <button
+                      key={s.place_id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setCustomerAddress(s.description)
+                        setShowAddressSuggestions(false)
+                      }}
+                      className="block w-full text-left px-4 py-3 text-sm text-slate-700 border-b border-blue-50 last:border-0 hover:bg-blue-50 transition-colors"
+                    >
+                      <MapPin className="size-3.5 text-blue-400 inline mr-2 -mt-0.5" />
+                      {s.description}
+                    </button>
+                  ))}
+                </div>
+              )}
+>>>>>>> Test
             </div>
           </div>
         )}
 
-        {/* ── Preferred Service Date ─────────────────────────── */}
+        {/* ── Preferred Service Date & Time ─────────────────────────── */}
         {!isExpired && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
               <Calendar className="size-5 text-blue-500" />
-              Preferred Service Date
+              Preferred Service Date & Time
             </h2>
-            <p className="text-slate-400 text-sm mb-4">Pick a date that works best for you.</p>
+            <p className="text-slate-400 text-sm mb-4">Pick a date and time that works best for you.</p>
 
-            <div className={`border-2 rounded-2xl p-4 transition-all ${serviceDate ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
-              <input
-                type="date"
-                value={serviceDate}
-                min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => setServiceDate(e.target.value)}
-                className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
-              />
-              {serviceDate && (
-                <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
-                  <CheckCircle className="size-4" />
-                  {new Date(serviceDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-                </p>
-              )}
-              {!serviceDate && (
-                <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
-              )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={`border-2 rounded-2xl p-4 transition-all ${serviceDate ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Date</label>
+                <input
+                  type="date"
+                  value={serviceDate}
+                  min={new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setServiceDate(e.target.value)}
+                  className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                />
+                {serviceDate && (
+                  <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
+                    <CheckCircle className="size-4" />
+                    {new Date(serviceDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                  </p>
+                )}
+              </div>
+
+              <div className={`border-2 rounded-2xl p-4 transition-all ${serviceTime ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"}`}>
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 block">Time</label>
+                <input
+                  type="time"
+                  value={serviceTime}
+                  onChange={(e) => setServiceTime(e.target.value)}
+                  className="w-full h-12 px-4 rounded-xl border border-blue-200 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+                />
+                {serviceTime && (
+                  <p className="mt-2 text-sm text-blue-600 font-medium flex items-center gap-1.5">
+                    <Clock className="size-4" />
+                    {new Date(`2000-01-01T${serviceTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </p>
+                )}
+              </div>
             </div>
+
+            {!serviceDate && !serviceTime && (
+              <p className="mt-2 text-xs text-slate-400">Optional — we&apos;ll contact you to schedule if you skip this.</p>
+            )}
+          </div>
+        )}
+
+        {/* ── Customer Notes ──────────────────────────────────── */}
+        {!isExpired && (
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <FileText className="size-5 text-blue-500" />
+              Notes
+            </h2>
+            <p className="text-slate-400 text-sm mb-4">Anything we should know? Special instructions, pets, access codes, etc.</p>
+            <textarea
+              value={customerNotes}
+              onChange={(e) => setCustomerNotes(e.target.value)}
+              placeholder="e.g. Key under the mat, please avoid the back bedroom..."
+              rows={3}
+              maxLength={500}
+              className="w-full px-4 py-3 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none placeholder:text-slate-300"
+            />
+            <p className="text-right text-xs text-slate-300 mt-1">{customerNotes.length}/500</p>
           </div>
         )}
 
@@ -755,9 +1212,28 @@ export default function QuotePage() {
                 <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
               </div>
             ) : selectedTier && selectedTierPrice ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">{selectedTier.name}</span>
-                <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="w-full flex justify-between items-center text-sm group"
+                >
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    {selectedTier.name}
+                    {summaryExpanded ? <ChevronUp className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                  </span>
+                  <span className="text-slate-800 font-semibold">{fmt(selectedTierPrice.price)}</span>
+                </button>
+                {summaryExpanded && (
+                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
+                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : null}
 

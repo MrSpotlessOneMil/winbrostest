@@ -212,6 +212,7 @@ describe('Membership Validation', () => {
           scheduled_date: '2026-04-01',
           scheduled_time: '10:00',
           estimated_value: 200,
+          lead_source: 'phone',
           membership_id: 'mem-cr-001', // Cedar Rapids membership — should be rejected
         },
       })
@@ -236,6 +237,7 @@ describe('Membership Validation', () => {
           scheduled_date: '2026-04-01',
           scheduled_time: '10:00',
           estimated_value: 200,
+          lead_source: 'phone',
           membership_id: 'mem-wb-001', // WinBros membership — should be accepted
         },
       })
@@ -265,6 +267,7 @@ describe('Membership Validation', () => {
           scheduled_date: '2026-04-01',
           scheduled_time: '10:00',
           estimated_value: 200,
+          lead_source: 'phone',
         },
       })
 

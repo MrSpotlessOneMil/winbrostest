@@ -1,0 +1,111 @@
+import { NextRequest, NextResponse } from "next/server"
+import { getTenantScopedClient, getSupabaseServiceClient } from "@/lib/supabase"
+import { requireAuth, getAuthTenant } from "@/lib/auth"
+
+export async function GET(request: NextRequest) {
+  const authResult = await requireAuth(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  // Get the default tenant for multi-tenant filtering
+  const tenant = await getAuthTenant(request)
+  // Admin user (no tenant_id) sees all tenants' data
+  if (!tenant && authResult.user.username !== 'admin') {
+    return NextResponse.json({ success: false, error: "No tenant configured" }, { status: 500 })
+  }
+
+  const searchParams = request.nextUrl.searchParams
+  const range = searchParams.get("range") || "month"
+
+  const client = tenant
+    ? await getTenantScopedClient(tenant.id)
+    : getSupabaseServiceClient()
+
+  const now = new Date()
+  const start = new Date(now)
+  if (range === "week") start.setDate(now.getDate() - 6)
+  else if (range === "quarter") start.setDate(now.getDate() - 89)
+  else if (range === "year") start.setDate(now.getDate() - 364)
+  else start.setDate(now.getDate() - 29)
+
+  const startIso = start.toISOString()
+
+  let tipsQ = client.from("tips").select("amount,team_id,created_at").gte("created_at", startIso)
+  let upsellsQ = client.from("upsells").select("value,team_id,created_at").gte("created_at", startIso)
+  let jobsQ = client.from("jobs").select("id,team_id,status,created_at").gte("created_at", startIso)
+  let teamsQ = client.from("teams").select("id,name").eq("active", true)
+  let reviewsQ = client.from("reviews").select("id,team_id,rating,created_at").gte("created_at", startIso)
+  if (tenant) {
+    tipsQ = tipsQ.eq("tenant_id", tenant.id)
+    upsellsQ = upsellsQ.eq("tenant_id", tenant.id)
+    jobsQ = jobsQ.eq("tenant_id", tenant.id)
+    teamsQ = teamsQ.eq("tenant_id", tenant.id)
+    reviewsQ = reviewsQ.eq("tenant_id", tenant.id)
+  }
+
+  const [tipsRes, upsellsRes, jobsRes, teamsRes, reviewsRes] = await Promise.all([tipsQ, upsellsQ, jobsQ, teamsQ, reviewsQ])
+
+  if (tipsRes.error) return NextResponse.json({ success: false, error: tipsRes.error.message }, { status: 500 })
+  if (upsellsRes.error) return NextResponse.json({ success: false, error: upsellsRes.error.message }, { status: 500 })
+  if (jobsRes.error) return NextResponse.json({ success: false, error: jobsRes.error.message }, { status: 500 })
+  if (reviewsRes.error) return NextResponse.json({ success: false, error: reviewsRes.error.message }, { status: 500 })
+
+  const teamName = new Map<number, string>()
+  for (const t of teamsRes.data || []) teamName.set(Number((t as any).id), String((t as any).name))
+
+  function ensure(teamId: number) {
+    if (!agg.has(teamId)) {
+      agg.set(teamId, { teamId, team: teamName.get(teamId) || `Team ${teamId}`, tips: 0, upsells: 0, jobs: 0, reviews: 0 })
+    }
+    return agg.get(teamId)!
+  }
+
+  const agg = new Map<number, { teamId: number; team: string; tips: number; upsells: number; jobs: number; reviews: number }>()
+
+  for (const t of tipsRes.data as any[]) {
+    const teamId = t.team_id != null ? Number(t.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    ensure(teamId).tips += Number(t.amount || 0)
+  }
+  for (const u of upsellsRes.data as any[]) {
+    const teamId = u.team_id != null ? Number(u.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    ensure(teamId).upsells += Number(u.value || 0)
+  }
+  for (const j of jobsRes.data as any[]) {
+    const teamId = j.team_id != null ? Number(j.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    ensure(teamId).jobs += 1
+  }
+  for (const r of reviewsRes.data as any[]) {
+    const teamId = r.team_id != null ? Number(r.team_id) : NaN
+    if (!Number.isFinite(teamId)) continue
+    ensure(teamId).reviews += 1
+  }
+
+  const rows = Array.from(agg.values())
+
+  function topBy(key: "tips" | "upsells" | "jobs" | "reviews") {
+    return rows
+      .slice()
+      .sort((a, b) => (b[key] as number) - (a[key] as number))
+      .slice(0, 10)
+      .map((r, idx) => ({
+        rank: idx + 1,
+        name: r.team,
+        team: r.team,
+        value: key === "jobs" ? r.jobs : key === "reviews" ? r.reviews : key === "tips" ? Math.round(r.tips) : Math.round(r.upsells),
+        change: "—",
+      }))
+  }
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      range,
+      tips: topBy("tips"),
+      upsells: topBy("upsells"),
+      jobs: topBy("jobs"),
+      reviews: topBy("reviews"),
+    },
+  })
+}

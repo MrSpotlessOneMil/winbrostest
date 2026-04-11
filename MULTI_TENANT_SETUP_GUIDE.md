@@ -165,7 +165,7 @@ CRON_SECRET="your-secret-here"  # Generate with: openssl rand -hex 32
 
 # Gmail (shared for system emails)
 GMAIL_USER="jackdeanmail@gmail.com"
-GMAIL_APP_PASSWORD="fhat cifw rgha gity"
+GMAIL_APP_PASSWORD="your-app-password-here"
 
 # App URL
 NEXT_PUBLIC_DOMAIN="https://spotless-scrubbers-api.vercel.app"

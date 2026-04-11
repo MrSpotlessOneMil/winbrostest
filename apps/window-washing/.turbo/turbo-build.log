@@ -1,0 +1,346 @@
+
+> osiris-window-washing@0.0.1 build
+> next build
+
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\dal02\package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * C:\Users\dal02\Downloads\Telegram Desktop\winbrostest\package-lock.json
+
+▲ Next.js 16.1.1 (Turbopack)
+- Environments: .env.local
+
+⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+  Creating an optimized production build ...
+✓ Compiled successfully in 30.1s
+  Skipping validation of types
+  Collecting page data using 11 workers ...
+  Generating static pages using 11 workers (0/360) ...
+  Generating static pages using 11 workers (90/360) 
+  Generating static pages using 11 workers (180/360) 
+  Generating static pages using 11 workers (270/360) 
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+✓ Generating static pages using 11 workers (360/360) in 4.0s
+  Finalizing page optimization ...
+
+Route (app)                                                                   Revalidate  Expire
+┌ ○ /
+├ ○ /_not-found
+├ ○ /admin
+├ ƒ /api/actions/add-charge
+├ ƒ /api/actions/assign-cleaner
+├ ƒ /api/actions/attach-card
+├ ƒ /api/actions/attention-needed
+├ ƒ /api/actions/auto-schedule
+├ ƒ /api/actions/batch-create-customers
+├ ƒ /api/actions/batch-create-leads
+├ ƒ /api/actions/batch-parse-customers
+├ ƒ /api/actions/brain-add-source
+├ ƒ /api/actions/brain-query
+├ ƒ /api/actions/charge-card
+├ ƒ /api/actions/complete-call-task
+├ ƒ /api/actions/complete-job
+├ ƒ /api/actions/crews
+├ ƒ /api/actions/customer-logs
+├ ƒ /api/actions/export
+├ ƒ /api/actions/generate-payment-link
+├ ƒ /api/actions/ghost-health
+├ ƒ /api/actions/import-customers
+├ ƒ /api/actions/inbox
+├ ƒ /api/actions/insights-data
+├ ƒ /api/actions/insights-v2
+├ ƒ /api/actions/insights/crews
+├ ƒ /api/actions/insights/funnel
+├ ƒ /api/actions/insights/leads
+├ ƒ /api/actions/insights/pricing
+├ ƒ /api/actions/insights/retention
+├ ƒ /api/actions/job-invoice-details
+├ ƒ /api/actions/lead-journey
+├ ƒ /api/actions/memberships
+├ ƒ /api/actions/my-jobs
+├ ƒ /api/actions/notify-cleaners
+├ ƒ /api/actions/pipeline
+├ ƒ /api/actions/quotes
+├ ƒ /api/actions/quotes/preconfirm
+├ ƒ /api/actions/quotes/send
+├ ƒ /api/actions/recurring
+├ ƒ /api/actions/redeem-offer
+├ ƒ /api/actions/retargeting-ab-results
+├ ƒ /api/actions/retargeting-customers
+├ ƒ /api/actions/retargeting-pipeline
+├ ƒ /api/actions/retry-payment
+├ ƒ /api/actions/send-employee-credentials
+├ ƒ /api/actions/send-invoice
+├ ƒ /api/actions/send-payment-links
+├ ƒ /api/actions/send-sms
+├ ƒ /api/actions/settings
+├ ƒ /api/actions/sync-hubspot
+├ ƒ /api/actions/sync-openphone-contacts
+├ ƒ /api/actions/sync-openphone-messages
+├ ƒ /api/actions/time-off
+├ ƒ /api/admin/audit-tasks
+├ ƒ /api/admin/cleaners
+├ ƒ /api/admin/clone-vapi-assistants
+├ ƒ /api/admin/onboard
+├ ƒ /api/admin/patch-vapi-transfer
+├ ƒ /api/admin/register-webhook
+├ ƒ /api/admin/register-webhook-direct
+├ ƒ /api/admin/reregister-all-webhooks
+├ ƒ /api/admin/reset-customer
+├ ƒ /api/admin/sync-openphone-contacts
+├ ƒ /api/admin/tenants
+├ ƒ /api/admin/test-connection
+├ ƒ /api/admin/test-connection-direct
+├ ƒ /api/admin/users
+├ ƒ /api/admin/verify-all-webhooks
+├ ƒ /api/admin/verify-webhooks
+├ ƒ /api/assistant/chat
+├ ƒ /api/assistant/conversations
+├ ƒ /api/assistant/conversations/[id]
+├ ƒ /api/assistant/conversations/[id]/summarize
+├ ƒ /api/auth/crew-login
+├ ƒ /api/auth/google-lsa
+├ ƒ /api/auth/google-lsa/callback
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/session
+├ ƒ /api/auth/switch
+├ ƒ /api/automation/job-broadcast
+├ ƒ /api/automation/lead-followup
+├ ƒ /api/automation/send-reminder
+├ ƒ /api/blog/[slug]
+├ ƒ /api/blog/generate
+├ ƒ /api/bridge/dedup
+├ ƒ /api/bridge/notify-outreach
+├ ƒ /api/calendar
+├ ƒ /api/call-tasks
+├ ƒ /api/calls
+├ ƒ /api/crew/[token]
+├ ƒ /api/crew/[token]/auto-session
+├ ƒ /api/crew/[token]/estimate/[jobId]
+├ ƒ /api/crew/[token]/estimate/[jobId]/card
+├ ƒ /api/crew/[token]/job/[jobId]
+├ ƒ /api/crew/[token]/job/[jobId]/charge
+├ ƒ /api/crew/[token]/job/[jobId]/messages
+├ ƒ /api/crew/[token]/job/[jobId]/tip-link
+├ ƒ /api/crew/[token]/new-quote
+├ ƒ /api/crew/[token]/preconfirm/[preconfirmId]
+├ ƒ /api/cron/audit-tasks
+├ ƒ /api/cron/brain-embed
+├ ƒ /api/cron/brain-ingest
+├ ƒ /api/cron/brain-learn
+├ ƒ /api/cron/check-timeouts
+├ ƒ /api/cron/crew-briefing
+├ ƒ /api/cron/extend-recurring-jobs
+├ ƒ /api/cron/follow-up-quoted
+├ ƒ /api/cron/frequency-nudge
+├ ƒ /api/cron/generate-blog-post
+├ ƒ /api/cron/ghl-followups
+├ ƒ /api/cron/ghost-watchdog
+├ ƒ /api/cron/lifecycle-auto-enroll
+├ ƒ /api/cron/lifecycle-reengagement
+├ ƒ /api/cron/monthly-followup
+├ ƒ /api/cron/monthly-reengagement
+├ ƒ /api/cron/osiris-learn
+├ ƒ /api/cron/poll-lsa-leads
+├ ƒ /api/cron/poll-meta-sheet
+├ ƒ /api/cron/post-job-followup
+├ ƒ /api/cron/process-email-leads
+├ ƒ /api/cron/process-scheduled-tasks
+├ ƒ /api/cron/route-dispatch
+├ ƒ /api/cron/score-conversations
+├ ƒ /api/cron/seasonal-reminders
+├ ƒ /api/cron/send-final-payments
+├ ƒ /api/cron/send-reminders
+├ ƒ /api/cron/sync-openphone-contacts
+├ ƒ /api/cron/unified-daily
+├ ƒ /api/customers
+├ ƒ /api/customers/lookup
+├ ƒ /api/demo/seed
+├ ƒ /api/earnings
+├ ƒ /api/events
+├ ƒ /api/exceptions
+├ ƒ /api/insights/revenue
+├ ƒ /api/jobs
+├ ƒ /api/leaderboard
+├ ƒ /api/leads
+├ ƒ /api/leads/[id]/actions
+├ ƒ /api/logistics/dispatch
+├ ƒ /api/logistics/optimize-day
+├ ƒ /api/logistics/rain-day
+├ ƒ /api/logistics/route/[date]
+├ ƒ /api/manage-teams
+├ ƒ /api/metrics
+├ ƒ /api/notifications
+├ ƒ /api/overview/lead-sources
+├ ƒ /api/places/autocomplete
+├ ƒ /api/pricing
+├ ƒ /api/pricing/addons
+├ ƒ /api/pricing/estimate
+├ ƒ /api/quotes/[token]
+├ ƒ /api/rain-day
+├ ƒ /api/search
+├ ƒ /api/service-plans
+├ ƒ /api/settings
+├ ƒ /api/system-events
+├ ƒ /api/teams
+├ ƒ /api/teams/cleaner-jobs
+├ ƒ /api/teams/earnings
+├ ƒ /api/teams/messages
+├ ƒ /api/teams/reorder
+├ ƒ /api/tenant/campaigns
+├ ƒ /api/tenant/status
+├ ƒ /api/tip/create
+├ ƒ /api/tip/job-info
+├ ƒ /api/vapi/choose-team
+├ ƒ /api/vapi/choose-team-winbros
+├ ƒ /api/vapi/schedule-estimate
+├ ƒ /api/vapi/send-customer-text
+├ ƒ /api/webhooks/ghl
+├ ƒ /api/webhooks/housecall-pro
+├ ƒ /api/webhooks/meta/[slug]
+├ ƒ /api/webhooks/openphone
+├ ƒ /api/webhooks/sam/[slug]
+├ ƒ /api/webhooks/stripe
+├ ƒ /api/webhooks/stripe/winbros
+├ ƒ /api/webhooks/telegram
+├ ƒ /api/webhooks/telegram/[slug]
+├ ƒ /api/webhooks/telegram/winbros
+├ ƒ /api/webhooks/vapi
+├ ƒ /api/webhooks/vapi/[slug]
+├ ƒ /api/webhooks/website/[slug]
+├ ○ /assistant
+├ ○ /calls
+├ ○ /campaigns
+├ ƒ /crew/[token]
+├ ƒ /crew/[token]/estimate/[jobId]
+├ ƒ /crew/[token]/job/[jobId]
+├ ƒ /crew/[token]/new-quote
+├ ƒ /crew/[token]/preconfirm/[preconfirmId]
+├ ○ /crews
+├ ○ /customers
+├ ○ /earnings
+├ ○ /exceptions
+├ ○ /inbox
+├ ○ /insights
+├ ○ /insights/crews
+├ ○ /insights/funnel
+├ ○ /insights/leads
+├ ○ /insights/pricing
+├ ○ /insights/retention
+├ ○ /insights/revenue
+├ ○ /jobs
+├ ○ /leaderboard
+├ ○ /leads
+├ ○ /login
+├ ○ /memberships
+├ ○ /my-schedule
+├ ○ /osiris-marketing
+├ ○ /osiris-marketing/sitemap.xml
+├ ○ /overview
+├ ƒ /quote/[token]
+├ ƒ /quote/[token]/success
+├ ○ /quotes
+├ ○ /rain-day
+├ ○ /retargeting/v1
+├ ○ /retargeting/v2
+├ ○ /retargeting/v3
+├ ○ /schedule
+├ ○ /spotless
+├ ○ /spotless/about
+├ ○ /spotless/accessibility
+├ ○ /spotless/areas
+├ ● /spotless/areas/[city]
+│ ├ /spotless/areas/los-angeles
+│ ├ /spotless/areas/santa-monica
+│ ├ /spotless/areas/beverly-hills
+│ └ [+17 more paths]
+├ ○ /spotless/blog                                                                    1h      1y
+├ ● /spotless/blog/[slug]                                                             1h      1y
+│ ├ /spotless/blog/how-much-does-house-cleaning-cost-in-los-angeles                   1h      1y
+│ ├ /spotless/blog/move-in-cleaning-checklist-what-to-clean-before-unpacking          1h      1y
+│ ├ /spotless/blog/how-to-keep-your-airbnb-guest-ready-between-bookings               1h      1y
+│ └ [+5 more paths]
+├ ○ /spotless/contact
+├ ○ /spotless/offer
+├ ○ /spotless/privacy
+├ ○ /spotless/services
+├ ● /spotless/services/[slug]
+│ ├ /spotless/services/standard-cleaning
+│ ├ /spotless/services/deep-cleaning
+│ ├ /spotless/services/move-in-out-cleaning
+│ └ [+3 more paths]
+├ ● /spotless/services/[slug]/[city]
+│ ├ /spotless/services/standard-cleaning/los-angeles
+│ ├ /spotless/services/standard-cleaning/santa-monica
+│ ├ /spotless/services/standard-cleaning/beverly-hills
+│ └ [+117 more paths]
+├ ○ /spotless/sitemap.xml
+├ ○ /spotless/terms
+├ ○ /teams
+├ ○ /teams/manage
+├ ƒ /tip/[jobId]
+└ ƒ /tip/[jobId]/success
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+●  (SSG)      prerendered as static HTML (uses generateStaticParams)
+ƒ  (Dynamic)  server-rendered on demand
+

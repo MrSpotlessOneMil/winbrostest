@@ -17,6 +17,10 @@ import {
 import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
+<<<<<<< HEAD
+=======
+import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
+>>>>>>> Test
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -25,7 +29,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { jobId, cleanerId } = body
+    const { jobId, cleanerId, mode } = body
 
     if (!jobId) {
       return NextResponse.json(
@@ -41,6 +45,15 @@ export async function POST(request: NextRequest) {
         { error: 'Job not found' },
         { status: 404 }
       )
+    }
+
+    // Ranked/broadcast mode: delegate to triggerCleanerAssignment with override
+    if (mode === 'ranked' || mode === 'broadcast') {
+      const result = await triggerCleanerAssignment(String(jobId), undefined, mode)
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || 'Assignment failed' }, { status: 500 })
+      }
+      return NextResponse.json({ success: true, mode })
     }
 
     // Get customer details
@@ -87,7 +100,39 @@ export async function POST(request: NextRequest) {
       selectedCleaner = availableCleaners[0]
     }
 
-    // Create assignment
+    // Clear all existing assignments for this job (reassignment)
+    const supabase = (await import('@/lib/supabase')).getSupabaseServiceClient()
+
+    // Get stale assignment IDs to clean up FK dependencies first
+    const { data: staleAssignments } = await supabase
+      .from('cleaner_assignments')
+      .select('id')
+      .eq('job_id', Number(jobId))
+      .eq('tenant_id', tenant.id)
+      .in('status', ['cancelled', 'declined'])
+
+    if (staleAssignments && staleAssignments.length > 0) {
+      const staleIds = staleAssignments.map(a => a.id)
+      // Delete pending_sms_assignments that reference these (FK dependency)
+      await supabase
+        .from('pending_sms_assignments')
+        .delete()
+        .in('assignment_id', staleIds)
+      // Now delete the stale assignments
+      await supabase
+        .from('cleaner_assignments')
+        .delete()
+        .in('id', staleIds)
+    }
+
+    // Cancel any still-active assignments
+    await supabase
+      .from('cleaner_assignments')
+      .update({ status: 'cancelled' })
+      .eq('job_id', Number(jobId))
+      .in('status', ['pending', 'accepted', 'confirmed'])
+
+    // Create new assignment
     const assignment = await createCleanerAssignment(jobId, selectedCleaner.id!)
     if (!assignment) {
       return NextResponse.json(
@@ -96,10 +141,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update job with assigned cleaner name
-    await updateJob(jobId, {
-      // Store cleaner name in a field if you have one, or in notes
-    })
+    // Update job cleaner_id so calendar reflects the change
+    await updateJob(jobId, { cleaner_id: selectedCleaner.id })
+
+    // Cleaner assigned — check if payment also confirmed → mark booked
+    await maybeMarkBooked(jobId)
 
     // Cleaner assigned — check if payment also confirmed → mark booked
     await maybeMarkBooked(jobId)

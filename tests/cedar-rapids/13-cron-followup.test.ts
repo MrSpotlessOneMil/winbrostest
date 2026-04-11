@@ -23,7 +23,7 @@ describe('Cron: post-job-followup', () => {
     resetMockClient(seed)
 
     // Register the claim_jobs_for_followup RPC to return eligible jobs
-    mockClient.registerRpc('claim_jobs_for_followup', (params: any) => {
+    mockClient.registerRpc('claim_jobs_for_satisfaction_check', (params: any) => {
       if (params.p_tenant_id === CEDAR_RAPIDS_ID) {
         const jobs = mockClient.getTableData('jobs').filter(
           (j: any) =>
@@ -72,7 +72,7 @@ describe('Cron: post-job-followup', () => {
     // System event should be logged
     expect(mockLogSystemEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        event_type: 'POST_JOB_FOLLOWUP_SENT',
+        event_type: 'POST_JOB_SATISFACTION_SENT',
         tenant_id: CEDAR_RAPIDS_ID,
       })
     )

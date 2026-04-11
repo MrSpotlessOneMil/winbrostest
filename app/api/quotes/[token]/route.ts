@@ -48,7 +48,7 @@ export async function GET(
   // Fetch tenant info for branding + service type
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("id, slug, name, business_name, business_name_short, owner_phone, owner_email, google_review_link, workflow_config")
+    .select("id, slug, name, business_name, business_name_short, owner_phone, owner_email, google_review_link, workflow_config, currency")
     .eq("id", quote.tenant_id)
     .single()
 
@@ -92,7 +92,7 @@ export async function GET(
     cancellation_fee: cancellationFee,
     cancellation_window_hours: cancellationWindow,
     satisfaction_guarantee: true,
-    deposit_percentage: Number(wc.deposit_percentage || 50),
+    deposit_percentage: 0,
     processing_fee_percentage: 3,
     terms: [
       `A $${cancellationFee.toFixed(0)} cancellation fee applies if cancelled within ${cancellationWindow} hours of your scheduled appointment.`,
@@ -112,6 +112,8 @@ export async function GET(
     servicePlans: servicePlans || [],
     serviceAgreement,
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
+    custom_terms: quote.custom_terms || null,
+    quote_notes: quote.notes || null,
     tenant: {
       name: tenant.business_name || tenant.name,
       slug: tenant.slug,
@@ -120,6 +122,7 @@ export async function GET(
       brand_color: wc.brand_color || null,
       brand_color_light: wc.brand_color_light || null,
       logo_url: wc.logo_url || null,
+      currency: tenant.currency || 'usd',
     },
   })
 }
@@ -146,9 +149,14 @@ export async function PATCH(
     selected_addons,
     customer_name,
     customer_email,
+    customer_address,
     membership_plan,
     service_agreement_accepted,
     service_date,
+<<<<<<< HEAD
+=======
+    service_time,
+>>>>>>> Test
     customer_notes,
   } = body
 
@@ -318,7 +326,12 @@ export async function PATCH(
   }
   if (customer_name) updatePayload.customer_name = customer_name
   if (customer_email) updatePayload.customer_email = customer_email
+  if (customer_address && typeof customer_address === 'string') updatePayload.customer_address = customer_address
   if (service_date && typeof service_date === 'string') updatePayload.service_date = service_date
+<<<<<<< HEAD
+=======
+  if (service_time && typeof service_time === 'string') updatePayload.service_time = service_time
+>>>>>>> Test
   if (customer_notes && typeof customer_notes === 'string') updatePayload.notes = customer_notes.slice(0, 500)
 
   await supabase
@@ -332,9 +345,11 @@ export async function PATCH(
     const domain = await getTenantRedirectDomain(tenant.id)
     const quoteSuccessUrl = `${domain}/quote/${token}/success`
 
-    // If customer has an email, find or create Stripe customer
+    // Always find or create a Stripe customer so the card gets attached
     const email = (customer_email || quote.customer_email) as string | undefined
     let stripeCustomerId: string | undefined
+
+    // Try with email first (enables receipt emails)
     if (email) {
       try {
         const stripeCustomer = await findOrCreateStripeCustomer(
@@ -343,7 +358,7 @@ export async function PATCH(
         )
         stripeCustomerId = stripeCustomer.id
       } catch {
-        // Continue without Stripe customer — checkout will collect email
+        // Fall through to phone-only creation
       }
     }
 
@@ -366,10 +381,13 @@ export async function PATCH(
       setup_intent_data: {
         metadata: sessionMetadata,
       },
+      // Always create a Stripe customer so the card gets attached and is chargeable
+      customer_creation: 'always',
     }
 
     if (stripeCustomerId) {
       sessionParams.customer = stripeCustomerId
+      delete sessionParams.customer_creation // not needed when customer already exists
     } else if (email) {
       sessionParams.customer_email = email
     }

@@ -65,6 +65,39 @@ describe('template JSON loading', () => {
     expect(outbound.model.toolIds).toBeUndefined()
   })
 
+  it('house-cleaning-inbound has send-customer-text inline tool', () => {
+    const template = require('../../lib/vapi-templates/house-cleaning-inbound.json')
+    expect(template.model.tools).toBeDefined()
+    expect(Array.isArray(template.model.tools)).toBe(true)
+
+    const tool = template.model.tools.find(
+      (t: any) => t.function?.name === 'send-customer-text'
+    )
+    expect(tool).toBeDefined()
+    expect(tool.async).toBe(false)
+    expect(tool.server.url).toContain('/api/vapi/send-customer-text')
+
+    const params = tool.function.parameters
+    expect(params.required).toContain('message_type')
+    expect(params.required).toContain('bedrooms')
+    expect(params.required).toContain('bathrooms')
+    expect(params.properties.bedrooms.type).toBe('number')
+    expect(params.properties.bathrooms.type).toBe('number')
+    expect(params.properties.service_type).toBeDefined()
+  })
+
+  it('house-cleaning-inbound has no toolIds (uses inline tools)', () => {
+    const template = require('../../lib/vapi-templates/house-cleaning-inbound.json')
+    expect(template.model.toolIds).toBeUndefined()
+  })
+
+  it('house-cleaning-inbound prompt includes CRITICAL tool call instruction', () => {
+    const template = require('../../lib/vapi-templates/house-cleaning-inbound.json')
+    const prompt = template.model.messages[0].content
+    expect(prompt).toContain('CRITICAL: You MUST call send-customer-text')
+    expect(prompt).toContain('MANDATORY. Call this TWICE')
+  })
+
   it('inbound template contains all required placeholders in system prompt', () => {
     const template = require('../../lib/vapi-templates/winbros-inbound.json')
     const systemPrompt = template.model.messages[0].content
@@ -197,6 +230,25 @@ describe('cloneVapiForTenant', () => {
 
     const headers = mockFetch.mock.calls[0][1].headers
     expect(headers.Authorization).toBe('Bearer my-secret-key')
+  })
+
+  it('replaces tool server URLs for spotless flow', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 'new-id' }),
+    })
+
+    await cloneVapiForTenant('fake-key', 'spotless', cloneOpts)
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    const tools = body.model?.tools
+    expect(tools).toBeDefined()
+    expect(tools.length).toBeGreaterThan(0)
+
+    const sendTextTool = tools.find((t: any) => t.function?.name === 'send-customer-text')
+    expect(sendTextTool).toBeDefined()
+    expect(sendTextTool.server.url).toBe('https://app.example.com/api/vapi/send-customer-text')
+    expect(sendTextTool.server.url).not.toContain('placeholder')
   })
 
   it('replaces endCallMessage and voicemailMessage placeholders', async () => {

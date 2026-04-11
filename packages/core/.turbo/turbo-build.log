@@ -1,0 +1,5 @@
+
+> @osiris/core@0.0.1 build
+> echo '@osiris/core: type-checked by consuming apps via transpilePackages'
+
+'@osiris/core: type-checked by consuming apps via transpilePackages'

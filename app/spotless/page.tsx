@@ -68,7 +68,11 @@ const WHY_CHOOSE = [
   {
     title: "Book in 60 Seconds",
     description:
+<<<<<<< HEAD
       "No phone tag, no waiting for callbacks. Get an instant quote, pick your date, and you are confirmed on the spot. It is that fast.",
+=======
+      "We only use high-quality, safe products. I have kids in my own family - I would never bring anything into your home that I would not use in mine.",
+>>>>>>> Test
   },
   {
     title: "Guaranteed Peace of Mind",
@@ -244,9 +248,15 @@ export default function HomePage() {
               </h1>
 
               <p className="text-lg text-white/80 mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
+<<<<<<< HEAD
                 Get an instant quote, pick your date, and your cleaning is
                 confirmed — right now. Fully insured, background-checked, and
                 backed by a 100% satisfaction guarantee.
+=======
+                Hey, I&apos;m Dominic. My team and I have been cleaning homes and
+                businesses across LA County since 2023. We are fully insured,
+                background-checked, and we do not cancel on you. Ever.
+>>>>>>> Test
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
@@ -265,8 +275,13 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-2 text-sm text-white/60">
+<<<<<<< HEAD
                 <span>Instant Booking</span>
                 <span>Insured & Background-Checked</span>
+=======
+                <span>Insured & Bonded</span>
+                <span>Background-Checked Team</span>
+>>>>>>> Test
                 <span>5.0 Stars on Google</span>
               </div>
             </div>

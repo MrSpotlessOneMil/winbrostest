@@ -22,6 +22,10 @@ import { notifyCleanerAssignment } from './cleaner-sms'
 import { logSystemEvent } from './system-events'
 import { getTenantById, getDefaultTenant, tenantUsesFeature } from './tenant'
 import { maybeMarkBooked } from './maybe-mark-booked'
+<<<<<<< HEAD
+=======
+import { scheduleTask } from './scheduler'
+>>>>>>> Test
 
 // Extended Cleaner type with location data (now included in base Cleaner interface)
 export type CleanerWithLocation = Cleaner
@@ -321,7 +325,9 @@ export async function assignNextAvailableCleaner(
  * @returns Result with success status and optional error message
  */
 export async function triggerCleanerAssignment(
-  jobId: string
+  jobId: string,
+  excludeCleanerIds?: string[],
+  modeOverride?: 'broadcast' | 'ranked' | 'distance'
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Get the job details
@@ -354,9 +360,13 @@ export async function triggerCleanerAssignment(
       }
     }
 
-    // Look up the correct tenant from job.tenant_id
+    // Look up the correct tenant from job.tenant_id — NEVER fall back to a default tenant
     const jobTenantId = (job as any).tenant_id
-    const tenant = jobTenantId ? await getTenantById(jobTenantId) : await getDefaultTenant()
+    if (!jobTenantId) {
+      console.error(`[cleaner-assignment] Job ${jobId} has no tenant_id — cannot assign. Skipping to prevent cross-tenant bleed.`)
+      return { success: false, error: 'Job has no tenant_id' }
+    }
+    const tenant = await getTenantById(jobTenantId)
 
     // ──────────────────────────────────────────────────────────────────────
     // RECURRING PREFERRED CLEANER — runs before broadcast/routing split.
@@ -373,26 +383,39 @@ export async function triggerCleanerAssignment(
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // TENANT ISOLATION — TWO MUTUALLY EXCLUSIVE ASSIGNMENT MODES:
+    // TENANT ISOLATION — THREE MUTUALLY EXCLUSIVE ASSIGNMENT MODES:
     //
-    // BROADCAST (Cedar Rapids: use_broadcast_assignment=true):
+    // BROADCAST (Cedar Rapids: assignment_mode='broadcast' or legacy use_broadcast_assignment=true):
     //   Notify ALL available cleaners at once. First to click "Available" wins.
     //   Multi-cleaner jobs: keep accepting until all slots filled.
     //   Customer SMS sent only after all slots filled.
     //
-    // DISTANCE ROUTING (WinBros default: use_broadcast_assignment=false):
+    // RANKED (assignment_mode='ranked'):
+    //   Send to highest-ranked cleaner first. 20-min cascade on no response.
+    //   Owner sets rank order via drag-and-drop on Teams page.
+    //
+    // DISTANCE ROUTING (WinBros default: assignment_mode='distance' or no mode set):
     //   Pick one cleaner at a time (closest first). Cascade on decline.
     //
     // Do NOT merge these code paths or add cross-dependencies between them.
     // ──────────────────────────────────────────────────────────────────────
-    if (tenant && tenantUsesFeature(tenant, 'use_broadcast_assignment')) {
+    const assignmentMode = modeOverride
+      || tenant?.workflow_config?.assignment_mode
+      || (tenant && tenantUsesFeature(tenant, 'use_broadcast_assignment') ? 'broadcast' : 'distance')
+
+    if (assignmentMode === 'ranked' && tenant) {
+      console.log(`[cleaner-assignment] RANKED MODE for tenant ${tenant.slug}, job ${jobId}`)
+      return await triggerRankedAssignment(jobId, job, tenant, excludeCleanerIds)
+    }
+
+    if (assignmentMode === 'broadcast' && tenant) {
       console.log(`[cleaner-assignment] BROADCAST MODE for tenant ${tenant.slug}, job ${jobId}`)
       return await triggerBroadcastAssignment(jobId, job, tenant)
     }
 
-    // ROUTING MODE (default): Pick one cleaner at a time based on distance
+    // DISTANCE ROUTING (default): Pick one cleaner at a time based on distance
     console.log(`[cleaner-assignment] DISTANCE ROUTING MODE for tenant ${tenant?.slug || 'unknown'}, job ${jobId}`)
-    const assignResult = await assignNextAvailableCleaner(jobId)
+    const assignResult = await assignNextAvailableCleaner(jobId, excludeCleanerIds || [])
 
     if (!assignResult.success) {
       if (assignResult.exhausted) {
@@ -578,6 +601,163 @@ async function triggerBroadcastAssignment(
   // Cleaner(s) assigned — check if payment also confirmed → mark booked
   await maybeMarkBooked(jobId)
 
+<<<<<<< HEAD
+=======
+  return { success: true }
+}
+
+/**
+ * Ranked assignment: send job to highest-ranked available cleaner.
+ * If they don't respond in 20 minutes, auto-cascade to next ranked cleaner.
+ * Owner sets rank order via drag-and-drop on Teams page.
+ */
+async function triggerRankedAssignment(
+  jobId: string,
+  job: Job,
+  tenant: NonNullable<Awaited<ReturnType<typeof getTenantById>>>,
+  excludeCleanerIds?: string[]
+): Promise<{ success: boolean; error?: string }> {
+  const effectiveTenantId = (job as any).tenant_id || undefined
+
+  // Get all available cleaners for this date/time
+  const availableCleaners = await getCleanerAvailability(
+    job.date || '',
+    job.scheduled_at || undefined,
+    effectiveTenantId
+  )
+
+  if (availableCleaners.length === 0) {
+    await logSystemEvent({
+      source: 'openphone',
+      event_type: 'OWNER_ACTION_REQUIRED',
+      message: `No available cleaners for job ${jobId} (ranked)`,
+      job_id: jobId,
+      phone_number: job.phone_number,
+      metadata: { job_date: job.date, job_time: job.scheduled_at, reason: 'no_cleaners_available', mode: 'ranked' },
+    })
+
+    if (tenant.owner_phone) {
+      const { sendSMS } = await import('./openphone')
+      await sendSMS(
+        tenant,
+        tenant.owner_phone,
+        `No Cleaners Available\n\nJob #${jobId} on ${job.date || 'TBD'} at ${job.scheduled_at || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nNo cleaners are available for this date. Manual assignment required.`
+      )
+    }
+
+    return { success: false, error: 'No available cleaners for this job' }
+  }
+
+  // Build exclude set from existing assignments + explicit excludes
+  const existingAssignments = await getCleanerAssignmentsForJob(jobId)
+  const alreadyContactedIds = new Set(existingAssignments.map(a => a.cleaner_id))
+  const excludeSet = new Set([
+    ...Array.from(alreadyContactedIds),
+    ...(excludeCleanerIds || []),
+  ])
+
+  // Filter and sort by rank ascending (lower rank = better, nulls last)
+  const eligible = availableCleaners
+    .filter(c => c.id && !excludeSet.has(c.id))
+    .sort((a, b) => {
+      const aRank = (a as any).rank as number | null
+      const bRank = (b as any).rank as number | null
+      if (aRank == null && bRank == null) return 0
+      if (aRank == null) return 1
+      if (bRank == null) return -1
+      return aRank - bRank
+    })
+
+  if (eligible.length === 0) {
+    await logSystemEvent({
+      source: 'openphone',
+      event_type: 'OWNER_ACTION_REQUIRED',
+      message: `All ranked cleaners exhausted for job ${jobId}`,
+      job_id: jobId,
+      phone_number: job.phone_number,
+      metadata: { job_date: job.date, job_time: job.scheduled_at, reason: 'ranked_assignment_exhausted', mode: 'ranked' },
+    })
+
+    if (tenant.owner_phone) {
+      const { sendSMS } = await import('./openphone')
+      await sendSMS(
+        tenant,
+        tenant.owner_phone,
+        `All Cleaners Declined/Unavailable\n\nJob #${jobId} on ${job.date || 'TBD'}\nAddress: ${job.address || 'N/A'}\n\nAll ranked cleaners have been contacted. Manual assignment required.`
+      )
+    }
+
+    return { success: false, error: 'All ranked cleaners exhausted' }
+  }
+
+  // Pick the top-ranked eligible cleaner
+  const selectedCleaner = eligible[0]
+  if (!selectedCleaner.id) {
+    return { success: false, error: 'Selected cleaner has no ID' }
+  }
+
+  const assignment = await createCleanerAssignment(jobId, selectedCleaner.id)
+  if (!assignment) {
+    return { success: false, error: `Failed to create assignment for cleaner ${selectedCleaner.id}` }
+  }
+
+  // Send notification
+  const customer = job.phone_number ? await getCustomerByPhone(job.phone_number) : null
+  let notified = false
+  if (selectedCleaner.phone) {
+    const notifyResult = await notifyCleanerAssignment(
+      tenant,
+      selectedCleaner,
+      job,
+      customer || undefined,
+      assignment.id
+    )
+    notified = notifyResult.success
+    if (!notifyResult.success) {
+      console.error(`[cleaner-assignment] Ranked: failed to notify ${selectedCleaner.name}: ${notifyResult.error}`)
+    }
+  }
+
+  // Schedule 20-minute auto-cascade if no response
+  try {
+    const cascadeAt = new Date(Date.now() + 20 * 60 * 1000) // 20 minutes
+    await scheduleTask({
+      tenantId: tenant.id,
+      taskType: 'ranked_cascade',
+      taskKey: `ranked_cascade_${jobId}_${selectedCleaner.id}`,
+      scheduledFor: cascadeAt,
+      payload: {
+        jobId,
+        cleanerId: selectedCleaner.id,
+        assignmentId: assignment.id,
+      },
+    })
+  } catch (err) {
+    console.error(`[cleaner-assignment] Failed to schedule ranked cascade for job ${jobId}:`, err)
+  }
+
+  await logSystemEvent({
+    source: 'openphone',
+    event_type: 'CLEANER_BROADCAST',
+    message: `Ranked: sent job ${jobId} to #${(selectedCleaner as any).rank ?? 'unranked'} cleaner ${selectedCleaner.name}`,
+    job_id: jobId,
+    phone_number: job.phone_number,
+    cleaner_id: selectedCleaner.id,
+    metadata: {
+      cleaner_name: selectedCleaner.name,
+      cleaner_rank: (selectedCleaner as any).rank,
+      assignment_id: assignment.id,
+      job_date: job.date,
+      job_time: job.scheduled_at,
+      notification_sent: notified,
+      mode: 'ranked',
+      remaining_cleaners: eligible.length - 1,
+    },
+  })
+
+  await maybeMarkBooked(jobId)
+
+>>>>>>> Test
   return { success: true }
 }
 
@@ -643,7 +823,7 @@ export async function cascadeToNextCleaner(
   const excludeIds = existingAssignments.map((a) => a.cleaner_id)
 
   // Trigger assignment excluding all previously contacted cleaners
-  return await triggerCleanerAssignment(jobId)
+  return await triggerCleanerAssignment(jobId, excludeIds)
 }
 
 /**

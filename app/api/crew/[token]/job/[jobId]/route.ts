@@ -15,6 +15,7 @@ import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
 import { getEstimateFromNotes } from '@/lib/pricing-config'
+import { getPricingAddons } from '@/lib/pricing-db'
 
 type RouteParams = { params: Promise<{ token: string; jobId: string }> }
 
@@ -31,24 +32,53 @@ async function resolveContext(token: string, jobId: string) {
 
   if (!cleaner) return null
 
-  // Verify cleaner has an assignment for this job
+  // Verify cleaner has access to this job via:
+  // 1. cleaner_assignments (broadcast system)
+  // 2. direct cleaner_id on the job (TL owns the job)
+  // 3. crew_day_members (assigned to TL who owns the job via crew board)
   const { data: assignment } = await client
     .from('cleaner_assignments')
     .select('id, status, tenant_id')
     .eq('cleaner_id', cleaner.id)
     .eq('job_id', parseInt(jobId))
     .eq('tenant_id', cleaner.tenant_id)
-    .in('status', ['pending', 'accepted', 'confirmed'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
-  if (!assignment) return null
+  if (!assignment) {
+    // Check if this job is directly assigned to this cleaner (TL) or via crew board
+    const { data: jobCheck } = await client
+      .from('jobs')
+      .select('id, cleaner_id, date')
+      .eq('id', parseInt(jobId))
+      .eq('tenant_id', cleaner.tenant_id)
+      .maybeSingle()
+
+    if (!jobCheck) return null
+
+    const isDirectTL = jobCheck.cleaner_id === cleaner.id
+    let isCrewMember = false
+
+    if (!isDirectTL && jobCheck.cleaner_id) {
+      // Check if cleaner is assigned to this job's TL on this date via crew_day_members
+      const { data: crewCheck } = await client
+        .from('crew_day_members')
+        .select('id, crew_days!inner(date, team_lead_id)')
+        .eq('cleaner_id', cleaner.id)
+
+      isCrewMember = (crewCheck || []).some((cm: any) =>
+        cm.crew_days?.team_lead_id === jobCheck.cleaner_id && cm.crew_days?.date === jobCheck.date
+      )
+    }
+
+    if (!isDirectTL && !isCrewMember) return null
+  }
 
   const { data: job } = await client
     .from('jobs')
     .select(`
-      id, date, scheduled_at, address, service_type, status, notes,
+      id, date, scheduled_at, address, service_type, status, notes, addons,
       bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
@@ -99,7 +129,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     (completedItems || []).map((i: any) => [i.checklist_item_id, i])
   )
 
-  const checklist = (checklistItems || []).map((item: any) => ({
+  const checklist: any[] = (checklistItems || []).map((item: any) => ({
     id: item.id,
     text: item.item_text,
     order: item.item_order,
@@ -107,6 +137,34 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     completed: completedMap.get(item.id)?.completed || false,
     completed_at: completedMap.get(item.id)?.completed_at || null,
   }))
+
+  // Inject add-on items that aren't already covered by the static checklist
+  // e.g. "inside fridge" added to a standard cleaning should still appear
+  // Dynamic lookup from pricing_addons table so ALL tenant addons are covered
+  const tenantAddons = await getPricingAddons(tenant.id)
+  const addonLabelMap: Record<string, string> = {}
+  for (const a of tenantAddons) {
+    addonLabelMap[a.addon_key] = a.label
+  }
+  try {
+    const jobAddons: { key: string; label?: string; price?: number }[] = job.addons ? (typeof job.addons === 'string' ? JSON.parse(job.addons) : job.addons) : []
+    const existingTexts = new Set(checklist.map((c) => c.text.toLowerCase()))
+    let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
+    for (const addon of jobAddons) {
+      // Priority: stored label from job data → pricing_addons DB → humanize key
+      const label = addon.label || addonLabelMap[addon.key] || addon.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+      // Skip if the checklist already has this item (case-insensitive partial match)
+      if ([...existingTexts].some((t) => t.includes(label.toLowerCase().split(' ')[0]) && t.includes(label.toLowerCase().split(' ').slice(-1)[0]))) continue
+      checklist.push({
+        id: `addon_${addon.key}`,
+        text: label,
+        order: nextOrder++,
+        required: true,
+        completed: false,
+        completed_at: null,
+      })
+    }
+  } catch {}
 
   // Show customer phone only for WinBros (use_hcp_mirror feature flag)
   const showCustomerPhone = tenantUsesFeature(tenant, 'use_hcp_mirror')
@@ -123,6 +181,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
+
+  // Cleaner pay: use PAY tag from notes, fallback to price × cleaner_pay_percentage
+  let cleanerPay = estimate.cleanerPay ?? null
+  if (cleanerPay == null && job.price) {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    if (payPercentage) {
+      cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+    }
+  }
 
   // Strip structured tags from notes so frontend only shows human-readable instructions
   const cleanedNotes = job.notes
@@ -154,7 +221,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       bathrooms: job.bathrooms,
       sqft: job.sqft,
       hours: job.hours,
-      cleaner_pay: estimate.cleanerPay ?? null,
+      cleaner_pay: cleanerPay,
+      currency: tenant.currency || 'usd',
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,
       num_cleaners: estimate.cleaners ?? null,
@@ -165,9 +233,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       payment_method: job.payment_method,
       card_on_file: hasCardOnFile,
     },
-    assignment: {
+    assignment: assignment ? {
       id: assignment.id,
       status: assignment.status,
+    } : {
+      id: null,
+      status: 'confirmed', // crew board assignments are implicitly confirmed
     },
     customer: customerData,
     checklist,
@@ -227,7 +298,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const customerPhone = customer?.phone_number || job.phone_number
     if (customerPhone && body.status !== 'done') {
       const statusMap = { omw: 'omw', here: 'arrived' } as const
-      await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap])
+      await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[body.status as keyof typeof statusMap], cleaner.name)
     }
 
     // On DONE: auto-charge card + single satisfaction check
@@ -259,7 +330,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             tenant.stripe_secret_key,
             stripeCustomerId,
             chargeCents,
-            { job_id: jobId, phone_number: customerPhone || '', payment_type: 'AUTO_CHARGE_ON_DONE' }
+            { job_id: jobId, phone_number: customerPhone || '', payment_type: 'AUTO_CHARGE_ON_DONE' },
+            tenant.currency || 'usd'
           )
 
           if (chargeResult.success) {
@@ -304,11 +376,18 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   // Handle checklist update
   if (body.checklist_item_id !== undefined) {
     const completed = !!body.completed
+    const itemId = body.checklist_item_id
+
+    // Add-on checklist items have string IDs (e.g. "addon_inside_fridge")
+    // — can't store in job_checklist_items FK. Accept toggle silently.
+    if (typeof itemId === 'string' && String(itemId).startsWith('addon_')) {
+      return NextResponse.json({ success: true })
+    }
 
     await client.from('job_checklist_items').upsert(
       {
         job_id: parseInt(jobId),
-        checklist_item_id: body.checklist_item_id,
+        checklist_item_id: itemId,
         completed,
         completed_at: completed ? new Date().toISOString() : null,
         completed_by: typeof cleaner.id === 'string' ? parseInt(cleaner.id) : cleaner.id,
@@ -358,6 +437,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const { cleaner, assignment, job, tenant, client } = ctx
 
+<<<<<<< HEAD
+=======
+  // Accept/decline/cancel only works for broadcast assignments, not crew board
+  if (!assignment) {
+    return NextResponse.json({ error: 'Crew board assignments cannot be accepted/declined here' }, { status: 400 })
+  }
+
+>>>>>>> Test
   // Handle cancel after accepting — cleaner backs out of an accepted/confirmed job
   if (action === 'cancel_accepted') {
     if (!['accepted', 'confirmed'].includes(assignment.status)) {

@@ -11,16 +11,29 @@ export type SystemEventSource =
   | 'system'
   | 'ghl'
   | 'housecall_pro'
+  | 'housecall_pro_webhook'
   | 'job_updates'
   | 'lead_followup'
   | 'scheduler'
   | 'lead_actions'
   | 'email_cron'
   | 'website'
+<<<<<<< HEAD
   | 'meta'
   | 'google'
   | 'referral'
   | 'thumbtack'
+=======
+  | 'thumbtack'
+  | 'dashboard'
+  | 'osiris-brain'
+  | 'tip'
+  | 'complete-job'
+  | 'google_lsa'
+  | 'lifecycle'
+  | 'offers'
+  | 'ghost_watchdog'
+>>>>>>> Test
 
 export type SystemEventType =
   | 'CALL_COMPLETED'
@@ -139,6 +152,51 @@ export type SystemEventType =
   | 'POST_JOB_SATISFACTION_NEGATIVE'
   // Website Lead Events
   | 'WEBSITE_LEAD_RECEIVED'
+  // Thumbtack Events
+  | 'THUMBTACK_LEAD_CREATED'
+  | 'THUMBTACK_CONNECTED'
+  // Add-on & Charge Events
+  | 'ADDON_CHARGE_ADDED'
+  | 'CARD_CHARGED'
+  | 'AUTO_CHARGE_SUCCESS'
+  | 'AUTO_CHARGE_FAILED'
+  | 'CHARGE_FAILED'
+  // Cancellation Events
+  | 'CANCELLATION_FEE_MANUAL'
+  | 'CANCELLATION_FEE_CHARGED'
+  // Dashboard Manual Control
+  | 'MANUAL_TAKEOVER'
+  | 'MANUAL_RELEASE'
+  // AI/Brain Events
+  | 'SCORING_COMPLETED'
+  // LSA Events
+  | 'LSA_LEAD_RECEIVED'
+  | 'LSA_METRICS_SNAPSHOT'
+  // Hot Lead Events
+  | 'HOT_LEAD_ALERT_SENT'
+  | 'HOT_LEAD_FROM_RETARGETING'
+  // Tip Events
+  | 'TIP_SESSION_CREATED'
+  // GHL Tenant Errors
+  | 'GHL_TENANT_MISSING'
+  // HCP Auto-Assignment
+  | 'TECHNICIAN_AUTO_ASSIGNED'
+  // Offer Events
+  | 'OFFER_CREATED'
+  // Membership Events (extended)
+  | 'MEMBERSHIP_RENEWAL_SMS_FAILED'
+  | 'MEMBERSHIP_REENROLLMENT_REQUESTED'
+  // Auto Response Events (extended)
+  | 'AUTO_RESPONSE_SKIPPED'
+  | 'AUTO_RESPONSE_ERROR'
+  // Card Events
+  | 'CARD_ON_FILE_TERMS_SENT'
+  // Post Booking
+  | 'POST_BOOKING_MESSAGE_HANDLED'
+  // Ghost Watchdog Events
+  | 'GHOST_WATCHDOG_CATCH'
+  | 'GHOST_WATCHDOG_RESPONSE'
+  | 'SMS_DELIVERY_FAILED'
 
 export interface SystemEventInput {
   tenant_id?: string

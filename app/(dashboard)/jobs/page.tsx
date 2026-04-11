@@ -1,6 +1,8 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
+import { createPortal } from "react-dom"
 import { useAuth } from "@/lib/auth-context"
 import CubeLoader from "@/components/ui/cube-loader"
 import FullCalendar from "@fullcalendar/react"
@@ -11,6 +13,9 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
+import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
+import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
+import { StripeCardForm } from "@/components/stripe-card-form"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -62,6 +67,9 @@ type CalendarEventDetails = {
   parentJobId: string | null
   jobType: string
   leadSource: string
+  customerPhone: string
+  customerEmail: string
+  customerId: string
 }
 
 type PendingMove = {
@@ -86,7 +94,7 @@ type AddonOption = {
   minutes: number
 }
 
-type AssignmentMode = "auto_broadcast" | "unassigned" | "specific"
+type AssignmentMode = "auto_broadcast" | "ranked" | "unassigned" | "specific"
 
 type CreateForm = {
   customer_phone: string
@@ -103,7 +111,8 @@ type CreateForm = {
   bathrooms: string
   sqft: string
   frequency: string
-  cleaner_id: string
+  cleaner_ids: string[]
+  cleaner_count: string
   assignment_mode: AssignmentMode
   is_quote: boolean
   selected_addons: string[]
@@ -368,20 +377,31 @@ const STORAGE_KEY_VIEW = "calendar-view"
 const STORAGE_KEY_DATE = "calendar-date"
 
 function getSavedView(): string {
-  if (typeof window === "undefined") return "dayGridMonth"
+  if (typeof window === "undefined") return "timeGridWeek"
   const saved = localStorage.getItem(STORAGE_KEY_VIEW)
-  if (saved) return saved
+  if (saved && saved !== "gantt") return saved
   // Default to list view on mobile for better readability
-  return window.innerWidth < 768 ? "listMonth" : "dayGridMonth"
+  return window.innerWidth < 768 ? "listWeek" : "timeGridWeek"
+}
+
+function getSavedIsGantt(): boolean {
+  if (typeof window === "undefined") return false
+  return localStorage.getItem(STORAGE_KEY_VIEW) === "gantt"
 }
 
 function getSavedDate(): string | undefined {
   if (typeof window === "undefined") return undefined
-  return localStorage.getItem(STORAGE_KEY_DATE) || undefined
+  const saved = localStorage.getItem(STORAGE_KEY_DATE)
+  if (!saved) return new Date().toISOString().split("T")[0]
+  // If saved date is more than 1 day from today, snap to today
+  const diff = Math.abs(Date.now() - new Date(saved).getTime())
+  if (diff > 86_400_000) return new Date().toISOString().split("T")[0]
+  return saved
 }
 
 export default function JobsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [loading, setLoading] = useState(true)
@@ -389,6 +409,9 @@ export default function JobsPage() {
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
+  const [ganttView, setGanttView] = useState(getSavedIsGantt)
+  const [activeFcView, setActiveFcView] = useState(getSavedView)
+  const [hiddenCleaners, setHiddenCleaners] = useState<Set<string>>(new Set())
   const [createForm, setCreateForm] = useState<CreateForm>({
     customer_phone: "",
     customer_name: "",
@@ -404,7 +427,8 @@ export default function JobsPage() {
     bathrooms: "",
     sqft: "",
     frequency: "one-time",
-    cleaner_id: "",
+    cleaner_ids: [],
+    cleaner_count: "1",
     assignment_mode: "auto_broadcast" as AssignmentMode,
     is_quote: false,
     selected_addons: [],
@@ -415,7 +439,26 @@ export default function JobsPage() {
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
+  const [quoteSuccess, setQuoteSuccess] = useState<{ url: string; token: string; quoteId?: string; sent: boolean; sending?: boolean; customerPhone?: string; customerId?: string } | null>(null)
   const [addonsList, setAddonsList] = useState<AddonOption[]>([])
+  // Payment menu state (shared between quote success + event detail)
+  const [pmOpen, setPmOpen] = useState(false)
+  const [pmType, setPmType] = useState<string | null>(null)
+  const [pmAmount, setPmAmount] = useState("")
+  const [pmJobId, setPmJobId] = useState("")
+  const [pmLoading, setPmLoading] = useState(false)
+  const [pmResult, setPmResult] = useState<{ url?: string; invoiceId?: string } | null>(null)
+  const [pmCopied, setPmCopied] = useState(false)
+  const [pmSmsSent, setPmSmsSent] = useState(false)
+  const [pmSmsSending, setPmSmsSending] = useState(false)
+  const [pmChargeLoading, setPmChargeLoading] = useState(false)
+  const [pmChargeResult, setPmChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
+  const [pmChargeDesc, setPmChargeDesc] = useState("")
+  const [pmError, setPmError] = useState<string | null>(null)
+  const [cardFormOpen, setCardFormOpen] = useState(false)
+  const [pmPos, setPmPos] = useState<{ top: number; left: number } | null>(null)
+  const pmRef = useRef<HTMLDivElement>(null)
+  const pmBtnRef = useRef<HTMLButtonElement>(null)
   const [lookedUpCustomerId, setLookedUpCustomerId] = useState<string | null>(null)
   const [customerMemberships, setCustomerMemberships] = useState<CustomerMembership[]>([])
   const [servicePlans, setServicePlans] = useState<ServicePlan[]>([])
@@ -426,13 +469,18 @@ export default function JobsPage() {
   const [addChargeDesc, setAddChargeDesc] = useState("")
   const [addChargeSaving, setAddChargeSaving] = useState(false)
   const [basePrice, setBasePrice] = useState<number>(0)
+  const [baseLaborMinutes, setBaseLaborMinutes] = useState<number>(0)
   const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
   const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
   const [phoneLookedUp, setPhoneLookedUp] = useState("")
   const [phoneSuggestions, setPhoneSuggestions] = useState<any[]>([])
   const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false)
+  const [customerSearch, setCustomerSearch] = useState("")
+  const [customerSearchResults, setCustomerSearchResults] = useState<any[]>([])
+  const [showCustomerSearch, setShowCustomerSearch] = useState(false)
   const [isPreviewing, setIsPreviewing] = useState(false)
   // Refs for values read inside closures/timeouts to avoid stale captures
+  const pendingJobOpenRef = useRef<string | null>(null)
   const isPreviewingRef = useRef(false)
   const formSnapshotRef = useRef<CreateForm | null>(null)
   const basePriceSnapshotRef = useRef<number>(0)
@@ -459,12 +507,30 @@ export default function JobsPage() {
         if (res.success && res.data?.price != null) {
           const base = Number(res.data.price)
           setBasePrice(base)
-          // Add addon prices
+          // Add addon prices (skip addons included in the tier — their cost is in the base price)
+          const st = (createForm.service_type || "").toLowerCase()
+          const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
           const addonTotal = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
+            const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
+            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            if (dbInc || codeInc) return sum
             return sum + (addon?.flat_price || 0)
           }, 0)
-          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+          // Auto-set duration and cleaner count from labor_hours
+          const laborMins = res.data.labor_hours ? Math.round(Number(res.data.labor_hours) * 60) : 0
+          const recCleaners = res.data.cleaners ? Number(res.data.cleaners) : 1
+          setBaseLaborMinutes(laborMins)
+          const addonMins = createForm.selected_addons.reduce((sum, key) => {
+            const addon = addonsList.find((a) => a.addon_key === key)
+            const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
+            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            if (dbInc || codeInc) return sum // time already in base labor_hours
+            return sum + (addon?.minutes || 0)
+          }, 0)
+          const wallMins = Math.ceil((laborMins + addonMins) / (recCleaners || 1))
+          const snapped = [60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
         }
       })
       .catch(() => {})
@@ -517,15 +583,34 @@ export default function JobsPage() {
     })
   }, [addonsList, createForm.selected_tier_index, windowTiers, isHouseCleaning])
 
-  // Recalculate price when add-ons or base price change
+  // Recalculate price and duration when add-ons, base price, or cleaner count change
   useEffect(() => {
     if (!basePrice && !createForm.selected_addons.length) return
+    const st = (createForm.service_type || "").toLowerCase()
+    const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
+      const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
+      const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
-    setCreateForm((prev) => ({ ...prev, price: String(basePrice + addonTotal) }))
-  }, [createForm.selected_addons, basePrice, derivedAddonsList])
+    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal) }
+    // Auto-update duration if we have base labor minutes
+    if (baseLaborMinutes > 0) {
+      const addonMins = createForm.selected_addons.reduce((sum, key) => {
+        const addon = derivedAddonsList.find((a) => a.addon_key === key)
+        const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
+        const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+        if (dbInc || codeInc) return sum
+        return sum + (addon?.minutes || 0)
+      }, 0)
+      const count = Number(createForm.cleaner_count) || 1
+      const wallMins = Math.ceil((baseLaborMinutes + addonMins) / count)
+      updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480)
+    }
+    setCreateForm((prev) => ({ ...prev, ...updates }))
+  }, [createForm.selected_addons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
 
   // Auto-populate price when window tier changes (WinBros only)
   useEffect(() => {
@@ -552,13 +637,50 @@ export default function JobsPage() {
     const isWindow = (createForm.service_type || "").toLowerCase().includes("window")
     if (!isWindow && createForm.selected_tier_index !== "") {
       setBasePrice(0)
+    setBaseLaborMinutes(0)
       setCreateForm((prev) => ({ ...prev, selected_tier_index: "", price: "" }))
     }
   }, [createForm.service_type])
 
-  // Fetch service plans for membership dropdown (WinBros only)
+  // Addons included per tier (code-level source of truth, matches quote-pricing.ts)
+  const TIER_INCLUDED_ADDONS: Record<string, string[]> = {
+    deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+    move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills', 'wall_spot_cleaning', 'grout_scrubbing', 'behind_under_appliances', 'window_tracks', 'baseboards_hand_wipe', 'light_fixtures_detailed'],
+  }
+
+  // Auto-select add-ons included in the chosen service type (house cleaning only)
   useEffect(() => {
-    if (!createOpen || isHouseCleaning || servicePlans.length > 0) return
+    if (!isHouseCleaning) return
+    if (addonsList.length === 0) return
+    const st = (createForm.service_type || "").toLowerCase()
+    const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+    // Merge DB included_in with code-level fallback
+    const dbIncludedKeys = addonsList
+      .filter((a: any) => Array.isArray(a.included_in) && a.included_in.includes(tierKey))
+      .map((a: any) => a.addon_key)
+    const codeIncludedKeys = (TIER_INCLUDED_ADDONS[tierKey] || [])
+      .filter((key) => addonsList.some((a: any) => a.addon_key === key))
+    const includedKeys = [...new Set([...dbIncludedKeys, ...codeIncludedKeys])]
+    // All addon keys that are included in ANY tier (so we can remove stale ones on switch)
+    const allIncludableKeys = [
+      ...addonsList
+        .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
+        .map((a: any) => a.addon_key),
+      ...Object.values(TIER_INCLUDED_ADDONS).flat(),
+    ]
+    const allIncludableSet = [...new Set(allIncludableKeys)]
+    setCreateForm((prev) => {
+      // Keep manually-selected add-ons (ones not auto-includable), drop old auto-included, add new ones
+      const manual = prev.selected_addons.filter((k) => !allIncludableSet.includes(k))
+      const merged = [...new Set([...manual, ...includedKeys])]
+      if (merged.length === prev.selected_addons.length && merged.every((k) => prev.selected_addons.includes(k))) return prev
+      return { ...prev, selected_addons: merged }
+    })
+  }, [createForm.service_type, addonsList, isHouseCleaning])
+
+  // Fetch service plans for membership dropdown + frequency discounts
+  useEffect(() => {
+    if (!createOpen || servicePlans.length > 0) return
     fetch("/api/service-plans")
       .then((r) => r.json())
       .then((res) => {
@@ -613,8 +735,14 @@ export default function JobsPage() {
   // Compute basePrice from last job (extracted to avoid calling setBasePrice inside setCreateForm updater)
   const computeLastJobBasePrice = (lastJob: any, lastServiceType: string, lastTierIndex: string, addons: string[]) => {
     if (!lastJob?.price || (lastServiceType.toLowerCase().includes("window") && lastTierIndex)) return null
+    const st = lastServiceType.toLowerCase()
+    const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+    const isHC = !st.includes("window")
     const addonTotal = addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
+      const dbInc = isHC && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
+      const codeInc = isHC && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
     return Number(lastJob.price) - addonTotal
@@ -740,6 +868,34 @@ export default function JobsPage() {
     return () => { clearTimeout(timer); controller.abort() }
   }, [createForm.customer_phone, createOpen])
 
+  // Customer search (name/phone/email) — debounced
+  useEffect(() => {
+    if (!createOpen || customerSearch.length < 2) {
+      setCustomerSearchResults([])
+      return
+    }
+    if (lookedUpCustomerIdRef.current) return
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      fetch(`/api/customers/lookup?search=${encodeURIComponent(customerSearch)}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((res) => {
+          if (res.success && res.data?.length) {
+            setCustomerSearchResults(res.data)
+            setShowCustomerSearch(true)
+          } else {
+            setCustomerSearchResults([])
+          }
+        })
+        .catch((err) => {
+          if (err?.name !== "AbortError") setCustomerSearchResults([])
+        })
+    }, 350)
+
+    return () => { clearTimeout(timer); controller.abort() }
+  }, [customerSearch, createOpen])
+
   // Preview highlight helper — highlights all populated fields during hover preview
   const previewClass = (field: keyof CreateForm) =>
     isPreviewing && createForm[field] ? " previewing" : ""
@@ -768,12 +924,18 @@ export default function JobsPage() {
   // Drag-and-drop / edit state
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [editMode, setEditMode] = useState(false)
-  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerId: "" })
+  const [editForm, setEditForm] = useState({ date: "", time: "", cleanerIds: [] as string[], customerName: "", customerPhone: "", customerEmail: "", address: "", price: "", notes: "", serviceType: "", status: "" })
+  const [cleanerDropdownOpen, setCleanerDropdownOpen] = useState(false)
+  const cleanerDropdownRef = useRef<HTMLDivElement>(null)
   const [saving, setSaving] = useState(false)
   const [autoScheduling, setAutoScheduling] = useState(false)
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [sendToCleanerId, setSendToCleanerId] = useState("")
+<<<<<<< HEAD
+=======
+  const [sendToCleanerIds, setSendToCleanerIds] = useState<string[]>([])
+>>>>>>> Test
   const [sendingToCleaner, setSendingToCleaner] = useState(false)
   const [sendToCleanerResult, setSendToCleanerResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -787,6 +949,18 @@ export default function JobsPage() {
   const [rainResult, setRainResult] = useState<RainDayResult | null>(null)
   const [rainError, setRainError] = useState("")
   const [rainLoading, setRainLoading] = useState(false)
+
+  // Close cleaner dropdown on outside click
+  useEffect(() => {
+    if (!cleanerDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (cleanerDropdownRef.current && !cleanerDropdownRef.current.contains(e.target as Node)) {
+        setCleanerDropdownOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [cleanerDropdownOpen])
 
   const timeFormat = useMemo(
     () =>
@@ -802,8 +976,8 @@ export default function JobsPage() {
     async function fetchJobs() {
       try {
         const [calRes, settingsRes] = await Promise.all([
-          fetch("/api/calendar"),
-          fetch("/api/actions/settings"),
+          fetch("/api/calendar", { cache: "no-store" }),
+          fetch("/api/actions/settings", { cache: "no-store" }),
         ])
         const calData = await calRes.json()
         setJobs(calData.jobs || [])
@@ -899,10 +1073,82 @@ export default function JobsPage() {
           jobType: (job as any).job_type || "",
           isCommercial: !!customer?.is_commercial,
           leadSource: resolveLeadSource(job),
+          customerPhone: customer?.phone_number || job.phone_number || "",
+          customerEmail: customer?.email || "",
+          customerId: customer?.id ? String(customer.id) : "",
         },
       }
     })
   }, [jobs, cleanerColorMap])
+
+  const ganttJobs = useMemo<GanttJob[]>(() => {
+    return jobs.map((job) => ({
+      id: String(job.id),
+      customerName: resolveCustomerName(job),
+      cleanerName: resolveCleanerName(job) || "",
+      cleanerId: resolveCleanerId(job),
+      start: resolveStart(job),
+      end: resolveEnd(job),
+      status: job.status || "scheduled",
+      color: cleanerColorMap.get(resolveCleanerName(job) || ""),
+    }))
+  }, [jobs, cleanerColorMap])
+
+  const handleGanttJobClick = useCallback((jobId: string) => {
+    const job = jobs.find((j) => String(j.id) === jobId)
+    if (!job) return
+    const start = resolveStart(job)
+    const end = resolveEnd(job)
+    const cleanerName = resolveCleanerName(job)
+    const cleanerId = resolveCleanerId(job)
+    const customerName = resolveCustomerName(job)
+    const customer = resolveCustomer(job)
+    const details: CalendarEventDetails = {
+      jobId: String(job.id),
+      title: cleanerName ? `${customerName} (${cleanerName})` : customerName,
+      start,
+      end,
+      location: resolveLocation(job) || "",
+      description: resolveServiceLabel(job) || "",
+      status: job.status || "scheduled",
+      price: job.price || job.estimated_value || 0,
+      client: customerName,
+      cleaner: cleanerName || "",
+      cleanerName: cleanerName || "",
+      cleanerId: cleanerId || "",
+      team: resolveTeamName(job) || "",
+      service: resolveServiceLabel(job) || "",
+      notes: resolveNotes(job) || "",
+      hours: job.hours ? Number(job.hours) : 2,
+      cardOnFile: !!customer?.card_on_file_at,
+      frequency: job.frequency || "one-time",
+      parentJobId: job.parent_job_id ? String(job.parent_job_id) : null,
+      jobType: (job as any).job_type || "",
+      leadSource: resolveLeadSource(job),
+      customerPhone: customer?.phone_number || job.phone_number || "",
+      customerEmail: customer?.email || "",
+      customerId: customer?.id ? String(customer.id) : "",
+    }
+    setSelectedEvent(details)
+    setEditMode(false)
+    setConfirmDelete(false)
+    setAutoScheduleResult(null)
+    setAddChargeOpen(false)
+    setSendToCleanerId("")
+    setSendToCleanerResult(null)
+  }, [jobs])
+
+  // Open job details after creation once jobs list refreshes
+  useEffect(() => {
+    if (pendingJobOpenRef.current) {
+      const jobId = pendingJobOpenRef.current
+      const job = jobs.find((j) => String(j.id) === jobId)
+      if (job) {
+        pendingJobOpenRef.current = null
+        handleGanttJobClick(jobId)
+      }
+    }
+  }, [jobs, handleGanttJobClick])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -928,26 +1174,33 @@ export default function JobsPage() {
       bathrooms: "",
       sqft: "",
       frequency: "one-time",
-      cleaner_id: "",
+      cleaner_ids: [],
+      cleaner_count: "1",
       assignment_mode: "auto_broadcast",
       is_quote: false,
       selected_addons: [],
       membership_id: "",
       selected_tier_index: "",
       lead_source: "",
+      credited_salesman_id: "",
     })
     setCreateError("")
     setPhoneLookedUp("")
     setPhoneSuggestions([])
     setShowPhoneSuggestions(false)
+    setCustomerSearch("")
+    setCustomerSearchResults([])
+    setShowCustomerSearch(false)
     formSnapshotRef.current = null
     isPreviewingRef.current = false
     basePriceSnapshotRef.current = 0
     setIsPreviewing(false)
     setBasePrice(0)
+    setBaseLaborMinutes(0)
     setAddressSuggestions([])
     setLookedUpCustomerId(null)
     setCustomerMemberships([])
+    setQuoteSuccess(null)
     setCreateOpen(true)
 
     // Fetch cleaners list if not already loaded
@@ -996,6 +1249,9 @@ export default function JobsPage() {
       parentJobId: info.event.extendedProps.parentJobId || null,
       jobType: info.event.extendedProps.jobType || "",
       leadSource: info.event.extendedProps.leadSource || "",
+      customerPhone: info.event.extendedProps.customerPhone || "",
+      customerEmail: info.event.extendedProps.customerEmail || "",
+      customerId: info.event.extendedProps.customerId || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1004,11 +1260,31 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
+<<<<<<< HEAD
+=======
+    pmReset()
+
+    // Load cleaners list for send-to-cleaner dropdown (view mode)
+    if (cleanersList.length === 0) {
+      fetch("/api/teams").then(r => r.json()).then(data => {
+        const all: { id: string; name: string }[] = []
+        for (const team of data.data || []) {
+          for (const member of team.members || []) {
+            all.push({ id: String(member.id), name: member.name })
+          }
+        }
+        for (const c of data.unassigned_cleaners || []) {
+          all.push({ id: String(c.id), name: c.name })
+        }
+        setCleanersList(all)
+      }).catch(() => {})
+    }
+>>>>>>> Test
   }
 
   const refreshJobs = async () => {
     try {
-      const res = await fetch("/api/calendar")
+      const res = await fetch("/api/calendar", { cache: "no-store" })
       const data = await res.json()
       setJobs(data.jobs || [])
     } catch { /* ignore */ }
@@ -1120,7 +1396,38 @@ export default function JobsPage() {
     const d = selectedEvent.start
     const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
-    setEditForm({ date, time, cleanerId: selectedEvent.cleanerId || "" })
+
+    // Resolve all assigned cleaner IDs from cleaner_assignments (not just the primary FK)
+    const job = jobs.find(j => String(j.id) === selectedEvent.jobId)
+    const assignments = job?.cleaner_assignments
+    let initialCleanerIds: string[] = []
+    if (Array.isArray(assignments) && assignments.length > 0) {
+      initialCleanerIds = assignments
+        .filter((a: any) => a.status === "confirmed" || a.status === "accepted" || a.status === "pending")
+        .map((a: any) => {
+          const c = Array.isArray(a.cleaners) ? a.cleaners[0] : a.cleaners
+          return c?.id ? String(c.id) : String(a.cleaner_id)
+        })
+        .filter(Boolean)
+    }
+    // Fallback to primary cleaner if no assignments found
+    if (initialCleanerIds.length === 0 && selectedEvent.cleanerId) {
+      initialCleanerIds = [selectedEvent.cleanerId]
+    }
+
+    setEditForm({
+      date, time,
+      cleanerIds: initialCleanerIds,
+      customerName: selectedEvent.client || "",
+      customerPhone: selectedEvent.customerPhone || "",
+      customerEmail: selectedEvent.customerEmail || "",
+      address: selectedEvent.location || "",
+      price: selectedEvent.price ? String(selectedEvent.price) : "",
+      notes: selectedEvent.notes || "",
+      serviceType: selectedEvent.service || "",
+      status: selectedEvent.status || "",
+    })
+    setCleanerDropdownOpen(false)
     setEditMode(true)
 
     // Fetch cleaners list if not already loaded
@@ -1167,6 +1474,7 @@ export default function JobsPage() {
   }
 
   const handleSendToCleaner = async () => {
+<<<<<<< HEAD
     if (!selectedEvent || !sendToCleanerId) return
     setSendingToCleaner(true)
     setSendToCleanerResult(null)
@@ -1180,6 +1488,21 @@ export default function JobsPage() {
       if (res.ok && data.success) {
         const name = data.cleaner?.name || 'Cleaner'
         setSendToCleanerResult(`Sent to ${name} — waiting for response`)
+=======
+    if (!selectedEvent || sendToCleanerIds.length === 0) return
+    setSendingToCleaner(true)
+    setSendToCleanerResult(null)
+    try {
+      const res = await fetch('/api/actions/notify-cleaners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerIds: sendToCleanerIds }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setSendToCleanerResult(`Sent to ${data.notified} cleaner${data.notified === 1 ? '' : 's'} — waiting for response`)
+        setSendToCleanerIds([])
+>>>>>>> Test
         await refreshJobs()
       } else {
         setSendToCleanerResult(`Error: ${data.error || 'Failed to send'}`)
@@ -1191,6 +1514,35 @@ export default function JobsPage() {
     }
   }
 
+<<<<<<< HEAD
+=======
+  const [sendingRanked, setSendingRanked] = useState(false)
+  const [sendRankedResult, setSendRankedResult] = useState<string | null>(null)
+  const handleSendRanked = async () => {
+    if (!selectedEvent) return
+    setSendingRanked(true)
+    setSendRankedResult(null)
+    try {
+      const res = await fetch('/api/actions/assign-cleaner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: selectedEvent.jobId, mode: 'ranked' }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        setSendRankedResult('Sent to #1 ranked cleaner — will cascade if no response in 20 min')
+        await refreshJobs()
+      } else {
+        setSendRankedResult(`Error: ${data.error || 'Failed'}`)
+      }
+    } catch {
+      setSendRankedResult('Error: Network request failed')
+    } finally {
+      setSendingRanked(false)
+    }
+  }
+
+>>>>>>> Test
   const handleAddCharge = async () => {
     if (!selectedEvent || !addChargeType) return
     setAddChargeSaving(true)
@@ -1231,6 +1583,154 @@ export default function JobsPage() {
       setAddChargeSaving(false)
     }
   }
+
+  // ── Payment menu helpers (used in quote success + event detail) ──
+  const pmReset = () => {
+    setPmOpen(false); setPmType(null); setPmResult(null); setPmAmount(""); setPmJobId("")
+    setPmChargeResult(null); setPmChargeDesc(""); setPmCopied(false); setPmSmsSent(false); setPmError(null); setPmPos(null)
+  }
+
+  const pmToggle = (jobId?: string) => {
+    if (pmOpen) { pmReset(); return }
+    // Calculate position from button
+    const rect = pmBtnRef.current?.getBoundingClientRect()
+    if (rect) {
+      const menuWidth = 288 // w-72
+      const menuHeight = 300 // approx
+      let top = rect.bottom + 4
+      let left = rect.right - menuWidth
+      // If overflows bottom, open upward
+      if (top + menuHeight > window.innerHeight) top = rect.top - menuHeight - 4
+      // Keep on screen
+      if (left < 8) left = 8
+      if (top < 8) top = 8
+      setPmPos({ top, left })
+    } else {
+      // Fallback: center
+      setPmPos({ top: window.innerHeight / 4, left: Math.max(8, (window.innerWidth - 288) / 2) })
+    }
+    setPmType(null); setPmResult(null); setPmAmount(""); setPmChargeResult(null); setPmChargeDesc(""); setPmError(null)
+    if (jobId) setPmJobId(jobId)
+    setPmOpen(true)
+  }
+
+  const pmGetCustomerId = (): string | null => {
+    if (quoteSuccess?.customerId) return quoteSuccess.customerId
+    if (selectedEvent?.customerId) return selectedEvent.customerId
+    return lookedUpCustomerId
+  }
+
+  const pmGetCustomerPhone = (): string | null => {
+    if (quoteSuccess?.customerPhone) return quoteSuccess.customerPhone
+    if (selectedEvent?.customerPhone) return selectedEvent.customerPhone
+    return null
+  }
+
+  const pmGenerateLink = async (type: string): Promise<boolean> => {
+    const customerId = pmGetCustomerId()
+    if (!customerId) { setPmError("No customer found"); return false }
+    setPmLoading(true)
+    setPmResult(null)
+    setPmError(null)
+    setPmCopied(false)
+    setPmSmsSent(false)
+    try {
+      const body: Record<string, unknown> = { customerId, type }
+      if (type === "payment") {
+        body.amount = parseFloat(pmAmount)
+        body.description = "Payment"
+      }
+      if (pmJobId) body.jobId = pmJobId
+      const res = await fetch("/api/actions/generate-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setPmResult({ url: json.url, invoiceId: json.invoiceId })
+        return true
+      } else {
+        setPmError(json.error || "Failed to generate link")
+        return false
+      }
+    } catch {
+      setPmError("Failed to generate link")
+      return false
+    } finally {
+      setPmLoading(false)
+    }
+  }
+
+  const pmCopy = () => {
+    if (pmResult?.url) {
+      navigator.clipboard.writeText(pmResult.url)
+      setPmCopied(true)
+      setTimeout(() => setPmCopied(false), 2000)
+    }
+  }
+
+  const pmSendSms = async () => {
+    const phone = pmGetCustomerPhone()
+    if (!pmResult?.url || !phone || pmSmsSending || pmSmsSent) return
+    setPmSmsSending(true)
+    try {
+      const res = await fetch("/api/actions/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phone, message: `Here's your payment link: ${pmResult.url}` }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setPmSmsSent(true)
+      } else {
+        setPmError(json.error || "Failed to send SMS")
+      }
+    } catch {
+      setPmError("Failed to send SMS")
+    } finally {
+      setPmSmsSending(false)
+    }
+  }
+
+  const pmChargeCard = async () => {
+    const customerId = pmGetCustomerId()
+    if (!customerId || pmChargeLoading) return
+    const amt = parseFloat(pmAmount)
+    if (!amt || amt <= 0) return
+    setPmChargeLoading(true)
+    setPmChargeResult(null)
+    try {
+      const res = await fetch("/api/actions/charge-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: customerId, amount: amt, description: pmChargeDesc || undefined }),
+      })
+      const json = await res.json()
+      if (res.ok && json.success) {
+        setPmChargeResult({ success: true, amount: json.amount })
+      } else {
+        setPmChargeResult({ success: false, error: json.error || "Charge failed" })
+      }
+    } catch {
+      setPmChargeResult({ success: false, error: "Failed to charge card" })
+    } finally {
+      setPmChargeLoading(false)
+    }
+  }
+
+  // Close payment popover on outside click
+  useEffect(() => {
+    if (!pmOpen) return
+    const handler = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (pmRef.current?.contains(t)) return
+      if (pmBtnRef.current?.contains(t)) return
+      pmReset()
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [pmOpen])
 
   const handleDeleteJob = async (mode: "single" | "future") => {
     if (!selectedEvent) return
@@ -1277,9 +1777,10 @@ export default function JobsPage() {
     const newEnd = new Date(newStart.getTime() + hours * 3600000)
     const jobId = selectedEvent.jobId
 
-    // Use the NEW cleaner from the edit form for conflict detection
-    const newCleanerName = editForm.cleanerId
-      ? cleanersList.find((c) => c.id === editForm.cleanerId)?.name || ""
+    // Use the NEW cleaners from the edit form for conflict detection (check first/primary cleaner)
+    const primaryCleanerId = editForm.cleanerIds[0] || ""
+    const newCleanerName = primaryCleanerId
+      ? cleanersList.find((c) => c.id === primaryCleanerId)?.name || ""
       : ""
 
     if (newCleanerName) {
@@ -1309,10 +1810,19 @@ export default function JobsPage() {
     const scheduled_at = editForm.time
     const body: Record<string, any> = { id: jobId, date, scheduled_at }
 
-    // Include cleaner_id if it changed
-    if (editForm.cleanerId !== selectedEvent.cleanerId) {
-      body.cleaner_id = editForm.cleanerId || null
-    }
+    // Send cleaner_ids array; API will set primary cleaner_id and create assignments for all
+    body.cleaner_ids = editForm.cleanerIds.length > 0 ? editForm.cleanerIds : null
+    body.cleaner_id = primaryCleanerId || null
+
+    // Customer + job fields
+    if (editForm.customerName !== (selectedEvent.client || "")) body.customer_name = editForm.customerName
+    if (editForm.customerPhone !== (selectedEvent.customerPhone || "")) body.customer_phone = editForm.customerPhone
+    if (editForm.customerEmail !== (selectedEvent.customerEmail || "")) body.customer_email = editForm.customerEmail
+    if (editForm.address !== (selectedEvent.location || "")) { body.customer_address = editForm.address; body.address = editForm.address }
+    if (editForm.price !== (selectedEvent.price ? String(selectedEvent.price) : "")) body.price = editForm.price ? Number(editForm.price) : null
+    if (editForm.notes !== (selectedEvent.notes || "")) body.notes = editForm.notes
+    if (editForm.serviceType !== (selectedEvent.service || "")) body.service_type = editForm.serviceType
+    if (editForm.status !== (selectedEvent.status || "")) body.status = editForm.status
 
     try {
       const res = await fetch("/api/jobs", {
@@ -1322,10 +1832,18 @@ export default function JobsPage() {
       })
       const data = await res.json()
       if (data.success) {
+        const jobId = selectedEvent.jobId
         setSelectedEvent(null)
         setEditMode(false)
+        pendingJobOpenRef.current = jobId
         await refreshJobs()
+      } else {
+        console.error("[edit-save] Failed:", data.error)
+        alert(`Save failed: ${data.error || "Unknown error"}`)
       }
+    } catch (err) {
+      console.error("[edit-save] Network error:", err)
+      alert("Save failed — network error")
     } finally {
       setSaving(false)
     }
@@ -1415,20 +1933,72 @@ export default function JobsPage() {
         setCreateError("Number of bathrooms is required")
         return
       }
-      if (!createForm.sqft) {
-        setCreateError("Square footage is required")
-        return
-      }
     }
     if (!isHouseCleaning && (createForm.service_type || "").toLowerCase().includes("window") && !createForm.selected_tier_index) {
       setCreateError("Please select a window cleaning tier")
       return
     }
+    if (!createForm.lead_source.trim() || createForm.lead_source === "__custom__") {
+      setCreateError("Lead source is required")
+      return
+    }
 
     setCreateSaving(true)
     setCreateError("")
+    setQuoteSuccess(null)
 
     try {
+      // ── Quote flow: create a real quote with tier selection page ──
+      if (createForm.is_quote) {
+        const res = await fetch("/api/actions/quotes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customer_id: lookedUpCustomerId ? Number(lookedUpCustomerId) : undefined,
+            customer_name: createForm.customer_name.trim() || "Customer",
+            customer_phone: phone,
+            customer_email: createForm.email.trim() || undefined,
+            customer_address: createForm.address.trim() || undefined,
+            square_footage: createForm.sqft ? Number(createForm.sqft) : undefined,
+            bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
+            bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
+            service_category: (createForm.service_type || "").toLowerCase().includes("move") ? "move_in_out" : "standard",
+            selected_tier: (() => {
+              const st = (createForm.service_type || "").toLowerCase()
+              if (st.includes("move")) return "move"
+              if (st.includes("deep")) return "deep"
+              // extra_deep removed — add-ons cover premium items
+              return "standard"
+            })(),
+            notes: createForm.notes.trim() || undefined,
+            custom_base_price: createForm.price ? Number(createForm.price) : undefined,
+            membership_plan: (() => {
+              if (!isHouseCleaning || !createForm.frequency || createForm.frequency === "one-time") return undefined
+              const map: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+              return map[createForm.frequency]
+            })(),
+            send_sms: false,
+          }),
+        })
+
+        const data = await res.json()
+        if (!data.success) {
+          setCreateError(data.error || "Failed to create quote")
+          return
+        }
+
+        setQuoteSuccess({
+          url: data.quote_url || `/quote/${data.quote?.token}`,
+          token: data.quote?.token,
+          quoteId: data.quote?.id != null ? String(data.quote.id) : undefined,
+          sent: false,
+          customerPhone: phone,
+          customerId: lookedUpCustomerId ? String(lookedUpCustomerId) : data.quote?.customer_id ? String(data.quote.customer_id) : undefined,
+        })
+        return
+      }
+
+      // ── Normal job flow ──
       // Resolve membership: existing membership ID or create new one from plan slug
       let resolvedMembershipId: string | undefined
       const memVal = createForm.membership_id
@@ -1454,6 +2024,36 @@ export default function JobsPage() {
         resolvedMembershipId = memData.membership?.id
       }
 
+      // Compute frequency discount for house cleaning
+      let frequencyDiscount = 0
+      let frequencyPlanSlug: string | undefined
+      if (isHouseCleaning && createForm.frequency && createForm.frequency !== "one-time") {
+        const freqSlugMap: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+        const slug = freqSlugMap[createForm.frequency]
+        if (slug) {
+          const plan = servicePlans.find((p) => p.slug === slug)
+          if (plan) { frequencyDiscount = plan.discount_per_visit || 0; frequencyPlanSlug = plan.slug }
+        }
+      }
+
+      // If no override price, compute from base + addons - discount
+      let finalPrice = createForm.price ? Number(createForm.price) : undefined
+      if (!createForm.price && basePrice > 0) {
+        const addonTotal = createForm.selected_addons.reduce((sum, key) => {
+          const addon = derivedAddonsList.find((a) => a.addon_key === key)
+          const st = (createForm.service_type || "").toLowerCase()
+          const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+          const TIER_INCLUDED: Record<string, string[]> = {
+            deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+            move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+          }
+          const included = (TIER_INCLUDED[tierKey] || []).includes(key) || (Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey))
+          if (included) return sum
+          return sum + (addon?.flat_price || 0)
+        }, 0)
+        finalPrice = Math.max(0, basePrice + addonTotal - frequencyDiscount)
+      }
+
       const res = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1466,16 +2066,17 @@ export default function JobsPage() {
           scheduled_date: createForm.date,
           scheduled_time: createForm.time || "09:00",
           duration_minutes: Number(createForm.duration_minutes) || 120,
-          estimated_value: createForm.price ? Number(createForm.price) : undefined,
+          estimated_value: finalPrice,
           notes: createForm.notes.trim() || undefined,
           bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
           frequency: createForm.frequency !== "one-time" ? createForm.frequency : undefined,
           membership_id: resolvedMembershipId,
-          cleaner_id: createForm.assignment_mode === "specific" ? createForm.cleaner_id : undefined,
+          cleaner_ids: createForm.assignment_mode === "specific" && createForm.cleaner_ids.length > 0 ? createForm.cleaner_ids : undefined,
           assignment_mode: createForm.assignment_mode,
-          status: createForm.is_quote ? "quoted" : "scheduled",
+          cleaner_count: Number(createForm.cleaner_count) || 1,
+          status: "scheduled",
           lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
           credited_salesman_id: createForm.credited_salesman_id ? Number(createForm.credited_salesman_id) : undefined,
           addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
@@ -1495,12 +2096,17 @@ export default function JobsPage() {
       setPhoneLookedUp("")
       setPhoneSuggestions([])
       setShowPhoneSuggestions(false)
+      setCustomerSearch("")
+      setCustomerSearchResults([])
       formSnapshotRef.current = null
       isPreviewingRef.current = false
       basePriceSnapshotRef.current = 0
       setIsPreviewing(false)
       setLookedUpCustomerId(null)
       setCustomerMemberships([])
+      // Open the new job's detail view after refresh
+      const newJobId = data.data?.id
+      if (newJobId) pendingJobOpenRef.current = String(newJobId)
       await refreshJobs()
     } catch {
       setCreateError("Connection error. Please try again.")
@@ -1509,39 +2115,337 @@ export default function JobsPage() {
     }
   }
 
+  // ── Reusable payment menu popover ──
+  const renderPaymentMenu = (showCardOnFile: boolean) => {
+    if (!pmPos) return null
+    const content = (
+    <>
+      <div className="fixed inset-0 bg-black/20" style={{ zIndex: 9998 }} onClick={pmReset} />
+      <div ref={pmRef} className="bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-72" style={{ zIndex: 9999, position: "fixed", top: pmPos.top, left: pmPos.left, maxHeight: "80vh", overflowY: "auto" }}>
+        {pmError && (
+          <div className="p-3 border-b border-zinc-700/50">
+            <p className="text-xs text-red-400">{pmError}</p>
+            <button onClick={() => setPmError(null)} className="mt-1.5 text-xs text-zinc-500 hover:text-zinc-300">Dismiss</button>
+          </div>
+        )}
+        {!pmType && !pmResult && !pmChargeResult && (
+          <div className="p-2 space-y-0.5">
+            <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Generate Link</p>
+            {[
+              { key: "card_on_file", label: "Card on File", desc: "Send link to save card", icon: CreditCard },
+              { key: "enter_card", label: "Enter Card", desc: "Type in card details", icon: KeyRound },
+              { key: "payment", label: "Payment Link", desc: "Custom amount", icon: DollarSign },
+              { key: "invoice", label: "Invoice", desc: "Email invoice", icon: FileText },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  setPmError(null)
+                  if (opt.key === "enter_card") {
+                    if (!pmGetCustomerId()) {
+                      setPmError("No customer found — save a customer first before entering card details.")
+                      return
+                    }
+                    pmReset()
+                    setCardFormOpen(true)
+                  } else if (opt.key === "payment") {
+                    setPmType("payment")
+                  } else if (opt.key === "invoice") {
+                    // Need to pick a job first if event is open
+                    if (selectedEvent) {
+                      setPmJobId(selectedEvent.jobId)
+                    }
+                    setPmType("invoice")
+                  } else if (opt.key === "card_on_file") {
+                    if (!pmGetCustomerId()) {
+                      setPmError("No customer found.")
+                      return
+                    }
+                    if (!selectedEvent?.customerEmail) {
+                      setPmError("Customer email required for card-on-file link. Add an email first via Edit.")
+                      return
+                    }
+                    setPmType(opt.key)
+                    pmGenerateLink(opt.key).then(ok => { if (!ok) setPmType(null) })
+                  } else {
+                    setPmType(opt.key)
+                    pmGenerateLink(opt.key).then(ok => { if (!ok) setPmType(null) })
+                  }
+                }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+              >
+                <opt.icon className="w-4 h-4 text-purple-400 flex-shrink-0" />
+                <div>
+                  <div className="text-sm text-zinc-200">{opt.label}</div>
+                  <div className="text-xs text-zinc-500">{opt.desc}</div>
+                </div>
+              </button>
+            ))}
+            {showCardOnFile && (
+              <>
+                <div className="mx-2 my-1.5 border-t border-zinc-700/50" />
+                <p className="px-2 py-1.5 text-xs font-medium text-zinc-400 uppercase tracking-wider">Charge</p>
+                <button
+                  onClick={() => setPmType("charge_card")}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left hover:bg-zinc-800 transition-colors"
+                >
+                  <Zap className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <div>
+                    <div className="text-sm text-zinc-200">Charge Card</div>
+                    <div className="text-xs text-zinc-500">Charge saved card</div>
+                  </div>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Payment Link — amount input */}
+        {pmType === "payment" && !pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Payment Link</p>
+            <input
+              type="number"
+              value={pmAmount}
+              onChange={(e) => setPmAmount(e.target.value)}
+              placeholder="Amount ($)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-purple-500"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setPmType(null)} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={() => pmGenerateLink("payment")}
+                disabled={pmLoading || !pmAmount || parseFloat(pmAmount) <= 0}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+              >
+                {pmLoading ? "Generating..." : "Generate"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Invoice — confirm */}
+        {pmType === "invoice" && !pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Send Invoice</p>
+            <div className="flex gap-2">
+              <button onClick={() => { setPmType(null); setPmJobId("") }} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={() => pmGenerateLink("invoice")}
+                disabled={pmLoading}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-500 disabled:opacity-50 transition-colors"
+              >
+                {pmLoading ? "Sending..." : "Send Invoice"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Enter Card — Stripe Elements */}
+
+        {/* Charge Card — amount input */}
+        {pmType === "charge_card" && !pmChargeResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-zinc-200">Charge Card on File</p>
+            <input
+              type="number"
+              value={pmAmount}
+              onChange={(e) => setPmAmount(e.target.value)}
+              placeholder="Amount ($)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+              autoFocus
+            />
+            <input
+              type="text"
+              value={pmChargeDesc}
+              onChange={(e) => setPmChargeDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => { setPmType(null); setPmAmount(""); setPmChargeDesc("") }} className="flex-1 px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Back</button>
+              <button
+                onClick={pmChargeCard}
+                disabled={pmChargeLoading || !pmAmount || parseFloat(pmAmount) <= 0}
+                className="flex-1 px-3 py-2 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-500 disabled:opacity-50 transition-colors"
+              >
+                {pmChargeLoading ? "Charging..." : `Charge $${pmAmount || "0"}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Charge Card — result */}
+        {pmChargeResult && (
+          <div className="p-4 space-y-3">
+            {pmChargeResult.success ? (
+              <>
+                <p className="text-sm font-medium text-emerald-400">Charge Successful!</p>
+                <p className="text-xs text-zinc-400">${pmChargeResult.amount?.toFixed(2)} charged to card on file. SMS receipt sent.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-red-400">Charge Failed</p>
+                <p className="text-xs text-zinc-400">{pmChargeResult.error}</p>
+              </>
+            )}
+            <button onClick={pmReset} className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Done</button>
+          </div>
+        )}
+
+        {/* Loading state */}
+        {pmType === "card_on_file" && !pmResult && pmLoading && (
+          <div className="p-4 flex items-center justify-center gap-2 text-sm text-zinc-400">
+            <Loader2 className="w-4 h-4 animate-spin" /> Generating...
+          </div>
+        )}
+
+        {/* Result — URL + copy/SMS */}
+        {pmResult && (
+          <div className="p-4 space-y-3">
+            <p className="text-sm font-medium text-emerald-400">
+              {pmResult.invoiceId ? "Invoice Sent!" : "Link Generated!"}
+            </p>
+            {pmResult.url && (
+              <>
+                <div className="px-3 py-2 bg-zinc-800 rounded-lg text-xs text-zinc-300 break-all max-h-20 overflow-y-auto">
+                  {pmResult.url}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={pmCopy}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
+                  >
+                    {pmCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {pmCopied ? "Copied" : "Copy"}
+                  </button>
+                  <button
+                    onClick={pmSendSms}
+                    disabled={pmSmsSending || pmSmsSent}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-white rounded-lg transition-colors ${pmSmsSent ? "bg-emerald-600" : "bg-purple-600 hover:bg-purple-500"} disabled:opacity-80`}
+                  >
+                    {pmSmsSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : pmSmsSent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+                    {pmSmsSending ? "Sending..." : pmSmsSent ? "Sent" : "Send SMS"}
+                  </button>
+                </div>
+              </>
+            )}
+            {pmResult.invoiceId && !pmResult.url && (
+              <p className="text-xs text-zinc-400">Invoice emailed to customer.</p>
+            )}
+            <button onClick={pmReset} className="w-full px-3 py-2 text-xs text-zinc-400 bg-zinc-800 rounded-lg hover:bg-zinc-700 transition-colors">Done</button>
+          </div>
+        )}
+      </div>
+    </>
+    )
+    return typeof document !== "undefined" ? createPortal(content, document.body) : null
+  }
+
   return (
     <>
       <div className="calendar-shell animate-fade-in">
-        <div className="mb-3 stagger-1" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div className="mb-3 stagger-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2" style={{ flexShrink: 0 }}>
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">Calendar</h1>
-            <p className="text-sm text-muted-foreground">
-              Schedule and manage all service appointments
+            <h1 className="text-xl md:text-2xl font-semibold text-foreground">Calendar</h1>
+            <p className="text-xs md:text-sm text-muted-foreground">
+              Schedule and manage appointments
             </p>
           </div>
-          <button className="rain-day-btn" onClick={openRainDay}>
+          <button className="rain-day-btn text-xs md:text-sm" onClick={openRainDay}>
             Rainy Day Reschedule
           </button>
         </div>
 
         {loading ? <CubeLoader /> : <>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0 }}>
-          {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => (
-            <div key={name} className="animate-fade-in" style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
-              <span style={{
-                width: 12,
-                height: 12,
-                borderRadius: 3,
-                backgroundColor: color,
-                display: "inline-block",
-                flexShrink: 0,
-              }} />
-              <span style={{ fontSize: "0.8rem", color: "#a1a1aa" }}>{name}</span>
+        {/* Schedule monitoring strip — at-a-glance daily summary */}
+        {(() => {
+          const today = new Date().toISOString().split("T")[0]
+          const todayJobs = jobs.filter(j => {
+            const jobDate = j.date || j.scheduled_date || ""
+            return jobDate.startsWith(today)
+          })
+          const totalScheduled = todayJobs.length
+          const completed = todayJobs.filter(j => j.status === "completed").length
+          const inProgress = todayJobs.filter(j => j.status === "in_progress").length
+          const unassigned = todayJobs.filter(j => !j.cleaner_id).length
+          const totalRevenue = todayJobs.reduce((sum, j) => sum + (Number(j.price) || Number(j.estimated_value) || 0), 0)
+
+          return totalScheduled > 0 ? (
+            <div className="flex items-center gap-4 mb-3 px-3 py-2 rounded-xl border border-border/30 bg-card/30 text-sm" style={{ flexShrink: 0 }}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Today:</span>
+                <span className="font-semibold text-foreground">{totalScheduled} jobs</span>
+              </div>
+              <div className="h-4 w-px bg-border/50" />
+              {completed > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-green-400">{completed} done</span>
+                </div>
+              )}
+              {inProgress > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <span className="text-yellow-400">{inProgress} active</span>
+                </div>
+              )}
+              {unassigned > 0 && (
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-red-400">{unassigned} unassigned</span>
+                </div>
+              )}
+              <div className="h-4 w-px bg-border/50" />
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Revenue:</span>
+                <span className="font-semibold text-violet-400">${totalRevenue.toLocaleString()}</span>
+              </div>
             </div>
-          ))}
+          ) : null
+        })()}
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", marginBottom: "0.75rem", minHeight: 0, flexShrink: 0 }}>
+          {cleanerColorMap.size >= 2 && [...cleanerColorMap.entries()].map(([name, color]) => {
+            const isHidden = hiddenCleaners.has(name)
+            return (
+              <button
+                key={name}
+                className="animate-fade-in cursor-pointer"
+                style={{ display: "flex", alignItems: "center", gap: "0.375rem", opacity: isHidden ? 0.3 : 1, transition: "opacity 0.2s" }}
+                onClick={() => setHiddenCleaners(prev => {
+                  const next = new Set(prev)
+                  if (next.has(name)) next.delete(name)
+                  else next.add(name)
+                  return next
+                })}
+                title={isHidden ? `Show ${name}` : `Hide ${name}`}
+              >
+                <span style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  backgroundColor: color,
+                  display: "inline-block",
+                  flexShrink: 0,
+                }} />
+                <span style={{ fontSize: "0.8rem", color: isHidden ? "#52525b" : "#a1a1aa" }}>{name}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="calendar-card">
+          {ganttView ? (
+            <div id="calendar" style={{ padding: 16 }}>
+              <ScheduleGantt
+                jobs={ganttJobs}
+                cleanerColorMap={cleanerColorMap}
+                onJobClick={handleGanttJobClick}
+              />
+            </div>
+          ) : (
           <div id="calendar">
             <FullCalendar
               ref={calendarRef}
@@ -1554,7 +2458,14 @@ export default function JobsPage() {
                   ? { left: "prev,next", center: "title", right: "listMonth,dayGridMonth" }
                   : { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,listMonth" }
               }
-              events={baseEvents}
+              slotMinTime="07:00:00"
+              slotMaxTime="21:00:00"
+              slotDuration="00:30:00"
+              allDaySlot={false}
+              expandRows
+              slotLabelFormat={{ hour: "numeric", minute: "2-digit", meridiem: "short" }}
+              dayHeaderFormat={{ weekday: "short", month: "numeric", day: "numeric" }}
+              events={hiddenCleaners.size > 0 ? baseEvents.filter(e => !hiddenCleaners.has((e.extendedProps as any)?.cleanerName || '')) : baseEvents}
               editable
               selectable
               nowIndicator
@@ -1564,10 +2475,44 @@ export default function JobsPage() {
               snapDuration="00:15:00"
               dragRevertDuration={0}
               eventTimeFormat={timeFormat}
+              eventContent={(arg) => {
+                const price = arg.event.extendedProps.price
+                const status = arg.event.extendedProps.status
+                const service = arg.event.extendedProps.service
+                const view = arg.view.type
+                const dotColor = status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#f59e0b' : '#6366f1'
+                if (view === 'dayGridMonth') {
+                  const timeText = arg.timeText || ''
+                  return {
+                    html: `
+                      <div style="display:flex;align-items:center;gap:3px;padding:1px 3px;overflow:hidden;white-space:nowrap">
+                        <span style="font-size:10px;opacity:0.75;flex-shrink:0">${timeText}</span>
+                        <span style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                      </div>
+                    `
+                  }
+                }
+                if (view !== 'timeGridWeek' && view !== 'timeGridDay') return undefined
+                return {
+                  html: `
+                    <div style="padding:1px 3px;overflow:hidden;line-height:1.3">
+                      <div style="display:flex;align-items:center;gap:3px">
+                        <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
+                        <span style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                      </div>
+                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px">
+                        ${price ? `<span style="font-weight:500">$${Number(price).toLocaleString()}</span>` : ''}
+                        ${service ? `<span style="opacity:0.7">${service}</span>` : ''}
+                      </div>
+                    </div>
+                  `
+                }
+              }}
               select={handleSelect}
               eventClick={handleEventClick}
               eventDrop={handleEventDrop}
               datesSet={(info) => {
+                setActiveFcView(info.view.type)
                 localStorage.setItem(STORAGE_KEY_VIEW, info.view.type)
                 localStorage.setItem(STORAGE_KEY_DATE, info.start.toISOString())
               }}
@@ -1602,6 +2547,38 @@ export default function JobsPage() {
               }}
             />
           </div>
+          )}
+          {/* Custom view switcher — positioned over FullCalendar toolbar */}
+          <div className="gantt-view-switcher">
+            {([
+              ["dayGridMonth", "Month"],
+              ["timeGridWeek", "Week"],
+              ["gantt", "Day"],
+              ["listMonth", "List"],
+            ] as const).map(([view, label]) => {
+              const isActive = view === "gantt" ? ganttView : (!ganttView && activeFcView === view)
+              return (
+                <button
+                  key={view}
+                  className={`gantt-view-btn${isActive ? " gantt-view-btn-active" : ""}`}
+                  onClick={() => {
+                    if (view === "gantt") {
+                      setGanttView(true)
+                      localStorage.setItem(STORAGE_KEY_VIEW, "gantt")
+                    } else {
+                      setGanttView(false)
+                      setActiveFcView(view)
+                      localStorage.setItem(STORAGE_KEY_VIEW, view)
+                      // FullCalendar re-mounts with initialView, but if already mounted change view
+                      setTimeout(() => calendarRef.current?.getApi()?.changeView(view), 0)
+                    }
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
         </div>
         </>}
       </div>
@@ -1627,26 +2604,32 @@ export default function JobsPage() {
             bathrooms: "",
             sqft: "",
             frequency: "one-time",
-            cleaner_id: "",
+            cleaner_ids: [],
+            cleaner_count: "1",
             assignment_mode: "auto_broadcast",
             is_quote: false,
             selected_addons: [],
             membership_id: "",
             selected_tier_index: "",
             lead_source: "",
+            credited_salesman_id: "",
           })
           setCreateError("")
           setPhoneLookedUp("")
           setPhoneSuggestions([])
           setShowPhoneSuggestions(false)
+          setCustomerSearch("")
+          setCustomerSearchResults([])
           formSnapshotRef.current = null
           isPreviewingRef.current = false
           basePriceSnapshotRef.current = 0
           setIsPreviewing(false)
           setBasePrice(0)
+    setBaseLaborMinutes(0)
           setAddressSuggestions([])
           setLookedUpCustomerId(null)
           setCustomerMemberships([])
+          setQuoteSuccess(null)
           setCreateOpen(true)
           if (cleanersList.length === 0) {
             fetch("/api/teams")
@@ -1707,7 +2690,17 @@ export default function JobsPage() {
                   {formatRange(selectedEvent?.start || null, selectedEvent?.end || null)}
                 </div>
                 <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
-                  <strong>Customer:</strong> {selectedEvent?.client || emptyValue}
+                  <strong>Customer:</strong>{" "}
+                  {selectedEvent?.customerPhone ? (
+                    <span
+                      style={{ color: "#8b5cf6", cursor: "pointer", textDecoration: "underline" }}
+                      onClick={() => router.push(`/customers?phone=${encodeURIComponent(selectedEvent.customerPhone)}`)}
+                    >
+                      {selectedEvent?.client || emptyValue}
+                    </span>
+                  ) : (
+                    selectedEvent?.client || emptyValue
+                  )}
                   {selectedEvent?.cardOnFile && (
                     <span style={{
                       display: "inline-flex",
@@ -1722,6 +2715,22 @@ export default function JobsPage() {
                     }}>Card on file</span>
                   )}
                 </div>
+                {selectedEvent?.customerPhone && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Phone:</strong>{" "}
+                    <a href={`tel:${selectedEvent.customerPhone}`} style={{ color: "#8b5cf6", textDecoration: "none" }}>
+                      {selectedEvent.customerPhone}
+                    </a>
+                  </div>
+                )}
+                {selectedEvent?.customerEmail && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Email:</strong>{" "}
+                    <a href={`mailto:${selectedEvent.customerEmail}`} style={{ color: "#8b5cf6", textDecoration: "none" }}>
+                      {selectedEvent.customerEmail}
+                    </a>
+                  </div>
+                )}
                 {selectedEvent?.leadSource && (() => {
                   const cfg = getLeadSourceConfig(selectedEvent.leadSource)
                   return (
@@ -1870,39 +2879,131 @@ export default function JobsPage() {
               </>
             ) : (
               <>
-                <div style={{ marginBottom: "0.75rem" }}>
-                  <label className="cal-form-label">Date</label>
-                  <input
-                    type="date"
-                    className="cal-form-control"
-                    value={editForm.date}
-                    onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
-                  />
+                {/* Scheduling */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Date</label>
+                    <input type="date" className="cal-form-control" value={editForm.date} onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Time</label>
+                    <input type="time" className="cal-form-control" value={editForm.time} onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))} />
+                  </div>
                 </div>
-                <div style={{ marginBottom: "0.75rem" }}>
-                  <label className="cal-form-label">Start Time</label>
-                  <input
-                    type="time"
+                <div style={{ marginBottom: "0.5rem", position: "relative" }} ref={cleanerDropdownRef}>
+                  <label className="cal-form-label">Assigned Cleaners</label>
+                  <div
+                    onClick={() => setCleanerDropdownOpen(!cleanerDropdownOpen)}
                     className="cal-form-control"
-                    value={editForm.time}
-                    onChange={(e) => setEditForm((f) => ({ ...f, time: e.target.value }))}
-                  />
+                    style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: "2.2rem", gap: "0.25rem", flexWrap: "wrap" }}
+                  >
+                    {editForm.cleanerIds.length === 0 ? (
+                      <span style={{ color: "#71717a" }}>— Select cleaners —</span>
+                    ) : (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                        {editForm.cleanerIds.map(id => {
+                          const c = cleanersList.find(cl => cl.id === id)
+                          return c ? (
+                            <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(16, 185, 129, 0.15)", color: "#6ee7b7", padding: "1px 8px", borderRadius: 12, fontSize: "0.75rem", fontWeight: 500 }}>
+                              {c.name}
+                              <span
+                                onClick={(e) => { e.stopPropagation(); setEditForm(f => ({ ...f, cleanerIds: f.cleanerIds.filter(x => x !== id) })) }}
+                                style={{ cursor: "pointer", opacity: 0.7, fontSize: "0.85rem", lineHeight: 1 }}
+                              >×</span>
+                            </span>
+                          ) : null
+                        })}
+                      </div>
+                    )}
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0, transform: cleanerDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                      <path d="M2.5 4.5L6 8L9.5 4.5" stroke="#71717a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </div>
+                  {cleanerDropdownOpen && (
+                    <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 50, marginTop: 4, background: "#1c1c1e", border: "1px solid #333", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", maxHeight: 200, overflowY: "auto" }}>
+                      {cleanersList.map((c) => {
+                        const checked = editForm.cleanerIds.includes(c.id)
+                        return (
+                          <label
+                            key={c.id}
+                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.45rem 0.75rem", cursor: "pointer", fontSize: "0.8rem", color: "#e4e4e7", background: checked ? "rgba(16, 185, 129, 0.1)" : "transparent", transition: "background 0.1s" }}
+                            onMouseEnter={(e) => { if (!checked) (e.currentTarget.style.background = "rgba(255,255,255,0.04)") }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = checked ? "rgba(16, 185, 129, 0.1)" : "transparent" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setEditForm(f => ({
+                                  ...f,
+                                  cleanerIds: checked
+                                    ? f.cleanerIds.filter(id => id !== c.id)
+                                    : [...f.cleanerIds, c.id]
+                                }))
+                              }}
+                              style={{ accentColor: "#10b981", width: 14, height: 14 }}
+                            />
+                            {c.name}
+                          </label>
+                        )
+                      })}
+                      {cleanersList.length === 0 && (
+                        <div style={{ padding: "0.75rem", fontSize: "0.8rem", color: "#71717a", textAlign: "center" }}>No cleaners available</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Status</label>
+                    <select className="cal-form-control" value={editForm.status} onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))}>
+                      {["pending", "scheduled", "in_progress", "completed", "cancelled", "quoted"].map((s) => (
+                        <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Price</label>
+                    <input type="number" className="cal-form-control" placeholder="0.00" step="0.01" value={editForm.price} onChange={(e) => setEditForm((f) => ({ ...f, price: e.target.value }))} />
+                  </div>
+                </div>
+                {/* Customer info */}
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Customer Name</label>
+                  <input type="text" className="cal-form-control" value={editForm.customerName} onChange={(e) => setEditForm((f) => ({ ...f, customerName: e.target.value }))} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Phone</label>
+                    <input type="tel" className="cal-form-control" value={editForm.customerPhone} onChange={(e) => setEditForm((f) => ({ ...f, customerPhone: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Email</label>
+                    <input type="email" className="cal-form-control" value={editForm.customerEmail} onChange={(e) => setEditForm((f) => ({ ...f, customerEmail: e.target.value }))} />
+                  </div>
                 </div>
                 <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Assigned Cleaner</label>
-                  <select
-                    className="cal-form-control"
-                    value={editForm.cleanerId}
-                    onChange={(e) => setEditForm((f) => ({ ...f, cleanerId: e.target.value }))}
-                  >
-                    <option value="">— Unassigned —</option>
-                    {cleanersList.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <label className="cal-form-label">Address</label>
+                  <input type="text" className="cal-form-control" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
                 </div>
+<<<<<<< HEAD
                 <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
                   Duration: {selectedEvent?.hours || 2} hours
+=======
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                  <div>
+                    <label className="cal-form-label">Service Type</label>
+                    <input type="text" className="cal-form-control" value={editForm.serviceType} onChange={(e) => setEditForm((f) => ({ ...f, serviceType: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="cal-form-label">Duration</label>
+                    <div style={{ fontSize: "0.8rem", color: "#71717a", padding: "0.45rem 0" }}>{selectedEvent?.hours || 2} hours</div>
+                  </div>
+                </div>
+                <div style={{ marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Notes</label>
+                  <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
+>>>>>>> Test
                 </div>
                 {/* Send to specific cleaner (also in edit mode) */}
                 <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
@@ -2086,6 +3187,15 @@ export default function JobsPage() {
                       + Charge
                     </button>
                   )}
+                  <button
+                    ref={pmBtnRef}
+                    onClick={() => pmToggle(selectedEvent?.jobId)}
+                    className={`cal-modal-btn ${pmOpen ? "text-purple-400" : ""}`}
+                    title="Payment links"
+                    style={{ padding: "0.4rem 0.5rem" }}
+                  >
+                    <DollarSign className="w-4 h-4" />
+                  </button>
                   <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}
@@ -2342,18 +3452,202 @@ export default function JobsPage() {
       >
         <div className="cal-modal" style={{ maxWidth: 900, maxHeight: "calc(100vh - 2rem)" }}>
           <div className="cal-modal-header">
-            <h5>Create Job</h5>
+            <h5>{createForm.is_quote ? "Create Quote" : "Create Job"}</h5>
             <button
               className="cal-modal-close"
-              onClick={() => setCreateOpen(false)}
+              onClick={() => { setCreateOpen(false); setQuoteSuccess(null); pmReset() }}
             >
               &times;
             </button>
           </div>
+          {quoteSuccess ? (
+            <div className="cal-modal-body" style={{ textAlign: "center", padding: "2rem 1.5rem" }}>
+              <div style={{ fontSize: "2.5rem", marginBottom: "0.75rem" }}>&#10003;</div>
+              <h3 style={{ fontSize: "1.1rem", fontWeight: 600, marginBottom: "0.5rem" }}>
+                {quoteSuccess.sent ? "Quote Sent!" : "Quote Created"}
+              </h3>
+              <p style={{ color: "#a1a1aa", fontSize: "0.85rem", marginBottom: "1.25rem" }}>
+                {quoteSuccess.sent
+                  ? `${createForm.customer_name || "Customer"} will receive an SMS with their quote link. They can pick their package, add extras, and pay online.`
+                  : "Review the quote or text it to the customer when ready."}
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", alignItems: "center" }}>
+                <a
+                  href={quoteSuccess.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "0.5rem 1.25rem",
+                    background: "#3b82f6",
+                    color: "#fff",
+                    borderRadius: "0.375rem",
+                    textDecoration: "none",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  View Quote
+                </a>
+                <button
+                  className="cal-modal-btn"
+                  disabled={quoteSuccess.sent || quoteSuccess.sending}
+                  onClick={async () => {
+                    if (!quoteSuccess.quoteId) {
+                      alert("Quote ID missing — cannot send SMS. Try creating the quote again.")
+                      return
+                    }
+                    setQuoteSuccess(prev => prev ? { ...prev, sending: true } : prev)
+                    try {
+                      const res = await fetch("/api/actions/quotes/send", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ quote_id: quoteSuccess.quoteId }),
+                      })
+                      const data = await res.json()
+                      if (data.success) {
+                        setQuoteSuccess(prev => prev ? { ...prev, sent: true, sending: false } : prev)
+                      } else {
+                        alert(data.error || "Failed to send SMS")
+                        setQuoteSuccess(prev => prev ? { ...prev, sending: false } : prev)
+                      }
+                    } catch {
+                      alert("Failed to send SMS")
+                      setQuoteSuccess(prev => prev ? { ...prev, sending: false } : prev)
+                    }
+                  }}
+                  style={{
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                    padding: "0.5rem 1.25rem",
+                    background: quoteSuccess.sent ? "#22c55e" : "#8b5cf6",
+                    color: "#fff",
+                    borderRadius: "0.375rem",
+                    border: "none",
+                    cursor: quoteSuccess.sent ? "default" : "pointer",
+                    opacity: quoteSuccess.sending ? 0.7 : 1,
+                  }}
+                >
+                  {quoteSuccess.sending ? "Sending..." : quoteSuccess.sent ? "Sent!" : "Text to Customer"}
+                </button>
+                {/* Payment menu ($) */}
+                <button
+                  ref={pmBtnRef}
+                  onClick={() => pmToggle()}
+                  className={`p-2 rounded-lg transition-colors ${pmOpen ? "text-purple-400 bg-purple-400/10" : "text-zinc-400 hover:text-purple-400 hover:bg-purple-400/10"}`}
+                  title="Payment links"
+                  style={{ border: "1px solid rgba(63,63,70,0.5)" }}
+                >
+                  <DollarSign className="w-4 h-4" />
+                </button>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(window.location.origin + quoteSuccess.url)
+                    alert("Quote link copied!")
+                  }}
+                  style={{ fontSize: "0.8rem" }}
+                >
+                  Copy Link
+                </button>
+                <button
+                  className="cal-modal-btn"
+                  onClick={() => {
+                    setQuoteSuccess(null)
+                    setCreateOpen(false)
+                    setPhoneLookedUp("")
+                    setPhoneSuggestions([])
+                    setShowPhoneSuggestions(false)
+                    setCustomerSearch("")
+                    setCustomerSearchResults([])
+                    formSnapshotRef.current = null
+                    isPreviewingRef.current = false
+                    basePriceSnapshotRef.current = 0
+                    setIsPreviewing(false)
+                    setLookedUpCustomerId(null)
+                    setCustomerMemberships([])
+                  }}
+                  style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (<>
           <div className="cal-modal-body">
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
               {/* ── LEFT COLUMN ── */}
               <div>
+                {/* Customer search */}
+                <div style={{ position: "relative", marginBottom: "0.5rem" }}>
+                  <label className="cal-form-label">Search Customers</label>
+                  <input
+                    type="text"
+                    className="cal-form-control"
+                    placeholder="Type a customer name, phone number, or email"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value)
+                      setLookedUpCustomerId(null)
+                      lookedUpCustomerIdRef.current = null
+                      if (!e.target.value) { setCustomerSearchResults([]); setShowCustomerSearch(false) }
+                    }}
+                    onFocus={() => { if (customerSearchResults.length > 0) setShowCustomerSearch(true) }}
+                    onBlur={() => setTimeout(() => { if (!isPreviewingRef.current) setShowCustomerSearch(false) }, 200)}
+                  />
+                  {showCustomerSearch && customerSearchResults.length > 0 && (
+                    <div style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: 0,
+                      right: 0,
+                      zIndex: 100,
+                      background: "#1e1e21",
+                      border: "1px solid rgba(63, 63, 70, 0.6)",
+                      borderRadius: 8,
+                      marginTop: 2,
+                      maxHeight: 220,
+                      overflowY: "auto",
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                    }}>
+                      {customerSearchResults.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            selectPhoneCustomer(s)
+                            setCustomerSearch([s.first_name, s.last_name].filter(Boolean).join(" "))
+                            setShowCustomerSearch(false)
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "0.5rem 0.75rem",
+                            background: "transparent",
+                            border: "none",
+                            borderBottom: "1px solid rgba(63, 63, 70, 0.3)",
+                            color: "#e4e4e7",
+                            fontSize: "0.8rem",
+                            cursor: "pointer",
+                          }}
+                          onMouseEnter={() => previewPhoneCustomer(s)}
+                          onMouseLeave={() => revertPreview()}
+                        >
+                          <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {[s.first_name, s.last_name].filter(Boolean).join(" ") || "Unknown"}
+                          </div>
+                          <div style={{ color: "#71717a", fontSize: "0.75rem" }}>
+                            {s.phone_number}
+                            {s.email && <span style={{ marginLeft: "0.5rem" }}>{s.email}</span>}
+                            {s.address && <span style={{ color: "#52525b", marginLeft: "0.5rem" }}>{s.address}</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 {/* Row 1: Phone, Service Type */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                   <div style={{ position: "relative" }}>
@@ -2576,43 +3870,34 @@ export default function JobsPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                     <div>
                       <label className="cal-form-label">Bedrooms *</label>
-                      <select
+                      <input
+                        type="number"
                         className="cal-form-control"
+                        placeholder="3"
+                        min="0"
+                        step="0.5"
                         value={createForm.bedrooms}
                         onChange={(e) =>
                           setCreateForm((prev) => ({ ...prev, bedrooms: e.target.value }))
                         }
-                      >
-                        <option value="">Select</option>
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
-                        <option value="5">5</option>
-                        <option value="6">6+</option>
-                      </select>
+                      />
                     </div>
                     <div>
                       <label className="cal-form-label">Bathrooms *</label>
-                      <select
+                      <input
+                        type="number"
                         className="cal-form-control"
+                        placeholder="2"
+                        min="0"
+                        step="0.5"
                         value={createForm.bathrooms}
                         onChange={(e) =>
                           setCreateForm((prev) => ({ ...prev, bathrooms: e.target.value }))
                         }
-                      >
-                        <option value="">Select</option>
-                        <option value="1">1</option>
-                        <option value="1.5">1.5</option>
-                        <option value="2">2</option>
-                        <option value="2.5">2.5</option>
-                        <option value="3">3</option>
-                        <option value="3.5">3.5</option>
-                        <option value="4">4+</option>
-                      </select>
+                      />
                     </div>
                     <div>
-                      <label className="cal-form-label">Sqft *</label>
+                      <label className="cal-form-label">Sqft</label>
                       <input
                         type="number"
                         className="cal-form-control"
@@ -2627,32 +3912,68 @@ export default function JobsPage() {
                   </div>
                 )}
 
-                {/* Row 4: Assignment & Membership/Frequency */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                {/* Row 4: Assignment + Cleaners & Membership/Frequency */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
                   <div>
                     <label className="cal-form-label">Assignment</label>
                     <select
                       className="cal-form-control"
-                      value={createForm.assignment_mode === "specific" ? `cleaner:${createForm.cleaner_id}` : createForm.assignment_mode}
+                      value={createForm.assignment_mode}
                       onChange={(e) => {
-                        const val = e.target.value
-                        if (val === "auto_broadcast") {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "auto_broadcast", cleaner_id: "" }))
-                        } else if (val === "unassigned") {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "unassigned", cleaner_id: "" }))
-                        } else if (val.startsWith("cleaner:")) {
-                          setCreateForm((prev) => ({ ...prev, assignment_mode: "specific", cleaner_id: val.replace("cleaner:", "") }))
-                        }
+                        const val = e.target.value as AssignmentMode
+                        setCreateForm((prev) => ({ ...prev, assignment_mode: val, cleaner_ids: [] }))
                       }}
                     >
                       <option value="auto_broadcast">Auto Broadcast</option>
+                      <option value="ranked">Ranked Priority</option>
                       <option value="unassigned">Unassigned</option>
-                      {cleanersList.length > 0 && (
-                        <option disabled style={{ fontWeight: 600, color: "#71717a" }}>── Assign to ──</option>
-                      )}
-                      {cleanersList.map((c) => (
-                        <option key={c.id} value={`cleaner:${c.id}`}>{c.name}</option>
-                      ))}
+                      <option value="specific">Pick Cleaners</option>
+                    </select>
+                    {createForm.assignment_mode === "specific" && cleanersList.length > 0 && (
+                      <div style={{ marginTop: "0.35rem", display: "flex", flexWrap: "wrap", gap: "0.25rem" }}>
+                        {cleanersList.map((c) => {
+                          const selected = createForm.cleaner_ids.includes(c.id)
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setCreateForm((prev) => {
+                                  const ids = selected
+                                    ? prev.cleaner_ids.filter((id) => id !== c.id)
+                                    : [...prev.cleaner_ids, c.id]
+                                  return { ...prev, cleaner_ids: ids }
+                                })
+                              }}
+                              style={{
+                                padding: "0.2rem 0.5rem",
+                                borderRadius: 6,
+                                fontSize: "0.75rem",
+                                border: selected ? "1px solid #22d3ee" : "1px solid #3f3f46",
+                                background: selected ? "rgba(34, 211, 238, 0.15)" : "transparent",
+                                color: selected ? "#22d3ee" : "#a1a1aa",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {selected ? "✓ " : ""}{c.name}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ width: "70px" }}>
+                    <label className="cal-form-label"># Crew</label>
+                    <select
+                      className="cal-form-control"
+                      value={createForm.cleaner_count}
+                      onChange={(e) =>
+                        setCreateForm((prev) => ({ ...prev, cleaner_count: e.target.value }))
+                      }
+                    >
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
                     </select>
                   </div>
                   {isHouseCleaning ? (
@@ -2661,9 +3982,21 @@ export default function JobsPage() {
                       <select
                         className="cal-form-control"
                         value={createForm.frequency}
-                        onChange={(e) =>
-                          setCreateForm((prev) => ({ ...prev, frequency: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const freq = e.target.value
+                          setCreateForm((prev) => {
+                            // Recalculate price with frequency discount
+                            const freqSlugMap: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }
+                            const oldSlug = freqSlugMap[prev.frequency] || null
+                            const newSlug = freqSlugMap[freq] || null
+                            const oldDiscount = oldSlug ? (servicePlans.find(p => p.slug === oldSlug)?.discount_per_visit || 0) : 0
+                            const newDiscount = newSlug ? (servicePlans.find(p => p.slug === newSlug)?.discount_per_visit || 0) : 0
+                            const currentPrice = Number(prev.price) || 0
+                            // Add back old discount, subtract new discount
+                            const adjusted = currentPrice > 0 ? Math.max(0, currentPrice + oldDiscount - newDiscount) : 0
+                            return { ...prev, frequency: freq, price: adjusted > 0 ? String(adjusted) : prev.price }
+                          })
+                        }}
                       >
                         <option value="one-time">One-time</option>
                         <option value="weekly">Weekly</option>
@@ -2724,7 +4057,7 @@ export default function JobsPage() {
 
                 {/* Row 5: Lead Source */}
                 <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Lead Source</label>
+                  <label className="cal-form-label">Lead Source <span style={{ color: "#ef4444" }}>*</span></label>
                   {(() => {
                     const knownSources = ["Website", "Google", "Referral", "Facebook", "Instagram", "Nextdoor", "Yelp", "Thumbtack", "Angi", "Door Hanger", "Yard Sign", "Repeat Customer"]
                     const isKnown = knownSources.includes(createForm.lead_source) || createForm.lead_source === ""
@@ -2836,6 +4169,8 @@ export default function JobsPage() {
                       <option value="240">4 hours</option>
                       <option value="300">5 hours</option>
                       <option value="360">6 hours</option>
+                      <option value="420">7 hours</option>
+                      <option value="480">8 hours</option>
                     </select>
                   </div>
                 </div>
@@ -2898,47 +4233,84 @@ export default function JobsPage() {
                       borderRadius: 8,
                       border: "1px solid rgba(63, 63, 70, 0.4)",
                       padding: "0.5rem",
-                      maxHeight: isHouseCleaning ? 300 : 150,
+                      maxHeight: isHouseCleaning ? 300 : 250,
                       overflowY: "auto",
                     }}>
-                      {derivedAddonsList.map((addon) => (
-                        <label
-                          key={addon.addon_key}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            cursor: "pointer",
-                            padding: "0.35rem 0.4rem",
-                            borderRadius: 4,
-                            fontSize: "0.8rem",
-                            color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
-                            background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={createForm.selected_addons.includes(addon.addon_key)}
-                            onChange={(e) => {
-                              setCreateForm((prev) => ({
-                                ...prev,
-                                selected_addons: e.target.checked
-                                  ? [...prev.selected_addons, addon.addon_key]
-                                  : prev.selected_addons.filter((k) => k !== addon.addon_key),
-                              }))
-                            }}
-                            style={{ accentColor: "#8b5cf6" }}
-                          />
-                          <span style={{ flex: 1 }}>{addon.label}</span>
-                          <span style={{
-                            color: addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
-                            fontSize: "0.75rem",
-                            fontWeight: 600,
-                          }}>
-                            {addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
-                          </span>
-                        </label>
-                      ))}
+                      {/* Group add-ons by category */}
+                      {(() => {
+                        const groups = new Map<string, typeof derivedAddonsList>()
+                        for (const addon of derivedAddonsList) {
+                          const group = (addon as any).group || "Other"
+                          if (!groups.has(group)) groups.set(group, [])
+                          groups.get(group)!.push(addon)
+                        }
+                        return [...groups.entries()].map(([groupName, addons]) => (
+                          <div key={groupName}>
+                            <div style={{
+                              fontSize: "0.65rem",
+                              fontWeight: 700,
+                              textTransform: "uppercase",
+                              letterSpacing: "0.05em",
+                              color: "#71717a",
+                              padding: "0.4rem 0.4rem 0.15rem",
+                              borderTop: groupName !== [...groups.keys()][0] ? "1px solid rgba(63,63,70,0.3)" : "none",
+                              marginTop: groupName !== [...groups.keys()][0] ? "0.25rem" : 0,
+                            }}>
+                              {groupName}
+                            </div>
+                            {addons.map((addon) => {
+                              const st = (createForm.service_type || "").toLowerCase()
+                              const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+                              const dbIncluded = Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(tierKey)
+                              // Code-level fallback: addons included per tier per quote-pricing.ts definitions
+                              const TIER_INCLUDES: Record<string, string[]> = {
+                                deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                                move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills', 'wall_spot_cleaning', 'grout_scrubbing', 'behind_under_appliances', 'window_tracks', 'baseboards_hand_wipe', 'light_fixtures_detailed'],
+                              }
+                              const codeIncluded = (TIER_INCLUDES[tierKey] || []).includes(addon.addon_key)
+                              const isIncluded = isHouseCleaning && (dbIncluded || codeIncluded)
+                              return (
+                              <label
+                                key={addon.addon_key}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "0.5rem",
+                                  cursor: "pointer",
+                                  padding: "0.3rem 0.4rem",
+                                  borderRadius: 4,
+                                  fontSize: "0.8rem",
+                                  color: createForm.selected_addons.includes(addon.addon_key) ? "#e4e4e7" : "#a1a1aa",
+                                  background: createForm.selected_addons.includes(addon.addon_key) ? "rgba(139, 92, 246, 0.15)" : "transparent",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={createForm.selected_addons.includes(addon.addon_key)}
+                                  onChange={(e) => {
+                                    setCreateForm((prev) => ({
+                                      ...prev,
+                                      selected_addons: e.target.checked
+                                        ? [...prev.selected_addons, addon.addon_key]
+                                        : prev.selected_addons.filter((k) => k !== addon.addon_key),
+                                    }))
+                                  }}
+                                  style={{ accentColor: "#8b5cf6" }}
+                                />
+                                <span style={{ flex: 1 }}>{addon.label}</span>
+                                <span style={{
+                                  color: isIncluded ? "#4ade80" : addon.flat_price > 0 ? "#a1a1aa" : "#4ade80",
+                                  fontSize: "0.75rem",
+                                  fontWeight: 600,
+                                }}>
+                                  {isIncluded ? "INCLUDED" : addon.flat_price > 0 ? `+$${addon.flat_price}` : "FREE"}
+                                </span>
+                              </label>
+                              )
+                            })}
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
                 )}
@@ -2968,16 +4340,27 @@ export default function JobsPage() {
                       items.push({ label: createForm.service_type || "Base Service", price: basePrice })
                     }
 
-                    // Selected add-ons
+                    // Selected add-ons (skip price for included addons)
+                    const st = (createForm.service_type || "").toLowerCase()
+                    const summaryTierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+                    const TIER_INCLUDES_SUMMARY: Record<string, string[]> = {
+                      deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
+                      move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills', 'wall_spot_cleaning', 'grout_scrubbing', 'behind_under_appliances', 'window_tracks', 'baseboards_hand_wipe', 'light_fixtures_detailed'],
+                    }
                     for (const key of createForm.selected_addons) {
                       const addon = derivedAddonsList.find((a) => a.addon_key === key)
                       if (addon) {
+                        const addonDbIncluded = isHouseCleaning && Array.isArray((addon as any).included_in) && (addon as any).included_in.includes(summaryTierKey)
+                        const addonCodeIncluded = isHouseCleaning && (TIER_INCLUDES_SUMMARY[summaryTierKey] || []).includes(key)
+                        const addonIncluded = addonDbIncluded || addonCodeIncluded
+                        if (addonIncluded) continue // included in tier price, don't add to summary
                         items.push({ label: addon.label, price: addon.flat_price || 0 })
                       }
                     }
 
-                    // Membership discount
+                    // Membership / frequency discount
                     let discount = 0
+                    let discountLabel = "Membership Discount"
                     if (createForm.membership_id) {
                       if (createForm.membership_id.startsWith("membership:")) {
                         const mem = customerMemberships.find((m) => m.id === createForm.membership_id.replace("membership:", ""))
@@ -2985,6 +4368,22 @@ export default function JobsPage() {
                       } else if (createForm.membership_id.startsWith("plan:")) {
                         const plan = servicePlans.find((p) => p.slug === createForm.membership_id.replace("plan:", ""))
                         discount = plan?.discount_per_visit || 0
+                      }
+                    }
+                    // House cleaning recurring frequency discount
+                    if (isHouseCleaning && createForm.frequency && createForm.frequency !== "one-time") {
+                      const freqMap: Record<string, { slug: string; label: string }> = {
+                        "weekly": { slug: "weekly", label: "Weekly Discount" },
+                        "bi-weekly": { slug: "biweekly", label: "Bi-Weekly Discount" },
+                        "monthly": { slug: "monthly", label: "Monthly Discount" },
+                      }
+                      const fm = freqMap[createForm.frequency]
+                      if (fm) {
+                        const plan = servicePlans.find((p) => p.slug === fm.slug)
+                        if (plan) {
+                          discount = plan.discount_per_visit || 0
+                          discountLabel = fm.label
+                        }
                       }
                     }
 
@@ -3005,7 +4404,7 @@ export default function JobsPage() {
                         ))}
                         {discount > 0 && (
                           <div style={{ display: "flex", justifyContent: "space-between", padding: "0.2rem 0", color: "#4ade80" }}>
-                            <span>Membership Discount</span>
+                            <span>{discountLabel}</span>
                             <span>-${discount}</span>
                           </div>
                         )}
@@ -3063,11 +4462,29 @@ export default function JobsPage() {
               onClick={handleCreateSave}
               disabled={createSaving}
             >
-              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Send Quote" : "Create Job"}
+              {createSaving ? <><span className="saving-spinner" /> Creating...</> : createForm.is_quote ? "Create Quote" : "Create Job"}
             </button>
           </div>
+          </>)}
         </div>
       </div>
+      {pmOpen && renderPaymentMenu(!!selectedEvent?.cardOnFile)}
+
+      {/* Standalone Enter Card modal — rendered at top level, no stacking context issues */}
+      {cardFormOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.6)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setCardFormOpen(false) }}
+        >
+          <div style={{ width: "100%", maxWidth: 360, borderRadius: 12, background: "#18181b", border: "1px solid rgba(255,255,255,0.08)", boxShadow: "0 20px 50px rgba(0,0,0,0.5)" }}>
+            <StripeCardForm
+              customerId={pmGetCustomerId() || ""}
+              onSuccess={() => setCardFormOpen(false)}
+              onCancel={() => setCardFormOpen(false)}
+            />
+          </div>
+        </div>
+      )}
     </>
   )
 }

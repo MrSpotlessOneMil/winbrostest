@@ -63,7 +63,8 @@ BEGIN
       AND j.satisfaction_sent_at IS NULL
       AND j.followup_sent_at IS NULL  -- Skip jobs already processed by old cron
       AND j.completed_at IS NOT NULL
-      AND j.completed_at < NOW() - INTERVAL '1 minute'
+      AND j.payment_status = 'fully_paid'  -- Only after card charged
+      AND j.completed_at < NOW() - INTERVAL '2 minutes'
       AND j.completed_at > NOW() - INTERVAL '48 hours'
       AND COALESCE(j.job_type, 'cleaning') != 'estimate'
     ORDER BY j.completed_at ASC

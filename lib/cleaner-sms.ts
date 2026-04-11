@@ -8,6 +8,7 @@
  */
 
 import type { Tenant } from './tenant'
+import { formatTenantCurrency } from './tenant'
 import { sendSMS } from './openphone'
 import { getSupabaseServiceClient } from './supabase'
 
@@ -57,9 +58,8 @@ interface SendResult {
 // ── Helpers ──
 
 function getBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'https://spotless-scrubbers-api.vercel.app'
+  return process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
 }
 
 function portalUrl(portalToken: string): string {
@@ -127,6 +127,7 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
+<<<<<<< HEAD
   // Cleaner pay (their rate × hours, NOT the customer price)
   const rate = cleaner.hourly_rate || 25
   if (job.hours) {
@@ -141,8 +142,33 @@ export async function notifyCleanerAssignment(
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
   const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}\n\nReply ACCEPT or DECLINE.`
+=======
+  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
+  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+  if (payPercentage && job.price) {
+    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+    details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
+  } else if (job.hours) {
+    const rate = cleaner.hourly_rate || 25
+    details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+  }
 
-  const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
+  const custStr = custName ? `\nCustomer: ${custName}` : ''
+
+  // Notes preview (first 100 chars — strip internal quote metadata, keep special instructions)
+  const rawNotes = (job.notes || '').replace(/^Quote #[A-F0-9]+ approved[^\n]*\n?/i, '').trim()
+  const notesPreview = rawNotes ? `\n${rawNotes.slice(0, 100)}${rawNotes.length > 100 ? '...' : ''}` : ''
+
+  let link = ''
+  if (cleaner.portal_token && job.id) {
+    link = `\n\nView full details, checklist & confirm:\n${jobUrl(cleaner.portal_token, job.id)}`
+  }
+
+  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
+>>>>>>> Test
+
+  const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 
   // Create pending SMS assignment for reply tracking
   if (result.success && assignmentId && cleaner.id) {
@@ -187,14 +213,25 @@ export async function notifyCleanerAwarded(
   const date = formatDate(job.date)
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
+  const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
+  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
+  const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
+  let payStr = ''
+  if (payPercentage2 && job.price) {
+    const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
+  } else if (job.hours) {
+    const rate = cleaner.hourly_rate || 25
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+  }
 
   let link = ''
   if (cleaner.portal_token && job.id) {
-    link = ` Job details: ${jobUrl(cleaner.portal_token, job.id)}`
+    link = `\n\nView checklist & details:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `You're confirmed for ${date} ${time} at ${address}!${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${link}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -211,7 +248,7 @@ export async function notifyCleanerNotSelected(
 
   const date = formatDate(job.date)
   const message = `The ${date} job has been assigned to another cleaner. Thanks for your availability!`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -236,8 +273,8 @@ export async function sendUrgentFollowUp(
     link = `\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `We still need your response for the ${date} ${time} job at ${address}.${link}\nReply YES or NO.`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  const message = `We still need your response for the ${date} ${time} job at ${address}.${link ? `\n\nTap here to respond:${link}` : ''}`
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -262,7 +299,7 @@ export async function sendDailySchedule(
   }
 
   const message = `Good morning ${cleaner.name}! You have ${jobs.length} job${jobs.length > 1 ? 's' : ''} today.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -288,7 +325,7 @@ export async function sendJobReminder(
   const message = reminderType === 'one_hour_before'
     ? `Reminder: Job in 1 hour at ${address}.${link}`
     : `Job starting now at ${address}.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -306,7 +343,7 @@ export async function notifyJobCancellation(
   const date = formatDate(job.date)
   const address = job.address || 'the scheduled address'
   const message = `Job on ${date} at ${address} has been cancelled.`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -326,7 +363,7 @@ export async function notifyScheduleChange(
   const newDate = formatDate(job.date)
   const newTime = formatTime(job.scheduled_at)
   const message = `Schedule change: Your job has been moved to ${newDate} ${newTime}. Please update your calendar.`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -351,7 +388,7 @@ export async function notifyJobDetailsChange(
   }
 
   const message = `Update for your ${date} job: ${changeList}.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -379,7 +416,12 @@ export async function sendCleanerPortalMessage(
   jobId: string | number,
   customerId?: string | number
 ): Promise<SendResult> {
-  const result = await sendSMS(tenant, customerPhone, content)
+  // Append cleaner identity tag so client knows who's texting
+  const firstName = cleaner.name.split(' ')[0]
+  const businessName = tenant.business_name_short || tenant.name
+  const taggedContent = `${content}\n\n— ${firstName} from ${businessName}, your cleaner`
+
+  const result = await sendSMS(tenant, customerPhone, taggedContent, { skipThrottle: true, bypassFilters: true })
 
   if (result.success) {
     try {
@@ -419,17 +461,26 @@ export async function notifyCustomerStatus(
   tenant: Tenant,
   customerPhone: string,
   customerName: string | null,
-  status: 'omw' | 'arrived' | 'done'
+  status: 'omw' | 'arrived' | 'done',
+  cleanerName?: string | null
 ): Promise<SendResult> {
   const name = customerName || 'there'
+  const businessName = tenant.business_name_short || tenant.name
+  const cleanerFirst = cleanerName ? cleanerName.split(' ')[0] : null
 
-  const messages: Record<string, string> = {
-    omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
-    arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
-    done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
-  }
+  const messages: Record<string, string> = cleanerFirst
+    ? {
+        omw: `Hey ${name}! ${cleanerFirst} from ${businessName} is on the way and should be there shortly.`,
+        arrived: `${cleanerFirst} from ${businessName} has arrived! If you have any special instructions, let them know.`,
+        done: `Your cleaning is all done! We hope you love it. Thank you for choosing ${businessName}!`,
+      }
+    : {
+        omw: `Hey ${name}! Your cleaner is on the way and should be there shortly.`,
+        arrived: `Your cleaner has arrived! If you have any special instructions, let them know.`,
+        done: `Your cleaning is all done! We hope you love it. Thank you for choosing us!`,
+      }
 
-  return await sendSMS(tenant, customerPhone, messages[status])
+  return await sendSMS(tenant, customerPhone, messages[status], { skipThrottle: true, bypassFilters: true })
 }
 
 /**
@@ -450,10 +501,11 @@ export async function sendLoginCredentials(
     return { success: false, error: 'Cleaner has no credentials or phone' }
   }
 
-  const portalLink = `${getBaseUrl()}/crew/${cleaner.portal_token}`
-  const message = `Your Osiris portal login:\n\nWebsite: theosirisai.com\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
+  const baseUrl = getBaseUrl()
+  const portalLink = `${baseUrl}/crew/${cleaner.portal_token}`
+  const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
 
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 // ── SMS Inbound Handlers ──
@@ -463,7 +515,7 @@ export const CLEANER_SMS_PATTERNS = {
   omw: /^(omw|on my way|otw|heading over|leaving now)\b/i,
   here: /^(here|arrived|i'?m here|at the house)\b/i,
   done: /^(done|finished|complete|all done)\b/i,
-  accept: /^(yes|yeah|yep|yup|y|sure|accept|ok|okay|1)\b/i,
+  accept: /^(yes|yeah|yep|yup|y|sure|accept|1)\b/i,
   decline: /^(no|nah|n|decline|pass|can'?t|2)\b/i,
   login: /\b(login|log in|password|pin|username|sign in|my credentials|how do i log in|my login)\b/i,
 }
@@ -527,11 +579,18 @@ export async function processCleanerStatusUpdate(
 
   await client.from('jobs').update(updates).eq('id', jobId)
 
+  // Get cleaner name for customer notification
+  const { data: cleanerData } = await client
+    .from('cleaners')
+    .select('name')
+    .eq('id', cleanerId)
+    .maybeSingle()
+
   // Notify customer
   const customerPhone = customer?.phone_number || job?.phone_number
   if (customerPhone) {
     const statusMap = { omw: 'omw', here: 'arrived', done: 'done' } as const
-    await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[status])
+    await notifyCustomerStatus(tenant, customerPhone, customer?.first_name || null, statusMap[status], cleanerData?.name)
   }
 
   return { success: true, jobId }
@@ -570,17 +629,43 @@ export async function processCleanerAssignmentReply(
     .eq('id', pending.id)
 
   if (accepted) {
-    // Accept: update cleaner_assignment status
-    await client
+    // Guard: check if another cleaner already accepted this job
+    const { data: existingAccepted } = await client
+      .from('cleaner_assignments')
+      .select('id, cleaner_id')
+      .eq('job_id', pending.job_id)
+      .eq('status', 'accepted')
+      .limit(1)
+      .maybeSingle()
+
+    if (existingAccepted) {
+      console.log(`[cleaner-sms] Job ${pending.job_id} already has accepted cleaner ${existingAccepted.cleaner_id} — rejecting late accept from ${cleanerId}`)
+      return { success: false, error: 'Job already assigned to another cleaner' }
+    }
+
+    // Accept: update cleaner_assignment status — only if still pending
+    const { data: updated } = await client
       .from('cleaner_assignments')
       .update({ status: 'accepted', responded_at: new Date().toISOString() })
       .eq('id', pending.assignment_id)
       .eq('status', 'pending')
+      .select('id')
 
-    // Update job status
+    // If no rows updated, the assignment was already cancelled/accepted — abort
+    if (!updated || updated.length === 0) {
+      console.log(`[cleaner-sms] Assignment ${pending.assignment_id} no longer pending — skipping confirmation`)
+      return { success: false, error: 'Assignment no longer pending (already cancelled or accepted)' }
+    }
+
+    // Update job status + set cleaner_id so it shows in calendar/teams
     await client
       .from('jobs')
-      .update({ status: 'scheduled', updated_at: new Date().toISOString() })
+      .update({ cleaner_id: cleanerId, updated_at: new Date().toISOString() })
+      .eq('id', pending.job_id)
+    // Also move to scheduled if still pending/new
+    await client
+      .from('jobs')
+      .update({ status: 'scheduled' })
       .eq('id', pending.job_id)
       .in('status', ['pending', 'new'])
 
@@ -655,4 +740,44 @@ export async function processCleanerAssignmentReply(
   }
 
   return { success: true }
+}
+
+// ── Pre-Confirm Notification ──
+
+export interface PreconfirmInfo {
+  id: number
+  quote_id: number
+  cleaner_pay: number | null
+  description: string | null
+  customer_name: string | null
+  customer_address: string | null
+  service_category: string | null
+}
+
+/**
+ * Notify a cleaner about a pre-confirm opportunity on a quote.
+ * The cleaner can confirm or decline BEFORE the client picks a date.
+ */
+export async function notifyCleanerPreconfirm(
+  tenant: Tenant,
+  cleaner: CleanerInfo,
+  preconfirm: PreconfirmInfo,
+): Promise<SendResult> {
+  if (!cleaner.phone) {
+    return { success: false, error: 'Cleaner has no phone number' }
+  }
+
+  const service = preconfirm.description || preconfirm.service_category || 'Cleaning'
+  const payStr = preconfirm.cleaner_pay ? `\nYour pay: ${formatTenantCurrency(tenant, Number(preconfirm.cleaner_pay))}` : ''
+  const addressStr = preconfirm.customer_address ? `\nArea: ${preconfirm.customer_address}` : ''
+  const custStr = preconfirm.customer_name ? `\nCustomer: ${preconfirm.customer_name.split(' ')[0]}` : ''
+
+  let link = ''
+  if (cleaner.portal_token) {
+    link = `\n\nInterested? Tap to confirm:\n${getBaseUrl()}/crew/${cleaner.portal_token}/preconfirm/${preconfirm.id}`
+  }
+
+  const message = `Hey ${cleaner.name.split(' ')[0]}! We have a ${humanize(service)} job.${payStr}${addressStr}${custStr}\n\nClient will pick the date — are you in?${link}`
+
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
