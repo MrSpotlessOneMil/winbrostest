@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
   // 1. Get all completed jobs in the month
   const { data: monthJobs, error: jobsError } = await client
     .from("jobs")
-    .select("id, price, customer_id, completed_at, date, status, cleaner_pay")
+    .select("id, price, customer_id, completed_at, date, status")
     .eq("status", "completed")
     .eq("tenant_id", tenant.id)
     .or(
@@ -178,8 +178,7 @@ export async function GET(request: NextRequest) {
   let oneTimeRevenue = 0
   let recurringJobCount = 0
   let oneTimeJobCount = 0
-  let totalCleanerPay = 0
-  let hasCleanerPayData = false
+  // No cleaner_pay column exists — profit estimated at ~50% margin (house cleaning industry standard)
 
   // Per-customer revenue tracking for top customers
   const customerRevenue = new Map<string, { revenue: number; jobCount: number }>()
@@ -195,16 +194,10 @@ export async function GET(request: NextRequest) {
 
   for (const job of jobs) {
     const price = Number(job.price || 0)
-    const cleanerPay = Number(job.cleaner_pay || 0)
     const completionDay = job.completed_at
       ? new Date(job.completed_at).toISOString().slice(0, 10)
       : String(job.date || "")
     const isRecurring = job.customer_id && recurringCustomerIds.has(job.customer_id)
-
-    if (cleanerPay > 0) {
-      hasCleanerPayData = true
-      totalCleanerPay += cleanerPay
-    }
 
     // Track per-customer revenue
     if (job.customer_id) {
@@ -240,10 +233,8 @@ export async function GET(request: NextRequest) {
   const arr = mrr * 12
   const averageJobValue = totalJobCount > 0 ? Math.round(totalRevenue / totalJobCount) : 0
 
-  // Profit: use actual cleaner_pay if available, otherwise estimate at 50% margin
-  const estimatedProfit = hasCleanerPayData
-    ? totalRevenue - totalCleanerPay
-    : Math.round(totalRevenue * 0.5)
+  // Profit estimated at ~50% margin (house cleaning industry standard)
+  const estimatedProfit = Math.round(totalRevenue * 0.5)
   const profitMargin =
     totalRevenue > 0
       ? Math.round((estimatedProfit / totalRevenue) * 100)
