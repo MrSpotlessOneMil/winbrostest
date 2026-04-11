@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/follow-up-quoted",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/system-health",
+      "schedule": "0 */6 * * *"
     }
   ]
 }
