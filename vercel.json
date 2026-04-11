@@ -86,7 +86,7 @@
     },
     {
       "path": "/api/cron/brain-learn",
-      "schedule": "0 9 * * *"
+      "schedule": "0 6,18 * * *"
     },
     {
       "path": "/api/cron/follow-up-quoted",

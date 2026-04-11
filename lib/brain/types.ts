@@ -8,6 +8,7 @@ export type KnowledgeDomain =
   | 'hiring' | 'pricing' | 'marketing' | 'retention' | 'quality'
   | 'scaling' | 'scheduling' | 'complaints' | 'sales' | 'operations'
   | 'legal' | 'financial' | 'tools' | 'mindset' | 'general'
+  | 'sales_learning' | 'knowledge_gap' | 'customer_faq'
 
 export type DecisionOutcome = 'positive' | 'negative' | 'neutral' | 'pending'
 
