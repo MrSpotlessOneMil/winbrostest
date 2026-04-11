@@ -107,6 +107,57 @@ export async function queryBrain(opts: BrainQueryOptions): Promise<BrainAnswer> 
   })), decisionId }
 }
 
+// ── Lightweight Chunk Retrieval (no Claude reasoning) ───────────────
+
+/**
+ * Fast knowledge lookup — returns raw Brain chunks without the Claude reasoning step.
+ * Used by auto-response.ts where the main SMS generation call does the reasoning.
+ * Adds ~200ms (one embedding + one Supabase RPC) vs ~3s for full queryBrain.
+ */
+export async function queryBrainChunksOnly(opts: {
+  question: string
+  domain?: string
+  maxChunks?: number
+  minSimilarity?: number
+}): Promise<Array<{ chunkText: string; domain: string; similarity: number; source: string }>> {
+  const { question, domain, maxChunks = 3, minSimilarity = 0.5 } = opts
+
+  const embedding = await generateEmbedding(question)
+  if (!embedding) return []
+
+  const client = getSupabaseServiceClient()
+
+  // Try hybrid search first, fall back to vector-only
+  const hybridResult = await client.rpc('match_brain_chunks_hybrid', {
+    query_text: question,
+    query_embedding: embedding,
+    match_count: maxChunks,
+    filter_domain: domain || null,
+    keyword_weight: 0.3,
+    semantic_weight: 0.7,
+  })
+
+  let chunks: MatchedChunk[] = []
+  if (hybridResult.error) {
+    const vectorResult = await client.rpc('match_brain_chunks', {
+      query_embedding: embedding,
+      match_threshold: minSimilarity,
+      match_count: maxChunks,
+      filter_domain: domain || null,
+    })
+    chunks = (vectorResult.data || []) as MatchedChunk[]
+  } else {
+    chunks = (hybridResult.data || []) as MatchedChunk[]
+  }
+
+  return chunks.map(c => ({
+    chunkText: c.chunk_text.slice(0, 300),
+    domain: c.domain || 'general',
+    similarity: c.similarity,
+    source: `${c.channel_name || 'Unknown'} — ${c.video_title || 'Untitled'}`,
+  }))
+}
+
 // ── Claude Reasoning ────────────────────────────────────────────────
 
 async function reasonWithClaude(

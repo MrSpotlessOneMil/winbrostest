@@ -1516,62 +1516,143 @@ async function generateHouseCleaningResponse(
   }).format(hcNow)
   const today = `${hcDateStr} (current time: ${hcTimeStr})`
 
-  // AI learning: conversation stage + frustration detection + winning pattern injection (all tenants)
+  // ── MEGA BRAIN: Parallel context gathering ──
+  // All async lookups run in parallel for speed (~200-500ms total vs ~3s sequential)
+
+  // 1. Conversation stage + frustration (synchronous, fast)
   let aiLearningBlock = ''
-  {
-    try {
-      const { detectFrustration, findSimilarWinningConversations } = await import('./conversation-scoring')
-      const { detectConversationStage, getStageGuidance } = await import('./sms-guard')
+  try {
+    const { detectFrustration } = await import('./conversation-scoring')
+    const { detectConversationStage, getStageGuidance } = await import('./sms-guard')
 
-      // Conversation stage detection — adapt tone to where we are in the funnel
-      if (conversationHistory?.length) {
-        const convForStage = conversationHistory.map(m => ({
-          role: m.role === 'client' ? 'client' : 'assistant',
-          content: m.content,
-        }))
-        const hasPriceQuoted = conversationHistory.some(m =>
-          m.role === 'assistant' && /\$\d/.test(m.content)
-        )
-        const stage = detectConversationStage(convForStage, false, hasPriceQuoted)
-        const guidance = getStageGuidance(stage)
-        if (guidance) {
-          aiLearningBlock += `\n\nCONVERSATION STAGE: ${stage}\n${guidance}\n`
-        }
+    if (conversationHistory?.length) {
+      const convForStage = conversationHistory.map(m => ({
+        role: m.role === 'client' ? 'client' : 'assistant',
+        content: m.content,
+      }))
+      const hasPriceQuoted = conversationHistory.some(m =>
+        m.role === 'assistant' && /\$\d/.test(m.content)
+      )
+      const stage = detectConversationStage(convForStage, false, hasPriceQuoted)
+      const guidance = getStageGuidance(stage)
+      if (guidance) {
+        aiLearningBlock += `\n\nCONVERSATION STAGE: ${stage}\n${guidance}\n`
       }
 
-      // Frustration detection
-      if (conversationHistory?.length) {
-        const frustration = detectFrustration(
-          conversationHistory.map(m => ({ role: m.role === 'client' ? 'client' : 'assistant', content: m.content })),
-          message
-        )
-        if (frustration.frustrated) {
-          aiLearningBlock += `\n\nWARNING: Customer seems frustrated (signals: ${frustration.signals.join(', ')}). Give a DIRECT answer. Don't ask more questions. If they want a price, give one NOW.\n`
-        }
+      const frustration = detectFrustration(
+        conversationHistory.map(m => ({ role: m.role === 'client' ? 'client' : 'assistant', content: m.content })),
+        message
+      )
+      if (frustration.frustrated) {
+        aiLearningBlock += `\n\nWARNING: Customer seems frustrated (signals: ${frustration.signals.join(', ')}). Give a DIRECT answer. Don't ask more questions. If they want a price, give one NOW.\n`
       }
-
-      // Inject winning patterns from similar past conversations
-      const patterns = await findSimilarWinningConversations(tenant.id, message, 3)
-      if (patterns.length > 0) {
-        aiLearningBlock += '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
-        for (const p of patterns) {
-          aiLearningBlock += `- ${p.conversation_summary}`
-          if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
-            const tactics = (p.patterns as { winning_tactics?: string[] }).winning_tactics
-            if (tactics?.length) {
-              aiLearningBlock += ` (what worked: ${tactics.join(', ')})`
-            }
-          }
-          aiLearningBlock += '\n'
-        }
-        aiLearningBlock += 'Use these patterns to guide your tone and approach.\n'
-      }
-    } catch (learningErr) {
-      console.error('[Auto-Response] AI learning injection failed (non-blocking):', learningErr)
     }
+  } catch (stageErr) {
+    console.warn('[HC AI] Stage/frustration detection failed (non-blocking):', stageErr)
   }
 
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${aiLearningBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  // 2. Parallel async: Brain intelligence + cross-tenant patterns + verified pricing
+  let brainBlock = ''
+  let patternsBlock = ''
+  let verifiedPricingBlock = ''
+
+  try {
+    const { queryBrainChunksOnly } = await import('./brain')
+    const { getHouseCleaningTenantIds, findCrossTenantWinningConversations } = await import('./conversation-scoring')
+    const { getPricingRow } = await import('./pricing-db')
+
+    const [brainChunks, hcTenantIds, pricingStd, pricingDeep, pricingMove] = await Promise.all([
+      // Brain: industry intelligence from coaching knowledge base
+      queryBrainChunksOnly({ question: message, domain: 'sales', maxChunks: 3, minSimilarity: 0.5 })
+        .catch((err: unknown) => { console.warn('[HC AI] Brain query failed (non-blocking):', err); return [] }),
+      // Cross-tenant: get ALL house cleaning tenant IDs (cached 5min)
+      getHouseCleaningTenantIds()
+        .catch(() => []),
+      // Verified pricing: exact prices for this customer's bed/bath
+      knownCustomerInfo?.bedrooms && knownCustomerInfo?.bathrooms
+        ? getPricingRow('standard', knownCustomerInfo.bedrooms, knownCustomerInfo.bathrooms, null, tenant.id).catch(() => null)
+        : Promise.resolve(null),
+      knownCustomerInfo?.bedrooms && knownCustomerInfo?.bathrooms
+        ? getPricingRow('deep', knownCustomerInfo.bedrooms, knownCustomerInfo.bathrooms, null, tenant.id).catch(() => null)
+        : Promise.resolve(null),
+      knownCustomerInfo?.bedrooms && knownCustomerInfo?.bathrooms
+        ? getPricingRow('move', knownCustomerInfo.bedrooms, knownCustomerInfo.bathrooms, null, tenant.id).catch(() => null)
+        : Promise.resolve(null),
+    ])
+
+    // Cross-tenant winning patterns (runs after we have tenant IDs)
+    const patterns = hcTenantIds.length > 0
+      ? await findCrossTenantWinningConversations(hcTenantIds, message, 5).catch(() => [])
+      : []
+
+    // Format brain chunks
+    if (brainChunks.length > 0) {
+      brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
+      brainBlock += 'IMPORTANT: This intelligence is for YOUR reference only. NEVER offer discounts, deals, or lower prices regardless of what the coaching suggests. You have ZERO price authority.\n'
+      for (const chunk of brainChunks) {
+        brainBlock += `- ${chunk.chunkText}\n`
+      }
+    }
+
+    // Format cross-tenant winning patterns (anonymized — no tenant names)
+    if (patterns.length > 0) {
+      patternsBlock = '\n\nWINNING PATTERNS FROM SIMILAR CONVERSATIONS:\n'
+      for (const p of patterns) {
+        patternsBlock += `- ${p.conversation_summary}`
+        if (p.patterns && typeof p.patterns === 'object' && 'winning_tactics' in p.patterns) {
+          const tactics = (p.patterns as { winning_tactics?: string[] }).winning_tactics
+          if (tactics?.length) {
+            patternsBlock += ` (what worked: ${tactics.join(', ')})`
+          }
+        }
+        patternsBlock += '\n'
+      }
+      patternsBlock += 'Use these patterns to guide your tone and approach.\n'
+    }
+
+    // If no patterns available, the brain chunks already provide coaching fallback
+    // (cold start handling — new tenants still get industry intelligence)
+    if (patterns.length === 0 && brainChunks.length === 0) {
+      // Extra brain fetch with more chunks as last resort
+      try {
+        const extraChunks = await queryBrainChunksOnly({ question: message, domain: 'sales', maxChunks: 5, minSimilarity: 0.4 })
+        if (extraChunks.length > 0) {
+          brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
+          brainBlock += 'IMPORTANT: NEVER offer discounts, deals, or lower prices. You have ZERO price authority.\n'
+          for (const chunk of extraChunks) {
+            brainBlock += `- ${chunk.chunkText}\n`
+          }
+        }
+      } catch { /* non-blocking */ }
+    }
+
+    // Format verified pricing (exact DB prices, currency-correct)
+    if (pricingStd || pricingDeep || pricingMove) {
+      const currency = tenant.workflow_config && (tenant.workflow_config as Record<string, unknown>).currency === 'CAD' ? 'CAD' : 'USD'
+      const sym = '$'
+      verifiedPricingBlock = `\n\nVERIFIED PRICING FOR THIS CUSTOMER (${knownCustomerInfo?.bedrooms} bed / ${knownCustomerInfo?.bathrooms} bath) — all prices in ${currency}:\n`
+      if (pricingStd) verifiedPricingBlock += `- Standard clean: ${sym}${pricingStd.price}\n`
+      if (pricingDeep) verifiedPricingBlock += `- Deep clean: ${sym}${pricingDeep.price}\n`
+      if (pricingMove) verifiedPricingBlock += `- Move in/out: ${sym}${pricingMove.price}\n`
+      verifiedPricingBlock += 'Use ONLY these prices. Do NOT guess or interpolate.\n'
+    }
+  } catch (megaBrainErr) {
+    console.error('[HC AI] Mega brain context failed (non-blocking):', megaBrainErr)
+  }
+
+  // ── PROMPT ASSEMBLY ORDER ──
+  // 1. Date/time context (grounding)
+  // 2. Conversation history (what's been said)
+  // 3. Known customer info (bed/bath/address from lead form)
+  // 4. Verified pricing (exact prices for this customer's bed/bath)
+  // 5. Returning customer / retargeting context
+  // 6. Customer context (active jobs, history, notes)
+  // 7. Customer brain (DB profile, spend, preferences)
+  // 8. Memory (remembered facts from past conversations)
+  // 9. Industry intelligence (Osiris Brain knowledge chunks)
+  // 10. AI learning (conversation stage + frustration + winning patterns)
+  // 11. The customer's actual message
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {

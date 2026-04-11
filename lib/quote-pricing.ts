@@ -274,8 +274,8 @@ function buildStandardPricing(
   const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
 
   // Use DB price if available, otherwise fall back to formula
-  const stdPriceValue = standardPrice?.price ?? formulaPrice('standard', bedrooms, bathrooms)
-  const deepPriceValue = deepPrice?.price ?? formulaPrice('deep', bedrooms, bathrooms)
+  const stdPriceValue = standardPrice?.price ?? (() => { console.warn(`⚠️ [PRICING FALLBACK] No DB tier for ${bedrooms}bed/${bathrooms}bath standard — using formula. Seed pricing_tiers!`); return formulaPrice('standard', bedrooms, bathrooms) })()
+  const deepPriceValue = deepPrice?.price ?? (() => { console.warn(`⚠️ [PRICING FALLBACK] No DB tier for ${bedrooms}bed/${bathrooms}bath deep — using formula. Seed pricing_tiers!`); return formulaPrice('deep', bedrooms, bathrooms) })()
 
   const tierPrices: Record<string, TierPriceResult> = {
     standard: {

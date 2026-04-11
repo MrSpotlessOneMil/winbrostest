@@ -120,6 +120,84 @@ export async function findSimilarWinningConversations(
   return (data || []) as WinningConversation[]
 }
 
+// ── Cross-Tenant Winning Patterns (House Cleaning Only) ─────────────
+
+// Cache house cleaning tenant IDs for 5 minutes
+let _hcTenantIds: string[] | null = null
+let _hcTenantIdsCachedAt = 0
+
+/**
+ * Get all active house cleaning tenant IDs (excludes WinBros/window cleaning).
+ * Cached for 5 minutes to avoid DB hits on every SMS.
+ */
+export async function getHouseCleaningTenantIds(): Promise<string[]> {
+  const now = Date.now()
+  if (_hcTenantIds && now - _hcTenantIdsCachedAt < 5 * 60 * 1000) {
+    return _hcTenantIds
+  }
+
+  const client = getSupabaseServiceClient()
+  const { data } = await client
+    .from('tenants')
+    .select('id, workflow_config')
+    .eq('active', true)
+
+  if (!data) return []
+
+  _hcTenantIds = data
+    .filter(t => {
+      const wc = (t.workflow_config ?? {}) as Record<string, unknown>
+      return !wc.use_hcp_mirror // exclude WinBros (window cleaning)
+    })
+    .map(t => t.id)
+  _hcTenantIdsCachedAt = now
+  return _hcTenantIds
+}
+
+/**
+ * Find winning conversation patterns across ALL house cleaning tenants.
+ * This is the cross-tenant version — West Niagara gets Spotless patterns, etc.
+ */
+export async function findCrossTenantWinningConversations(
+  houseCleaningTenantIds: string[],
+  currentMessage: string,
+  limit: number = 5
+): Promise<(WinningConversation & { tenant_id: string })[]> {
+  if (houseCleaningTenantIds.length === 0) return []
+
+  const client = getSupabaseServiceClient()
+  const embedding = await generateEmbedding(currentMessage)
+  if (!embedding) return []
+
+  // Try cross-tenant RPC first, fall back to single-tenant if it doesn't exist yet
+  const { data, error } = await client.rpc('match_winning_conversations_cross_tenant', {
+    query_embedding: embedding,
+    p_tenant_ids: houseCleaningTenantIds,
+    match_threshold: 0.65,
+    match_count: limit,
+  })
+
+  if (error) {
+    // RPC might not exist yet — fall back to querying each tenant
+    console.warn('[ConvScoring] Cross-tenant RPC unavailable, falling back to per-tenant:', error.message)
+    const allPatterns: (WinningConversation & { tenant_id: string })[] = []
+    for (const tid of houseCleaningTenantIds.slice(0, 3)) { // limit to 3 tenants for perf
+      const { data: tenantData } = await client.rpc('match_winning_conversations', {
+        query_embedding: embedding,
+        p_tenant_id: tid,
+        match_threshold: 0.65,
+        match_count: 3,
+      })
+      if (tenantData?.length) {
+        allPatterns.push(...(tenantData as WinningConversation[]).map(p => ({ ...p, tenant_id: tid })))
+      }
+    }
+    return allPatterns.sort((a, b) => b.similarity - a.similarity).slice(0, limit)
+  }
+
+  return (data || []) as (WinningConversation & { tenant_id: string })[]
+}
+
 // ── Frustration Detection ────────────────────────────────────────────
 
 interface FrustrationResult {
