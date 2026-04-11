@@ -100,15 +100,15 @@ export async function GET(request: NextRequest) {
   const { start, end } = getMonthRange(month)
   const client = await getTenantScopedClient(tenant.id)
 
-  // 1. Get all completed jobs in the month
+  // 1. Get all jobs with revenue in the month (completed, scheduled, in_progress — anything with a price that happened this month)
   const { data: monthJobs, error: jobsError } = await client
     .from("jobs")
     .select("id, price, customer_id, completed_at, date, status")
-    .eq("status", "completed")
     .eq("tenant_id", tenant.id)
+    .in("status", ["completed", "scheduled", "in_progress"])
     .or(
       `and(completed_at.gte.${start}T00:00:00.000Z,completed_at.lte.${end}T23:59:59.999Z),` +
-      `and(date.gte.${start},date.lte.${end},completed_at.is.null)`
+      `and(date.gte.${start},date.lte.${end})`
     )
 
   if (jobsError) {
@@ -269,11 +269,11 @@ export async function GET(request: NextRequest) {
   const { data: trendJobs } = await client
     .from("jobs")
     .select("id, price, customer_id, completed_at, date, status")
-    .eq("status", "completed")
     .eq("tenant_id", tenant.id)
+    .in("status", ["completed", "scheduled", "in_progress"])
     .or(
       `and(completed_at.gte.${trendStart}T00:00:00.000Z,completed_at.lte.${trendEnd}T23:59:59.999Z),` +
-      `and(date.gte.${trendStart},date.lte.${trendEnd},completed_at.is.null)`
+      `and(date.gte.${trendStart},date.lte.${trendEnd})`
     )
 
   // Bucket trend jobs into months
