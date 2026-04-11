@@ -31,7 +31,7 @@
         "./lib/*"
       ],
       "@/integrations/*": [
-        "../../integrations/*"
+        "./integrations/*"
       ],
       "@osiris/core": [
         "../../packages/core/src"
