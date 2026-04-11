@@ -289,26 +289,33 @@ export default function RevenueInsightsPage() {
 
   return (
     <div className="space-y-6">
-      {/* ----- Month Selector ----- */}
+      {/* ----- Header + Optional Month Selector ----- */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">Revenue Overview</h2>
           <p className="text-sm text-muted-foreground">
-            Financial breakdown for {selectedLabel}
+            {urlRange && urlRange !== "custom"
+              ? `Last ${urlRange === "ytd" ? "year to date" : urlRange}`
+              : urlRange === "custom" && urlFrom
+                ? `${urlFrom} to ${urlTo || "today"}`
+                : `Financial breakdown for ${selectedLabel}`}
           </p>
         </div>
-        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-          <SelectTrigger className="w-48">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {monthOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {/* Only show month dropdown when NOT using the date range picker */}
+        {!urlRange && (
+          <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       {/* ----- KPI Cards ----- */}

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getTenantScopedClient } from "@/lib/supabase"
 import { requireAuth, getAuthTenant } from "@/lib/auth"
+import { getStripeClientForTenant } from "@/lib/stripe-client"
+import type Stripe from "stripe"
 
 // route-check:no-vercel-cron
 
@@ -123,25 +125,65 @@ export async function GET(request: NextRequest) {
 
   const client = await getTenantScopedClient(tenant.id)
 
-  // 1. Get all jobs with revenue in the date range — only jobs up to today (not future-scheduled)
-  const { data: monthJobs, error: jobsError } = await client
-    .from("jobs")
-    .select("id, price, customer_id, completed_at, date, status")
-    .eq("tenant_id", tenant.id)
-    .in("status", ["completed", "scheduled", "in_progress"])
-    .or(
-      `and(completed_at.gte.${start}T00:00:00.000Z,completed_at.lte.${end}T23:59:59.999Z),` +
-      `and(date.gte.${start},date.lte.${end})`
-    )
+  // 1. Get revenue data — try Stripe first (actual money collected), fall back to jobs table
+  // This matches the Lead Sources page logic so numbers are consistent
+  let jobs: Array<{ id: number; price: number; customer_id: string; completed_at: string | null; date: string | null; status: string }> = []
+  let usedStripe = false
 
-  if (jobsError) {
-    return NextResponse.json(
-      { success: false, error: jobsError.message },
-      { status: 500 }
-    )
+  if ((tenant as any).stripe_secret_key) {
+    try {
+      const stripe = getStripeClientForTenant((tenant as any).stripe_secret_key)
+      const startTs = Math.floor(new Date(`${start}T00:00:00.000Z`).getTime() / 1000)
+      const endTs = Math.floor(new Date(`${end}T23:59:59.999Z`).getTime() / 1000)
+
+      let hasMore = true
+      let startingAfter: string | undefined
+      while (hasMore) {
+        const params: Stripe.ChargeListParams = { limit: 100, created: { gte: startTs, lte: endTs } }
+        if (startingAfter) params.starting_after = startingAfter
+        const batch = await stripe.charges.list(params)
+        const succeeded = batch.data.filter(c => c.status === 'succeeded')
+        for (const charge of succeeded) {
+          const day = new Date(charge.created * 1000).toISOString().slice(0, 10)
+          jobs.push({
+            id: 0,
+            price: charge.amount / 100,
+            customer_id: (charge.metadata?.customer_id || charge.metadata?.customerId || '') as string,
+            completed_at: day,
+            date: day,
+            status: 'completed',
+          })
+        }
+        hasMore = batch.has_more
+        if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id
+        else hasMore = false
+      }
+      usedStripe = true
+    } catch (stripeErr) {
+      console.error('[Revenue] Stripe query failed, falling back to jobs:', stripeErr)
+    }
   }
 
-  const jobs = monthJobs || []
+  // Fallback: use jobs table if Stripe didn't work
+  if (!usedStripe) {
+    const { data: monthJobs, error: jobsError } = await client
+      .from("jobs")
+      .select("id, price, customer_id, completed_at, date, status")
+      .eq("tenant_id", tenant.id)
+      .eq("status", "completed")
+      .or(
+        `and(completed_at.gte.${start}T00:00:00.000Z,completed_at.lte.${end}T23:59:59.999Z),` +
+        `and(date.gte.${start},date.lte.${end})`
+      )
+
+    if (jobsError) {
+      return NextResponse.json(
+        { success: false, error: jobsError.message },
+        { status: 500 }
+      )
+    }
+    jobs = (monthJobs || []) as typeof jobs
+  }
 
   // 2. Get unique customer IDs from this month's jobs
   const customerIds = [...new Set(jobs.map((j) => j.customer_id).filter(Boolean))]
