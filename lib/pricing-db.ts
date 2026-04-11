@@ -197,11 +197,11 @@ export async function getPricingRow(
     // No DB rows at all for this service type — use formula fallback
     const formulaStd = Math.max(100 * bedrooms + 35 * bathrooms, 200)
     const formulaDeep = Math.max(125 * bedrooms + 50 * bathrooms, 250)
-    const price = pricingTier === 'deep' ? formulaDeep : formulaStd
+    const price = serviceType === 'deep' ? formulaDeep : formulaStd
     const hours = Math.max(3, bedrooms * 0.75 + bathrooms * 0.5 + 1.5)
     const cleaners = bedrooms >= 3 ? 2 : 1
-    console.warn(`⚠️ [PRICING FALLBACK] No pricing_tiers rows for ${bedrooms}bed/${bathrooms}bath ${pricingTier} — using generic formula: $${price}. This likely means pricing tiers were never seeded for this tenant. Run admin onboard or insert manually.`)
-    return { service_type: pricingTier, bedrooms, bathrooms, max_sq_ft: 9999, price, price_min: price, price_max: price, labor_hours: Math.round(hours * 10) / 10, cleaners, hours_per_cleaner: Math.round((hours / cleaners) * 10) / 10 }
+    console.warn(`⚠️ [PRICING FALLBACK] No pricing_tiers rows for ${bedrooms}bed/${bathrooms}bath ${serviceType} — using generic formula: $${price}. This likely means pricing tiers were never seeded for this tenant. Run admin onboard or insert manually.`)
+    return { service_type: serviceType, bedrooms, bathrooms, max_sq_ft: 9999, price, price_min: price, price_max: price, labor_hours: Math.round(hours * 10) / 10, cleaners, hours_per_cleaner: Math.round((hours / cleaners) * 10) / 10 }
   }
 
   // Sort by max_sq_ft ascending
