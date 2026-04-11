@@ -14,31 +14,19 @@
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 19.9s
+✓ Compiled successfully in 21.9s
   Skipping validation of types
   Collecting page data using 11 workers ...
-  Generating static pages using 11 workers (0/355) ...
-  Generating static pages using 11 workers (88/355) 
-  Generating static pages using 11 workers (177/355) 
+  Generating static pages using 11 workers (0/357) ...
+  Generating static pages using 11 workers (89/357) 
+  Generating static pages using 11 workers (178/357) 
 [Tenant] Error fetching tenant by slug 'spotless': {
   code: 'PGRST116',
   details: 'The result contains 0 rows',
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-  Generating static pages using 11 workers (266/355) 
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
-[Tenant] Error fetching tenant by slug 'spotless': {
-  code: 'PGRST116',
-  details: 'The result contains 0 rows',
-  hint: null,
-  message: 'Cannot coerce the result to a single JSON object'
-}
+  Generating static pages using 11 workers (267/357) 
 [Tenant] Error fetching tenant by slug 'spotless': {
   code: 'PGRST116',
   details: 'The result contains 0 rows',
@@ -75,7 +63,19 @@
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-✓ Generating static pages using 11 workers (355/355) in 2.6s
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+[Tenant] Error fetching tenant by slug 'spotless': {
+  code: 'PGRST116',
+  details: 'The result contains 0 rows',
+  hint: null,
+  message: 'Cannot coerce the result to a single JSON object'
+}
+✓ Generating static pages using 11 workers (357/357) in 2.6s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire
@@ -215,6 +215,7 @@ Route (app)                                                                   Re
 ├ ƒ /api/earnings
 ├ ƒ /api/events
 ├ ƒ /api/exceptions
+├ ƒ /api/insights/revenue
 ├ ƒ /api/jobs
 ├ ƒ /api/leaderboard
 ├ ƒ /api/leads
@@ -279,6 +280,7 @@ Route (app)                                                                   Re
 ├ ○ /insights/leads
 ├ ○ /insights/pricing
 ├ ○ /insights/retention
+├ ○ /insights/revenue
 ├ ○ /jobs
 ├ ○ /leaderboard
 ├ ○ /leads

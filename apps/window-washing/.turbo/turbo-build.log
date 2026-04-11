@@ -14,13 +14,13 @@
 
 ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
   Creating an optimized production build ...
-✓ Compiled successfully in 17.7s
+✓ Compiled successfully in 19.1s
   Skipping validation of types
   Collecting page data using 11 workers ...
-  Generating static pages using 11 workers (0/358) ...
-  Generating static pages using 11 workers (89/358) 
-  Generating static pages using 11 workers (178/358) 
-  Generating static pages using 11 workers (268/358) 
+  Generating static pages using 11 workers (0/360) ...
+  Generating static pages using 11 workers (90/360) 
+  Generating static pages using 11 workers (180/360) 
+  Generating static pages using 11 workers (270/360) 
 [Tenant] Error fetching tenant by slug 'spotless': {
   code: 'PGRST116',
   details: 'The result contains 0 rows',
@@ -75,7 +75,7 @@
   hint: null,
   message: 'Cannot coerce the result to a single JSON object'
 }
-✓ Generating static pages using 11 workers (358/358) in 2.5s
+✓ Generating static pages using 11 workers (360/360) in 2.5s
   Finalizing page optimization ...
 
 Route (app)                                                                   Revalidate  Expire
@@ -215,6 +215,7 @@ Route (app)                                                                   Re
 ├ ƒ /api/earnings
 ├ ƒ /api/events
 ├ ƒ /api/exceptions
+├ ƒ /api/insights/revenue
 ├ ƒ /api/jobs
 ├ ƒ /api/leaderboard
 ├ ƒ /api/leads
@@ -282,6 +283,7 @@ Route (app)                                                                   Re
 ├ ○ /insights/leads
 ├ ○ /insights/pricing
 ├ ○ /insights/retention
+├ ○ /insights/revenue
 ├ ○ /jobs
 ├ ○ /leaderboard
 ├ ○ /leads

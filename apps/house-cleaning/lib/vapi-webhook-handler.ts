@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server"
-import { extractVapiCallData, parseTranscript } from "./vapi"
-import { normalizePhoneNumber, maskPhone } from "./phone-utils"
-import { getSupabaseServiceClient } from "./supabase"
-import { createLeadInHCP } from "./housecall-pro-api"
-import { scheduleLeadFollowUp } from "./scheduler"
-import { logSystemEvent } from "./system-events"
-import { getTenantBySlug, getDefaultTenant, tenantUsesFeature } from "./tenant"
-import { sendSMS, SMS_TEMPLATES } from "./openphone"
-import { mergeOverridesIntoNotes } from "./pricing-config"
-import { syncNewJobToHCP, syncCustomerToHCP } from "./hcp-job-sync"
-import { buildWinBrosJobNotes, parseNaturalDate } from "./winbros-sms-prompt"
-import { lookupPrice } from "./pricebook"
-import { getWindowTiersFromDB, getFlatServicesFromDB } from "./pricebook-db"
+import { extractVapiCallData, parseTranscript } from "@/lib/vapi"
+import { normalizePhoneNumber, maskPhone } from "@/lib/phone-utils"
+import { getSupabaseServiceClient } from "@/lib/supabase"
+import { createLeadInHCP } from "@/lib/housecall-pro-api"
+import { scheduleLeadFollowUp } from "@/lib/scheduler"
+import { logSystemEvent } from "@/lib/system-events"
+import { getTenantBySlug, getDefaultTenant, tenantUsesFeature } from "@/lib/tenant"
+import { sendSMS, SMS_TEMPLATES } from "@/lib/openphone"
+import { mergeOverridesIntoNotes } from "@/lib/pricing-config"
+import { syncNewJobToHCP, syncCustomerToHCP } from "@/lib/hcp-job-sync"
+import { buildWinBrosJobNotes, parseNaturalDate } from "@/lib/winbros-sms-prompt"
+import { lookupPrice } from "@/lib/pricebook"
+import { getWindowTiersFromDB, getFlatServicesFromDB } from "@/lib/pricebook-db"
 
 /** Format raw appointment date/time into human-readable text for SMS */
 function formatDateTimeForSMS(date: string | null, time: string | null): string {
@@ -192,7 +192,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   // Score call for learning system (fire-and-forget)
   if (data.transcript && data.transcript.length > 50 && phone) {
     const callOutcome: 'won' | 'lost' = data.outcome === 'booked' ? 'won' : 'lost'
-    import('./conversation-scoring').then(mod =>
+    import('@/lib/conversation-scoring').then(mod =>
       mod.scoreConversation({
         tenantId: tenant.id,
         customerId: customerId ?? 0,
@@ -207,7 +207,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
 
     // Extract memory facts from call transcript (fire-and-forget)
     if (customerId) {
-      import('./assistant-memory').then(mem =>
+      import('@/lib/assistant-memory').then(mem =>
         mem.extractAndStoreFacts(tenant.id, customerId!, '', [
           { role: 'assistant', content: `[VAPI call transcript]: ${data.transcript}` }
         ])
@@ -221,7 +221,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
   if (isOutbound && metadata.leadId && data.transcript && data.transcript.length > 100) {
     try {
       const leadId = Number(metadata.leadId)
-      const { cancelTask } = await import("./scheduler")
+      const { cancelTask } = await import("@/lib/scheduler")
       // Cancel call stages: stage-2 (call), stage-3 (double_call), stage-5 (call), double-call-2
       for (const key of [
         `lead-${leadId}-stage-2`,
@@ -281,7 +281,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
       // Recurring intent detection from call transcript (cleaning tenants only)
       if (customerId && data.transcript && (tenant.slug === "spotless-scrubbers" || tenant.slug === "cedar-rapids")) {
         try {
-          const { detectRecurringIntent } = await import("./recurring-detection")
+          const { detectRecurringIntent } = await import("@/lib/recurring-detection")
           const recurringIntent = detectRecurringIntent(data.transcript)
           if (recurringIntent.frequency) {
             await client.from("customers").update({
@@ -491,7 +491,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
               if (!jobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
                 try {
-                  const { getPricingRow } = await import('./pricing-db')
+                  const { getPricingRow } = await import('@/lib/pricing-db')
                   const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
                   const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
                   const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
@@ -628,7 +628,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
                 // Create "free second cleaning" offer — only for WinBros (house cleaning gets upsells via quote page)
                 if (isWinBros) {
                   try {
-                    const { createOfferFromBooking } = await import('./offers')
+                    const { createOfferFromBooking } = await import('@/lib/offers')
                     const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
                     if (offerResult.created) {
                       console.log(`${tag} Free cleaning offer created for customer ${customerId} (offer ${offerResult.offer?.id})`)
@@ -737,7 +737,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             // Fallback: DB pricing tiers for house cleaning tenants (Cedar Rapids etc.)
             if (!existingJobPrice && bookingInfo.bedrooms && bookingInfo.bathrooms && tenant.id) {
               try {
-                const { getPricingRow } = await import('./pricing-db')
+                const { getPricingRow } = await import('@/lib/pricing-db')
                 const svcRaw = (serviceType || 'standard_cleaning').toLowerCase().replace(/[_ ]cleaning/, '')
                 const pricingTier = (svcRaw === 'deep' || svcRaw === 'move') ? svcRaw : 'standard'
                 const pricingRow = await getPricingRow(pricingTier as any, bookingInfo.bedrooms, bookingInfo.bathrooms, bookingInfo.squareFootage || null, tenant.id)
@@ -827,7 +827,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
             if (job) {
               // Cancel any pending follow-up tasks for this lead
               try {
-                const { cancelTask } = await import("./scheduler")
+                const { cancelTask } = await import("@/lib/scheduler")
                 for (let s = 1; s <= 5; s++) {
                   await cancelTask(`lead-${existingLead.id}-stage-${s}`)
                 }
@@ -875,7 +875,7 @@ export async function handleVapiWebhook(payload: any, tenantSlug?: string | null
               // Create "free second cleaning" offer — only for WinBros (house cleaning gets upsells via quote page)
               if (isWinBrosExisting) {
                 try {
-                  const { createOfferFromBooking } = await import('./offers')
+                  const { createOfferFromBooking } = await import('@/lib/offers')
                   const offerResult = await createOfferFromBooking(client, tenant.id, customerId, job.id, tenant.workflow_config as Record<string, unknown>)
                   if (offerResult.created) {
                     console.log(`${tag} Free cleaning offer created for existing-lead customer ${customerId} (offer ${offerResult.offer?.id})`)

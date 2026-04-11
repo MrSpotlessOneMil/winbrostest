@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
-import { safeJsonParse } from './json-utils'
-import { getSupabaseClient } from './supabase'
+import { safeJsonParse } from '@/lib/json-utils'
+import { getSupabaseClient } from '@/lib/supabase'
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

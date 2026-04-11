@@ -6,11 +6,7 @@
  */
 
 import { getSupabaseServiceClient } from './supabase'
-
-// Review bonus config — per-tenant configurable, defaults to $10
-const REVIEW_BONUS_CONFIG = {
-  AMOUNT_CENTS: parseInt(process.env.WINBROS_REVIEW_BONUS_CENTS || '1000', 10),
-}
+import { REVIEW_BONUS_CONFIG } from '@/integrations/housecall-pro/constants'
 
 // Crew performance record
 export interface CrewPerformance {

@@ -118,20 +118,10 @@ export async function cloneVapiForTenant(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Static template imports for Turbopack compatibility
-import houseCleaningInbound from './vapi-templates/house-cleaning-inbound.json'
-import winbrosInbound from './vapi-templates/winbros-inbound.json'
-import winbrosOutbound from './vapi-templates/winbros-outbound.json'
-
-const TEMPLATE_MAP: Record<string, any> = {
-  'house-cleaning-inbound': houseCleaningInbound,
-  'winbros-inbound': winbrosInbound,
-  'winbros-outbound': winbrosOutbound,
-}
-
 function loadTemplate(name: string): Record<string, any> {
-  const template = TEMPLATE_MAP[name]
-  if (!template) throw new Error(`Unknown VAPI template: ${name}`)
+  // Dynamic require of static JSON snapshots
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const template = require(`./vapi-templates/${name}.json`)
   return JSON.parse(JSON.stringify(template)) // deep clone to avoid mutation
 }
 
