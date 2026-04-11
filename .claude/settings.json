@@ -3,6 +3,7 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
+        "if": "Edit(*/app/api/**)|Write(*/app/api/**)",
         "hooks": [
           {
             "type": "command",

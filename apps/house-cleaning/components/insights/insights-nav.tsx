@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { BarChart3, Filter, Users, Repeat, DollarSign } from "lucide-react"
 
 const TABS = [
+  { label: "Revenue", href: "/insights/revenue", icon: DollarSign },
   { label: "Lead Sources", href: "/insights/leads", icon: BarChart3 },
   { label: "Funnel", href: "/insights/funnel", icon: Filter },
   { label: "Crews", href: "/insights/crews", icon: Users },

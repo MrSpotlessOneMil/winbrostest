@@ -89,15 +89,15 @@ export async function GET(request: NextRequest) {
         continue
       }
 
-      // Skip customers with auto_response_paused or sms_opt_out
+      // Skip customers with auto_response_paused, auto_response_disabled, or sms_opt_out
       const { data: customer } = await client
         .from('customers')
-        .select('first_name, auto_response_paused, sms_opt_out')
+        .select('first_name, auto_response_paused, auto_response_disabled, sms_opt_out')
         .eq('id', job.customer_id)
         .single()
 
-      if (customer?.auto_response_paused || customer?.sms_opt_out) {
-        console.log(`${tag} Skipping job ${job.id} — customer paused/opted out`)
+      if (customer?.auto_response_paused || customer?.auto_response_disabled || customer?.sms_opt_out) {
+        console.log(`${tag} Skipping job ${job.id} — customer paused/disabled/opted out`)
         continue
       }
 

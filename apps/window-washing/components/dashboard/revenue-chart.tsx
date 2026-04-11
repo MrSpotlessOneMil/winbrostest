@@ -7,59 +7,115 @@ import {
   CartesianGrid,
   XAxis,
   YAxis,
-  ResponsiveContainer,
 } from "recharts"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import type { ApiResponse, DailyMetrics } from "@/lib/types"
+import { Badge } from "@/components/ui/badge"
 import CubeLoader from "@/components/ui/cube-loader"
 
-type Point = { date: string; revenue: number; target: number }
+interface RevenueInsights {
+  totalRevenue: number
+  recurringRevenue: number
+  oneTimeRevenue: number
+  mrr: number
+  arr: number
+  recurringJobCount: number
+  oneTimeJobCount: number
+  totalJobCount: number
+  dailyBreakdown: {
+    date: string
+    recurring: number
+    oneTime: number
+  }[]
+  month: string
+}
+
+type ChartPoint = {
+  date: string
+  recurring: number
+  oneTime: number
+}
 
 const chartConfig = {
-  revenue: {
-    label: "Revenue",
-    color: "#5b8def",
+  recurring: {
+    label: "Recurring",
+    color: "#4ade80",
   },
-  target: {
-    label: "Target",
-    color: "#6b7280",
+  oneTime: {
+    label: "One-Time",
+    color: "#a78bfa",
   },
 }
 
+function generateMonthOptions(): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = []
+  const now = new Date()
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`
+    const label = d.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+    options.push({ value, label })
+  }
+  return options
+}
+
+function formatCurrency(value: number): string {
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(1)}k`
+  }
+  return `$${value.toLocaleString()}`
+}
+
+function StatCard({
+  title,
+  value,
+  subtitle,
+  color,
+}: {
+  title: string
+  value: string
+  subtitle?: string
+  color?: string
+}) {
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-900/50 p-3">
+      <p className="text-xs text-gray-400 mb-1">{title}</p>
+      <p className="text-xl font-bold" style={color ? { color } : undefined}>
+        {value}
+      </p>
+      {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+    </div>
+  )
+}
+
 export function RevenueChart() {
-  const [range, setRange] = useState<"week" | "month" | "quarter">("week")
-  const [data, setData] = useState<Point[]>([])
+  const monthOptions = useMemo(() => generateMonthOptions(), [])
+  const [selectedMonth, setSelectedMonth] = useState(monthOptions[0].value)
+  const [data, setData] = useState<RevenueInsights | null>(null)
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
-  useEffect(() => { setLoaded(true) }, [])
+  useEffect(() => {
+    setLoaded(true)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
       try {
-        // For now, "month" and "quarter" still use the weekly aggregate (keeps API simple).
-        const apiRange = "week"
-        const res = await fetch(`/api/metrics?range=${apiRange}`, { cache: "no-store" })
-        const json = (await res.json()) as ApiResponse<DailyMetrics[]>
-        const rows = (json as any).data as any[]
-        const points: Point[] = Array.isArray(rows)
-          ? rows.map((m: DailyMetrics) => {
-              const d = new Date(`${m.date}T00:00:00Z`)
-              const label = d.toLocaleDateString("en-US", { weekday: "short" })
-              return {
-                date: label,
-                revenue: Number(m.total_revenue || 0),
-                target: Number(m.target_revenue || 0),
-              }
-            })
-          : []
-        if (!cancelled) setData(points)
+        const res = await fetch(`/api/insights/revenue?month=${selectedMonth}`, {
+          cache: "no-store",
+        })
+        const json = await res.json()
+        if (!cancelled && json.success && json.data) {
+          setData(json.data as RevenueInsights)
+        } else if (!cancelled) {
+          setData(null)
+        }
       } catch {
-        if (!cancelled) setData([])
+        if (!cancelled) setData(null)
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -68,82 +124,146 @@ export function RevenueChart() {
     return () => {
       cancelled = true
     }
-  }, [range])
+  }, [selectedMonth])
 
-  const description = useMemo(() => {
-    if (range === "week") return "Daily revenue vs target"
-    if (range === "month") return "Revenue vs target (rolling)"
-    return "Revenue vs target (rolling)"
-  }, [range])
+  const chartPoints: ChartPoint[] = useMemo(() => {
+    if (!data?.dailyBreakdown) return []
+    return data.dailyBreakdown.map((d) => {
+      const day = new Date(`${d.date}T00:00:00Z`)
+      return {
+        date: day.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        recurring: d.recurring,
+        oneTime: d.oneTime,
+      }
+    })
+  }, [data])
+
+  const selectedLabel = monthOptions.find((o) => o.value === selectedMonth)?.label || selectedMonth
 
   return (
     <Card className={`h-full ${loaded ? "stagger-3" : "opacity-0"}`}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
-          <CardTitle>Revenue Overview</CardTitle>
-          <CardDescription>{description}</CardDescription>
+          <CardTitle>Revenue Insights</CardTitle>
+          <CardDescription>
+            Recurring vs one-time revenue for {selectedLabel}
+          </CardDescription>
         </div>
-        <Select value={range} onValueChange={(v) => setRange(v as any)}>
-          <SelectTrigger className="w-32">
+        <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+          <SelectTrigger className="w-44">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="week">This Week</SelectItem>
-            <SelectItem value="month">This Month</SelectItem>
-            <SelectItem value="quarter">This Quarter</SelectItem>
+            {monthOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </CardHeader>
       <CardContent>
         {loading ? (
-          <div className="h-[220px]">
+          <div className="h-[360px]">
             <CubeLoader compact />
           </div>
-        ) : data.length > 0 ? (
-          <ChartContainer config={chartConfig} className="h-[220px] w-full">
-            <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#5b8def" stopOpacity={0.3} />
-                  <stop offset="100%" stopColor="#5b8def" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-              <XAxis
-                dataKey="date"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "#9ca3af", fontSize: 12 }}
+        ) : data ? (
+          <div className="space-y-4">
+            {/* Stat Cards Row */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatCard
+                title="Total Revenue"
+                value={`$${data.totalRevenue.toLocaleString()}`}
+                subtitle={`${data.totalJobCount} jobs`}
               />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: "#9ca3af", fontSize: 12 }}
-                tickFormatter={(value) => `$${value / 1000}k`}
+              <StatCard
+                title="Recurring Revenue (MRR)"
+                value={`$${data.recurringRevenue.toLocaleString()}`}
+                subtitle={`${data.recurringJobCount} recurring jobs`}
+                color="#4ade80"
               />
-              <ChartTooltip
-                content={<ChartTooltipContent />}
-                formatter={(value) => [`$${Number(value).toLocaleString()}`, undefined]}
+              <StatCard
+                title="One-Time Revenue"
+                value={`$${data.oneTimeRevenue.toLocaleString()}`}
+                subtitle={`${data.oneTimeJobCount} jobs`}
+                color="#a78bfa"
               />
-              <Area
-                type="monotone"
-                dataKey="target"
-                stroke="#6b7280"
-                strokeWidth={2}
-                strokeDasharray="5 5"
-                fill="transparent"
+              <StatCard
+                title="Projected ARR"
+                value={`$${data.arr.toLocaleString()}`}
+                subtitle="MRR x 12"
               />
-              <Area
-                type="monotone"
-                dataKey="revenue"
-                stroke="#5b8def"
-                strokeWidth={2}
-                fill="url(#revenueGradient)"
-              />
-            </AreaChart>
-          </ChartContainer>
+            </div>
+
+            {/* Recurring Jobs Badge */}
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="border-green-700 text-green-400">
+                {data.recurringJobCount} recurring jobs this month
+              </Badge>
+              {data.totalJobCount > 0 && (
+                <span className="text-xs text-gray-500">
+                  {Math.round((data.recurringJobCount / data.totalJobCount) * 100)}% of total
+                </span>
+              )}
+            </div>
+
+            {/* Area Chart */}
+            <ChartContainer config={chartConfig} className="h-[220px] w-full">
+              <AreaChart
+                data={chartPoints}
+                margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+              >
+                <defs>
+                  <linearGradient id="recurringGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#4ade80" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#4ade80" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="oneTimeGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.3} />
+                    <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#9ca3af", fontSize: 11 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "#9ca3af", fontSize: 12 }}
+                  tickFormatter={(value) => formatCurrency(value)}
+                />
+                <ChartTooltip
+                  content={<ChartTooltipContent />}
+                  formatter={(value) => [`$${Number(value).toLocaleString()}`, undefined]}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="oneTime"
+                  stroke="#a78bfa"
+                  strokeWidth={2}
+                  fill="url(#oneTimeGradient)"
+                  stackId="revenue"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="recurring"
+                  stroke="#4ade80"
+                  strokeWidth={2}
+                  fill="url(#recurringGradient)"
+                  stackId="revenue"
+                />
+              </AreaChart>
+            </ChartContainer>
+          </div>
         ) : (
-          <div className="h-[220px]" />
+          <div className="flex h-[360px] items-center justify-center text-gray-500">
+            No revenue data available
+          </div>
         )}
       </CardContent>
     </Card>

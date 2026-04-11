@@ -213,8 +213,8 @@ export async function GET(request: NextRequest) {
           // Generate AI-personalized first SMS
           const personalizedMsg = await generatePersonalizedSMS(tenant, firstName, serviceType, notes, address)
 
-          // Send immediately
-          const smsResult = await sendSMS(tenant, phone, personalizedMsg)
+          // Send immediately (source pre-inserts DB record to prevent false manual takeover)
+          const smsResult = await sendSMS(tenant, phone, personalizedMsg, { source: 'meta_followup' })
           if (smsResult.success) {
             // Update lead to contacted
             await client.from('leads').update({

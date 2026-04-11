@@ -117,7 +117,7 @@ export async function sendSMS(
       const safetyClient = getSupabaseServiceClient()
       const { data: customer } = await safetyClient
         .from('customers')
-        .select('id, sms_opt_out, auto_response_paused')
+        .select('id, sms_opt_out, auto_response_paused, auto_response_disabled')
         .eq('phone_number', toE164Format)
         .eq('tenant_id', tenant.id)
         .limit(1)
@@ -126,6 +126,14 @@ export async function sendSMS(
       if (customer?.sms_opt_out) {
         console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} opted out`)
         return { success: false, error: 'Customer opted out of SMS' }
+      }
+
+      // 1.5. PERMANENT auto-response disable — owner toggled this off in dashboard.
+      // NOTHING overrides this. Not crons, not timeouts, not retargeting.
+      // Only skip for system sends (bypassFilters) and manual sends from dashboard (skipThrottle).
+      if (customer?.auto_response_disabled && !options?.skipThrottle) {
+        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} has auto_response_disabled (permanent)`)
+        return { success: false, error: 'Customer auto-response permanently disabled by owner' }
       }
 
       // 2. Auto-Response Paused Check — block AI auto-responses when human took over.

@@ -55,6 +55,8 @@ interface Customer {
   address?: string
   notes?: string
   auto_response_paused?: boolean
+  auto_response_disabled?: boolean
+  manual_takeover_at?: string | null
   is_commercial?: boolean
   card_on_file_at?: string | null
   stripe_customer_id?: string | null
@@ -201,36 +203,41 @@ interface TimelineItem {
   data: Message | Call
 }
 
-// Lifecycle stage badge config
-const LIFECYCLE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  new: { label: "New", color: "text-blue-300", bg: "bg-blue-500/15" },
-  new_lead: { label: "New Lead", color: "text-blue-300", bg: "bg-blue-500/15" },
-  contacted: { label: "Following Up", color: "text-yellow-300", bg: "bg-yellow-500/15" },
-  qualified: { label: "Qualified", color: "text-cyan-300", bg: "bg-cyan-500/15" },
-  quoted_not_booked: { label: "Quoted", color: "text-orange-300", bg: "bg-orange-500/15" },
-  booked: { label: "Booked", color: "text-green-300", bg: "bg-green-500/15" },
-  active: { label: "Active", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  repeat: { label: "Repeat", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  completed: { label: "Completed", color: "text-emerald-300", bg: "bg-emerald-500/15" },
-  one_time: { label: "One-Time", color: "text-yellow-300", bg: "bg-yellow-500/15" },
-  unresponsive: { label: "Unresponsive", color: "text-red-300", bg: "bg-red-500/15" },
-  lapsed: { label: "Lapsed", color: "text-amber-300", bg: "bg-amber-500/15" },
-  recurring_accepted: { label: "Recurring", color: "text-purple-300", bg: "bg-purple-500/15" },
-  satisfaction_sent: { label: "Follow Up", color: "text-amber-300", bg: "bg-amber-500/15" },
-  recurring_offered: { label: "Offered Recurring", color: "text-indigo-300", bg: "bg-indigo-500/15" },
-  lost: { label: "Lost", color: "text-red-300", bg: "bg-red-500/15" },
-  opted_out: { label: "Opted Out", color: "text-zinc-400", bg: "bg-zinc-500/15" },
+// Primary lifecycle badge — exactly ONE per customer
+const LIFECYCLE_CONFIG = {
+  new_lead:    { label: "New Lead",     color: "text-blue-300",    bg: "bg-blue-500/15" },
+  quoted:      { label: "Quoted",       color: "text-orange-300",  bg: "bg-orange-500/15" },
+  scheduled:   { label: "Scheduled",    color: "text-emerald-300", bg: "bg-emerald-500/15" },
+  completed:   { label: "Completed",    color: "text-green-300",   bg: "bg-green-500/15" },
+  retargeting: { label: "Retargeting",  color: "text-violet-300",  bg: "bg-violet-500/15" },
+} as const
+
+function getPrimaryLifecycleBadge(
+  customer: Customer,
+  customerJobs: { status?: string; frequency?: string }[],
+  lead: { status?: string; stripe_payment_link?: string | null } | null
+): { label: string; color: string; bg: string } {
+  // Retargeting overrides everything
+  if (customer.lead_source === 'retargeting') return LIFECYCLE_CONFIG.retargeting
+  const stage = customer.lifecycle_stage
+  if (stage === 'lapsed' || stage === 'unresponsive') return LIFECYCLE_CONFIG.retargeting
+
+  // Check jobs for highest lifecycle stage
+  const hasCompleted = customerJobs.some(j => j.status === 'completed')
+  if (hasCompleted) return LIFECYCLE_CONFIG.completed
+
+  const hasScheduled = customerJobs.some(j => j.status === 'scheduled' || j.status === 'in_progress')
+  if (hasScheduled) return LIFECYCLE_CONFIG.scheduled
+
+  // Quoted
+  if (stage === 'quoted_not_booked') return LIFECYCLE_CONFIG.quoted
+  if (lead?.status === 'quoted' || lead?.stripe_payment_link) return LIFECYCLE_CONFIG.quoted
+
+  return LIFECYCLE_CONFIG.new_lead
 }
 
-function getLifecycleBadge(customer: Customer) {
-  if (customer.sms_opt_out) return LIFECYCLE_BADGE.opted_out
-  // Retargeting customers should show "Retargeting", not "New Lead"
-  if (customer.lead_source === 'retargeting' && (!customer.lifecycle_stage || customer.lifecycle_stage === 'new_lead')) {
-    return { label: "Retargeting", color: "text-cyan-300", bg: "bg-cyan-500/15" }
-  }
-  const stage = customer.lifecycle_stage
-  if (!stage) return null
-  return LIFECYCLE_BADGE[stage] || null
+function isRecurringCustomer(customerJobs: { frequency?: string }[]): boolean {
+  return customerJobs.some(j => j.frequency && j.frequency !== 'one-time')
 }
 
 const LEAD_SOURCE_CONFIG: Record<string, { label: string; color: string }> = {
@@ -264,7 +271,18 @@ export default function CustomersPage() {
   const [selectedCustomer, _setSelectedCustomer] = useState<Customer | null>(null)
   const selectedCustomerRef = useRef<Customer | null>(null)
   // Wrapper that keeps the ref in sync so fetchCustomers never reads a stale closure
-  const setSelectedCustomer = (c: Customer | null) => { selectedCustomerRef.current = c; _setSelectedCustomer(c) }
+  const setSelectedCustomer = (c: Customer | null | ((prev: Customer | null) => Customer | null)) => {
+    if (typeof c === "function") {
+      _setSelectedCustomer((prev) => {
+        const next = c(prev)
+        selectedCustomerRef.current = next
+        return next
+      })
+    } else {
+      selectedCustomerRef.current = c
+      _setSelectedCustomer(c)
+    }
+  }
   const urlParamsHandled = useRef(false)
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (typeof window !== "undefined") {
@@ -923,23 +941,6 @@ export default function CustomersPage() {
     return lead?.source || ""
   }
 
-  // Get badge config for a lead's current stage
-  const getLeadBadge = (lead: Lead | null): { label: string; className: string } => {
-    if (!lead) return { label: "Customer", className: "bg-zinc-700/50 text-zinc-300" }
-    if (lead.status === "lost") return { label: "Inactive", className: "bg-red-500/20 text-red-400" }
-    if (lead.status === "completed" || lead.status === "fulfilled") return { label: "Completed", className: "bg-zinc-600/30 text-zinc-300" }
-    if (lead.status === "assigned" || lead.status === "scheduled") return { label: "Assigned", className: "bg-emerald-500/20 text-emerald-400" }
-    if (lead.status === "paid") return { label: "Paid", className: "bg-green-500/20 text-green-400" }
-    if (lead.status === "booked") return { label: "Booked", className: "bg-yellow-500/20 text-yellow-400" }
-    if (lead.status === "qualified") return { label: "Qualified", className: "bg-violet-500/20 text-violet-400" }
-    if (lead.status === "quoted" || lead.stripe_payment_link) return { label: "Quoted", className: "bg-cyan-500/20 text-cyan-400" }
-    if (lead.status === "responded" || lead.status === "engaged") return { label: "Engaged", className: "bg-purple-500/20 text-purple-400" }
-    if (lead.status === "contacted") return { label: "Contacted", className: "bg-sky-500/20 text-sky-400" }
-    const stage = lead.followup_stage || 0
-    if (stage <= 1) return { label: "New", className: "bg-blue-500/20 text-blue-400" }
-    return { label: "Following Up", className: "bg-amber-500/20 text-amber-400" }
-  }
-
   // Handle move to stage (drag & drop) - executes the action
   const handleMoveToStage = async (targetStage: number) => {
     if (!selectedCustomer) return
@@ -1280,60 +1281,86 @@ export default function CustomersPage() {
     }
   }
 
-  // Per-customer auto-response toggle (stored on customers table)
+  // Per-customer auto-response toggle — uses auto_response_disabled (PERMANENT, owner-controlled)
+  // This is different from auto_response_paused which is temporary (manual takeover, auto-unpauses).
+  // When the owner clicks this toggle OFF, it stays OFF. No cron, no timeout, no webhook can override it.
   const handleToggleCustomerAutoResponse = async (customer: Customer) => {
-    const newPaused = !customer.auto_response_paused
+    // The toggle reflects the EFFECTIVE auto-text state: OFF when either
+    // auto_response_disabled (permanent) or auto_response_paused (temporary) is true.
+    const isCurrentlyOff = customer.auto_response_disabled || customer.auto_response_paused
+    const turningOn = isCurrentlyOff // clicking = opposite of current effective state
+
+    // Build the update payload. When turning ON, clear BOTH flags so nothing blocks auto-text.
+    // When turning OFF, set auto_response_disabled (permanent).
+    const patch: Record<string, unknown> = turningOn
+      ? { auto_response_disabled: false, auto_response_paused: false }
+      : { auto_response_disabled: true }
 
     // Optimistic update
+    const optimisticFields = turningOn
+      ? { auto_response_disabled: false, auto_response_paused: false, manual_takeover_at: null }
+      : { auto_response_disabled: true }
     setCustomers((prev) =>
-      prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: newPaused } : c)
+      prev.map((c) => c.id === customer.id ? { ...c, ...optimisticFields } : c)
     )
     if (selectedCustomer?.id === customer.id) {
-      setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: newPaused } : prev)
+      const updated = { ...selectedCustomer, ...optimisticFields }
+      setSelectedCustomer(updated)
     }
 
     try {
-      // Update customer flag
+      // Update customer flags — clear both when enabling, set disabled when disabling
       const res = await fetch("/api/customers", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: customer.id, auto_response_paused: newPaused }),
+        body: JSON.stringify({ id: customer.id, ...patch }),
       })
       const json = await res.json()
       if (!json.success) {
-        // Rollback
+        // Rollback to original customer state
+        const rollback = {
+          auto_response_disabled: customer.auto_response_disabled,
+          auto_response_paused: customer.auto_response_paused,
+          manual_takeover_at: customer.manual_takeover_at,
+        }
         setCustomers((prev) =>
-          prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+          prev.map((c) => c.id === customer.id ? { ...c, ...rollback } : c)
         )
         if (selectedCustomer?.id === customer.id) {
-          setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+          setSelectedCustomer({ ...selectedCustomer, ...rollback })
         }
         return
       }
 
       // Also sync lead followup_paused (fire-and-forget, don't refresh full data)
+      const newFollowupPaused = !turningOn // paused when turning OFF
       const lead = getCustomerLead(customer.phone_number)
       if (lead) {
         fetch(`/api/leads/${lead.id}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "toggle_followup", paused: newPaused }),
+          body: JSON.stringify({ action: "toggle_followup", paused: newFollowupPaused }),
         }).catch(() => {})
         // Optimistic lead update
         const parsedFormData = parseFormData(lead.form_data)
         setLeads((prev) =>
           prev.map((l) =>
-            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newPaused } } : l
+            l.id === lead.id ? { ...l, form_data: { ...parsedFormData, followup_paused: newFollowupPaused } } : l
           )
         )
       }
     } catch {
-      // Rollback
+      // Rollback to original customer state
+      const rollback = {
+        auto_response_disabled: customer.auto_response_disabled,
+        auto_response_paused: customer.auto_response_paused,
+        manual_takeover_at: customer.manual_takeover_at,
+      }
       setCustomers((prev) =>
-        prev.map((c) => c.id === customer.id ? { ...c, auto_response_paused: !newPaused } : c)
+        prev.map((c) => c.id === customer.id ? { ...c, ...rollback } : c)
       )
       if (selectedCustomer?.id === customer.id) {
-        setSelectedCustomer((prev) => prev ? { ...prev, auto_response_paused: !newPaused } : prev)
+        setSelectedCustomer({ ...selectedCustomer, ...rollback })
       }
     }
   }
@@ -1571,7 +1598,7 @@ export default function CustomersPage() {
       `Stripe Customer: ${selectedCustomer.stripe_customer_id || "—"}`,
       `SMS Opt-Out: ${selectedCustomer.sms_opt_out ? "Yes" : "No"}`,
       `Commercial: ${selectedCustomer.is_commercial ? "Yes" : "No"}`,
-      `Auto-Response Paused: ${selectedCustomer.auto_response_paused ? "Yes" : "No"}`,
+      `Auto-Text: ${selectedCustomer.auto_response_disabled || selectedCustomer.auto_response_paused ? "OFF" : "ON"}`,
       `Preferred Frequency: ${selectedCustomer.preferred_frequency || "—"}`,
       `Preferred Day: ${selectedCustomer.preferred_day || "—"}`,
       `Total Jobs: ${custJobs.length}`,
@@ -1965,21 +1992,33 @@ export default function CustomersPage() {
                                 <span className={`text-sm truncate ${unreadCount > 0 ? "font-semibold text-zinc-100" : "font-medium text-zinc-200"}`}>{name}</span>
                                 {cleanerPhones.includes(normalizePhone(customer.phone_number)) ? (
                                   <span className="flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-300 leading-none">Crew</span>
-                                ) : (() => {
-                                  const srcBadge = getSourceBadge(customer)
-                                  if (srcBadge) {
-                                    return <span className={`flex-shrink-0 text-[9px] font-medium px-1.5 py-0.5 rounded-full ${srcBadge.className} leading-none`}>{srcBadge.label}</span>
-                                  }
-                                  return null
-                                })()}
-                                {(() => {
-                                  const lcBadge = getLifecycleBadge(customer)
-                                  if (lcBadge) return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lcBadge.bg} ${lcBadge.color} leading-none`}>{lcBadge.label}</span>
-                                  return null
-                                })()}
-                                {customer.card_on_file_at && (
-                                  <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
-                                )}
+                                ) : (<>
+                                  {/* Primary lifecycle badge */}
+                                  {(() => {
+                                    const custJobs = getCustomerJobs(customer.phone_number)
+                                    const lead = getCustomerLead(customer.phone_number)
+                                    const lc = getPrimaryLifecycleBadge(customer, custJobs, lead)
+                                    return <span className={`flex-shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${lc.bg} ${lc.color} leading-none`}>{lc.label}</span>
+                                  })()}
+                                  {/* Secondary: Lead source */}
+                                  {(() => {
+                                    const srcBadge = getSourceBadge(customer)
+                                    if (srcBadge) return <span className={`flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full ${srcBadge.className} leading-none opacity-80`}>{srcBadge.label}</span>
+                                    return null
+                                  })()}
+                                  {/* Secondary: Recurring */}
+                                  {isRecurringCustomer(getCustomerJobs(customer.phone_number)) && (
+                                    <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-purple-500/20 text-purple-300 leading-none opacity-80">Recurring</span>
+                                  )}
+                                  {/* Secondary: Opted Out */}
+                                  {customer.sms_opt_out && (
+                                    <span className="flex-shrink-0 text-[8px] font-medium px-1 py-0.5 rounded-full bg-zinc-500/20 text-zinc-400 leading-none opacity-80">Opted Out</span>
+                                  )}
+                                  {/* Secondary: Card on file */}
+                                  {customer.card_on_file_at && (
+                                    <CreditCard className="flex-shrink-0 w-3 h-3 text-emerald-400" title="Card on file" />
+                                  )}
+                                </>)}
                               </div>
                               {lastMessage && (
                                 <span className="text-[11px] text-zinc-500 flex-shrink-0">
@@ -2492,26 +2531,31 @@ export default function CustomersPage() {
                       )}
 
                       {/* Per-Customer Auto-Response Toggle */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400">Auto-text</span>
-                        <button
-                          onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                            selectedCustomer.auto_response_paused
-                              ? "bg-zinc-600"
-                              : "bg-emerald-500"
-                          }`}
-                          title={selectedCustomer.auto_response_paused ? "Enable auto-texting for this customer" : "Pause auto-texting for this customer"}
-                        >
-                          <span
-                            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                              selectedCustomer.auto_response_paused
-                                ? "translate-x-1"
-                                : "translate-x-[18px]"
-                            }`}
-                          />
-                        </button>
-                      </div>
+                      {(() => {
+                        const isOff = selectedCustomer.auto_response_disabled || selectedCustomer.auto_response_paused
+                        return (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-zinc-400">Auto-text</span>
+                            <button
+                              onClick={() => handleToggleCustomerAutoResponse(selectedCustomer)}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                                isOff
+                                  ? "bg-red-600"
+                                  : "bg-emerald-500"
+                              }`}
+                              title={isOff ? "Enable auto-texting for this customer (currently OFF)" : "Disable auto-texting for this customer (stays off permanently until you turn it back on)"}
+                            >
+                              <span
+                                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                  isOff
+                                    ? "translate-x-1"
+                                    : "translate-x-[18px]"
+                                }`}
+                              />
+                            </button>
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Tab navigation */}

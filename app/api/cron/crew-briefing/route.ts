@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
           results.briefingErrors++
           continue
         }
-        await sendSMS(tenant, lead.phone, msg)
+        await sendSMS(tenant, lead.phone, msg, { source: 'crew_briefing' })
         results.briefingsSent++
         console.log(`[crew-briefing] Sent briefing to ${lead.name} (${lead.phone})`)
       } catch (err) {

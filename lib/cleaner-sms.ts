@@ -151,7 +151,7 @@ export async function notifyCleanerAssignment(
 
   const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
 
-  const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 
   // Create pending SMS assignment for reply tracking
   if (result.success && assignmentId && cleaner.id) {
@@ -214,7 +214,7 @@ export async function notifyCleanerAwarded(
   }
 
   const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -231,7 +231,7 @@ export async function notifyCleanerNotSelected(
 
   const date = formatDate(job.date)
   const message = `The ${date} job has been assigned to another cleaner. Thanks for your availability!`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -257,7 +257,7 @@ export async function sendUrgentFollowUp(
   }
 
   const message = `We still need your response for the ${date} ${time} job at ${address}.${link ? `\n\nTap here to respond:${link}` : ''}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -282,7 +282,7 @@ export async function sendDailySchedule(
   }
 
   const message = `Good morning ${cleaner.name}! You have ${jobs.length} job${jobs.length > 1 ? 's' : ''} today.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -308,7 +308,7 @@ export async function sendJobReminder(
   const message = reminderType === 'one_hour_before'
     ? `Reminder: Job in 1 hour at ${address}.${link}`
     : `Job starting now at ${address}.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -326,7 +326,7 @@ export async function notifyJobCancellation(
   const date = formatDate(job.date)
   const address = job.address || 'the scheduled address'
   const message = `Job on ${date} at ${address} has been cancelled.`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -346,7 +346,7 @@ export async function notifyScheduleChange(
   const newDate = formatDate(job.date)
   const newTime = formatTime(job.scheduled_at)
   const message = `Schedule change: Your job has been moved to ${newDate} ${newTime}. Please update your calendar.`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -371,7 +371,7 @@ export async function notifyJobDetailsChange(
   }
 
   const message = `Update for your ${date} job: ${changeList}.${link}`
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 /**
@@ -488,7 +488,7 @@ export async function sendLoginCredentials(
   const portalLink = `${baseUrl}/crew/${cleaner.portal_token}`
   const message = `Your portal login:\n\nWebsite: ${baseUrl.replace('https://', '')}\nUsername: ${cleaner.username}\nPIN: ${cleaner.pin}\n\nOr tap here to go straight to your portal: ${portalLink}`
 
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
 // ── SMS Inbound Handlers ──
@@ -762,5 +762,5 @@ export async function notifyCleanerPreconfirm(
 
   const message = `Hey ${cleaner.name.split(' ')[0]}! We have a ${humanize(service)} job.${payStr}${addressStr}${custStr}\n\nClient will pick the date — are you in?${link}`
 
-  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true })
+  return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }

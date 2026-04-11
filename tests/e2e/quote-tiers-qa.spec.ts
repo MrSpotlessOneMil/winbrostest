@@ -136,6 +136,104 @@ test.describe('Quote Page — Recurring Upsell', () => {
   })
 })
 
+test.describe('Quote Page — Cedar Rapids Specific', () => {
+
+  test('Cedar standard custom quote shows recurring options', async ({ page }) => {
+    // Cedar 1b/1ba standard, no membership preselected
+    await page.goto(`${BASE}/quote/ae4d3f4c464eb4dcb7e6c5e4ab2f1e68f2f54f4e95d5fb23`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Standard Clean')
+    expect(html).toContain('Save on Every Clean')
+    expect(html).toContain('Weekly')
+    expect(html).toContain('Bi-Weekly')
+    expect(html).toContain('Monthly')
+    expect(html).not.toContain('CA$')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-cedar-recurring.png', fullPage: true })
+  })
+
+  test('Cedar standard with weekly preselected shows recurring toggled', async ({ page }) => {
+    // Cedar 1b/1ba standard, membership=weekly
+    await page.goto(`${BASE}/quote/601f1b30619a7c82a3f75c8c3e3c7a2b44c37e48ee9f3c02`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Save on Every Clean')
+    expect(html).toContain('$125') // one-time price
+    expect(html).toContain('$105') // weekly: $125 - $20
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-cedar-weekly-toggled.png', fullPage: true })
+  })
+
+  test('Cedar deep custom quote has no recurring', async ({ page }) => {
+    await page.goto(`${BASE}/quote/9beaa578e76033317900ce8f660702283af9ab29270adc8d`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Deep Clean')
+    expect(html).not.toContain('Save on Every Clean')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-cedar-deep-no-recurring.png', fullPage: true })
+  })
+
+  test('Cedar move-out has no recurring', async ({ page }) => {
+    await page.goto(`${BASE}/quote/a98383046136d02084a20e3de44e2eeff2984e1c56c4ea82`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Move-Out Clean')
+    expect(html).not.toContain('Save on Every Clean')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-cedar-move-no-recurring.png', fullPage: true })
+  })
+})
+
+test.describe('Quote Page — West Niagara Specific', () => {
+
+  test('Niagara standard custom quote shows recurring with $ not CA$', async ({ page }) => {
+    await page.goto(`${BASE}/quote/51174a01b36a904bc0a2bbb3b8ca1e98de34f3e6ea13c2a2`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Standard Clean')
+    expect(html).toContain('Save on Every Clean')
+    expect(html).toContain('Weekly')
+    expect(html).not.toContain('CA$')
+    // Niagara 3b/2ba standard = $255, weekly discount = $20 -> $235
+    expect(html).toContain('$255')
+    expect(html).toContain('$235')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-niagara-recurring.png', fullPage: true })
+  })
+
+  test('Niagara deep custom quote has no recurring', async ({ page }) => {
+    await page.goto(`${BASE}/quote/06e89f8605d4b08eb3dc7ea7ce345c5cb88937b2cdfe5b1d`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Deep Clean')
+    expect(html).not.toContain('Save on Every Clean')
+    expect(html).not.toContain('CA$')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-niagara-deep-no-recurring.png', fullPage: true })
+  })
+
+  test('Niagara move-out has no recurring', async ({ page }) => {
+    await page.goto(`${BASE}/quote/ffdc1b0221a3a2948bf56a1f4f8c56dbfa32be1f6d6f0e9a`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Move-Out Clean')
+    expect(html).not.toContain('Save on Every Clean')
+    expect(html).not.toContain('CA$')
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-niagara-move-no-recurring.png', fullPage: true })
+  })
+
+  test('Niagara tiered standard shows 2 tiers with recurring', async ({ page }) => {
+    await page.goto(`${BASE}/quote/ca98df72ce4dc4b57e22e3aeb25f80ae63d01f2e02f4f5a4`)
+    await page.waitForLoadState('networkidle')
+    const html = await page.content()
+    expect(html).toContain('Standard Clean')
+    expect(html).toContain('Deep Clean')
+    expect(html).not.toContain('Extra Deep')
+    expect(html).not.toContain('CA$')
+    // Click standard tier
+    await page.locator('[class*="rounded-2xl"][class*="border-2"]').first().click()
+    await page.waitForTimeout(500)
+    await expect(page.getByText('Save on Every Clean')).toBeVisible()
+    await page.screenshot({ path: 'tests/e2e/screenshots/qa-niagara-tiered-recurring.png', fullPage: true })
+  })
+})
+
 test.describe('Quote Page — Addons & Total', () => {
 
   test('Addons display correctly, no carpet steam', async ({ page }) => {

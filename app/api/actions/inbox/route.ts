@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
   // Get customer data
   const { data: customers } = await client
     .from('customers')
-    .select('id, first_name, last_name, phone_number, auto_response_paused, manual_takeover_at, awaiting_reply_since, retargeting_replied_at, retargeting_sequence, retargeting_stopped_reason, lifecycle_stage, sms_opt_out')
+    .select('id, first_name, last_name, phone_number, auto_response_paused, auto_response_disabled, manual_takeover_at, awaiting_reply_since, retargeting_replied_at, retargeting_sequence, retargeting_stopped_reason, lifecycle_stage, sms_opt_out')
     .in('id', customerIds)
     .eq('tenant_id', tenant.id)
 
@@ -150,7 +150,7 @@ export async function GET(request: NextRequest) {
 
     // Determine handler
     let handler: Handler = 'none'
-    if (c.manual_takeover_at || c.auto_response_paused) handler = 'human'
+    if (c.manual_takeover_at || c.auto_response_paused || c.auto_response_disabled) handler = 'human'
     else if (lastOutbound?.ai_generated) handler = 'ai'
 
     // Determine priority

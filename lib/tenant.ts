@@ -135,6 +135,8 @@ export interface Tenant {
   openphone_phone_id: string | null
   openphone_phone_number: string | null
   openphone_webhook_secret: string | null
+  openphone_cleaner_phone_id: string | null
+  openphone_cleaner_phone_number: string | null
 
   vapi_api_key: string | null
   vapi_assistant_id: string | null
@@ -315,13 +317,15 @@ export async function getTenantByPhoneNumber(phoneNumber: string): Promise<Tenan
     return null
   }
 
-  // Find tenant whose openphone_phone_number matches
+  // Find tenant whose openphone_phone_number or openphone_cleaner_phone_number matches
   for (const tenant of data) {
-    if (!tenant.openphone_phone_number) continue
-    const tenantDigits = tenant.openphone_phone_number.replace(/\D/g, "")
-    const tenantLast10 = tenantDigits.slice(-10)
-    if (tenantLast10 === last10) {
-      return tenant as Tenant
+    const numbers = [tenant.openphone_phone_number, tenant.openphone_cleaner_phone_number].filter(Boolean)
+    for (const num of numbers) {
+      const tenantDigits = num.replace(/\D/g, "")
+      const tenantLast10 = tenantDigits.slice(-10)
+      if (tenantLast10 === last10) {
+        return tenant as Tenant
+      }
     }
   }
 
@@ -336,17 +340,26 @@ export async function getTenantByOpenPhoneId(phoneId: string): Promise<Tenant | 
   const client = getAdminClient()
 
   // NOTE: Do NOT filter by active — inactive tenants must still receive webhooks
+  // Check main phone ID first
   const { data, error } = await client
     .from("tenants")
     .select("*")
     .eq("openphone_phone_id", phoneId)
     .maybeSingle()
 
-  if (error || !data) {
-    return null
-  }
+  if (data) return data as Tenant
 
-  return data as Tenant
+  // Also check cleaner phone ID
+  const { data: cleanerMatch, error: cleanerErr } = await client
+    .from("tenants")
+    .select("*")
+    .eq("openphone_cleaner_phone_id", phoneId)
+    .maybeSingle()
+
+  if (cleanerMatch) return cleanerMatch as Tenant
+
+  if (error && cleanerErr) return null
+  return null
 }
 
 /**

@@ -114,7 +114,7 @@ export function ServiceEditor() {
     setError("")
     try {
       // Detect tenant type
-      const settingsRes = await fetch("/api/actions/settings")
+      const settingsRes = await fetch("/api/actions/settings", { cache: "no-store" })
       const settingsData = await settingsRes.json()
       const desc = (settingsData.service_description || "").toLowerCase()
       const isWindow = desc.includes("window")
@@ -186,7 +186,7 @@ export function ServiceEditor() {
         setPlans((plansData.plans || []).map((p: any) => ({ ...p, _isNew: false, _deleted: false })))
       } else {
         // House cleaning: load tiers grouped by service_type
-        const pricingRes = await fetch("/api/pricing")
+        const pricingRes = await fetch("/api/pricing", { cache: "no-store" })
         const pricingData = await pricingRes.json()
         const tiersData: Record<string, PricingTierRow[]> = pricingData.data?.tiers || {}
         setTiers(tiersData)

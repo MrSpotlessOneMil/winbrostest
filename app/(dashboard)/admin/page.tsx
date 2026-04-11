@@ -121,6 +121,8 @@ interface Tenant {
   openphone_api_key: string | null
   openphone_phone_id: string | null
   openphone_phone_number: string | null
+  openphone_cleaner_phone_id: string | null
+  openphone_cleaner_phone_number: string | null
   // VAPI
   vapi_api_key: string | null
   vapi_assistant_id: string | null
@@ -694,6 +696,8 @@ export default function AdminPage() {
       { label: "OpenPhone API Key", value: currentTenant.openphone_api_key },
       { label: "OpenPhone Phone ID", value: currentTenant.openphone_phone_id },
       { label: "OpenPhone Phone Number", value: currentTenant.openphone_phone_number },
+      { label: "OpenPhone Cleaner Phone ID", value: currentTenant.openphone_cleaner_phone_id },
+      { label: "OpenPhone Cleaner Phone Number", value: currentTenant.openphone_cleaner_phone_number },
       { label: "VAPI API Key", value: currentTenant.vapi_api_key },
       { label: "VAPI Inbound Assistant ID", value: currentTenant.vapi_assistant_id },
       { label: "VAPI Outbound Assistant ID", value: currentTenant.vapi_outbound_assistant_id },
@@ -2031,6 +2035,22 @@ export default function AdminPage() {
                             value={getFieldValue(currentTenant, "openphone_phone_number")}
                             onChange={(e) => setFieldValue("openphone_phone_number", e.target.value)}
                             placeholder="+1..."
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Cleaner Phone ID <span className="text-muted-foreground">(optional)</span></Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "openphone_cleaner_phone_id")}
+                            onChange={(e) => setFieldValue("openphone_cleaner_phone_id", e.target.value)}
+                            placeholder="Separate number for cleaner SMS"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-sm">Cleaner Phone Number <span className="text-muted-foreground">(optional)</span></Label>
+                          <Input
+                            value={getFieldValue(currentTenant, "openphone_cleaner_phone_number")}
+                            onChange={(e) => setFieldValue("openphone_cleaner_phone_number", e.target.value)}
+                            placeholder="+1... (display only)"
                           />
                         </div>
                       </div>

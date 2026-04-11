@@ -437,7 +437,7 @@ export async function GET(request: NextRequest) {
 
         const smsMessage = `Hi ${customerName}! Friendly reminder — your ${serviceLabel} is scheduled for tomorrow${timePart}. Same great team as always! Let us know if you need anything.`
 
-        const result = await sendSMS(t, customerPhone, smsMessage)
+        const result = await sendSMS(t, customerPhone, smsMessage, { source: 'customer_reminder' })
         if (result.success) {
           customerSmsSent++
           await markReminderSent(dedupKey, 'customer_recurring_reminder', tomorrowLocal)

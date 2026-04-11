@@ -483,9 +483,11 @@ export async function POST(request: NextRequest) {
           await client.from("messages").update({ source: newSource }).eq("id", insertedMsg.id)
         }
 
-        // System-sent detection: check if we already have this message stored from our own system
-        // ONLY match definitively automated sources — never skip takeover for ambiguous matches
-        const AUTOMATED_SOURCES = ['scheduled_task', 'retargeting', 'retargeting_catchup', 'lead_followup', 'mid_convo_nudge', 'stripe_deposit_paid', 'stripe_card_on_file', 'vapi_booking_confirmation']
+        // System-sent detection: check if we already have this message stored from our own system.
+        // Uses a blocklist (MANUAL_SOURCES) instead of an allowlist so new automated sources
+        // are automatically recognized — prevents the customer-ghosting bug where a missing
+        // source in an allowlist causes false manual takeover.
+        const MANUAL_SOURCES = new Set(['dashboard', 'openphone_app'])
         let isSystemSent = false
         if (!isBroadcast && !isAgentOutreach && !isRetargeting && toE164 && extracted.content) {
           const sysDedupCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString() // 2 min window
@@ -497,7 +499,7 @@ export async function POST(request: NextRequest) {
             .eq("direction", "outbound")
             .eq("content", extracted.content)
             .gte("created_at", sysDedupCutoff)
-            .in("source", AUTOMATED_SOURCES)
+            .not("source", "in", '("dashboard","openphone_app")')
             .limit(1)
             .maybeSingle()
           if (systemMsg) {
@@ -1270,6 +1272,28 @@ export async function POST(request: NextRequest) {
       }
       // If not an accept, fall through to normal processing
     }
+  }
+
+  // PERMANENT auto-response disable — owner toggled this off in dashboard. NOTHING overrides it.
+  // Different from auto_response_paused which is temporary (manual takeover, auto-unpauses after 15min).
+  if (customer?.auto_response_disabled === true) {
+    console.log(`[OpenPhone] Auto-response PERMANENTLY DISABLED for customer ${customer.id} (${maskPhone(phone)}) — owner set this in dashboard`)
+    await updateDisposition(client, currentMsgId, 'filtered_paused')
+    // Still store the message so it shows in conversation history
+    await client.from("messages").insert({
+      tenant_id: tenant?.id,
+      customer_id: customer.id,
+      phone_number: phone,
+      role: "client",
+      content: inboundContent,
+      direction: "inbound",
+      message_type: "sms",
+      timestamp: new Date().toISOString(),
+      source: "openphone",
+      external_message_id: opMessageId || null,
+      metadata: { ...payload, openphone_message_id: opMessageId || null, filtered: "auto_response_disabled_permanent" },
+    })
+    return NextResponse.json({ success: true, stored: true, filtered: "auto_response_disabled_permanent" })
   }
 
   // Per-customer auto-response kill switch (with auto-unpause after 15 min of no manual activity)

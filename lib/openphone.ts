@@ -69,6 +69,8 @@ export async function sendSMS(
     skipThrottle?: boolean
     skipDedup?: boolean
     bypassFilters?: boolean
+    /** When true, sends from the tenant's dedicated cleaner OpenPhone number (if configured) */
+    useCleaner?: boolean
     /** When provided, pre-inserts a DB record so the outbound webhook skips manual takeover */
     source?: string
     /** Optional customer ID for the pre-inserted record */
@@ -91,8 +93,10 @@ export async function sendSMS(
 
   console.log(`[${tenant.slug}] Using OpenPhone API key from: ${tenant.openphone_api_key ? 'tenant config' : 'env var'}`)
 
-  // Try tenant config first, then fall back to env var
-  const phoneNumberId = tenant.openphone_phone_id || process.env.OPENPHONE_PHONE_ID
+  // Use cleaner-specific phone ID when requested (falls back to main if not configured)
+  const phoneNumberId = (options?.useCleaner && tenant.openphone_cleaner_phone_id)
+    ? tenant.openphone_cleaner_phone_id
+    : (tenant.openphone_phone_id || process.env.OPENPHONE_PHONE_ID)
 
   if (!phoneNumberId) {
     console.error(`[${tenant.slug}] OpenPhone phone number ID not configured in tenant or env`)
@@ -113,7 +117,7 @@ export async function sendSMS(
       const safetyClient = getSupabaseServiceClient()
       const { data: customer } = await safetyClient
         .from('customers')
-        .select('id, sms_opt_out, auto_response_paused')
+        .select('id, sms_opt_out, auto_response_paused, auto_response_disabled')
         .eq('phone_number', toE164Format)
         .eq('tenant_id', tenant.id)
         .limit(1)
@@ -122,6 +126,14 @@ export async function sendSMS(
       if (customer?.sms_opt_out) {
         console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} opted out`)
         return { success: false, error: 'Customer opted out of SMS' }
+      }
+
+      // 1.5. PERMANENT auto-response disable — owner toggled this off in dashboard.
+      // NOTHING overrides this. Not crons, not timeouts, not retargeting.
+      // Only skip for system sends (bypassFilters) and manual sends from dashboard (skipThrottle).
+      if (customer?.auto_response_disabled && !options?.skipThrottle) {
+        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} has auto_response_disabled (permanent)`)
+        return { success: false, error: 'Customer auto-response permanently disabled by owner' }
       }
 
       // 2. Auto-Response Paused Check — block AI auto-responses when human took over.

@@ -973,8 +973,8 @@ export default function JobsPage() {
     async function fetchJobs() {
       try {
         const [calRes, settingsRes] = await Promise.all([
-          fetch("/api/calendar"),
-          fetch("/api/actions/settings"),
+          fetch("/api/calendar", { cache: "no-store" }),
+          fetch("/api/actions/settings", { cache: "no-store" }),
         ])
         const calData = await calRes.json()
         setJobs(calData.jobs || [])
@@ -1278,7 +1278,7 @@ export default function JobsPage() {
 
   const refreshJobs = async () => {
     try {
-      const res = await fetch("/api/calendar")
+      const res = await fetch("/api/calendar", { cache: "no-store" })
       const data = await res.json()
       setJobs(data.jobs || [])
     } catch { /* ignore */ }

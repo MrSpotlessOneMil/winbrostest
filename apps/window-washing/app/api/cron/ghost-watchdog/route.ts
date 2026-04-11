@@ -109,13 +109,14 @@ export async function GET(request: NextRequest) {
         // Load customer
         const { data: customer } = await client
           .from('customers')
-          .select('id, first_name, last_name, auto_response_paused, sms_opt_out, lifecycle_stage')
+          .select('id, first_name, last_name, auto_response_paused, auto_response_disabled, sms_opt_out, lifecycle_stage')
           .eq('phone_number', msg.phone_number)
           .eq('tenant_id', tenant.id)
           .maybeSingle()
 
         if (!customer) continue
         if (customer.sms_opt_out) continue // Don't text opted-out customers
+        if (customer.auto_response_disabled) continue // Owner permanently disabled auto-text
 
         const customerName = customer.first_name || 'Unknown'
         const phoneShort = msg.phone_number.slice(-4)

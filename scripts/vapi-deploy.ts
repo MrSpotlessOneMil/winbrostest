@@ -13,7 +13,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const VAPI_API_KEY = process.env.VAPI_TOKEN || 'ea797598-b8b9-4fde-a75d-7c40be82ab9a';
+const VAPI_API_KEY = process.env.VAPI_TOKEN;
+if (!VAPI_API_KEY) throw new Error('VAPI_TOKEN env var required');
 const VAPI_BASE = 'https://api.vapi.ai';
 
 // Map tenant+type to VAPI assistant IDs (from the live API)
