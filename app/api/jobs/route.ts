@@ -235,14 +235,17 @@ export async function PATCH(request: NextRequest) {
       if (tenantId) {
         // Delete all existing assignments for this job (unique constraint on job_id+cleaner_id
         // prevents re-inserting if we only soft-cancel)
-        await getSupabaseServiceClient()
+        const { error: delErr } = await getSupabaseServiceClient()
           .from("cleaner_assignments")
           .delete()
           .eq("job_id", Number(id))
+        if (delErr) {
+          console.error(`[Jobs PATCH] cleaner_assignments delete failed:`, delErr.message, { jobId: id })
+        }
 
         if (resolvedCleanerIds.length > 0) {
           // Insert confirmed assignments for all selected cleaners
-          await getSupabaseServiceClient().from("cleaner_assignments").insert(
+          const { error: insertErr } = await getSupabaseServiceClient().from("cleaner_assignments").insert(
             resolvedCleanerIds.map(cid => ({
               job_id: Number(id),
               cleaner_id: cid,
@@ -252,6 +255,9 @@ export async function PATCH(request: NextRequest) {
               responded_at: new Date().toISOString(),
             }))
           )
+          if (insertErr) {
+            console.error(`[Jobs PATCH] cleaner_assignments insert failed:`, insertErr.message, { jobId: id, cleanerIds: resolvedCleanerIds })
+          }
 
           // Notify each cleaner via notifyCleanerAssignment (rich format with
           // full job details, cleaner pay, portal link, bypassFilters + useCleaner)
