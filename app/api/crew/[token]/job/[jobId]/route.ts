@@ -183,11 +183,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   const estimate = getEstimateFromNotes(job.notes)
 
   // Cleaner pay: use PAY tag from notes, fallback to price × cleaner_pay_percentage
+  // For promo jobs, use NORMAL_PRICE from notes (not the discounted price)
   let cleanerPay = estimate.cleanerPay ?? null
   if (cleanerPay == null && job.price) {
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage) {
-      cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+      let payBase = parseFloat(String(job.price))
+      if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+        const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+        if (match) payBase = parseFloat(match[1])
+      }
+      cleanerPay = payBase * (payPercentage / 100)
     }
   }
 
