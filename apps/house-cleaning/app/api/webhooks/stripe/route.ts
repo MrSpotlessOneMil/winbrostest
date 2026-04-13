@@ -662,15 +662,19 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
   const hasServiceTime = quote.service_time && typeof quote.service_time === 'string'
 
-  // For promo jobs ($99 Meta offer), look up the normal deep clean price so cleaners get paid correctly
+  // For promo jobs, look up config and set notes + job params
+  const { PROMO_CAMPAIGNS } = await import('@/lib/promo-config')
   let jobNotes: string | null = null
-  const isPromoQuote = quote.custom_base_price != null && (quote.notes || '').includes('Meta Promo')
+  const promoPrice = quote.custom_base_price ? Number(quote.custom_base_price) : null
+  const isPromoQuote = promoPrice != null && (quote.notes || '').includes('Meta Promo')
+  // Find matching promo config by price
+  const promoEntry = isPromoQuote ? Object.values(PROMO_CAMPAIGNS).find(c => c.price === promoPrice) : null
   if (isPromoQuote && quote.bedrooms && quote.bathrooms) {
     try {
       const { getPricingRow } = await import('@/lib/pricing-db')
       const normalRow = await getPricingRow('deep', quote.bedrooms, quote.bathrooms, null, quote.tenant_id)
       const normalPrice = normalRow?.price || 0
-      jobNotes = `PROMO:$99|NORMAL_PRICE:${normalPrice}`
+      jobNotes = `PROMO:$${promoPrice}|NORMAL_PRICE:${normalPrice}`
     } catch { /* non-blocking */ }
   }
 
@@ -695,7 +699,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     // Set frequency from membership plan so recurring cron creates future instances
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
     // $99 promo: lock at 1 cleaner, 3 hours, with pay override ($75 = 3hrs x $25/hr)
-    ...(isPromoQuote ? { hours: 3, cleaners: 1, cleaner_pay_override: 75 } : {}),
+    ...(promoEntry ? { hours: promoEntry.hours, cleaners: promoEntry.cleaners, cleaner_pay_override: promoEntry.payOverride } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient

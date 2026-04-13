@@ -2480,9 +2480,10 @@ export async function POST(request: NextRequest) {
       const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null
 
-      // Check if lead came from Meta $99 promo (check lead form_data)
-      const leadFormData2 = bookedLead?.form_data || {}
-      const isMetaPromo2 = leadFormData2.utm_campaign === '99-deep-clean' || (leadFormData2.source_detail === 'meta' && leadFormData2.service_type === 'deep-cleaning')
+      // Check if lead came from a promo campaign (shared config)
+      const { getPromoConfig } = await import('@/lib/promo-config')
+      const promoConfig2 = getPromoConfig(bookedLead?.form_data)
+      const isMetaPromo2 = !!promoConfig2
 
       const { data: newQuote, error: quoteError } = await client
         .from("quotes")
@@ -2497,18 +2498,18 @@ export async function POST(request: NextRequest) {
           bathrooms: job?.notes?.match(/(\d+(?:\.\d+)?)\s*bath/i)?.[1] ? parseFloat(job.notes.match(/(\d+(?:\.\d+)?)\s*bath/i)![1]) : null,
           square_footage: job?.notes?.match(/(\d+)\s*(?:sq|sqft|sf)/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*(?:sq|sqft|sf)/i)![1]) : null,
           service_category: quoteCategory,
-          selected_tier: isMetaPromo2 ? 'deep' : null,
-          custom_base_price: isMetaPromo2 ? 99 : null,
-          selected_addons: isMetaPromo2 ? ['ceiling_fans','light_fixtures','window_sills','inside_microwave'] : [],
+          selected_tier: promoConfig2?.tier || null,
+          custom_base_price: promoConfig2?.price || null,
+          selected_addons: promoConfig2?.addons || [],
           service_date: job?.date || null,
           service_time: job?.scheduled_at || null,
           notes: [
-            isMetaPromo2 ? '$99 Meta Promo — first deep clean' : null,
+            promoConfig2 ? `$${promoConfig2.price} Meta Promo` : null,
             job?.service_type ? `Service: ${job.service_type}` : null,
             job?.date ? `Date: ${job.date}` : null,
             job?.scheduled_at ? `Time: ${job.scheduled_at}` : null,
           ].filter(Boolean).join(' | ') || null,
-          ...(isMetaPromo2 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+          ...(promoConfig2 ? { custom_terms: promoConfig2.terms } : {}),
         })
         .select("id, token")
         .single()
@@ -2525,10 +2526,8 @@ export async function POST(request: NextRequest) {
       const appDomain = getClientConfig().domain.replace(/\/+$/, '')
       const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
-      const quoteMsg = isMetaPromo2
-        ? (customer.first_name
-          ? `Hey ${customer.first_name}! Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`
-          : `Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`)
+      const quoteMsg = promoConfig2
+        ? promoConfig2.quoteSms.replace('{name}', customer.first_name || 'there').replace('{url}', quoteUrl)
         : (customer.first_name
           ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
           : `Here's your quote — pick the option that works best for you: ${quoteUrl}`)
@@ -3525,9 +3524,10 @@ export async function POST(request: NextRequest) {
                 const svcType = (bookingData.serviceType || '').toLowerCase()
                 const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
-                // Check if lead came from Meta $99 promo
-                const leadFormData3 = existingLead?.form_data || {}
-                const isMetaPromo3 = leadFormData3.utm_campaign === '99-deep-clean' || (leadFormData3.source_detail === 'meta' && leadFormData3.service_type === 'deep-cleaning')
+                // Check if lead came from a promo campaign (shared config)
+                const { getPromoConfig: getPromoConfig3 } = await import('@/lib/promo-config')
+                const promoConfig3 = getPromoConfig3(existingLead?.form_data)
+                const isMetaPromo3 = !!promoConfig3
 
                 // Create quote record
                 const { data: newQuote, error: quoteError } = await client
@@ -3543,19 +3543,19 @@ export async function POST(request: NextRequest) {
                     bathrooms: bookingData.bathrooms || null,
                     square_footage: bookingData.squareFootage || null,
                     service_category: quoteCategory,
-                    selected_tier: isMetaPromo3 ? 'deep' : null,
-                    custom_base_price: isMetaPromo3 ? 99 : null,
-                    selected_addons: isMetaPromo3 ? ['ceiling_fans','light_fixtures','window_sills','inside_microwave'] : [],
+                    selected_tier: promoConfig3?.tier || null,
+                    custom_base_price: promoConfig3?.price || null,
+                    selected_addons: promoConfig3?.addons || [],
                     service_date: jobDate || null,
                     service_time: bookingData.preferredTime || null,
                     notes: [
-                      isMetaPromo3 ? '$99 Meta Promo — first deep clean' : null,
+                      promoConfig3 ? `$${promoConfig3.price} Meta Promo` : null,
                       bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                       bookingData.hasPets ? 'Has pets' : null,
                       jobDate ? `Preferred date: ${jobDate}` : null,
                       bookingData.preferredTime ? `Preferred time: ${bookingData.preferredTime}` : null,
                     ].filter(Boolean).join(' | ') || null,
-                    ...(isMetaPromo3 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+                    ...(promoConfig3 ? { custom_terms: promoConfig3.terms } : {}),
                   })
                   .select("id, token")
                   .single()
@@ -3584,10 +3584,8 @@ export async function POST(request: NextRequest) {
 
                 // Send short SMS with quote link
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = isMetaPromo3
-                  ? (customerFirstName
-                    ? `Hey ${customerFirstName}! Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`
-                    : `Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`)
+                const quoteMsg = promoConfig3
+                  ? promoConfig3.quoteSms.replace('{name}', customerFirstName || 'there').replace('{url}', quoteUrl)
                   : (customerFirstName
                     ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
                     : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`)
@@ -4279,9 +4277,10 @@ export async function POST(request: NextRequest) {
               const svcType = (bookingData.serviceType || '').toLowerCase()
               const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
-              // Check if this lead came from Meta $99 deep clean promo
-              const leadFormData = lead?.form_data || {}
-              const isMetaPromo = leadFormData.utm_campaign === '99-deep-clean' || (leadFormData.source_detail === 'meta' && leadFormData.service_type === 'deep-cleaning')
+              // Check if this lead came from a promo campaign (shared config)
+              const { getPromoConfig: getPromoConfig1 } = await import('@/lib/promo-config')
+              const promoConfig1 = getPromoConfig1(lead?.form_data)
+              const isMetaPromo = !!promoConfig1
 
               const { data: newQuote, error: quoteError } = await client.from("quotes").insert({
                 tenant_id: tenant.id,
@@ -4294,17 +4293,17 @@ export async function POST(request: NextRequest) {
                 bathrooms: bookingData.bathrooms || null,
                 square_footage: bookingData.squareFootage || null,
                 service_category: quoteCategory,
-                selected_tier: isMetaPromo ? 'deep' : null,
-                custom_base_price: isMetaPromo ? 99 : null,
-                selected_addons: isMetaPromo ? ['ceiling_fans','light_fixtures','window_sills','inside_microwave'] : [],
+                selected_tier: promoConfig1?.tier || null,
+                custom_base_price: promoConfig1?.price || null,
+                selected_addons: promoConfig1?.addons || [],
                 service_date: jobDate || null,
                 service_time: bookingData.preferredTime || null,
                 notes: [
-                  isMetaPromo ? '$99 Meta Promo — first deep clean' : null,
+                  promoConfig1 ? `$${promoConfig1.price} Meta Promo` : null,
                   bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                   bookingData.hasPets ? 'Has pets' : null,
                 ].filter(Boolean).join(' | ') || null,
-                ...(isMetaPromo ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+                ...(promoConfig1 ? { custom_terms: promoConfig1.terms } : {}),
               }).select("id, token").single()
 
               if (quoteError || !newQuote) {
