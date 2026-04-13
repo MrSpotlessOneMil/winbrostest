@@ -29,21 +29,25 @@ export async function POST(request: NextRequest) {
 
       // Look up tenant slug for account switcher dedup
       let tenantSlug: string | null = null
+      let tenantServiceType: string | null = null
       if (user.tenant_id) {
         const client = getSupabaseServiceClient()
         const { data: tenant } = await client
           .from('tenants')
-          .select('slug')
+          .select('slug, service_type')
           .eq('id', user.tenant_id)
           .single()
-        if (tenant) tenantSlug = tenant.slug
+        if (tenant) {
+          tenantSlug = tenant.slug
+          tenantServiceType = tenant.service_type
+        }
       }
 
-      // Determine redirect URL based on tenant — WinBros goes to its own subdomain
-      const TENANT_DOMAINS: Record<string, string> = {
-        winbros: 'https://winbros.cleanmachine.live',
+      // Redirect all window_washing tenants to the WW subdomain
+      let redirectUrl: string | null = null
+      if (tenantServiceType === 'window_washing') {
+        redirectUrl = 'https://winbros.cleanmachine.live'
       }
-      const redirectUrl = tenantSlug ? TENANT_DOMAINS[tenantSlug] || null : null
 
       const response = NextResponse.json({
         success: true,
