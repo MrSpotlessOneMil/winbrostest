@@ -1,0 +1,19 @@
+---
+source_file: "packages\core\src\scheduler.ts"
+type: "code"
+community: "Community 15"
+location: "L530"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_15
+---
+
+# scheduleRetargetingSequence()
+
+## Connections
+- [[getSupabase()_3]] - `calls` [EXTRACTED]
+- [[scheduleTask()]] - `calls` [EXTRACTED]
+- [[scheduler.ts]] - `contains` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_15

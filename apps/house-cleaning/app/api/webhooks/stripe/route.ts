@@ -661,6 +661,19 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   // Create job from the approved quote (with membership_id if applicable)
   const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
   const hasServiceTime = quote.service_time && typeof quote.service_time === 'string'
+
+  // For promo jobs ($99 Meta offer), look up the normal deep clean price so cleaners get paid correctly
+  let jobNotes: string | null = null
+  const isPromoQuote = quote.custom_base_price != null && (quote.notes || '').includes('Meta Promo')
+  if (isPromoQuote && quote.bedrooms && quote.bathrooms) {
+    try {
+      const { getPricingRow } = await import('@/lib/pricing-db')
+      const normalRow = await getPricingRow('deep', quote.bedrooms, quote.bathrooms, null, quote.tenant_id)
+      const normalPrice = normalRow?.price || 0
+      jobNotes = `PROMO:$99|NORMAL_PRICE:${normalPrice}`
+    } catch { /* non-blocking */ }
+  }
+
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -674,7 +687,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     payment_status: 'pending',
     confirmed_at: new Date().toISOString(),
     stripe_checkout_session_id: session.id,
-    notes: null,
+    notes: jobNotes,
     quote_id: quote.id,
     ...(hasServiceDate ? { date: quote.service_date } : {}),
     ...(hasServiceTime ? { scheduled_at: quote.service_time } : {}),

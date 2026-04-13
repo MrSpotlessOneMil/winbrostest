@@ -1047,8 +1047,7 @@ export async function POST(request: NextRequest) {
           // Immediately send review link + recurring offer (no tip — strike while iron is hot)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
 
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit and never have to think about scheduling. Would that be something you'd be interested in?`
+          const replyMsg = `That's wonderful to hear! We'd really appreciate a quick review - it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings and never have to think about scheduling. Would that be something you'd be interested in?`
           const replyResult = await sendSMS(tenant, phone, replyMsg, { skipThrottle: true })
 
           // Only save outbound message if SMS was actually sent (prevents ghost messages)
@@ -1137,8 +1136,7 @@ export async function POST(request: NextRequest) {
         } else {
           // Neutral — treat as positive (any reply to "how was your cleaning" is engagement)
           const reviewLink = tenant.google_review_link || "https://g.page/review"
-          const recurringDiscount = tenant.workflow_config?.monthly_followup_discount || '15%'
-          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - you'd get ${recurringDiscount} off every visit. Would that be something you'd be interested in?`
+          const neutralMsg = `Glad to hear it! We'd really appreciate a quick review, it means a lot to us: ${reviewLink}\n\nBy the way, a lot of our customers love setting up recurring cleanings - never have to think about scheduling. Would that be something you'd be interested in?`
           await sendSMS(tenant, phone, neutralMsg, { skipThrottle: true })
 
           await client.from("messages").insert({
@@ -3443,69 +3441,64 @@ export async function POST(request: NextRequest) {
                 console.log(`[OpenPhone] No preferred date provided — using next business day: ${jobDate}`)
               }
 
-              // WinBros: create job (estimate visit for salesman)
-              // House cleaning: NO job yet — job is created when customer puts card on file via quote page
-              let newJob: { id: number } | null = null
-              if (isWindowCleaningTenant) {
-                const { data: job, error: jobError } = await client.from("jobs").insert({
-                  tenant_id: tenant?.id,
-                  customer_id: customer.id,
-                  phone_number: phone,
-                  service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+              // Create job (WinBros: estimate type for salesman visit; others: cleaning)
+              let { data: newJob, error: jobError } = await client.from("jobs").insert({
+                tenant_id: tenant?.id,
+                customer_id: customer.id,
+                phone_number: phone,
+                service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
+                address: bookingData.address || customer.address || null,
+                price: servicePrice || null,
+                date: jobDate,
+                scheduled_at: bookingData.preferredTime || '09:00',
+                status: 'quoted',
+                booked: false,
+                notes: jobNotes || null,
+                job_type: isWindowCleaningTenant ? 'estimate' : 'cleaning',
+              }).select("id").single()
+
+              if (jobError || !newJob?.id) {
+                console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
+                console.error(`[OpenPhone] Insert payload: tenant=${tenant?.id}, customer=${customer.id}, type=${bookingData.serviceType}, date=${bookingData.preferredDate}, price=${servicePrice}`)
+                // Don't proceed with Stripe link — we need a valid job first
+                return NextResponse.json({
+                  success: false,
+                  error: "job_creation_failed",
+                  flow: "sms_booking_job_error",
+                  existingLeadId: existingLead.id,
+                  details: jobError?.message || "Job insert returned no data",
+                })
+              }
+              console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}`)
+
+              // Sync to HouseCall Pro
+              if (tenant && isWindowCleaningTenant) {
+                await syncNewJobToHCP({
+                  tenant,
+                  jobId: newJob.id,
+                  phone,
+                  firstName: customer.first_name,
+                  lastName: customer.last_name,
+                  email: finalEmail || customer.email || null,
                   address: bookingData.address || customer.address || null,
-                  price: servicePrice || null,
-                  date: jobDate,
-                  scheduled_at: bookingData.preferredTime || '09:00',
-                  status: 'quoted',
-                  booked: false,
-                  notes: jobNotes || null,
-                  frequency: bookingData.frequency || 'one-time',
-                  job_type: 'estimate',
-                }).select("id").single()
-
-                if (jobError || !job?.id) {
-                  console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
-                  await updateDisposition(client, currentMsgId, 'error_ai')
-                  return NextResponse.json({
-                    success: false,
-                    error: "job_creation_failed",
-                    flow: "sms_booking_job_error",
-                    existingLeadId: existingLead.id,
-                    details: jobError?.message || "Job insert returned no data",
-                  })
-                }
-                newJob = job
-                console.log(`[OpenPhone] WinBros estimate job created: ${newJob.id}`)
-
-                // Sync to HouseCall Pro
-                if (tenant) {
-                  await syncNewJobToHCP({
-                    tenant,
-                    jobId: newJob.id,
-                    phone,
-                    firstName: customer.first_name,
-                    lastName: customer.last_name,
-                    email: finalEmail || customer.email || null,
-                    address: bookingData.address || customer.address || null,
-                    serviceType: bookingData.serviceType || null,
-                    scheduledDate: jobDate,
-                    scheduledTime: bookingData.preferredTime || '09:00',
-                    price: servicePrice,
-                    notes: 'Estimate Visit | Booked via SMS',
-                    source: 'sms',
-                    isEstimate: true,
-                  })
-                }
+                  serviceType: bookingData.serviceType || null,
+                  scheduledDate: jobDate,
+                  scheduledTime: bookingData.preferredTime || '09:00',
+                  price: servicePrice,
+                  notes: 'Estimate Visit | Booked via SMS',
+                  source: 'sms',
+                  isEstimate: true,
+                })
               } else {
                 console.log(`[OpenPhone] House cleaning — skipping job creation (quote-only flow for ${maskPhone(phone)})`)
               }
 
-              // Update lead to qualified
+              // Update lead to qualified (booked requires payment + cleaner assigned)
               await client
                 .from("leads")
                 .update({
                   status: "qualified",
-                  ...(newJob ? { converted_to_job_id: newJob.id } : {}),
+                  converted_to_job_id: newJob.id,
                   form_data: {
                     ...parseFormData(existingLead.form_data),
                     booking_data: bookingData,
@@ -4260,6 +4253,10 @@ export async function POST(request: NextRequest) {
               const svcType = (bookingData.serviceType || '').toLowerCase()
               const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
+              // Check if this lead came from Meta $99 deep clean promo
+              const leadFormData = lead?.form_data || {}
+              const isMetaPromo = leadFormData.utm_campaign === '99-deep-clean' || (leadFormData.source_detail === 'meta' && leadFormData.service_type === 'deep-cleaning')
+
               const { data: newQuote, error: quoteError } = await client.from("quotes").insert({
                 tenant_id: tenant.id,
                 customer_id: customer.id,
@@ -4271,9 +4268,12 @@ export async function POST(request: NextRequest) {
                 bathrooms: bookingData.bathrooms || null,
                 square_footage: bookingData.squareFootage || null,
                 service_category: quoteCategory,
+                selected_tier: isMetaPromo ? 'deep' : null,
+                custom_base_price: isMetaPromo ? 99 : null,
                 service_date: jobDate || null,
                 service_time: bookingData.preferredTime || null,
                 notes: [
+                  isMetaPromo ? '$99 Meta Promo — first deep clean' : null,
                   bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                   bookingData.hasPets ? 'Has pets' : null,
                 ].filter(Boolean).join(' | ') || null,
@@ -4292,9 +4292,16 @@ export async function POST(request: NextRequest) {
                 const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
-                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                let quoteMsg: string
+                if (isMetaPromo) {
+                  quoteMsg = customerFirstName
+                    ? `Hey ${customerFirstName}! Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
+                    : `Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
+                } else {
+                  quoteMsg = customerFirstName
+                    ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                    : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                }
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {

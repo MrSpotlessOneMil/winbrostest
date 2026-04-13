@@ -1,0 +1,39 @@
+{
+  "collapse-filter": false,
+  "search": "",
+  "showTags": true,
+  "showAttachments": false,
+  "hideUnresolved": false,
+  "showOrphans": false,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {
+      "query": "path:_COMMUNITY",
+      "color": { "a": 1, "rgb": 16711935 }
+    },
+    {
+      "query": "tag:#terminal-session",
+      "color": { "a": 1, "rgb": 4488191 }
+    },
+    {
+      "query": "tag:#claude-chat",
+      "color": { "a": 1, "rgb": 65535 }
+    },
+    {
+      "query": "tag:#business",
+      "color": { "a": 1, "rgb": 16776960 }
+    }
+  ],
+  "collapse-display": false,
+  "showArrow": true,
+  "textFadeMultiplier": 0,
+  "nodeSizeMultiplier": 1.2,
+  "lineSizeMultiplier": 0.8,
+  "collapse-forces": false,
+  "centerStrength": 0.3,
+  "repelStrength": 8,
+  "linkStrength": 0.8,
+  "linkDistance": 100,
+  "scale": 1,
+  "close": false
+}
