@@ -526,67 +526,6 @@ export default function QuotePage() {
               </div>
             </div>
           </div>
-        ) : (
-        <div>
-          <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Package"}</h2>
-          <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your recurring service." : "Select the service level that fits your needs."}</p>
-
-          <div className="space-y-3 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-4">
-            {tiers.map((tier, idx) => {
-              const isSelected = selectedTierKey === tier.key
-              const price = tierPrices[tier.key]?.price ?? 0
-              const breakdown = tierPrices[tier.key]?.breakdown ?? []
-              const colors = TIER_COLORS[idx] || TIER_COLORS[0]
-
-              return (
-                <button
-                  key={tier.key}
-                  type="button"
-                  disabled={isExpired || tierLocked}
-                  onClick={() => handleTierChange(tier.key)}
-                  className={`
-                    relative w-full text-left rounded-2xl border-2 transition-all duration-200 p-5 flex flex-col
-                    ${isSelected
-                      ? `${colors.bg} ${colors.border} ring-2 ${colors.ring} shadow-lg`
-                      : "bg-white border-blue-100 hover:border-blue-200 hover:shadow-md"
-                    }
-                    ${isExpired ? "opacity-50 cursor-not-allowed" : tierLocked ? "cursor-default" : "cursor-pointer active:scale-[0.98]"}
-                  `}
-                >
-                  {tier.badge && (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-                      <span className={`${colors.badge} text-white text-xs font-bold px-4 py-1 rounded-full shadow-md whitespace-nowrap`}>
-                        {tier.badge}
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className={`size-11 rounded-xl flex items-center justify-center shrink-0 text-white shadow-sm ${isSelected ? colors.icon : "bg-slate-200 text-slate-400"}`}>
-                      {TIER_ICONS[idx] ?? <Shield className="size-6" />}
-                    </div>
-                    <div>
-                      <h3 className="text-slate-800 font-bold text-base sm:text-lg">{tier.name}</h3>
-                      <p className="text-slate-400 text-xs">{tier.tagline}</p>
-                    </div>
-                  </div>
-
-                  {tier.description && (
-                    <p className="text-slate-400 text-xs leading-relaxed mb-3">{tier.description}</p>
-                  )}
-
-                  <div className="flex-1 space-y-1.5 mb-4">
-                    {breakdown.map((item) => (
-                      <div key={item.service} className="flex items-start gap-2">
-                        <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
-                        <span className="text-sm text-slate-600">{item.service}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
           )
         })() : (
         <div>

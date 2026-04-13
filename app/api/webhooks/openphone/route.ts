@@ -3442,7 +3442,7 @@ export async function POST(request: NextRequest) {
               }
 
               // Create job (WinBros: estimate type for salesman visit; others: cleaning)
-              const { data: newJob, error: jobError } = await client.from("jobs").insert({
+              let { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
                 customer_id: customer.id,
                 phone_number: phone,
@@ -3472,7 +3472,7 @@ export async function POST(request: NextRequest) {
               console.log(`[OpenPhone] Job created from SMS booking: ${newJob.id} — service: ${bookingData.serviceType}, date: ${bookingData.preferredDate}, price: $${servicePrice || 'TBD'}`)
 
               // Sync to HouseCall Pro
-              if (tenant) {
+              if (tenant && isWindowCleaningTenant) {
                 await syncNewJobToHCP({
                   tenant,
                   jobId: newJob.id,
@@ -3481,49 +3481,14 @@ export async function POST(request: NextRequest) {
                   lastName: customer.last_name,
                   email: finalEmail || customer.email || null,
                   address: bookingData.address || customer.address || null,
-                  price: servicePrice || null,
-                  date: jobDate,
-                  scheduled_at: bookingData.preferredTime || '09:00',
-                  status: 'quoted',
-                  booked: false,
-                  notes: jobNotes || null,
-                  frequency: bookingData.frequency || 'one-time',
-                  job_type: 'estimate',
-                }).select("id").single()
-
-                if (jobError || !job?.id) {
-                  console.error(`[OpenPhone] Job creation failed for ${maskPhone(phone)}:`, jobError || 'no job returned')
-                  await updateDisposition(client, currentMsgId, 'error_ai')
-                  return NextResponse.json({
-                    success: false,
-                    error: "job_creation_failed",
-                    flow: "sms_booking_job_error",
-                    existingLeadId: existingLead.id,
-                    details: jobError?.message || "Job insert returned no data",
-                  })
-                }
-                newJob = job
-                console.log(`[OpenPhone] WinBros estimate job created: ${newJob.id}`)
-
-                // Sync to HouseCall Pro
-                if (tenant) {
-                  await syncNewJobToHCP({
-                    tenant,
-                    jobId: newJob.id,
-                    phone,
-                    firstName: customer.first_name,
-                    lastName: customer.last_name,
-                    email: finalEmail || customer.email || null,
-                    address: bookingData.address || customer.address || null,
-                    serviceType: bookingData.serviceType || null,
-                    scheduledDate: jobDate,
-                    scheduledTime: bookingData.preferredTime || '09:00',
-                    price: servicePrice,
-                    notes: 'Estimate Visit | Booked via SMS',
-                    source: 'sms',
-                    isEstimate: true,
-                  })
-                }
+                  serviceType: bookingData.serviceType || null,
+                  scheduledDate: jobDate,
+                  scheduledTime: bookingData.preferredTime || '09:00',
+                  price: servicePrice,
+                  notes: 'Estimate Visit | Booked via SMS',
+                  source: 'sms',
+                  isEstimate: true,
+                })
               } else {
                 console.log(`[OpenPhone] House cleaning — skipping job creation (quote-only flow for ${maskPhone(phone)})`)
               }

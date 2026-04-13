@@ -342,44 +342,6 @@ export default function JobDetailPage() {
           <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.15s" }}>
             <p className="font-bold text-slate-800 mb-5 text-sm">Job Progress</p>
 
-        {/* Can't Make It — only for accepted/confirmed jobs before OMW */}
-        {isActive && !isPending && !job.cleaner_omw_at && (
-          <div className="bg-white rounded-lg border border-red-200 p-4">
-            <button
-              onClick={handleCancelAccepted}
-              disabled={!!updating}
-              className="w-full text-red-500 text-sm font-medium py-2 hover:text-red-600 disabled:opacity-50"
-            >
-              {updating === "cancel" ? "Cancelling..." : "Can't Make It"}
-            </button>
-          </div>
-        )}
-
-        {/* Checklist */}
-        {checklist.length > 0 && !isPending && (
-          <div className="bg-white rounded-lg border border-slate-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-slate-800">Checklist</h3>
-              <span className="text-xs text-slate-400">
-                {checklist.filter((i) => i.completed).length}/{checklist.length}
-              </span>
-            </div>
-            <div className="space-y-2">
-              {checklist.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => updateChecklist(item.id, !item.completed)}
-                  className="flex items-center gap-3 w-full text-left py-1"
-                >
-                  {item.completed ? (
-                    <CheckCircle className="size-5 text-green-500 shrink-0" />
-                  ) : (
-                    <Circle className="size-5 text-slate-300 shrink-0" />
-                  )}
-                </div>
-              ))}
-            </div>
-
             {/* Action button — only show the NEXT step as one big button */}
             {(() => {
               const nextStep = !job.cleaner_omw_at ? steps[0] :

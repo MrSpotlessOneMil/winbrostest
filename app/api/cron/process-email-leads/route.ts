@@ -775,13 +775,13 @@ async function handleEmailBookingCompletion(
     job_type: isWinBros ? 'estimate' : 'cleaning',
   }).select('id').single()
 
-    if (jobError || !job?.id) {
-      console.error(`[Email Cron] Job creation failed for ${senderEmail}:`, jobError)
-      return
-    }
-    newJob = job
-    console.log(`[Email Cron] WinBros estimate job created: #${newJob.id}`)
+  if (jobError || !newJob?.id) {
+    console.error(`[Email Cron] Job creation failed for ${senderEmail}:`, jobError)
+    return
+  }
 
+  if (isWinBros) {
+    console.log(`[Email Cron] WinBros estimate job created: #${newJob.id}`)
     // Sync job to HouseCall Pro
     const { syncNewJobToHCP } = await import('@/lib/hcp-job-sync')
     await syncNewJobToHCP({
@@ -805,25 +805,6 @@ async function handleEmailBookingCompletion(
     await client.from('customers').update({ lifecycle_stage_override: 'quoted_not_booked' }).eq('id', customer.id).is('lifecycle_stage_override', null)
     console.log(`[Email Cron] House cleaning — skipping job, quote-only for ${senderEmail}`)
   }
-
-  // Sync job to HouseCall Pro
-  const { syncNewJobToHCP } = await import('@/lib/hcp-job-sync')
-  await syncNewJobToHCP({
-    tenant,
-    jobId: newJob.id,
-    phone: customer.phone_number,
-    firstName: firstName || customer.first_name,
-    lastName: lastName || customer.last_name,
-    email: finalEmail,
-    address: address || customer.address,
-    serviceType: serviceType || null,
-    scheduledDate: jobDate,
-    scheduledTime: preferredTime || '09:00',
-    price: servicePrice,
-    notes: 'Booked via email',
-    source: 'email',
-    isEstimate: isWinBros,
-  })
 
   // ── Update lead to qualified (booked requires payment + cleaner assigned) ──
   await client.from('leads').update({
