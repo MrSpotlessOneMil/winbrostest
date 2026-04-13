@@ -212,17 +212,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Strip structured tags from notes so frontend only shows human-readable instructions
   const cleanedNotes = job.notes
     ? job.notes
-        .split('\n')
+        .split(/[\n|]/)
+        .map((s: string) => s.trim())
         .filter((line: string) => {
-          const trimmed = line.trim().toUpperCase()
-          return (
+          const trimmed = line.toUpperCase()
+          return line && (
             !trimmed.startsWith('OVERRIDE:') &&
             !trimmed.startsWith('PAYMENT:') &&
             !trimmed.startsWith('HOURS:') &&
-            !trimmed.startsWith('PAY:')
+            !trimmed.startsWith('PAY:') &&
+            !trimmed.startsWith('PROMO:') &&
+            !trimmed.startsWith('NORMAL_PRICE:') &&
+            !trimmed.startsWith('__SYS')
           )
         })
-        .join('\n')
+        .join(' — ')
         .trim() || null
     : null
 
