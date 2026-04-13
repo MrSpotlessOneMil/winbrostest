@@ -152,33 +152,7 @@ export default function QuotePage() {
   const [customerAddress, setCustomerAddress] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
-<<<<<<< HEAD
   const [customerNotes, setCustomerNotes] = useState("")
-=======
-  const [serviceTime, setServiceTime] = useState("")
-  const [customerNotes, setCustomerNotes] = useState("")
-  const [summaryExpanded, setSummaryExpanded] = useState(false)
-  const [showAllTiers, setShowAllTiers] = useState(false)
-  const [addressSuggestions, setAddressSuggestions] = useState<{ description: string; place_id: string }[]>([])
-  const [showAddressSuggestions, setShowAddressSuggestions] = useState(false)
-
-  // ── Address autocomplete (debounced) ──────────────────────────────
-  useEffect(() => {
-    if (!customerAddress || customerAddress.length < 3) {
-      setAddressSuggestions([])
-      return
-    }
-    const timer = setTimeout(() => {
-      fetch(`/api/places/autocomplete?input=${encodeURIComponent(customerAddress)}`)
-        .then((r) => r.json())
-        .then((res) => {
-          if (res.success && Array.isArray(res.data)) setAddressSuggestions(res.data)
-        })
-        .catch(() => {})
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [customerAddress])
->>>>>>> Test
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -194,14 +168,8 @@ export default function QuotePage() {
         if (json.custom_base_price != null) {
           setSelectedTierKey('custom')
         } else if (json.quote.selected_tier && (json.tiers as QuoteTier[]).some((t) => t.key === json.quote.selected_tier)) {
-<<<<<<< HEAD
           // Salesman pre-selected a tier — lock it so customer can't change
           setTierLocked(true)
-=======
-          // Pre-selected tier: VAPI quotes get pre-select only, salesman quotes get locked
-          const isVapiQuote = (json.quote.notes as string || '').toLowerCase().includes('vapi')
-          if (!isVapiQuote) setTierLocked(true)
->>>>>>> Test
           const preselectedTier = json.quote.selected_tier as string
           setSelectedTierKey(preselectedTier)
 
@@ -252,16 +220,10 @@ export default function QuotePage() {
         if (json.quote.service_time) setServiceTime(json.quote.service_time)
         if (json.quote.status === "approved") setSelectedTierKey(json.quote.selected_tier)
 
-<<<<<<< HEAD
         // Pre-select and lock membership if salesman already set it
         if (json.quote.membership_plan) {
           setSelectedMembership(json.quote.membership_plan)
           setMembershipLocked(true)
-=======
-        // Pre-select membership if salesman set a frequency (but let customer change it)
-        if (json.quote.membership_plan) {
-          setSelectedMembership(json.quote.membership_plan)
->>>>>>> Test
         }
 
         const q: Record<string, number> = {}
@@ -387,10 +349,6 @@ export default function QuotePage() {
           customer_email: customerEmail || undefined,
           customer_address: customerAddress || undefined,
           service_date: serviceDate || undefined,
-<<<<<<< HEAD
-=======
-          service_time: serviceTime || undefined,
->>>>>>> Test
           customer_notes: customerNotes || undefined,
           service_agreement_accepted: true,
         }),
@@ -566,7 +524,6 @@ export default function QuotePage() {
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
               </div>
-<<<<<<< HEAD
             </div>
           </div>
         ) : (
@@ -623,47 +580,6 @@ export default function QuotePage() {
                       <div key={item.service} className="flex items-start gap-2">
                         <Check className={`size-4 shrink-0 mt-0.5 ${isSelected ? colors.check : "text-slate-300"}`} />
                         <span className="text-sm text-slate-600">{item.service}</span>
-=======
-              {data?.quote_notes && (
-                <div className="border-t border-blue-200 pt-4 space-y-3">
-                  {data.quote_notes.split('\n\n').map((section, si) => {
-                    const lines = section.split('\n')
-                    const heading = lines[0]
-                    const items = lines.slice(1).filter(l => l.startsWith('•') || l.startsWith('-'))
-                    const isHeading = !heading.startsWith('•') && !heading.startsWith('-') && items.length > 0
-                    return (
-                      <div key={si}>
-                        {isHeading && (
-                          <h4 className="text-sm font-bold text-slate-700 mb-1.5">{heading}</h4>
-                        )}
-                        {!isHeading && !items.length && heading && (
-                          <p className="text-sm text-slate-600">{heading}</p>
-                        )}
-                        {items.length > 0 && (
-                          <ul className="space-y-1">
-                            {items.map((item, ii) => (
-                              <li key={ii} className="flex items-start gap-2 text-sm text-slate-600">
-                                <Check className="size-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                                <span>{item.replace(/^[•\-]\s*/, '')}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-              {/* What's included checklist (from service_category) */}
-              {customChecklist.length > 0 && (
-                <div className="border-t border-blue-200 pt-4 space-y-2">
-                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {customChecklist.map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
-                        <span className="text-sm text-slate-600">{task}</span>
->>>>>>> Test
                       </div>
                     ))}
                   </div>
@@ -882,7 +798,6 @@ export default function QuotePage() {
           </div>
         )}
 
-<<<<<<< HEAD
         {/* ── Membership Plans (hidden for custom-priced — discount already applied) */}
         {!isExpired && !isCustomPriced && servicePlans.length > 0 && (
           <div>
@@ -937,110 +852,6 @@ export default function QuotePage() {
                   </button>
                 )
               })}
-=======
-        {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
-        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || (isCustomPriced && !['deep', 'extra_deep', 'move'].includes((quote as any).selected_tier || '') && (quote as any).service_category !== 'move_in_out')) && (
-          <div>
-              <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
-                selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
-              }`}>
-                <div className="p-5">
-                  <div className="flex items-start gap-3 mb-4">
-                    <div className="size-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
-                      <Sparkles className="size-5 text-white" />
-                    </div>
-                    <div>
-                      <h3 className="text-slate-800 font-bold text-base">Save on Every Clean</h3>
-                      <p className="text-slate-500 text-sm mt-0.5">Book recurring and pay less every visit. Cancel anytime.</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {/* One-time option */}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedMembership(null)}
-                      className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
-                        selectedMembership === null
-                          ? "border-slate-400 bg-white shadow-sm"
-                          : "border-slate-200 bg-white/50 hover:border-slate-300"
-                      }`}
-                    >
-                      <p className="text-slate-800 font-bold text-sm">One-Time</p>
-                      <p className="text-slate-800 font-bold text-lg mt-1">{selectedTierPrice ? fmt(selectedTierPrice.price) : isCustomPriced ? fmt(customBasePrice) : '--'}</p>
-                    </button>
-
-                    {/* Recurring plan options */}
-                    {servicePlans.map((plan) => {
-                      const isSelected = selectedMembership === plan.slug
-                      const baseForDiscount = selectedTierPrice ? selectedTierPrice.price : isCustomPriced ? customBasePrice : 0
-                      const discountedPrice = baseForDiscount
-                        ? Math.max(0, baseForDiscount - Number(plan.discount_per_visit))
-                        : 0
-                      return (
-                        <button
-                          key={plan.slug}
-                          type="button"
-                          onClick={() => setSelectedMembership(plan.slug)}
-                          className={`flex-1 min-w-[120px] rounded-xl border-2 p-3 text-center transition-all active:scale-[0.98] ${
-                            isSelected
-                              ? "border-emerald-400 bg-emerald-50 shadow-sm"
-                              : "border-emerald-200 bg-white/50 hover:border-emerald-300"
-                          }`}
-                        >
-                          <p className="text-slate-800 font-bold text-sm">{plan.name}</p>
-                          <p className="text-emerald-600 font-bold text-lg mt-1">{fmt(discountedPrice)}</p>
-                          <p className="text-emerald-500 text-xs font-medium">Save {fmt(Number(plan.discount_per_visit))}</p>
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-          </div>
-        )}
-
-        {/* ── Service Address ─────────────────────────────────────── */}
-        {!isExpired && (
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
-              <MapPin className="size-5 text-blue-500" />
-              Service Address
-            </h2>
-            <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
-            <div className="relative">
-              <input
-                type="text"
-                value={customerAddress}
-                onChange={(e) => {
-                  setCustomerAddress(e.target.value)
-                  setShowAddressSuggestions(true)
-                }}
-                onFocus={() => setShowAddressSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowAddressSuggestions(false), 200)}
-                placeholder="e.g. 1531 Stanford Ave, Los Angeles, CA 90021"
-                className="w-full h-12 px-4 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-base focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 placeholder:text-slate-300"
-              />
-              {showAddressSuggestions && addressSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 bg-white border-2 border-blue-100 rounded-xl mt-1 max-h-48 overflow-y-auto shadow-lg">
-                  {addressSuggestions.map((s) => (
-                    <button
-                      key={s.place_id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        setCustomerAddress(s.description)
-                        setShowAddressSuggestions(false)
-                      }}
-                      className="block w-full text-left px-4 py-3 text-sm text-slate-700 border-b border-blue-50 last:border-0 hover:bg-blue-50 transition-colors"
-                    >
-                      <MapPin className="size-3.5 text-blue-400 inline mr-2 -mt-0.5" />
-                      {s.description}
-                    </button>
-                  ))}
-                </div>
-              )}
->>>>>>> Test
             </div>
           </div>
         )}

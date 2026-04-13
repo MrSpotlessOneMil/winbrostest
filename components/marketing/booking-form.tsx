@@ -73,11 +73,7 @@ export function BookingForm({ preselectedService, source = "website", compact = 
         <div className="text-3xl mb-2">&#10003;</div>
         <h3 className="text-lg font-semibold text-emerald-800 mb-1">You&apos;re all set!</h3>
         <p className="text-sm text-emerald-700">
-<<<<<<< HEAD
           We are on it! Expect confirmation shortly.
-=======
-          Mary from our team will text you shortly to confirm your cleaning.
->>>>>>> Test
         </p>
       </div>
     )

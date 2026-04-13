@@ -212,8 +212,18 @@ export async function POST(
   // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
   const isSpecializedService = ['commercial', 'post_construction', 'airbnb'].includes(serviceType)
+  const isMetaOffer = (body.utm_campaign === '99-deep-clean') || (sourceDetail === 'meta' && serviceType === 'deep-cleaning')
   let smsMessage: string
-  if (isSpecializedService) {
+  if (isMetaOffer) {
+    // Meta $99 deep clean offer — acknowledge the promotion immediately
+    if (bedrooms && bathrooms && address) {
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $99 deep clean request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm getting your booking set up right now!`
+    } else if (bedrooms && bathrooms) {
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $99 deep clean request — ${bedrooms} bed, ${bathrooms} bath! What's the address? I'll get your booking confirmed right away!`
+    } else {
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for claiming your $99 deep clean! What's your address and how many bedrooms and bathrooms? I'll get you booked right away!`
+    }
+  } else if (isSpecializedService) {
     // Specialized services — don't ask for bedrooms/bathrooms, collect project details instead
     smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for reaching out about ${friendlyService}! We'd love to learn more about the job — what's the address and roughly how big is the space? We'll get you a custom quote fast.`
   } else if (bedrooms && bathrooms && estimatedPrice && address) {

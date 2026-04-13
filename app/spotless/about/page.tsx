@@ -28,11 +28,7 @@ const VALUES = [
   {
     title: "Safe & Professional",
     description:
-<<<<<<< HEAD
       "Every cleaner is background-checked, insured, and professionally trained. We only use high-quality, safe products in your home.",
-=======
-      "We only use high-quality, safe products. I have a family too - I would never bring anything into your home that I would not want in mine.",
->>>>>>> Test
     icon: "\uD83C\uDF3F", // leaf
   },
   {

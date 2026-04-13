@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react"
 import { trackLead, trackFormSubmit } from "@/lib/marketing/tracking"
 
-<<<<<<< HEAD
 function getUtmParams(): Record<string, string> {
   if (typeof window === "undefined") return {}
   const params = new URLSearchParams(window.location.search)
@@ -20,13 +19,7 @@ function getUtmParams(): Record<string, string> {
 // Keyed by `${bedrooms}_${bathrooms}`, covers all calculator combos (1-6 bed, 1-4 bath)
 // ---------------------------------------------------------------------------
 
-=======
-// ---------------------------------------------------------------------------
-// Pricing constants — exact values from Supabase pricing_tiers (Spotless Scrubbers)
-// Keyed by `${bedrooms}_${bathrooms}`, covers all calculator combos (1-6 bed, 1-4 bath)
-// ---------------------------------------------------------------------------
 
->>>>>>> Test
 const DB_PRICES: Record<string, Record<string, number>> = {
   standard: {
     '1_1': 150, '1_2': 175, '1_3': 200, '1_4': 225,
@@ -94,10 +87,6 @@ const CLEANING_TYPES = [
   { value: "airbnb", label: "Airbnb / Short-Term Rental" },
 ]
 
-<<<<<<< HEAD
-=======
-// These service types skip the bed/bath calculator and go straight to contact form
->>>>>>> Test
 const REQUEST_ONLY_TYPES = new Set(["commercial", "post_construction", "airbnb"])
 
 const FREQUENCY_OPTIONS = [
@@ -258,11 +247,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         <p className="text-slate-600 mb-1">
           {isRequestOnly
             ? "We'll reach out shortly with a custom quote for your project."
-<<<<<<< HEAD
             : "Your cleaning request is confirmed! We will reach out shortly to finalize the details."}
-=======
-            : "We'll call you within the hour to confirm your cleaning."}
->>>>>>> Test
         </p>
         {!isRequestOnly && (
           <p className="text-sm text-slate-500">
@@ -314,11 +299,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             : "opacity-0 -translate-x-8 h-0 overflow-hidden px-6 pb-0"
         }`}
       >
-<<<<<<< HEAD
         {/* Cleaning Type — always shown first */}
-=======
-        {/* Cleaning Type — always shown */}
->>>>>>> Test
         <div className="mt-4">
           <label htmlFor="qc-cleaning-type" className="block text-sm font-semibold text-slate-700 mb-2">
             Cleaning Type
@@ -344,10 +325,6 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
 
         {isRequestOnly ? (
           <>
-<<<<<<< HEAD
-=======
-            {/* Request-only: show message + notes instead of bed/bath */}
->>>>>>> Test
             <div className="mt-6 rounded-xl bg-gradient-to-r from-[#2195b4]/5 to-[#2195b4]/10 border border-[#2195b4]/20 p-5 text-center">
               <p className="text-sm font-medium text-slate-700 mb-1">Custom Quote</p>
               <p className="text-sm text-slate-500">

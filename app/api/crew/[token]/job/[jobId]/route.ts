@@ -437,14 +437,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const { cleaner, assignment, job, tenant, client } = ctx
 
-<<<<<<< HEAD
-=======
-  // Accept/decline/cancel only works for broadcast assignments, not crew board
-  if (!assignment) {
-    return NextResponse.json({ error: 'Crew board assignments cannot be accepted/declined here' }, { status: 400 })
-  }
-
->>>>>>> Test
   // Handle cancel after accepting — cleaner backs out of an accepted/confirmed job
   if (action === 'cancel_accepted') {
     if (!['accepted', 'confirmed'].includes(assignment.status)) {

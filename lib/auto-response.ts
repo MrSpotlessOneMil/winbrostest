@@ -252,6 +252,22 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     parts.push('')
   }
 
+  // Promotional offer context — detect leads from Meta ads $99 offer
+  if (ctx.lead?.form_data) {
+    const fd = ctx.lead.form_data
+    const isMetaOffer = fd.utm_campaign === '99-deep-clean' || (fd.source_detail === 'meta' && fd.service_type === 'deep-cleaning')
+    if (isMetaOffer) {
+      parts.push('ACTIVE PROMOTIONAL OFFER FOR THIS CUSTOMER:')
+      parts.push('This customer came from our $99 First Deep Clean Facebook ad campaign.')
+      parts.push('They are expecting a $99 deep clean (normally $250+). This is a legitimate promotional offer.')
+      parts.push('HONOR THE $99 PRICE for their first deep clean. Do NOT quote the standard rate.')
+      parts.push('After the first clean, recurring service is at the regular rate ($165/visit for most homes).')
+      parts.push('The offer includes: full deep clean, fridge, oven, baseboards — everything.')
+      parts.push('Do NOT ask them to prove the offer or send a screenshot. Just confirm the $99 price.')
+      parts.push('')
+    }
+  }
+
   if (parts.length === 0) {
     return '' // New customer, no context to add
   }

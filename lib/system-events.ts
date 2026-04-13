@@ -18,22 +18,10 @@ export type SystemEventSource =
   | 'lead_actions'
   | 'email_cron'
   | 'website'
-<<<<<<< HEAD
   | 'meta'
   | 'google'
   | 'referral'
   | 'thumbtack'
-=======
-  | 'thumbtack'
-  | 'dashboard'
-  | 'osiris-brain'
-  | 'tip'
-  | 'complete-job'
-  | 'google_lsa'
-  | 'lifecycle'
-  | 'offers'
-  | 'ghost_watchdog'
->>>>>>> Test
 
 export type SystemEventType =
   | 'CALL_COMPLETED'

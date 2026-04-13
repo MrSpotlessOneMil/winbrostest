@@ -759,7 +759,6 @@ async function handleEmailBookingCompletion(
     jobDate = candidate.toISOString().split('T')[0]
   }
 
-<<<<<<< HEAD
   // ── Create job ──
   const { data: newJob, error: jobError } = await client.from('jobs').insert({
     tenant_id: tenant.id,
@@ -775,25 +774,6 @@ async function handleEmailBookingCompletion(
     notes: jobNotes || null,
     job_type: isWinBros ? 'estimate' : 'cleaning',
   }).select('id').single()
-=======
-  // ── Create job (WinBros only — house cleaning gets quote only, job after card on file) ──
-  let newJob: { id: number } | null = null
-  if (isWinBros) {
-    const { data: job, error: jobError } = await client.from('jobs').insert({
-      tenant_id: tenant.id,
-      customer_id: customer.id,
-      phone_number: phoneNumber || customer.phone_number || null,
-      service_type: serviceType || 'window cleaning',
-      address: address || customer.address || null,
-      price: servicePrice || null,
-      date: jobDate,
-      scheduled_at: preferredTime || '09:00',
-      status: 'quoted',
-      booked: false,
-      notes: jobNotes || null,
-      job_type: 'estimate',
-    }).select('id').single()
->>>>>>> Test
 
     if (jobError || !job?.id) {
       console.error(`[Email Cron] Job creation failed for ${senderEmail}:`, jobError)
@@ -826,7 +806,6 @@ async function handleEmailBookingCompletion(
     console.log(`[Email Cron] House cleaning — skipping job, quote-only for ${senderEmail}`)
   }
 
-<<<<<<< HEAD
   // Sync job to HouseCall Pro
   const { syncNewJobToHCP } = await import('@/lib/hcp-job-sync')
   await syncNewJobToHCP({
@@ -850,12 +829,6 @@ async function handleEmailBookingCompletion(
   await client.from('leads').update({
     status: 'qualified',
     converted_to_job_id: newJob.id,
-=======
-  // ── Update lead to qualified ──
-  await client.from('leads').update({
-    status: 'qualified',
-    ...(newJob ? { converted_to_job_id: newJob.id } : {}),
->>>>>>> Test
     form_data: {
       ...(typeof lead.form_data === 'object' && lead.form_data ? lead.form_data : {}),
       booking_data: bookingData,

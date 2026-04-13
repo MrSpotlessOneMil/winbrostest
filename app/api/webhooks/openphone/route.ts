@@ -3441,7 +3441,6 @@ export async function POST(request: NextRequest) {
                 console.log(`[OpenPhone] No preferred date provided — using next business day: ${jobDate}`)
               }
 
-<<<<<<< HEAD
               // Create job (WinBros: estimate type for salesman visit; others: cleaning)
               const { data: newJob, error: jobError } = await client.from("jobs").insert({
                 tenant_id: tenant?.id,
@@ -3481,17 +3480,6 @@ export async function POST(request: NextRequest) {
                   firstName: customer.first_name,
                   lastName: customer.last_name,
                   email: finalEmail || customer.email || null,
-=======
-              // WinBros: create job (estimate visit for salesman)
-              // House cleaning: NO job yet — job is created when customer puts card on file via quote page
-              let newJob: { id: number } | null = null
-              if (isWindowCleaningTenant) {
-                const { data: job, error: jobError } = await client.from("jobs").insert({
-                  tenant_id: tenant?.id,
-                  customer_id: customer.id,
-                  phone_number: phone,
-                  service_type: bookingData.serviceType?.replace(/_/g, ' ') || defaultServiceType,
->>>>>>> Test
                   address: bookingData.address || customer.address || null,
                   price: servicePrice || null,
                   date: jobDate,
@@ -3540,20 +3528,12 @@ export async function POST(request: NextRequest) {
                 console.log(`[OpenPhone] House cleaning — skipping job creation (quote-only flow for ${maskPhone(phone)})`)
               }
 
-<<<<<<< HEAD
               // Update lead to qualified (booked requires payment + cleaner assigned)
-=======
-              // Update lead to qualified
->>>>>>> Test
               await client
                 .from("leads")
                 .update({
                   status: "qualified",
-<<<<<<< HEAD
                   converted_to_job_id: newJob.id,
-=======
-                  ...(newJob ? { converted_to_job_id: newJob.id } : {}),
->>>>>>> Test
                   form_data: {
                     ...parseFormData(existingLead.form_data),
                     booking_data: bookingData,
@@ -4308,6 +4288,10 @@ export async function POST(request: NextRequest) {
               const svcType = (bookingData.serviceType || '').toLowerCase()
               const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
+              // Check if this lead came from Meta $99 deep clean promo
+              const leadFormData = lead?.form_data || {}
+              const isMetaPromo = leadFormData.utm_campaign === '99-deep-clean' || (leadFormData.source_detail === 'meta' && leadFormData.service_type === 'deep-cleaning')
+
               const { data: newQuote, error: quoteError } = await client.from("quotes").insert({
                 tenant_id: tenant.id,
                 customer_id: customer.id,
@@ -4318,10 +4302,13 @@ export async function POST(request: NextRequest) {
                 bedrooms: bookingData.bedrooms || null,
                 bathrooms: bookingData.bathrooms || null,
                 square_footage: bookingData.squareFootage || null,
-                service_category: quoteCategory,
+                service_category: isMetaPromo ? 'deep' : quoteCategory,
+                selected_tier: isMetaPromo ? 'deep' : null,
+                custom_base_price: isMetaPromo ? 99 : null,
                 service_date: jobDate || null,
                 service_time: bookingData.preferredTime || null,
                 notes: [
+                  isMetaPromo ? '$99 Meta Promo — first deep clean' : null,
                   bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                   bookingData.hasPets ? 'Has pets' : null,
                 ].filter(Boolean).join(' | ') || null,
@@ -4340,9 +4327,16 @@ export async function POST(request: NextRequest) {
                 const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
-                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                let quoteMsg: string
+                if (isMetaPromo) {
+                  quoteMsg = customerFirstName
+                    ? `Hey ${customerFirstName}! Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
+                    : `Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
+                } else {
+                  quoteMsg = customerFirstName
+                    ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                    : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                }
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {

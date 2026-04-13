@@ -17,10 +17,6 @@ import {
 import { notifyCleanerAssignment } from '@/lib/cleaner-sms'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
-<<<<<<< HEAD
-=======
-import { triggerCleanerAssignment } from '@/lib/cleaner-assignment'
->>>>>>> Test
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)

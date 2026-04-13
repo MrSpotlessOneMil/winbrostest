@@ -277,11 +277,7 @@ export const SPOTLESS_BUSINESS = {
   foundingYear: 2023,
   areaServed: "Los Angeles County, CA",
   description:
-<<<<<<< HEAD
     "Professional house cleaning in Los Angeles County. Instant booking, insured team, 100% satisfaction guaranteed.",
-=======
-    "Top-rated house cleaning service in Los Angeles County. Insured cleaners, satisfaction guaranteed.",
->>>>>>> Test
   rating: 5.0,
   reviewCount: 29,
   priceRange: "$$",

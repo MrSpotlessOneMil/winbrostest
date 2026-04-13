@@ -932,10 +932,6 @@ export default function JobsPage() {
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [sendToCleanerId, setSendToCleanerId] = useState("")
-<<<<<<< HEAD
-=======
-  const [sendToCleanerIds, setSendToCleanerIds] = useState<string[]>([])
->>>>>>> Test
   const [sendingToCleaner, setSendingToCleaner] = useState(false)
   const [sendToCleanerResult, setSendToCleanerResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1260,26 +1256,6 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
-<<<<<<< HEAD
-=======
-    pmReset()
-
-    // Load cleaners list for send-to-cleaner dropdown (view mode)
-    if (cleanersList.length === 0) {
-      fetch("/api/teams").then(r => r.json()).then(data => {
-        const all: { id: string; name: string }[] = []
-        for (const team of data.data || []) {
-          for (const member of team.members || []) {
-            all.push({ id: String(member.id), name: member.name })
-          }
-        }
-        for (const c of data.unassigned_cleaners || []) {
-          all.push({ id: String(c.id), name: c.name })
-        }
-        setCleanersList(all)
-      }).catch(() => {})
-    }
->>>>>>> Test
   }
 
   const refreshJobs = async () => {
@@ -1474,7 +1450,6 @@ export default function JobsPage() {
   }
 
   const handleSendToCleaner = async () => {
-<<<<<<< HEAD
     if (!selectedEvent || !sendToCleanerId) return
     setSendingToCleaner(true)
     setSendToCleanerResult(null)
@@ -1488,21 +1463,6 @@ export default function JobsPage() {
       if (res.ok && data.success) {
         const name = data.cleaner?.name || 'Cleaner'
         setSendToCleanerResult(`Sent to ${name} — waiting for response`)
-=======
-    if (!selectedEvent || sendToCleanerIds.length === 0) return
-    setSendingToCleaner(true)
-    setSendToCleanerResult(null)
-    try {
-      const res = await fetch('/api/actions/notify-cleaners', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerIds: sendToCleanerIds }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setSendToCleanerResult(`Sent to ${data.notified} cleaner${data.notified === 1 ? '' : 's'} — waiting for response`)
-        setSendToCleanerIds([])
->>>>>>> Test
         await refreshJobs()
       } else {
         setSendToCleanerResult(`Error: ${data.error || 'Failed to send'}`)
@@ -1513,36 +1473,6 @@ export default function JobsPage() {
       setSendingToCleaner(false)
     }
   }
-
-<<<<<<< HEAD
-=======
-  const [sendingRanked, setSendingRanked] = useState(false)
-  const [sendRankedResult, setSendRankedResult] = useState<string | null>(null)
-  const handleSendRanked = async () => {
-    if (!selectedEvent) return
-    setSendingRanked(true)
-    setSendRankedResult(null)
-    try {
-      const res = await fetch('/api/actions/assign-cleaner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, mode: 'ranked' }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setSendRankedResult('Sent to #1 ranked cleaner — will cascade if no response in 20 min')
-        await refreshJobs()
-      } else {
-        setSendRankedResult(`Error: ${data.error || 'Failed'}`)
-      }
-    } catch {
-      setSendRankedResult('Error: Network request failed')
-    } finally {
-      setSendingRanked(false)
-    }
-  }
-
->>>>>>> Test
   const handleAddCharge = async () => {
     if (!selectedEvent || !addChargeType) return
     setAddChargeSaving(true)
@@ -2986,24 +2916,8 @@ export default function JobsPage() {
                   <label className="cal-form-label">Address</label>
                   <input type="text" className="cal-form-control" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
                 </div>
-<<<<<<< HEAD
                 <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
                   Duration: {selectedEvent?.hours || 2} hours
-=======
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <div>
-                    <label className="cal-form-label">Service Type</label>
-                    <input type="text" className="cal-form-control" value={editForm.serviceType} onChange={(e) => setEditForm((f) => ({ ...f, serviceType: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="cal-form-label">Duration</label>
-                    <div style={{ fontSize: "0.8rem", color: "#71717a", padding: "0.45rem 0" }}>{selectedEvent?.hours || 2} hours</div>
-                  </div>
-                </div>
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Notes</label>
-                  <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
->>>>>>> Test
                 </div>
                 {/* Send to specific cleaner (also in edit mode) */}
                 <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>

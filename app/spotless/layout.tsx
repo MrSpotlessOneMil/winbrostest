@@ -22,19 +22,11 @@ export const metadata: Metadata = {
     default: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
   },
   description:
-<<<<<<< HEAD
     "Professional house cleaning in Los Angeles County. Book in 60 seconds, instant confirmation. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
-=======
-    "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
->>>>>>> Test
   openGraph: {
     title: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
     description:
-<<<<<<< HEAD
       "Professional house cleaning in Los Angeles County. Book in 60 seconds, instant confirmation. Insured, 5-star rated.",
-=======
-      "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
->>>>>>> Test
     type: "website",
     siteName: "Spotless Scrubbers",
     images: [
@@ -50,11 +42,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
     description:
-<<<<<<< HEAD
       "Professional house cleaning in LA County. Book in 60 seconds, instant confirmation. Call (424) 677-1146.",
-=======
-      "Professional house cleaning in LA County. Insured, 5-star rated. Call (424) 677-1146 for a free quote.",
->>>>>>> Test
   },
 }
 

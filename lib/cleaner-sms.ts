@@ -127,7 +127,6 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-<<<<<<< HEAD
   // Cleaner pay (their rate × hours, NOT the customer price)
   const rate = cleaner.hourly_rate || 25
   if (job.hours) {
@@ -142,31 +141,6 @@ export async function notifyCleanerAssignment(
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
   const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${link}\n\nReply ACCEPT or DECLINE.`
-=======
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
-  if (payPercentage && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-    details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
-  }
-
-  const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
-  const custStr = custName ? `\nCustomer: ${custName}` : ''
-
-  // Notes preview (first 100 chars — strip internal quote metadata, keep special instructions)
-  const rawNotes = (job.notes || '').replace(/^Quote #[A-F0-9]+ approved[^\n]*\n?/i, '').trim()
-  const notesPreview = rawNotes ? `\n${rawNotes.slice(0, 100)}${rawNotes.length > 100 ? '...' : ''}` : ''
-
-  let link = ''
-  if (cleaner.portal_token && job.id) {
-    link = `\n\nView full details, checklist & confirm:\n${jobUrl(cleaner.portal_token, job.id)}`
-  }
-
-  const message = `New job: ${date} ${time}\n${address}\n${service}${detailStr}${custStr}${notesPreview}${link}`
->>>>>>> Test
 
   const result = await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 
@@ -215,10 +189,16 @@ export async function notifyCleanerAwarded(
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
   // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
+  // For promo jobs (e.g. $99 Meta offer), use the NORMAL price so cleaners get full pay
   const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
   let payStr = ''
-  if (payPercentage2 && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
+  let payBasePrice = job.price ? parseFloat(String(job.price)) : 0
+  if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+    const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+    if (match) payBasePrice = parseFloat(match[1])
+  }
+  if (payPercentage2 && payBasePrice) {
+    const cleanerPay = payBasePrice * (payPercentage2 / 100)
     payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
   } else if (job.hours) {
     const rate = cleaner.hourly_rate || 25

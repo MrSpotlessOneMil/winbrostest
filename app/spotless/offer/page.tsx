@@ -2,10 +2,6 @@ import type { Metadata } from "next"
 import { BookingForm } from "@/components/marketing/booking-form"
 import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
-<<<<<<< HEAD
-=======
-import { StickyCTA } from "@/components/marketing/sticky-cta"
->>>>>>> Test
 
 export const metadata: Metadata = {
   title: "$99 First Deep Clean | Spotless Scrubbers",
@@ -48,15 +44,9 @@ const VALUE_CARDS = [
     description: "Most companies charge $50-100 extra for appliances. We include them.",
   },
   {
-<<<<<<< HEAD
     title: "Set It and Forget It",
     subtitle: "autopilot cleaning",
     description: "Love it? We set you up on a recurring schedule. Your cleaning just shows up — no reminders, no rebooking needed.",
-=======
-    title: "Cancel Anytime",
-    subtitle: "no contracts",
-    description: "Love it? We come back biweekly. Don't? Cancel with zero fees or guilt.",
->>>>>>> Test
   },
 ]
 
@@ -95,11 +85,7 @@ const FAQS = [
   {
     question: "How does recurring work?",
     answer:
-<<<<<<< HEAD
       "After your first clean, we can set you up on autopilot — biweekly service at our regular rate ($165/visit for most homes). Your cleaning just shows up on schedule. You can cancel or skip anytime — no contracts, no cancellation fees.",
-=======
-      "After your first clean, we can set you up on a biweekly schedule at our regular rate ($165/visit for most homes). You can cancel or skip anytime — no contracts, no cancellation fees.",
->>>>>>> Test
   },
   {
     question: "Is there a catch?",
@@ -179,11 +165,7 @@ export default function OfferPage() {
                   <span className="text-4xl font-bold text-[#2195b4]">$99</span>
                 </div>
               </div>
-<<<<<<< HEAD
               <BookingForm source="meta" preselectedService="deep-cleaning" ctaLabel="Claim Your $99 Clean" />
-=======
-              <BookingForm source="meta" preselectedService="deep-cleaning" />
->>>>>>> Test
             </div>
           </div>
         </div>
@@ -315,19 +297,11 @@ export default function OfferPage() {
             Ready for a spotless home?
           </h2>
           <p className="text-slate-300 mb-8">
-<<<<<<< HEAD
             Claim your $99 first deep clean. Book in 60 seconds. Instant confirmation.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
             <BookingForm source="meta" preselectedService="deep-cleaning" ctaLabel="Claim Your $99 Clean" />
-=======
-            Claim your $99 first deep clean. Available times in 60 seconds.
-          </p>
-
-          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="deep-cleaning" />
->>>>>>> Test
           </div>
 
           <p className="text-xs text-slate-400 mt-6">
@@ -340,7 +314,6 @@ export default function OfferPage() {
       </section>
 
       {/* ---- Sticky CTA (mobile) ---- */}
-<<<<<<< HEAD
       <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-amber-400 shadow-[0_-4px_12px_rgba(0,0,0,0.15)] pb-6 pt-3 px-4">
         <div className="flex gap-3 max-w-lg mx-auto">
           <a
@@ -357,9 +330,6 @@ export default function OfferPage() {
           </a>
         </div>
       </div>
-=======
-      <StickyCTA />
->>>>>>> Test
     </>
   )
 }
