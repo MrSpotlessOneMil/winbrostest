@@ -94,14 +94,27 @@ function LoginForm() {
       setSuccess(true)
       setIsLoading(false)
 
-      // Redirect based on user type
-      const dest = data.data?.type === 'employee' && data.data?.portalToken
-        ? `/crew/${data.data.portalToken}`
-        : redirect
+      // Redirect based on user type and tenant domain
+      const isEmployee = data.data?.type === 'employee' && data.data?.portalToken
+      const tenantRedirectUrl = data.data?.redirectUrl // e.g. https://winbros.cleanmachine.live
+
+      let dest: string
+      if (isEmployee) {
+        dest = `/crew/${data.data.portalToken}`
+      } else if (tenantRedirectUrl) {
+        // Cross-subdomain redirect (e.g. WinBros → winbros.cleanmachine.live)
+        dest = tenantRedirectUrl + (redirect !== '/' ? redirect : '/overview')
+      } else {
+        dest = redirect
+      }
 
       setTimeout(() => {
-        router.push(dest)
-        router.refresh()
+        if (tenantRedirectUrl && !isEmployee) {
+          window.location.href = dest // full page redirect for cross-domain
+        } else {
+          router.push(dest)
+          router.refresh()
+        }
       }, 1000)
     } catch (err) {
       setError('Connection error. Please try again.')

@@ -39,6 +39,12 @@ export async function POST(request: NextRequest) {
         if (tenant) tenantSlug = tenant.slug
       }
 
+      // Determine redirect URL based on tenant — WinBros goes to its own subdomain
+      const TENANT_DOMAINS: Record<string, string> = {
+        winbros: 'https://winbros.cleanmachine.live',
+      }
+      const redirectUrl = tenantSlug ? TENANT_DOMAINS[tenantSlug] || null : null
+
       const response = NextResponse.json({
         success: true,
         data: {
@@ -51,6 +57,7 @@ export async function POST(request: NextRequest) {
             tenantSlug,
           },
           sessionToken: token,
+          redirectUrl,
         },
       })
 
