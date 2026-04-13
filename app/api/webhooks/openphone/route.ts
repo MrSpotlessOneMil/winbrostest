@@ -4267,7 +4267,7 @@ export async function POST(request: NextRequest) {
                 bedrooms: bookingData.bedrooms || null,
                 bathrooms: bookingData.bathrooms || null,
                 square_footage: bookingData.squareFootage || null,
-                service_category: isMetaPromo ? 'deep' : quoteCategory,
+                service_category: quoteCategory,
                 selected_tier: isMetaPromo ? 'deep' : null,
                 custom_base_price: isMetaPromo ? 99 : null,
                 service_date: jobDate || null,
