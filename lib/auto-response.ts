@@ -263,7 +263,7 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
       parts.push('They are expecting a $99 deep clean (normally $250+). This is a legitimate promotional offer.')
       parts.push('HONOR THE $99 PRICE for their first deep clean. Do NOT quote the standard rate.')
       parts.push('After the first clean, recurring service is at the regular rate (varies by home size).')
-      parts.push('The offer includes: full deep clean, fridge, oven, baseboards — everything.')
+      parts.push('The offer includes: deep clean with ceiling fans, light fixtures, window sills, and inside microwave.')
       parts.push('Do NOT ask them to prove the offer or send a screenshot. Just confirm the $99 price.')
       parts.push('SAFETY NET: If the customer has 5+ bedrooms, use [ESCALATE:large-home-promo] so the owner can review before confirming. For 4 bedrooms and under, honor $99 automatically.')
       parts.push('')
