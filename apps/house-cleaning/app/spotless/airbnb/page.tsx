@@ -4,14 +4,14 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
 
 export const metadata: Metadata = {
-  title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+  title: "Airbnb Turnover Cleaning in LA | Spotless Scrubbers",
   description:
-    "Get 3 hours of professional cleaning for just $99. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works. 5.0 stars, 2,500+ homes cleaned across LA County.",
+    "Reliable Airbnb turnover cleaning in LA. Same team every time, photo-ready results, same-day availability. Protect your reviews and never clean between guests again.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+    title: "Airbnb Turnover Cleaning in LA | Spotless Scrubbers",
     description:
-      "3 hours of professional cleaning for $99. Kitchen, bathrooms, bedrooms, and more. 5.0 stars across LA County.",
+      "Professional Airbnb turnover cleaning. Same team, photo-ready results, same-day availability. 5.0 stars across LA County.",
   },
 }
 
@@ -19,36 +19,47 @@ export const metadata: Metadata = {
 /*  Static data                                                        */
 /* ------------------------------------------------------------------ */
 
-const INCLUDED_ITEMS = [
-  "Full kitchen clean",
-  "All bathrooms scrubbed top to bottom",
-  "Ceiling fans dusted",
-  "Light fixtures cleaned",
-  "Window sills wiped",
-  "Inside microwave cleaned",
-  "All bedrooms dusted & vacuumed",
-  "Mirrors, glass & fixtures",
-  "Mopping all hard floors",
-  "Trash taken out",
-  "Counters, sinks & surfaces sanitized",
+const KEY_POINTS = [
+  {
+    title: "Same-Day Availability",
+    description: "Last-minute checkout? We've got you covered. Our teams are ready when you need them.",
+  },
+  {
+    title: "Consistent Team",
+    description: "The same cleaners every time. They learn your property and know exactly what guests expect.",
+  },
+  {
+    title: "Photo-Ready Results",
+    description: "Every surface spotless. Beds made. Towels folded. Your listing photos come to life — every turnover.",
+  },
+  {
+    title: "Guest-Ready Every Time",
+    description: "Restocked supplies, fresh linens staged, trash out. Your next guest walks into a perfect space.",
+  },
 ]
 
-const VALUE_CARDS = [
+const PAIN_POINTS = [
   {
-    title: "$99 for 3 Hours",
-    subtitle: "of professional cleaning",
-    description: "A full team in your home for 3 hours — kitchen, bathrooms, bedrooms, the works.",
+    headline: "Stop cleaning between guests yourself",
+    body: "You started hosting to earn passive income — not to scrub bathrooms at 11am before a 3pm check-in. Let us handle the turnovers so you can focus on growing your portfolio.",
   },
   {
-    title: "Same Team",
-    subtitle: "every visit",
-    description: "You get the same cleaners every time. They learn your home and your preferences.",
+    headline: "One bad review costs more than a cleaning",
+    body: "A single \"not clean\" review tanks your listing ranking and costs you thousands in lost bookings. Professional turnovers protect the asset you've built.",
   },
-  {
-    title: "Set It and Forget It",
-    subtitle: "autopilot cleaning",
-    description: "Love it? We set you up on a recurring schedule. Your cleaning just shows up — no reminders, no rebooking needed.",
-  },
+]
+
+const INCLUDED_ITEMS = [
+  "Full kitchen clean & sanitize",
+  "All bathrooms scrubbed",
+  "Bed linens changed & made",
+  "Towels folded & staged",
+  "All surfaces wiped & dusted",
+  "Floors vacuumed & mopped",
+  "Trash out & new liners",
+  "Mirrors & glass polished",
+  "Supplies check & restock",
+  "Lockbox / keypad sanitized",
 ]
 
 const TESTIMONIALS = [
@@ -74,34 +85,34 @@ const TESTIMONIALS = [
 
 const FAQS = [
   {
-    question: "What if I don't like it?",
+    question: "How quickly can you turn over my property?",
     answer:
-      "If you're not happy with the clean, we'll come back and redo it — free. If we still can't get it right, you don't pay. Period.",
+      "Most turnovers take 1.5-2.5 hours depending on property size. We can handle tight windows between checkout and check-in — just let us know your schedule.",
   },
   {
-    question: "What's included in the $99 clean?",
+    question: "Can you handle same-day bookings?",
     answer:
-      "3 full hours of professional cleaning. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures, window sills, microwave, all surfaces, mirrors, mopping — the works.",
+      "Yes. We keep availability for last-minute turnovers. Once you're set up with us, just text or call and we'll get a team there.",
   },
   {
-    question: "How does recurring work?",
+    question: "Do you bring your own supplies?",
     answer:
-      "After your first clean, we can set you up on autopilot — biweekly service at our regular rate ($165/visit for most homes). Your cleaning just shows up on schedule. You can cancel or skip anytime — no contracts, no cancellation fees.",
+      "We bring all professional-grade cleaning supplies and equipment. We can also restock your guest supplies (toilet paper, soap, etc.) if you keep them on-site.",
   },
   {
-    question: "Is there a catch?",
+    question: "How does pricing work for turnovers?",
     answer:
-      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $99 price is for your first professional cleaning only. If you love it and go recurring, your regular rate kicks in on visit two.",
+      "Pricing is based on property size and turnover frequency. High-volume hosts get better rates. Tell us about your property and we'll quote you in minutes.",
   },
   {
-    question: "How long does it take?",
+    question: "Do I get the same team every time?",
     answer:
-      "Exactly 3 hours. We send a team of two so your home gets a thorough clean without cutting corners.",
+      "Yes — consistency is everything for turnovers. The same team learns your property, your linen setup, and your guest expectations. No re-training every visit.",
   },
   {
-    question: "Do I need to be home?",
+    question: "What if a guest leaves the place trashed?",
     answer:
-      "Nope. Many clients leave us a key or garage code. We're background-checked, insured, and bonded. You can trust us in your space.",
+      "We handle heavy turnovers too. If a guest leaves a mess beyond normal, we'll let you know the extra scope and take care of it. You'll have documentation for Airbnb's damage claim process.",
   },
 ]
 
@@ -109,12 +120,11 @@ const FAQS = [
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function OfferPage() {
+export default function AirbnbPage() {
   return (
     <>
       {/* ---- Hero ---- */}
       <section className="relative bg-[#164E63] overflow-hidden">
-        {/* Subtle gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#164E63] via-[#155f73] to-[#1a7a94] opacity-90" />
 
         <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24">
@@ -122,25 +132,25 @@ export default function OfferPage() {
             {/* Left: Copy */}
             <div>
               <div className="inline-block px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-semibold uppercase tracking-wide mb-4">
-                Limited Time Offer
+                For Airbnb Hosts
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
-                3 Hours of Professional Cleaning.{" "}
-                <span className="text-amber-300">$99.</span>
+                Never Clean Between{" "}
+                <span className="text-amber-300">Guests Again</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
-                Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works.
+                Professional turnover cleaning that protects your reviews and your time.
               </p>
               <p className="text-sm text-slate-300 mb-6">
-                2,500+ homes cleaned across LA County. 5.0 stars. Card on file required.
+                Same team every visit. Same-day availability. Photo-ready every time.
               </p>
 
               {/* Mobile: scroll to form */}
               <a
-                href="#claim-offer"
+                href="#get-pricing"
                 className="inline-block lg:hidden px-8 py-3.5 bg-amber-400 text-slate-900 font-bold rounded-lg text-base hover:bg-amber-300 transition-colors shadow-lg"
               >
-                Claim Your $99 Clean
+                Get Turnover Pricing
               </a>
 
               {/* Trust signals */}
@@ -152,20 +162,18 @@ export default function OfferPage() {
                   <span className="text-emerald-400">&#10003;</span> Insured & Bonded
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <span className="text-emerald-400">&#10003;</span> Background-Checked
+                  <span className="text-emerald-400">&#10003;</span> Same-Day Available
                 </span>
               </div>
             </div>
 
             {/* Right: Form */}
-            <div id="claim-offer" className="bg-white rounded-2xl shadow-2xl p-6 md:p-8">
+            <div id="get-pricing" className="bg-white rounded-2xl shadow-2xl p-6 md:p-8">
               <div className="text-center mb-5">
-                <p className="text-sm text-slate-500 mb-1">3 HOURS OF PROFESSIONAL CLEANING</p>
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-4xl font-bold text-[#2195b4]">$99</span>
-                </div>
+                <p className="text-sm text-slate-500 mb-1">AIRBNB TURNOVER CLEANING</p>
+                <p className="text-lg font-semibold text-slate-800">Get your custom quote</p>
               </div>
-              <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+              <BookingForm source="meta" preselectedService="airbnb-turnover" ctaLabel="Get Turnover Pricing" />
             </div>
           </div>
         </div>
@@ -174,17 +182,59 @@ export default function OfferPage() {
       {/* ---- Trust Bar ---- */}
       <TrustBar />
 
+      {/* ---- Pain Points ---- */}
+      <section className="py-16 px-4 bg-white">
+        <div className="max-w-3xl mx-auto space-y-10">
+          {PAIN_POINTS.map((point) => (
+            <div key={point.headline} className="text-center">
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3 font-heading">
+                {point.headline}
+              </h2>
+              <p className="text-slate-600 leading-relaxed max-w-2xl mx-auto">
+                {point.body}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---- Key Points ---- */}
+      <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
+        <div className="max-w-5xl mx-auto">
+          <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
+            Why hosts choose us
+          </p>
+          <h2 className="text-3xl font-bold text-center text-gray-900 mb-10 font-heading">
+            Built for Hosts, Not Homeowners
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {KEY_POINTS.map((point) => (
+              <div
+                key={point.title}
+                className="bg-white rounded-xl p-6 shadow-sm border border-slate-100"
+              >
+                <h3 className="text-lg font-bold text-[#2195b4] mb-2 font-heading">
+                  {point.title}
+                </h3>
+                <p className="text-sm text-slate-600">{point.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ---- What's Included ---- */}
       <section className="py-16 px-4 bg-white">
         <div className="max-w-4xl mx-auto">
           <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            What you get
+            Every turnover includes
           </p>
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            3 Hours. Every Room. $99.
+            Guest-Ready, Every Time
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
-            A full team in your home for 3 hours of professional cleaning. No corners cut.
+            A complete turnover so your next guest walks into a perfect space.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
@@ -200,30 +250,8 @@ export default function OfferPage() {
         </div>
       </section>
 
-      {/* ---- Value Stack ---- */}
-      <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {VALUE_CARDS.map((card) => (
-              <div
-                key={card.title}
-                className="bg-white rounded-xl p-6 shadow-sm border border-slate-100 text-center"
-              >
-                <h3 className="text-xl font-bold text-[#2195b4] mb-0.5 font-heading">
-                  {card.title}
-                </h3>
-                <p className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">
-                  {card.subtitle}
-                </p>
-                <p className="text-sm text-slate-600">{card.description}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* ---- Social Proof ---- */}
-      <section className="py-16 px-4 bg-white">
+      <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
         <div className="max-w-5xl mx-auto">
           <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
             Real reviews
@@ -236,7 +264,7 @@ export default function OfferPage() {
             {TESTIMONIALS.map((t) => (
               <div
                 key={t.name}
-                className="bg-slate-50 rounded-xl p-6 border border-slate-100"
+                className="bg-white rounded-xl p-6 border border-slate-100"
               >
                 <div className="flex gap-0.5 mb-3 text-amber-400 text-sm">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -294,14 +322,14 @@ export default function OfferPage() {
       <section className="py-16 px-4 bg-[#164E63]">
         <div className="max-w-xl mx-auto text-center">
           <h2 className="text-3xl font-bold text-white mb-3 font-heading">
-            Ready for a spotless home?
+            Ready to stop cleaning between guests?
           </h2>
           <p className="text-slate-300 mb-8">
-            Claim your $99 professional cleaning. Book in 60 seconds. Instant confirmation.
+            Get your custom turnover pricing. Takes 60 seconds. No obligation.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+            <BookingForm source="meta" preselectedService="airbnb-turnover" ctaLabel="Get Turnover Pricing" />
           </div>
 
           <p className="text-xs text-slate-400 mt-6">
@@ -323,10 +351,10 @@ export default function OfferPage() {
             Call Now
           </a>
           <a
-            href="#claim-offer"
+            href="#get-pricing"
             className="flex-1 flex items-center justify-center gap-2 bg-[#164E63] text-white font-semibold py-3 rounded-lg text-sm"
           >
-            Claim $99 Clean
+            Get Turnover Pricing
           </a>
         </div>
       </div>

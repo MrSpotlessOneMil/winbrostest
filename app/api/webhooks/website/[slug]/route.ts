@@ -212,16 +212,21 @@ export async function POST(
   // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
   const isSpecializedService = ['commercial', 'post_construction', 'airbnb'].includes(serviceType)
-  const isMetaOffer = (body.utm_campaign === '99-deep-clean') || (sourceDetail === 'meta' && serviceType === 'deep-cleaning')
+
+  // Check for promo campaign (shared config — single source of truth)
+  const { getPromoConfig } = await import('@/lib/promo-config')
+  const promoConfig = getPromoConfig({ utm_campaign: body.utm_campaign, source_detail: sourceDetail, service_type: serviceType })
+
   let smsMessage: string
-  if (isMetaOffer) {
-    // Meta $99 deep clean offer — acknowledge the promotion immediately
+  if (promoConfig) {
+    // Promo campaign — use template from config
+    const tpl = promoConfig.firstSms.replace('{name}', firstName).replace('{businessName}', businessName)
     if (bedrooms && bathrooms && address) {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $99 deep clean request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm getting your booking set up right now!`
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $${promoConfig.price} clean request — ${bedrooms} bed, ${bathrooms} bath at ${address}. I'm getting your booking set up right now!`
     } else if (bedrooms && bathrooms) {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $99 deep clean request — ${bedrooms} bed, ${bathrooms} bath! What's the address? I'll get your booking confirmed right away!`
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Got your $${promoConfig.price} clean request — ${bedrooms} bed, ${bathrooms} bath! What's the address? I'll get your booking confirmed right away!`
     } else {
-      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. Thanks for claiming your $99 deep clean! What's your address and how many bedrooms and bathrooms? I'll get you booked right away!`
+      smsMessage = `Hey ${firstName}! This is ${sdrName} from ${businessName}. ${tpl.split('. ').slice(1).join('. ')}`
     }
   } else if (isSpecializedService) {
     // Specialized services — don't ask for bedrooms/bathrooms, collect project details instead

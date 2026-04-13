@@ -4,14 +4,14 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
 
 export const metadata: Metadata = {
-  title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+  title: "Professional House Cleaning in LA | Spotless Scrubbers",
   description:
-    "Get 3 hours of professional cleaning for just $99. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works. 5.0 stars, 2,500+ homes cleaned across LA County.",
+    "LA's most trusted house cleaning service. Licensed, insured, background-checked teams. Standard, deep, and move-in/out cleaning. 5.0 stars, 2,500+ homes cleaned.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+    title: "Professional House Cleaning in LA | Spotless Scrubbers",
     description:
-      "3 hours of professional cleaning for $99. Kitchen, bathrooms, bedrooms, and more. 5.0 stars across LA County.",
+      "Licensed, insured, background-checked cleaning teams. 5.0 stars across LA County. Get a free quote in 60 seconds.",
   },
 }
 
@@ -19,35 +19,40 @@ export const metadata: Metadata = {
 /*  Static data                                                        */
 /* ------------------------------------------------------------------ */
 
-const INCLUDED_ITEMS = [
-  "Full kitchen clean",
-  "All bathrooms scrubbed top to bottom",
-  "Ceiling fans dusted",
-  "Light fixtures cleaned",
-  "Window sills wiped",
-  "Inside microwave cleaned",
-  "All bedrooms dusted & vacuumed",
-  "Mirrors, glass & fixtures",
-  "Mopping all hard floors",
-  "Trash taken out",
-  "Counters, sinks & surfaces sanitized",
+const PRICING_TIERS = [
+  {
+    name: "Standard Clean",
+    from: "$150",
+    description: "Regular maintenance cleaning — kitchen, bathrooms, bedrooms, floors, surfaces.",
+    features: ["All rooms cleaned", "Kitchen & bathrooms", "Dusting & vacuuming", "Mopping all floors"],
+  },
+  {
+    name: "Deep Clean",
+    from: "$250",
+    description: "Top-to-bottom deep clean including appliances, baseboards, and hard-to-reach areas.",
+    features: ["Everything in Standard", "Inside fridge & oven", "Baseboards throughout", "Ceiling fans & fixtures"],
+    highlighted: true,
+  },
+  {
+    name: "Move-In / Move-Out",
+    from: "$295",
+    description: "Get your deposit back or start fresh. Inside cabinets, appliances, every surface.",
+    features: ["Everything in Deep", "Inside all cabinets", "Window tracks cleaned", "Garage sweep available"],
+  },
 ]
 
-const VALUE_CARDS = [
+const TRUST_POINTS = [
   {
-    title: "$99 for 3 Hours",
-    subtitle: "of professional cleaning",
-    description: "A full team in your home for 3 hours — kitchen, bathrooms, bedrooms, the works.",
+    title: "Licensed & Insured",
+    description: "Fully licensed, insured, and bonded. Your home is protected — every visit.",
   },
   {
-    title: "Same Team",
-    subtitle: "every visit",
-    description: "You get the same cleaners every time. They learn your home and your preferences.",
+    title: "Background-Checked",
+    description: "Every cleaner passes a thorough background check before they ever enter a home.",
   },
   {
-    title: "Set It and Forget It",
-    subtitle: "autopilot cleaning",
-    description: "Love it? We set you up on a recurring schedule. Your cleaning just shows up — no reminders, no rebooking needed.",
+    title: "100% Satisfaction",
+    description: "Not happy? We come back and redo it free. Still not right? You don't pay. Period.",
   },
 ]
 
@@ -74,34 +79,34 @@ const TESTIMONIALS = [
 
 const FAQS = [
   {
-    question: "What if I don't like it?",
+    question: "How does pricing work?",
     answer:
-      "If you're not happy with the clean, we'll come back and redo it — free. If we still can't get it right, you don't pay. Period.",
+      "Pricing is based on your home size and the type of clean. We give you an instant quote after you tell us your bedrooms and bathrooms. No hidden fees, no surprises.",
   },
   {
-    question: "What's included in the $99 clean?",
+    question: "What if I'm not happy with the clean?",
     answer:
-      "3 full hours of professional cleaning. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures, window sills, microwave, all surfaces, mirrors, mopping — the works.",
-  },
-  {
-    question: "How does recurring work?",
-    answer:
-      "After your first clean, we can set you up on autopilot — biweekly service at our regular rate ($165/visit for most homes). Your cleaning just shows up on schedule. You can cancel or skip anytime — no contracts, no cancellation fees.",
-  },
-  {
-    question: "Is there a catch?",
-    answer:
-      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $99 price is for your first professional cleaning only. If you love it and go recurring, your regular rate kicks in on visit two.",
-  },
-  {
-    question: "How long does it take?",
-    answer:
-      "Exactly 3 hours. We send a team of two so your home gets a thorough clean without cutting corners.",
+      "We'll come back and redo it — free. If we still can't get it right, you don't pay. Period. We've been doing this for years and our 5.0 rating speaks for itself.",
   },
   {
     question: "Do I need to be home?",
     answer:
       "Nope. Many clients leave us a key or garage code. We're background-checked, insured, and bonded. You can trust us in your space.",
+  },
+  {
+    question: "What products do you use?",
+    answer:
+      "We bring all our own professional-grade supplies and equipment. Have preferences or allergies? Just let us know — we're happy to accommodate.",
+  },
+  {
+    question: "How does recurring service work?",
+    answer:
+      "Pick weekly, biweekly, or monthly. Same team every visit. Cancel or skip anytime — no contracts, no cancellation fees. Your cleaning just shows up on schedule.",
+  },
+  {
+    question: "How quickly can you start?",
+    answer:
+      "Most clients get their first cleaning within 2-3 days of booking. Need it sooner? Call us and we'll do our best to accommodate.",
   },
 ]
 
@@ -109,38 +114,34 @@ const FAQS = [
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-export default function OfferPage() {
+export default function BookPage() {
   return (
     <>
       {/* ---- Hero ---- */}
       <section className="relative bg-[#164E63] overflow-hidden">
-        {/* Subtle gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-[#164E63] via-[#155f73] to-[#1a7a94] opacity-90" />
 
         <div className="relative max-w-5xl mx-auto px-4 py-16 md:py-24">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
             {/* Left: Copy */}
             <div>
-              <div className="inline-block px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 text-xs font-semibold uppercase tracking-wide mb-4">
-                Limited Time Offer
-              </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
-                3 Hours of Professional Cleaning.{" "}
-                <span className="text-amber-300">$99.</span>
+                LA&apos;s Most Trusted{" "}
+                <span className="text-amber-300">Cleaning Service</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
-                Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works.
+                Get a free quote in 60 seconds. Licensed, insured, and background-checked teams.
               </p>
               <p className="text-sm text-slate-300 mb-6">
-                2,500+ homes cleaned across LA County. 5.0 stars. Card on file required.
+                2,500+ homes cleaned across LA County. 5.0 stars. No contracts, cancel anytime.
               </p>
 
               {/* Mobile: scroll to form */}
               <a
-                href="#claim-offer"
+                href="#book-now"
                 className="inline-block lg:hidden px-8 py-3.5 bg-amber-400 text-slate-900 font-bold rounded-lg text-base hover:bg-amber-300 transition-colors shadow-lg"
               >
-                Claim Your $99 Clean
+                Get Your Free Quote
               </a>
 
               {/* Trust signals */}
@@ -158,14 +159,12 @@ export default function OfferPage() {
             </div>
 
             {/* Right: Form */}
-            <div id="claim-offer" className="bg-white rounded-2xl shadow-2xl p-6 md:p-8">
+            <div id="book-now" className="bg-white rounded-2xl shadow-2xl p-6 md:p-8">
               <div className="text-center mb-5">
-                <p className="text-sm text-slate-500 mb-1">3 HOURS OF PROFESSIONAL CLEANING</p>
-                <div className="flex items-center justify-center gap-3">
-                  <span className="text-4xl font-bold text-[#2195b4]">$99</span>
-                </div>
+                <p className="text-sm text-slate-500 mb-1">FREE QUOTE IN 60 SECONDS</p>
+                <p className="text-lg font-semibold text-slate-800">Tell us about your home</p>
               </div>
-              <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+              <BookingForm source="meta" ctaLabel="Get Your Free Quote" />
             </div>
           </div>
         </div>
@@ -174,48 +173,73 @@ export default function OfferPage() {
       {/* ---- Trust Bar ---- */}
       <TrustBar />
 
-      {/* ---- What's Included ---- */}
+      {/* ---- Pricing Tiers ---- */}
       <section className="py-16 px-4 bg-white">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           <p className="text-sm font-medium text-[#2195b4] mb-3 text-center">
-            What you get
+            Transparent pricing
           </p>
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            3 Hours. Every Room. $99.
+            Choose Your Clean
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
-            A full team in your home for 3 hours of professional cleaning. No corners cut.
+            Simple, honest pricing based on your home size. No hidden fees, no surprises.
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
-            {INCLUDED_ITEMS.map((item) => (
-              <div key={item} className="flex items-start gap-3 py-2">
-                <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mt-0.5">
-                  &#10003;
-                </span>
-                <span className="text-sm text-slate-700">{item}</span>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {PRICING_TIERS.map((tier) => (
+              <div
+                key={tier.name}
+                className={`rounded-xl p-6 border text-center ${
+                  tier.highlighted
+                    ? "bg-[#164E63] text-white border-[#164E63] shadow-lg"
+                    : "bg-white border-slate-200 shadow-sm"
+                }`}
+              >
+                {tier.highlighted && (
+                  <div className="inline-block px-3 py-0.5 rounded-full bg-amber-400 text-slate-900 text-xs font-semibold uppercase tracking-wide mb-3">
+                    Most Popular
+                  </div>
+                )}
+                <h3 className={`text-lg font-bold mb-1 font-heading ${tier.highlighted ? "text-white" : "text-slate-900"}`}>
+                  {tier.name}
+                </h3>
+                <p className={`text-3xl font-bold mb-1 ${tier.highlighted ? "text-amber-300" : "text-[#2195b4]"}`}>
+                  {tier.from}
+                </p>
+                <p className={`text-xs mb-4 ${tier.highlighted ? "text-slate-300" : "text-slate-500"}`}>
+                  starting price
+                </p>
+                <p className={`text-sm mb-4 ${tier.highlighted ? "text-slate-200" : "text-slate-600"}`}>
+                  {tier.description}
+                </p>
+                <ul className="text-left space-y-2">
+                  {tier.features.map((feature) => (
+                    <li key={feature} className={`flex items-start gap-2 text-sm ${tier.highlighted ? "text-slate-200" : "text-slate-600"}`}>
+                      <span className={`flex-shrink-0 mt-0.5 ${tier.highlighted ? "text-amber-300" : "text-emerald-500"}`}>&#10003;</span>
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ---- Value Stack ---- */}
+      {/* ---- Trust Points ---- */}
       <section className="py-16 px-4 bg-slate-50 border-y border-slate-200">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {VALUE_CARDS.map((card) => (
+            {TRUST_POINTS.map((point) => (
               <div
-                key={card.title}
+                key={point.title}
                 className="bg-white rounded-xl p-6 shadow-sm border border-slate-100 text-center"
               >
-                <h3 className="text-xl font-bold text-[#2195b4] mb-0.5 font-heading">
-                  {card.title}
+                <h3 className="text-xl font-bold text-[#2195b4] mb-2 font-heading">
+                  {point.title}
                 </h3>
-                <p className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">
-                  {card.subtitle}
-                </p>
-                <p className="text-sm text-slate-600">{card.description}</p>
+                <p className="text-sm text-slate-600">{point.description}</p>
               </div>
             ))}
           </div>
@@ -297,11 +321,11 @@ export default function OfferPage() {
             Ready for a spotless home?
           </h2>
           <p className="text-slate-300 mb-8">
-            Claim your $99 professional cleaning. Book in 60 seconds. Instant confirmation.
+            Get your free quote in 60 seconds. No obligation, no pressure.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+            <BookingForm source="meta" ctaLabel="Get Your Free Quote" />
           </div>
 
           <p className="text-xs text-slate-400 mt-6">
@@ -323,10 +347,10 @@ export default function OfferPage() {
             Call Now
           </a>
           <a
-            href="#claim-offer"
+            href="#book-now"
             className="flex-1 flex items-center justify-center gap-2 bg-[#164E63] text-white font-semibold py-3 rounded-lg text-sm"
           >
-            Claim $99 Clean
+            Get Free Quote
           </a>
         </div>
       </div>
