@@ -104,7 +104,6 @@ export async function GET(request: NextRequest) {
     } else if (Array.isArray(row.cleaner_assignments) && row.cleaner_assignments.length > 0) {
       const active = row.cleaner_assignments.find((a: any) => a.status === "confirmed")
         || row.cleaner_assignments.find((a: any) => a.status === "accepted")
-        || row.cleaner_assignments.find((a: any) => a.status === "pending")
       if (active) {
         const c = Array.isArray(active.cleaners) ? active.cleaners[0] : active.cleaners
         if (c?.name) cleanerName = c.name
