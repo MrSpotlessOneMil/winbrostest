@@ -19,7 +19,7 @@ import { test, expect, Page } from '@playwright/test'
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000'
-const SERVICE_PLANS_PATH = '/service-plans'
+const SERVICE_PLANS_PATH = '/service-plan-hub'
 
 // ── Page Object ────────────────────────────────────────────────────────────
 
