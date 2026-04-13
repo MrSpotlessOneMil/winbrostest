@@ -694,6 +694,8 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     ...(membershipId ? { membership_id: membershipId } : {}),
     // Set frequency from membership plan so recurring cron creates future instances
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
+    // $99 promo: lock at 1 cleaner, 3 hours, with pay override ($75 = 3hrs x $25/hr)
+    ...(isPromoQuote ? { hours: 3, cleaners: 1, cleaner_pay_override: 75 } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient

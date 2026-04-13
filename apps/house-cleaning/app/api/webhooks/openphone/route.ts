@@ -2508,7 +2508,7 @@ export async function POST(request: NextRequest) {
             job?.date ? `Date: ${job.date}` : null,
             job?.scheduled_at ? `Time: ${job.scheduled_at}` : null,
           ].filter(Boolean).join(' | ') || null,
-          ...(isMetaPromo2 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner.', 'Additional time or services beyond the 3-hour session will be quoted at our standard rates.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+          ...(isMetaPromo2 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
         })
         .select("id, token")
         .single()
@@ -3555,7 +3555,7 @@ export async function POST(request: NextRequest) {
                       jobDate ? `Preferred date: ${jobDate}` : null,
                       bookingData.preferredTime ? `Preferred time: ${bookingData.preferredTime}` : null,
                     ].filter(Boolean).join(' | ') || null,
-                    ...(isMetaPromo3 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner.', 'Additional time or services beyond the 3-hour session will be quoted at our standard rates.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+                    ...(isMetaPromo3 ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
                   })
                   .select("id, token")
                   .single()
@@ -4304,7 +4304,7 @@ export async function POST(request: NextRequest) {
                   bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                   bookingData.hasPets ? 'Has pets' : null,
                 ].filter(Boolean).join(' | ') || null,
-                ...(isMetaPromo ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner.', 'Additional time or services beyond the 3-hour session will be quoted at our standard rates.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
+                ...(isMetaPromo ? { custom_terms: ['This is a promotional $99 cleaning service limited to 3 hours with 1 cleaner. Any cleaning time beyond 3 hours will be billed at standard hourly rates.', 'The scope of this cleaning is based on what can be completed within the 3-hour window. Larger homes may not receive full coverage.', 'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.', 'This promotional rate applies to the first visit only. Recurring service is at standard pricing.'] } : {}),
               }).select("id, token").single()
 
               if (quoteError || !newQuote) {
