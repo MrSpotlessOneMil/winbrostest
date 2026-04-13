@@ -4270,6 +4270,7 @@ export async function POST(request: NextRequest) {
                 service_category: quoteCategory,
                 selected_tier: isMetaPromo ? 'deep' : null,
                 custom_base_price: isMetaPromo ? 99 : null,
+                selected_addons: isMetaPromo ? ['baseboards','ceiling_fans','light_fixtures','window_sills','inside_microwave','inside_fridge','inside_oven'] : [],
                 service_date: jobDate || null,
                 service_time: bookingData.preferredTime || null,
                 notes: [
