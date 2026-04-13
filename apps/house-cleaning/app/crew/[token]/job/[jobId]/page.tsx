@@ -616,7 +616,8 @@ function InfoPill({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function NotesDisplay({ notes }: { notes: string }) {
-  const segments = notes.split(/\||\n/).map(s => s.trim()).filter(Boolean)
+  const INTERNAL = /^(PROMO:|NORMAL_PRICE:|__SYS)/i
+  const segments = notes.split(/\||\n/).map(s => s.trim()).filter(s => s && !INTERNAL.test(s))
   const desc: string[] = []; const bullets: string[] = []
   for (const seg of segments) { if (seg.startsWith("*")) bullets.push(seg.replace(/^\*\s*/, "")); else desc.push(seg) }
   return (

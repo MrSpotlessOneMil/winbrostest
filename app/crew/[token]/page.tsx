@@ -451,12 +451,16 @@ export default function CrewPortalPage() {
                   </div>
                 )}
 
-                {/* Notes from detail */}
-                {jobDetail?.job?.notes && (
-                  <div className="px-3 py-2 rounded-xl text-xs text-slate-500" style={{ background: "#f8f7f4" }}>
-                    {jobDetail.job.notes}
-                  </div>
-                )}
+                {/* Notes from detail (filter internal system data) */}
+                {jobDetail?.job?.notes && (() => {
+                  const INTERNAL = /^(PROMO:|NORMAL_PRICE:|__SYS)/i
+                  const visible = jobDetail.job.notes.split(/\||\n/).map((s: string) => s.trim()).filter((s: string) => s && !INTERNAL.test(s)).join(' — ')
+                  return visible ? (
+                    <div className="px-3 py-2 rounded-xl text-xs text-slate-500" style={{ background: "#f8f7f4" }}>
+                      {visible}
+                    </div>
+                  ) : null
+                })()}
 
                 {/* View Full Details button */}
                 <button
