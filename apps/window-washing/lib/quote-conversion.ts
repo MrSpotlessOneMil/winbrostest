@@ -41,7 +41,7 @@ interface ConversionResult {
  */
 export async function approveAndConvertQuote(
   client: SupabaseClient,
-  quoteId: number,
+  quoteId: string,
   approvedBy: 'customer' | 'salesman'
 ): Promise<ConversionResult> {
   // 1. Fetch quote + line items

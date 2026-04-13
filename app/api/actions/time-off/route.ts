@@ -65,6 +65,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'cleaner_id and dates required' }, { status: 400 })
   }
 
+  // WinBros: enforce 14-day advance rule for time-off requests
+  if (tenant.slug === 'winbros') {
+    const { validateTimeOffRequest } = await import('@/apps/window-washing/lib/time-off-validation')
+    for (const date of body.dates) {
+      const error = validateTimeOffRequest(date)
+      if (error) {
+        return NextResponse.json({ error }, { status: 400 })
+      }
+    }
+  }
+
   const client = getSupabaseServiceClient()
 
   const rows = body.dates.map(date => ({
