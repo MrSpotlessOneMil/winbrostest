@@ -3524,6 +3524,10 @@ export async function POST(request: NextRequest) {
                 const svcType = (bookingData.serviceType || '').toLowerCase()
                 const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
 
+                // Check if lead came from Meta $99 promo
+                const leadFormData3 = existingLead?.form_data || {}
+                const isMetaPromo3 = leadFormData3.utm_campaign === '99-deep-clean' || (leadFormData3.source_detail === 'meta' && leadFormData3.service_type === 'deep-cleaning')
+
                 // Create quote record
                 const { data: newQuote, error: quoteError } = await client
                   .from("quotes")
@@ -3538,9 +3542,13 @@ export async function POST(request: NextRequest) {
                     bathrooms: bookingData.bathrooms || null,
                     square_footage: bookingData.squareFootage || null,
                     service_category: quoteCategory,
+                    selected_tier: isMetaPromo3 ? 'deep' : null,
+                    custom_base_price: isMetaPromo3 ? 99 : null,
+                    selected_addons: isMetaPromo3 ? ['ceiling_fans','light_fixtures','window_sills','inside_microwave'] : [],
                     service_date: jobDate || null,
                     service_time: bookingData.preferredTime || null,
                     notes: [
+                      isMetaPromo3 ? '$99 Meta Promo — first deep clean' : null,
                       bookingData.frequency ? `Frequency: ${bookingData.frequency}` : null,
                       bookingData.hasPets ? 'Has pets' : null,
                       jobDate ? `Preferred date: ${jobDate}` : null,
@@ -3574,9 +3582,13 @@ export async function POST(request: NextRequest) {
 
                 // Send short SMS with quote link
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
-                const quoteMsg = customerFirstName
-                  ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
-                  : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                const quoteMsg = isMetaPromo3
+                  ? (customerFirstName
+                    ? `Hey ${customerFirstName}! Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`
+                    : `Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`)
+                  : (customerFirstName
+                    ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
+                    : `Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`)
 
                 const quoteSms = await sendSMS(tenant as any, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
                 if (quoteSms.success) {
