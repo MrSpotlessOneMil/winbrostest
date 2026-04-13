@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { addUpsell } from '@/apps/window-washing/lib/visit-flow'
+import { addUpsell } from '@/lib/visit-flow'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)

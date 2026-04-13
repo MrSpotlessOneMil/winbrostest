@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { approveAndConvertQuote } from '@/apps/window-washing/lib/quote-conversion'
+import { approveAndConvertQuote } from '@/lib/quote-conversion'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)

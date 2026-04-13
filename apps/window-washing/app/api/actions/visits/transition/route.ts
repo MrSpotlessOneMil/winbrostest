@@ -11,8 +11,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { transitionVisit, type VisitStatus } from '@/apps/window-washing/lib/visit-flow'
-import { executeCloseJobAutomation } from '@/apps/window-washing/lib/close-job'
+import { transitionVisit, type VisitStatus } from '@/lib/visit-flow'
+import { executeCloseJobAutomation } from '@/lib/close-job'
 import { sendSMS } from '@/lib/openphone'
 
 export async function POST(request: NextRequest) {
