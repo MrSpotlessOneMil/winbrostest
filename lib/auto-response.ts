@@ -221,6 +221,7 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     parts.push('IMPORTANT: This customer has an active booking. Do NOT try to re-book them or run the booking flow.')
     parts.push('Instead, help them with questions about their upcoming service (date, time, what to expect, prep instructions).')
     parts.push('If they want to reschedule, cancel, or have a complaint, use [ESCALATE:reason].')
+    parts.push('CRITICAL: When mentioning the booking date, use the EXACT day-of-week shown above. Do NOT guess or calculate the day yourself — use exactly what is listed.')
     parts.push('')
   }
 

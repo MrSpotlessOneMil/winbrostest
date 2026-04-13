@@ -1998,6 +1998,8 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: finalPrice,
           notes: createForm.notes.trim() || undefined,
+          cleaner_notes: (createForm as any).cleaner_notes?.trim() || undefined,
+          cleaner_pay_override: (createForm as any).cleaner_pay_override ? Number((createForm as any).cleaner_pay_override) : undefined,
           bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
@@ -2726,8 +2728,16 @@ export default function JobsPage() {
                   </div>
                 ) : null}
                 {selectedEvent?.notes && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Admin Notes:</strong>{" "}
+                    <span className="text-muted-foreground">
+                      {selectedEvent.notes.split(/\||\n/).map((s: string) => s.trim()).filter((s: string) => s && !/^(PROMO:|NORMAL_PRICE:|__SYS)/i.test(s)).join(' — ') || '(internal system data only)'}
+                    </span>
+                  </div>
+                )}
+                {(selectedEvent as any)?.cleaner_notes && (
                   <div>
-                    <strong>Notes:</strong> {selectedEvent.notes}
+                    <strong>Cleaner Notes:</strong> {(selectedEvent as any).cleaner_notes}
                   </div>
                 )}
                 {/* Auto-schedule button for unscheduled cleaning jobs */}
@@ -4089,10 +4099,10 @@ export default function JobsPage() {
                   </div>
                 </div>
 
-                {/* Row 6: Notes + Send as Quote */}
+                {/* Row 6: Admin Notes + Send as Quote */}
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                    <label className="cal-form-label" style={{ margin: 0 }}>Notes</label>
+                    <label className="cal-form-label" style={{ margin: 0 }}>Admin Notes</label>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", cursor: "pointer", fontSize: "0.8rem", color: createForm.is_quote ? "#22d3ee" : "#a1a1aa" }}>
                       <input
                         type="checkbox"
@@ -4106,10 +4116,24 @@ export default function JobsPage() {
                   <textarea
                     className="cal-form-control"
                     rows={2}
-                    placeholder="Special instructions, access codes, etc."
+                    placeholder="Internal notes (not visible to cleaners)"
                     value={createForm.notes}
                     onChange={(e) =>
                       setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                  />
+                </div>
+
+                {/* Row 6b: Cleaner Notes */}
+                <div>
+                  <label className="cal-form-label">Cleaner Notes</label>
+                  <textarea
+                    className="cal-form-control"
+                    rows={2}
+                    placeholder="Instructions for cleaners (visible in their portal)"
+                    value={(createForm as any).cleaner_notes || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_notes: e.target.value }))
                     }
                   />
                 </div>
@@ -4329,6 +4353,23 @@ export default function JobsPage() {
                       </div>
                     )
                   })()}
+                </div>
+
+                {/* Cleaner Pay Override */}
+                <div>
+                  <label className="cal-form-label">Cleaner Pay Override</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="Auto (leave blank)"
+                    min="0"
+                    step="0.01"
+                    value={(createForm as any).cleaner_pay_override || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_pay_override: e.target.value }))
+                    }
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Exact amount each cleaner sees. Blank = auto-calculated.</p>
                 </div>
 
                 {/* Override Price */}

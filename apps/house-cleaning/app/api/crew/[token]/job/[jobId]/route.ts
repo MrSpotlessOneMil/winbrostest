@@ -78,7 +78,7 @@ async function resolveContext(token: string, jobId: string) {
   const { data: job } = await client
     .from('jobs')
     .select(`
-      id, date, scheduled_at, address, service_type, status, notes, addons,
+      id, date, scheduled_at, address, service_type, status, notes, cleaner_notes, cleaner_pay_override, cleaners, addons,
       bedrooms, bathrooms, sqft, hours, price, paid, payment_status,
       cleaner_omw_at, cleaner_arrived_at, payment_method,
       customer_id, phone_number,
@@ -182,10 +182,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
 
-  // Cleaner pay: use PAY tag from notes, fallback to price × cleaner_pay_percentage
-  // For promo jobs, use NORMAL_PRICE from notes (not the discounted price)
-  let cleanerPay = estimate.cleanerPay ?? null
-  if (cleanerPay == null && job.price) {
+  // Unified cleaner pay: override > hourly model > percentage > PAY tag
+  const numCleaners = job.cleaners ? Number(job.cleaners) : 1
+  let cleanerPay: number | null = null
+  if (job.cleaner_pay_override != null) {
+    cleanerPay = Number(job.cleaner_pay_override)
+  } else if (estimate.cleanerPay != null) {
+    cleanerPay = estimate.cleanerPay
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    const totalPay = rate * Number(job.hours)
+    cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+  } else if (job.price) {
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage) {
       let payBase = parseFloat(String(job.price))
@@ -193,7 +204,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
         if (match) payBase = parseFloat(match[1])
       }
-      cleanerPay = payBase * (payPercentage / 100)
+      const totalPay = payBase * (payPercentage / 100)
+      cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
     }
   }
 
@@ -222,7 +234,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       address: job.address,
       service_type: job.service_type,
       status: job.status,
-      notes: cleanedNotes,
+      notes: job.cleaner_notes || cleanedNotes,
       bedrooms: job.bedrooms,
       bathrooms: job.bathrooms,
       sqft: job.sqft,
@@ -276,6 +288,15 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const validStatuses = ['omw', 'here', 'done']
     if (!validStatuses.includes(body.status)) {
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
+    }
+
+    // Guard: can't mark OMW/arrived/done for jobs in the future
+    if (job.date) {
+      const jobDate = new Date(job.date + 'T23:59:59')
+      const now = new Date()
+      if (jobDate > new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)) {
+        return NextResponse.json({ error: 'Cannot update status for future jobs' }, { status: 400 })
+      }
     }
 
     // Enforce sequential: can't skip steps

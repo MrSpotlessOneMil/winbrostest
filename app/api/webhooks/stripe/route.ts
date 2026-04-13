@@ -942,6 +942,20 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       console.error('[Stripe Webhook] Failed to notify salesman:', err)
     }
   }
+
+  // Update lead status to 'booked' so follow-up crons stop texting
+  if (quote.customer_id) {
+    try {
+      await serviceClient.from('leads')
+        .update({ status: 'booked', followup_stage: 99 })
+        .eq('customer_id', quote.customer_id)
+        .eq('tenant_id', quote.tenant_id)
+        .in('status', ['new', 'contacted', 'qualified'])
+      console.log(`[Stripe Webhook] Updated lead status to booked for customer ${quote.customer_id}`)
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to update lead status:', err)
+    }
+  }
 }
 
 async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {

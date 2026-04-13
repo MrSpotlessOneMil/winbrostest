@@ -127,10 +127,17 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay (their rate × hours, NOT the customer price)
+  // Team size
+  const numCleaners = (job as any).cleaners ? Number((job as any).cleaners) : 1
+  if (numCleaners > 1) {
+    details.push(`${numCleaners}-person team required`)
+  }
+
+  // Cleaner pay (hourly rate × hours, split per person for multi-cleaner jobs)
   const rate = cleaner.hourly_rate || 25
   if (job.hours) {
-    details.push(`Your pay: $${(rate * Number(job.hours)).toFixed(0)}`)
+    const totalPay = rate * Number(job.hours)
+    details.push(`Your pay: $${totalPay.toFixed(0)}`)
   }
 
   let link = ''
@@ -188,21 +195,38 @@ export async function notifyCleanerAwarded(
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  // For promo jobs (e.g. $99 Meta offer), use the NORMAL price so cleaners get full pay
-  const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
+  // Unified cleaner pay calculation:
+  // 1. cleaner_pay_override (exact amount per cleaner) — highest priority
+  // 2. Hourly model: rate × hours (split per person for multi-cleaner)
+  // 3. Percentage model: % of job price (with NORMAL_PRICE fallback for promos)
   let payStr = ''
-  let payBasePrice = job.price ? parseFloat(String(job.price)) : 0
-  if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
-    const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
-    if (match) payBasePrice = parseFloat(match[1])
-  }
-  if (payPercentage2 && payBasePrice) {
-    const cleanerPay = payBasePrice * (payPercentage2 / 100)
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+  const numCleaners = (job as any).cleaners ? Number((job as any).cleaners) : 1
+  const override = (job as any).cleaner_pay_override
+  if (override != null) {
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, Number(override))}`
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    const totalPay = rate * Number(job.hours)
+    const perPerson = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    payStr = `\nYour pay: ${formatTenantCurrency(tenant, perPerson)}`
+  } else {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    let payBase = job.price ? parseFloat(String(job.price)) : 0
+    if (job.notes && typeof job.notes === 'string' && job.notes.includes('NORMAL_PRICE:')) {
+      const match = job.notes.match(/NORMAL_PRICE:(\d+(?:\.\d+)?)/)
+      if (match) payBase = parseFloat(match[1])
+    }
+    if (payPercentage && payBase) {
+      const totalPay = payBase * (payPercentage / 100)
+      const perPerson = numCleaners > 1 ? totalPay / numCleaners : totalPay
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, perPerson)}`
+    } else if (job.hours) {
+      const rate = cleaner.hourly_rate || 25
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+    }
   }
 
   let link = ''
