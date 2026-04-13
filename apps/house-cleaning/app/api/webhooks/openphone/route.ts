@@ -2477,8 +2477,12 @@ export async function POST(request: NextRequest) {
 
       // ── Cleaning jobs: create quote and send link ──
       const svcType = (job?.service_type || '').toLowerCase()
-      const quoteCategory = svcType.includes('move') ? 'move_in_out' : svcType.includes('deep') ? 'deep' : 'standard'
+      const quoteCategory = svcType.includes('move') ? 'move_in_out' : 'standard'
       const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null
+
+      // Check if lead came from Meta $99 promo (check lead form_data)
+      const leadFormData2 = bookedLead?.form_data || {}
+      const isMetaPromo2 = leadFormData2.utm_campaign === '99-deep-clean' || (leadFormData2.source_detail === 'meta' && leadFormData2.service_type === 'deep-cleaning')
 
       const { data: newQuote, error: quoteError } = await client
         .from("quotes")
@@ -2493,9 +2497,13 @@ export async function POST(request: NextRequest) {
           bathrooms: job?.notes?.match(/(\d+(?:\.\d+)?)\s*bath/i)?.[1] ? parseFloat(job.notes.match(/(\d+(?:\.\d+)?)\s*bath/i)![1]) : null,
           square_footage: job?.notes?.match(/(\d+)\s*(?:sq|sqft|sf)/i)?.[1] ? parseInt(job.notes.match(/(\d+)\s*(?:sq|sqft|sf)/i)![1]) : null,
           service_category: quoteCategory,
+          selected_tier: isMetaPromo2 ? 'deep' : null,
+          custom_base_price: isMetaPromo2 ? 99 : null,
+          selected_addons: isMetaPromo2 ? ['baseboards','ceiling_fans','light_fixtures','window_sills','inside_microwave','inside_fridge','inside_oven'] : [],
           service_date: job?.date || null,
           service_time: job?.scheduled_at || null,
           notes: [
+            isMetaPromo2 ? '$99 Meta Promo — first deep clean' : null,
             job?.service_type ? `Service: ${job.service_type}` : null,
             job?.date ? `Date: ${job.date}` : null,
             job?.scheduled_at ? `Time: ${job.scheduled_at}` : null,
@@ -2516,9 +2524,13 @@ export async function POST(request: NextRequest) {
       const appDomain = getClientConfig().domain.replace(/\/+$/, '')
       const quoteUrl = `${appDomain}/quote/${newQuote.token}`
 
-      const quoteMsg = customer.first_name
-        ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
-        : `Here's your quote — pick the option that works best for you: ${quoteUrl}`
+      const quoteMsg = isMetaPromo2
+        ? (customer.first_name
+          ? `Hey ${customer.first_name}! Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`
+          : `Your $99 deep clean is ready to book! Tap here to pick your date and confirm: ${quoteUrl}`)
+        : (customer.first_name
+          ? `Hey ${customer.first_name}! Here's your quote — pick the option that works best for you: ${quoteUrl}`
+          : `Here's your quote — pick the option that works best for you: ${quoteUrl}`)
 
       const quoteSmsResult = await sendSMS(tenant!, phone, quoteMsg, { skipThrottle: true, bypassFilters: true })
       if (quoteSmsResult.success) {
