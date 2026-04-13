@@ -60,11 +60,18 @@ interface PreconfirmStatus {
 
 type FilterTab = "all" | "pending" | "approved" | "expired"
 
-const STATUS_BADGE: Record<Quote["status"], { label: string; className: string }> = {
+const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
   approved: { label: "Approved", className: "bg-green-500/20 text-green-400 border-green-500/30" },
   expired: { label: "Expired", className: "bg-red-500/20 text-red-400 border-red-500/30" },
+  converted: { label: "Converted", className: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  declined: { label: "Declined", className: "bg-red-500/20 text-red-300 border-red-500/30" },
+  draft: { label: "Draft", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" },
+  sent: { label: "Sent", className: "bg-violet-500/20 text-violet-400 border-violet-500/30" },
+  cancelled: { label: "Cancelled", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" },
 }
+
+const FALLBACK_BADGE = { label: "Unknown", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" }
 
 const PROPERTY_LABELS: Record<string, string> = {
   single_story: "Single Story",
@@ -694,7 +701,7 @@ export default function QuotesPage() {
       ) : (
         <div className="space-y-3">
           {quotes.map((quote) => {
-            const badge = STATUS_BADGE[quote.status]
+            const badge = STATUS_BADGE[quote.status] || FALLBACK_BADGE
             return (
               <Card
                 key={quote.id}
