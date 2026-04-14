@@ -1,170 +1,406 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAuth } from "@/lib/auth-context"
-import { BarChart3, Loader2, Users, Target } from "lucide-react"
+import {
+  BarChart3,
+  Loader2,
+  Users,
+  Target,
+  Crown,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react"
 
-interface SalesmanMetric {
-  salesman_id: number | null
-  salesman_name: string
-  total_quotes: number
-  converted_quotes: number
-  conversion_rate: number
-  active_plans: number
-  total_arr: number
+/* ── Types ────────────────────────────────────────────────────────────────── */
+
+type Period = "day" | "week" | "month"
+
+interface TeamLeadRow {
+  id: number
+  name: string
+  revenue: number
+  jobs_completed: number
+  upsells: number
+  days_worked: number
+  reviews: number
 }
 
-interface TechnicianMetric {
-  technician_id: number | null
-  technician_name: string
-  total_visits_completed: number
-  total_revenue: number
-  upsell_revenue: number
-  avg_minutes_per_job: number | null
+interface AdminTeamRow {
+  id: number
+  name: string
+  area: string
+  one_time_revenue: number
+  plan_revenue: number
+  days_worked: number
 }
+
+interface SalesRow {
+  id: number
+  name: string
+  arr_sold: number
+  one_time_sales: number
+  plan_sales: number
+  plans_sold: number
+}
+
+interface PerformanceData {
+  period: string
+  start: string
+  end: string
+  team_leads: TeamLeadRow[]
+  admin_team: AdminTeamRow[]
+  sales: SalesRow[]
+}
+
+/* ── Helpers ──────────────────────────────────────────────────────────────── */
+
+function fmtDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function formatCurrency(val: number): string {
+  return val.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })
+}
+
+function shiftDate(date: string, period: Period, dir: -1 | 1): string {
+  const d = new Date(date + "T12:00:00")
+  if (period === "day") d.setDate(d.getDate() + dir)
+  else if (period === "week") d.setDate(d.getDate() + dir * 7)
+  else d.setMonth(d.getMonth() + dir)
+  return fmtDate(d)
+}
+
+function periodLabel(period: Period, start: string, end: string): string {
+  const s = new Date(start + "T12:00:00")
+  const e = new Date(end + "T12:00:00")
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+  if (period === "day") {
+    return s.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+  }
+  if (period === "month") {
+    return s.toLocaleDateString("en-US", { month: "long", year: "numeric" })
+  }
+  return `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString("en-US", opts)}`
+}
+
+/* ── Component ────────────────────────────────────────────────────────────── */
 
 export default function PerformancePage() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [salesman, setSalesman] = useState<SalesmanMetric[]>([])
-  const [technician, setTechnician] = useState<TechnicianMetric[]>([])
+  const [period, setPeriod] = useState<Period>("week")
+  const [anchor, setAnchor] = useState(fmtDate(new Date()))
+  const [data, setData] = useState<PerformanceData | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/actions/performance?period=${period}&date=${anchor}`)
+      const json = await res.json()
+      if (json.success) {
+        setData(json)
+      } else {
+        setError(json.error ?? "Failed to load performance data")
+      }
+    } catch {
+      setError("Failed to load performance data")
+    } finally {
+      setLoading(false)
+    }
+  }, [period, anchor])
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch("/api/actions/performance")
-        const data = await res.json()
-        if (data.success) {
-          setSalesman(data.salesman ?? [])
-          setTechnician(data.technician ?? [])
-        } else {
-          setError(data.error ?? "Failed to load performance data")
-        }
-      } catch {
-        setError("Failed to load performance data")
-      } finally {
-        setLoading(false)
-      }
-    }
     load()
-  }, [])
+  }, [load])
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
-      </div>
-    )
-  }
+  const handlePrev = () => setAnchor((a) => shiftDate(a, period, -1))
+  const handleNext = () => setAnchor((a) => shiftDate(a, period, 1))
 
-  if (error) {
-    return (
-      <div className="p-6 max-w-6xl mx-auto">
-        <p className="text-red-400 text-sm">{error}</p>
-      </div>
-    )
-  }
-
-  const formatCurrency = (val: number) =>
-    val.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0 })
-
-  const formatMinutes = (mins: number | null) => {
-    if (mins == null) return "-"
-    const h = Math.floor(mins / 60)
-    const m = mins % 60
-    return h > 0 ? `${h}h ${m}m` : `${m}m`
-  }
+  /* ── Render ─────────────────────────────────────────────────────────────── */
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-          <BarChart3 className="w-5 h-5" />
-          Performance
-        </h2>
-        <p className="text-sm text-zinc-400 mt-1">
-          Salesman and technician metrics across all time
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Salesman Metrics */}
-        <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
-          <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-4">
-            <Target className="w-4 h-4 text-teal-400" />
-            Salesman Metrics
-          </h3>
-
-          {salesman.length === 0 ? (
-            <p className="text-xs text-zinc-500">No quote data yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-zinc-500 text-xs border-b border-zinc-800">
-                    <th className="text-left py-2 pr-2">Name</th>
-                    <th className="text-right py-2 px-2">Quotes</th>
-                    <th className="text-right py-2 px-2">Conv.</th>
-                    <th className="text-right py-2 px-2">Rate</th>
-                    <th className="text-right py-2 px-2">Plans</th>
-                    <th className="text-right py-2 pl-2">ARR</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {salesman.map((s) => (
-                    <tr key={s.salesman_id ?? "unassigned"} className="border-b border-zinc-800/50">
-                      <td className="py-2 pr-2 text-white font-medium">{s.salesman_name}</td>
-                      <td className="py-2 px-2 text-right text-zinc-300">{s.total_quotes}</td>
-                      <td className="py-2 px-2 text-right text-zinc-300">{s.converted_quotes}</td>
-                      <td className="py-2 px-2 text-right text-teal-400">{s.conversion_rate}%</td>
-                      <td className="py-2 px-2 text-right text-zinc-300">{s.active_plans}</td>
-                      <td className="py-2 pl-2 text-right text-zinc-300">{formatCurrency(s.total_arr)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+    <div className="p-4 md:p-6 max-w-[1600px] mx-auto space-y-5">
+      {/* Header + Controls */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
+            <BarChart3 className="w-5 h-5" />
+            Team Performance
+          </h2>
+          <p className="text-sm text-zinc-400 mt-0.5">
+            {data ? periodLabel(period, data.start, data.end) : "Loading..."}
+          </p>
         </div>
 
-        {/* Technician Metrics */}
-        <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
-          <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-4">
-            <Users className="w-4 h-4 text-teal-400" />
-            Technician Metrics
-          </h3>
+        <div className="flex items-center gap-2">
+          {/* Period toggle */}
+          <div className="flex rounded-lg border border-zinc-700 overflow-hidden text-xs">
+            {(["day", "week", "month"] as Period[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1.5 font-medium capitalize transition-colors ${
+                  period === p
+                    ? "bg-teal-600 text-white"
+                    : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
 
-          {technician.length === 0 ? (
-            <p className="text-xs text-zinc-500">No completed visits yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-zinc-500 text-xs border-b border-zinc-800">
-                    <th className="text-left py-2 pr-2">Name</th>
-                    <th className="text-right py-2 px-2">Visits</th>
-                    <th className="text-right py-2 px-2">Revenue</th>
-                    <th className="text-right py-2 px-2">Upsells</th>
-                    <th className="text-right py-2 pl-2">Avg Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {technician.map((t) => (
-                    <tr key={t.technician_id ?? "unassigned"} className="border-b border-zinc-800/50">
-                      <td className="py-2 pr-2 text-white font-medium">{t.technician_name}</td>
-                      <td className="py-2 px-2 text-right text-zinc-300">{t.total_visits_completed}</td>
-                      <td className="py-2 px-2 text-right text-zinc-300">{formatCurrency(t.total_revenue)}</td>
-                      <td className="py-2 px-2 text-right text-teal-400">{formatCurrency(t.upsell_revenue)}</td>
-                      <td className="py-2 pl-2 text-right text-zinc-300">{formatMinutes(t.avg_minutes_per_job)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          {/* Prev / Next */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handlePrev}
+              className="p-1.5 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setAnchor(fmtDate(new Date()))}
+              className="px-2.5 py-1 rounded-md border border-zinc-700 bg-zinc-900 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            >
+              Today
+            </button>
+            <button
+              onClick={handleNext}
+              className="p-1.5 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Loading / Error */}
+      {loading && (
+        <div className="flex items-center justify-center min-h-[300px]">
+          <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+        </div>
+      )}
+
+      {error && (
+        <p className="text-red-400 text-sm py-4">{error}</p>
+      )}
+
+      {/* Three sections */}
+      {!loading && !error && data && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Section 1: Team Leads */}
+          <SectionCard
+            icon={<Crown className="w-4 h-4 text-amber-400" />}
+            title="Team Leads"
+          >
+            {data.team_leads.length === 0 ? (
+              <EmptyState text="No team lead data for this period." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-zinc-500 border-b border-zinc-800">
+                      <th className="text-left py-2 pr-2 font-medium">Name</th>
+                      <th className="text-right py-2 px-1 font-medium">Revenue</th>
+                      <th className="text-right py-2 px-1 font-medium">Jobs</th>
+                      <th className="text-right py-2 px-1 font-medium">Upsells</th>
+                      <th className="text-right py-2 px-1 font-medium">Days</th>
+                      <th className="text-right py-2 pl-1 font-medium">Reviews</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.team_leads.map((row, i) => (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-zinc-800/40 ${
+                          i % 2 === 1 ? "bg-zinc-900/40" : ""
+                        }`}
+                      >
+                        <td className="py-2 pr-2 text-white font-medium whitespace-nowrap">
+                          {row.name}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-200">
+                          {formatCurrency(row.revenue)}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-300">
+                          {row.jobs_completed}
+                        </td>
+                        <td className="py-2 px-1 text-right text-teal-400">
+                          {formatCurrency(row.upsells)}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-300">
+                          {row.days_worked}
+                        </td>
+                        <td className="py-2 pl-1 text-right">
+                          <PerformanceBadge value={row.reviews} threshold={2} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Section 2: Admin Team Performance */}
+          <SectionCard
+            icon={<Users className="w-4 h-4 text-blue-400" />}
+            title="Admin Team Performance"
+          >
+            {data.admin_team.length === 0 ? (
+              <EmptyState text="No employee data for this period." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-zinc-500 border-b border-zinc-800">
+                      <th className="text-left py-2 pr-2 font-medium">Name</th>
+                      <th className="text-left py-2 px-1 font-medium">Area</th>
+                      <th className="text-right py-2 px-1 font-medium">1-Time</th>
+                      <th className="text-right py-2 px-1 font-medium">Plan $</th>
+                      <th className="text-right py-2 pl-1 font-medium">Days</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.admin_team.map((row, i) => (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-zinc-800/40 ${
+                          i % 2 === 1 ? "bg-zinc-900/40" : ""
+                        }`}
+                      >
+                        <td className="py-2 pr-2 text-white font-medium whitespace-nowrap">
+                          {row.name}
+                        </td>
+                        <td className="py-2 px-1 text-zinc-400 whitespace-nowrap truncate max-w-[80px]">
+                          {row.area || "-"}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-200">
+                          {formatCurrency(row.one_time_revenue)}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-200">
+                          {formatCurrency(row.plan_revenue)}
+                        </td>
+                        <td className="py-2 pl-1 text-right text-zinc-300">
+                          {row.days_worked}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+
+          {/* Section 3: Sales Performance */}
+          <SectionCard
+            icon={<Target className="w-4 h-4 text-emerald-400" />}
+            title="Sales Performance"
+          >
+            {data.sales.length === 0 ? (
+              <EmptyState text="No sales data for this period." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-zinc-500 border-b border-zinc-800">
+                      <th className="text-left py-2 pr-2 font-medium">Name</th>
+                      <th className="text-right py-2 px-1 font-medium">ARR</th>
+                      <th className="text-right py-2 px-1 font-medium">1-Time</th>
+                      <th className="text-right py-2 px-1 font-medium">Plan $</th>
+                      <th className="text-right py-2 pl-1 font-medium">Plans</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.sales.map((row, i) => (
+                      <tr
+                        key={row.id}
+                        className={`border-b border-zinc-800/40 ${
+                          i % 2 === 1 ? "bg-zinc-900/40" : ""
+                        }`}
+                      >
+                        <td className="py-2 pr-2 text-white font-medium whitespace-nowrap">
+                          {row.name}
+                        </td>
+                        <td className="py-2 px-1 text-right text-emerald-400 font-medium">
+                          {formatCurrency(row.arr_sold)}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-200">
+                          {row.one_time_sales}
+                        </td>
+                        <td className="py-2 px-1 text-right text-zinc-200">
+                          {formatCurrency(row.plan_sales)}
+                        </td>
+                        <td className="py-2 pl-1 text-right">
+                          <PerformanceBadge value={row.plans_sold} threshold={3} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </SectionCard>
+        </div>
+      )}
     </div>
+  )
+}
+
+/* ── Sub-components ───────────────────────────────────────────────────────── */
+
+function SectionCard({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode
+  title: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
+      <h3 className="text-sm font-semibold text-zinc-300 flex items-center gap-2 mb-4">
+        {icon}
+        {title}
+      </h3>
+      {children}
+    </div>
+  )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="text-xs text-zinc-500 py-4 text-center">{text}</p>
+}
+
+function PerformanceBadge({
+  value,
+  threshold,
+}: {
+  value: number
+  threshold: number
+}) {
+  if (value === 0) {
+    return <span className="text-zinc-500">0</span>
+  }
+  const isGood = value >= threshold
+  return (
+    <span
+      className={`inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${
+        isGood
+          ? "bg-emerald-500/20 text-emerald-400"
+          : "bg-amber-500/20 text-amber-400"
+      }`}
+    >
+      {value}
+    </span>
   )
 }
