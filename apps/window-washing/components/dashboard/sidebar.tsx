@@ -61,6 +61,7 @@ const navigation = [
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
   { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
   { name: "Calendar", href: "/jobs", icon: ClipboardList, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
+  { name: "Crew Assignment", href: "/crews", icon: Users, adminOnly: false, roles: ["admin"] as UserRole[] },
   { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
   { name: "Service Plans", href: "/service-plan-schedule", icon: Calendar, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
   { name: "ARR Dashboard", href: "/service-plan-hub", icon: Repeat, adminOnly: false, roles: ["admin"] as UserRole[] },
