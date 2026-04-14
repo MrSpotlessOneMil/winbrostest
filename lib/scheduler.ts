@@ -473,7 +473,7 @@ export const RETARGETING_TEMPLATES: Record<string, { a: string; b: string }> = {
   },
   'quote_followup': {
     // Name the common objection (price) to give permission to be honest. "Soon or later" = both keep convo alive.
-    a: 'Hey {name} it\'s {business}, checking in on your {service} quote. Any questions or was it the price? I might be able to help',
+    a: 'Hey {name} it\'s {business}, checking in on your {service} quote. Any questions about the service or timing? Happy to help',
     b: '{name} it\'s {business}, still have your {service} quote on file. Looking to get it done soon or should I check back later?',
   },
   'question_based': {
@@ -484,7 +484,7 @@ export const RETARGETING_TEMPLATES: Record<string, { a: string; b: string }> = {
   'limited_time': {
     // Specific deadline (Friday, this week) + question CTA. Real urgency, not fake.
     a: 'Hey {name} it\'s {business}, our {service} schedule is almost full this week, 2 spots left. Want one before they\'re gone?',
-    b: '{name} it\'s {business}, we\'re running a special on {service} but only through Friday. Want me to lock you in?',
+    b: '{name} it\'s {business}, our {service} schedule is filling up fast this week. Want me to lock you in before it\'s full?',
   },
   'we_miss_you': {
     // Casual, assumes positive past experience. "Swing by again" = effortless.
