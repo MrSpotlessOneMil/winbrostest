@@ -105,7 +105,7 @@ test.describe('WW Demo — Crystal Clear Windows', () => {
     await expect(sidebar).toBeVisible({ timeout: 15000 })
 
     const sidebarText = await sidebar.textContent()
-    for (const tab of ['Quotes', 'Scheduling', 'Service Plan Hub', 'Payroll', 'Control Center']) {
+    for (const tab of ['Quotes', 'Schedule', 'Service Plans', 'Payroll', 'Control Center']) {
       expect(sidebarText, `Sidebar missing "${tab}"`).toContain(tab)
     }
   })
