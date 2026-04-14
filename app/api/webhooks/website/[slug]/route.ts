@@ -160,7 +160,7 @@ export async function POST(
     .from("leads")
     .insert({
       tenant_id: tenant.id,
-      source_id: `website-${Date.now()}`,
+      source_id: `website-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       phone_number: phone,
       customer_id: customer?.id ?? null,
       first_name: firstName || null,
