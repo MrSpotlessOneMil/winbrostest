@@ -129,10 +129,10 @@ export async function sendSMS(
       }
 
       // 1.5. PERMANENT auto-response disable — owner toggled this off in dashboard.
-      // NOTHING overrides this. Not crons, not timeouts, not retargeting.
-      // Only skip for system sends (bypassFilters) and manual sends from dashboard (skipThrottle).
-      if (customer?.auto_response_disabled && !options?.skipThrottle) {
-        console.log(`[${tenant.slug}] SMS blocked: ${toE164Format} has auto_response_disabled (permanent)`)
+      // NOTHING overrides this. Not crons, not timeouts, not retargeting, not skipThrottle.
+      // Only bypassFilters can skip this (used for cleaner-to-cleaner operational SMS only).
+      if (customer?.auto_response_disabled && !options?.bypassFilters) {
+        console.log(`[sendSMS] BLOCKED — auto_response_disabled for ${toE164Format} (source: ${options?.source || 'unknown'})`)
         return { success: false, error: 'Customer auto-response permanently disabled by owner' }
       }
 

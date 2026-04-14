@@ -263,7 +263,7 @@ export async function POST(
 
   const smsResult = await sendSMS(tenant, phone, smsMessage, {
     skipDedup: true,
-    skipThrottle: true,
+    source: 'website_lead_auto',
   })
 
   if (!smsResult.success) {
