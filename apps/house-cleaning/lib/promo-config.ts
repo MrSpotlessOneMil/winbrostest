@@ -45,7 +45,7 @@ const THREE_HOUR_TERMS = [
 ]
 
 const DEEP_CLEAN_TERMS = [
-  'This is a promotional $149 deep cleaning with 1 cleaner for up to 4 hours. Includes fridge, oven, baseboards, and all standard deep clean items.',
+  'This is a promotional $149 cleaning with 1 cleaner for up to 4 hours. Includes ceiling fans, light fixtures, window sills, and inside microwave. Fridge, oven, and baseboards are not included at this promotional rate.',
   'Homes larger than 4 bedrooms may require additional time at standard hourly rates.',
   'Cancellations within 24 hours of the scheduled appointment are subject to a $50 fee.',
   'This promotional rate applies to the first visit only. Recurring service is at standard pricing.',
@@ -102,15 +102,17 @@ export const PROMO_CAMPAIGNS: Record<string, PromoConfig> = {
     cleaners: 1,
     payOverride: 100,
     tier: 'deep',
-    addons: FULL_DEEP_ADDONS,
+    addons: DILUTED_ADDONS,
     terms: DEEP_CLEAN_TERMS,
     firstSms: 'Hey {name}! This is {businessName}. Thanks for claiming your $149 deep clean! What\'s your address and how many bedrooms and bathrooms? I\'ll get you booked right away!',
     aiContext: [
       'ACTIVE PROMOTIONAL OFFER FOR THIS CUSTOMER:',
-      'This customer came from our $149 First Deep Clean promotion (normally $250+).',
-      'They are expecting a $149 deep clean. This is a legitimate promotional offer.',
+      'This customer came from our $149 First Clean promotion (normally $250+).',
+      'They are expecting a $149 cleaning. This is a legitimate promotional offer.',
       'HONOR THE $149 PRICE. Do NOT quote the standard rate.',
-      'This IS a full deep clean — fridge, oven, baseboards, ceiling fans, everything.',
+      'This is a 4-HOUR cleaning session with 1 cleaner. It is NOT a full deep clean.',
+      'Includes: ceiling fans, light fixtures, window sills, inside microwave.',
+      'Does NOT include: fridge, oven, or baseboards. Do NOT promise these.',
       'After the first clean, recurring service is at the regular rate (varies by home size).',
       'Do NOT ask them to prove the offer. Just confirm the $149 price.',
       'SAFETY NET: If the customer has 5+ bedrooms, use [ESCALATE:large-home-promo] so the owner can review.',
