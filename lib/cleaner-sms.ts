@@ -133,11 +133,15 @@ export async function notifyCleanerAssignment(
     details.push(`${numCleaners}-person team required`)
   }
 
-  // Cleaner pay (hourly rate × hours, split per person for multi-cleaner jobs)
-  const rate = cleaner.hourly_rate || 25
-  if (job.hours) {
-    const totalPay = rate * Number(job.hours)
-    details.push(`Your pay: $${totalPay.toFixed(0)}`)
+  // Cleaner pay: unified priority chain (matches notifyCleanerAwarded)
+  let payAmount: number | null = null
+  if ((job as any).cleaner_pay_override) {
+    payAmount = (job as any).cleaner_pay_override / (numCleaners || 1)
+  } else if (cleaner.hourly_rate && job.hours) {
+    payAmount = cleaner.hourly_rate * Number(job.hours) / (numCleaners || 1)
+  }
+  if (payAmount != null) {
+    details.push(`Your pay: $${payAmount.toFixed(0)}`)
   }
 
   let link = ''
@@ -567,6 +571,15 @@ export async function processCleanerStatusUpdate(
   const job = (activeAssignment as any).jobs
   const customer = job?.customers
   const jobId = job?.id
+
+  // Future-job guard: prevent status updates for jobs more than 1 day in the future
+  const jobDate = new Date(job.date || job.scheduled_at)
+  const tomorrow = new Date()
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  tomorrow.setHours(23, 59, 59, 999)
+  if (jobDate > tomorrow) {
+    return { success: false, error: 'Cannot update status for future jobs' }
+  }
 
   // Update job status/timestamps
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }

@@ -764,6 +764,10 @@ export async function POST(request: NextRequest) {
     .select("*")
     .single()
 
+  if (custErr) {
+    return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
+  }
+
   // Backfill lead_source for customers who genuinely entered via SMS.
   // Only set if null — never overwrite an existing source (e.g. housecall_pro, meta, vapi).
   // Also check leads table: if there's already a lead from a non-SMS source, use that instead.
@@ -784,10 +788,6 @@ export async function POST(request: NextRequest) {
       .update({ lead_source: backfillSource })
       .eq("id", customer.id)
     customer.lead_source = backfillSource
-  }
-
-  if (custErr) {
-    return NextResponse.json({ success: false, error: `Failed to upsert customer: ${custErr.message}` }, { status: 500 })
   }
 
   // ============================================
@@ -4014,8 +4014,13 @@ export async function POST(request: NextRequest) {
 
     let lead: { id: string } | null = null
     let leadErr: { message: string } | null = null
+    // Capture original lead form_data for promo detection before it gets overwritten
+    let originalLeadFormData: Record<string, unknown> | null = null
 
     if (existingSourcedLead) {
+      originalLeadFormData = typeof existingSourcedLead.form_data === 'object' && existingSourcedLead.form_data
+        ? existingSourcedLead.form_data as Record<string, unknown>
+        : null
       // Reuse the existing lead — preserve original source (e.g. housecall_pro)
       console.log(`[OpenPhone] Found existing ${existingSourcedLead.source} lead ${existingSourcedLead.id} for ${maskPhone(phone)}, reusing instead of creating duplicate SMS lead`)
       const existingFd = typeof existingSourcedLead.form_data === 'object' && existingSourcedLead.form_data ? existingSourcedLead.form_data : {}
@@ -4278,7 +4283,7 @@ export async function POST(request: NextRequest) {
 
               // Check if this lead came from a promo campaign (shared config)
               const { getPromoConfig: getPromoConfig1 } = await import('@/lib/promo-config')
-              const promoConfig1 = getPromoConfig1(lead?.form_data)
+              const promoConfig1 = getPromoConfig1(originalLeadFormData)
               const isMetaPromo = !!promoConfig1
 
               const { data: newQuote, error: quoteError } = await client.from("quotes").insert({

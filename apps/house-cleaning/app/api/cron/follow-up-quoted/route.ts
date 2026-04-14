@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
     // Abandon jobs older than 7 days that are still quoted
     const { data: staleJobs } = await client
       .from('jobs')
-      .select('id')
+      .select('id, notes')
       .eq('tenant_id', tenant.id)
       .eq('status', 'quoted')
       .eq('booked', false)
@@ -198,12 +198,16 @@ export async function GET(request: NextRequest) {
       .limit(50)
 
     if (staleJobs && staleJobs.length > 0) {
-      const staleIds = staleJobs.map(j => j.id)
-      await client
-        .from('jobs')
-        .update({ status: 'cancelled', notes: 'Auto-abandoned: no payment after 7 days of follow-up' })
-        .in('id', staleIds)
-      abandoned = staleIds.length
+      const abandonNote = 'Auto-abandoned: no payment after 7 days of follow-up'
+      for (const job of staleJobs) {
+        const existingNotes = job.notes || ''
+        const updatedNotes = existingNotes ? `${existingNotes} | ${abandonNote}` : abandonNote
+        await client
+          .from('jobs')
+          .update({ status: 'cancelled', notes: updatedNotes })
+          .eq('id', job.id)
+      }
+      abandoned = staleJobs.length
       console.log(`${tag} Abandoned ${abandoned} stale quoted jobs for ${tenant.slug}`)
     }
 

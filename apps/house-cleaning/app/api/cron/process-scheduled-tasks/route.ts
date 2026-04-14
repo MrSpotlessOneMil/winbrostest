@@ -263,8 +263,9 @@ async function processTask(task: ScheduledTask): Promise<void> {
         // (the isSystemSent check finds this record and skips takeover)
         const { toE164 } = await import('@/lib/phone-utils')
         const e164Phone = toE164(smsPhone) || smsPhone
+        const supabase = getSupabaseServiceClient()
         const { data: preInsert } = await supabase.from('messages').insert({
-          tenant_id: tenantId || tenant.id,
+          tenant_id: tenant_id || tenant.id,
           phone_number: e164Phone,
           role: 'assistant',
           content: smsMessage,
