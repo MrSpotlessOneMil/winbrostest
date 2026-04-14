@@ -181,7 +181,7 @@ export default function DeepCleanOfferPage() {
             What you get
           </p>
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            Everything. For $149.
+            What You Get. For $149.
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
             4 full hours of the same quality cleaning we normally charge $250+ for. Ceiling fans, light fixtures, every surface — thorough, not rushed.
