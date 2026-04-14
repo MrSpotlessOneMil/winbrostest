@@ -13,7 +13,7 @@ import { tenantUsesFeature } from '@/lib/tenant'
 describe('tenantUsesFeature', () => {
   it('returns true for Cedar Rapids cleaner_dispatch', () => {
     const result = tenantUsesFeature(CEDAR_RAPIDS_TENANT, 'use_cleaner_dispatch')
-    expect(result).toBe(false) // TEMPORARY: intentional failure to test push hook
+    expect(result).toBe(true)
   })
 
   it('returns true for Cedar Rapids review_request', () => {
