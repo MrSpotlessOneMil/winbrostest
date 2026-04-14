@@ -39,9 +39,9 @@ const VALUE_CARDS = [
     description: "4 full hours of professional cleaning — the same quality our recurring clients love, at a fraction of the price.",
   },
   {
-    title: "4 Full Hours",
+    title: "Thorough Clean",
     subtitle: "no rushing",
-    description: "One dedicated cleaner for 4 hours. Every surface, every room, ceiling fans, fixtures — thorough, not rushed.",
+    description: "One dedicated cleaner who takes the time to do it right. Every surface, every room — thorough, not rushed.",
   },
   {
     title: "Set It and Forget It",
@@ -125,7 +125,7 @@ export default function DeepCleanOfferPage() {
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
                 $149 First Clean.{" "}
-                <span className="text-amber-300">4 Full Hours.</span>
+                <span className="text-amber-300">Normally $250+.</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
                 Kitchen, bathrooms, ceiling fans, light fixtures, every surface — one dedicated cleaner, 4 hours, no rushing.
