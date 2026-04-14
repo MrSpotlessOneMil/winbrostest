@@ -8,6 +8,7 @@ import OpenAI from 'openai'
 import type { IntentAnalysis } from './ai-intent'
 import type { Tenant } from './tenant'
 import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
+import { getPromoConfig, CAMPAIGN_CONTEXTS } from './promo-config'
 
 export interface AutoResponseResult {
   response: string
@@ -253,20 +254,20 @@ export function formatCustomerContextForPrompt(ctx: CustomerContext, tenant: Ten
     parts.push('')
   }
 
-  // Promotional offer context — detect leads from Meta ads $99 offer
+  // Promotional offer context — use centralized promo-config
   if (ctx.lead?.form_data) {
-    const fd = ctx.lead.form_data
-    const isMetaOffer = fd.utm_campaign === '99-deep-clean' || (fd.source_detail === 'meta' && fd.service_type === 'deep-cleaning')
-    if (isMetaOffer) {
-      parts.push('ACTIVE PROMOTIONAL OFFER FOR THIS CUSTOMER:')
-      parts.push('This customer came from our $99 First Deep Clean Facebook ad campaign.')
-      parts.push('They are expecting a $99 deep clean (normally $250+). This is a legitimate promotional offer.')
-      parts.push('HONOR THE $99 PRICE for their first deep clean. Do NOT quote the standard rate.')
-      parts.push('After the first clean, recurring service is at the regular rate (varies by home size).')
-      parts.push('The offer includes: deep clean with ceiling fans, light fixtures, window sills, and inside microwave.')
-      parts.push('Do NOT ask them to prove the offer or send a screenshot. Just confirm the $99 price.')
-      parts.push('SAFETY NET: If the customer has 5+ bedrooms, use [ESCALATE:large-home-promo] so the owner can review before confirming. For 4 bedrooms and under, honor $99 automatically.')
+    const fd = ctx.lead.form_data as Record<string, unknown>
+    const promoConfig = getPromoConfig(fd)
+    if (promoConfig) {
+      parts.push(...promoConfig.aiContext)
       parts.push('')
+    } else {
+      // Check for non-promo campaign contexts (book-now, airbnb-turnover)
+      const campaign = fd.utm_campaign as string
+      if (campaign && CAMPAIGN_CONTEXTS[campaign]) {
+        parts.push(...CAMPAIGN_CONTEXTS[campaign])
+        parts.push('')
+      }
     }
   }
 
@@ -333,7 +334,7 @@ export async function generateAutoResponse(
     }
   }
 
-  const businessName = tenant?.business_name_short || tenant?.business_name || 'WinBros'
+  const businessName = tenant?.business_name_short || tenant?.business_name || 'our team'
   const sdrName = tenant?.sdr_persona || 'Mary'
   const serviceArea = tenant?.service_area || 'your area'
   // Get the service type from tenant - this differentiates window cleaning from house cleaning etc.

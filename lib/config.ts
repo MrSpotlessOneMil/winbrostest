@@ -30,7 +30,7 @@ export const systemConfig: SystemConfig = {
   business_hours: {
     start: "09:00",
     end: "17:00",
-    timezone: "America/Chicago",
+    timezone: "America/Los_Angeles",
   },
 }
 

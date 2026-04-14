@@ -1276,7 +1276,6 @@ export async function POST(request: NextRequest) {
   // Different from auto_response_paused which is temporary (manual takeover, auto-unpauses after 15min).
   if (customer?.auto_response_disabled === true) {
     console.log(`[OpenPhone] Auto-response PERMANENTLY DISABLED for customer ${customer.id} (${maskPhone(phone)}) — owner set this in dashboard`)
-    await updateDisposition(client, currentMsgId, 'filtered_paused')
     // Still store the message so it shows in conversation history
     await client.from("messages").insert({
       tenant_id: tenant?.id,
@@ -4320,10 +4319,10 @@ export async function POST(request: NextRequest) {
 
                 const customerFirstName = bookingData.firstName || customer.first_name || ''
                 let quoteMsg: string
-                if (isMetaPromo) {
-                  quoteMsg = customerFirstName
-                    ? `Hey ${customerFirstName}! Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
-                    : `Your $99 deep clean is ready to book! Just put your card on file and pick a date here: ${quoteUrl}`
+                if (isMetaPromo && promoConfig1) {
+                  quoteMsg = promoConfig1.quoteSms
+                    .replace('{name}', customerFirstName || 'there')
+                    .replace('{url}', quoteUrl)
                 } else {
                   quoteMsg = customerFirstName
                     ? `Hey ${customerFirstName}! Here are a couple options for your cleaning. Pick the one that works best for you and let me know if you have any questions: ${quoteUrl}`
