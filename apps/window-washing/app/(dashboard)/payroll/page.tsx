@@ -19,14 +19,24 @@ function getWeekBounds(date: Date): { start: string; end: string } {
 }
 
 export default function PayrollPage() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const [loading, setLoading] = useState(true)
   const [weekDate, setWeekDate] = useState(() => new Date())
   const [technicians, setTechnicians] = useState<any[]>([])
   const [salesmen, setSalesmen] = useState<any[]>([])
   const [status, setStatus] = useState<"draft" | "finalized">("draft")
+  const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
 
   const { start, end } = getWeekBounds(weekDate)
+
+  // Resolve logged-in user's cleaner_id for field view filtering
+  useEffect(() => {
+    if (isAdmin || !user?.id) return
+    fetch("/api/actions/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
+      .catch(() => setMyCleanerId(-1))
+  }, [isAdmin, user?.id])
 
   const fetchPayroll = useCallback(async () => {
     setLoading(true)
@@ -66,13 +76,29 @@ export default function PayrollPage() {
     )
   }
 
+  // For non-admin users, filter to only their row by cleaner_id or name match
+  const userName = user?.display_name || user?.username || ""
+  const nameMatch = (name: string) =>
+    userName.length > 0 && name.toLowerCase().includes(userName.toLowerCase())
+
+  const visibleTechnicians = isAdmin
+    ? technicians
+    : technicians.filter(
+        (t) => (myCleanerId && myCleanerId > 0 && t.cleaner_id === myCleanerId) || nameMatch(t.name)
+      )
+  const visibleSalesmen = isAdmin
+    ? salesmen
+    : salesmen.filter(
+        (s) => (myCleanerId && myCleanerId > 0 && s.cleaner_id === myCleanerId) || nameMatch(s.name)
+      )
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <PayrollWeek
         weekStart={start}
         weekEnd={end}
-        technicians={technicians}
-        salesmen={salesmen}
+        technicians={visibleTechnicians}
+        salesmen={visibleSalesmen}
         status={status}
         onWeekChange={handleWeekChange}
         onEmployeeClick={(id) => {

@@ -400,10 +400,11 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const router = useRouter()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
+  const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
@@ -969,6 +970,15 @@ export default function JobsPage() {
     []
   )
 
+  // Resolve logged-in user's cleaner_id for field view filtering
+  useEffect(() => {
+    if (isAdmin || !user?.id) return
+    fetch("/api/actions/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
+      .catch(() => setMyCleanerId(-1))
+  }, [isAdmin, user?.id])
+
   useEffect(() => {
     async function fetchJobs() {
       try {
@@ -1013,19 +1023,39 @@ export default function JobsPage() {
     fetchJobs()
   }, [])
 
+  // For field (non-admin) users, filter to only their jobs
+  const visibleJobs = useMemo(() => {
+    if (isAdmin || !myCleanerId || myCleanerId <= 0) return jobs
+    return jobs.filter((job) => {
+      // Direct cleaner assignment
+      if (job.cleaner_id === myCleanerId) return true
+      // Check cleaner resolved from assignments
+      const assignedId = resolveCleanerId(job)
+      if (assignedId && Number(assignedId) === myCleanerId) return true
+      // Check crew_day_members if present
+      if (Array.isArray(job.cleaner_assignments)) {
+        for (const a of job.cleaner_assignments) {
+          const c = Array.isArray(a.cleaners) ? a.cleaners[0] : a.cleaners
+          if (c?.id === myCleanerId) return true
+        }
+      }
+      return false
+    })
+  }, [jobs, isAdmin, myCleanerId])
+
   const cleanerColorMap = useMemo(() => {
     const names = [...new Set(
-      jobs.map(j => resolveCleanerName(j)).filter(Boolean)
+      visibleJobs.map(j => resolveCleanerName(j)).filter(Boolean)
     )] as string[]
     const map = new Map<string, string>()
     names.sort().forEach((name, i) => {
       map.set(name, CLEANER_COLORS[i % CLEANER_COLORS.length])
     })
     return map
-  }, [jobs])
+  }, [visibleJobs])
 
   const baseEvents = useMemo<EventInput[]>(() => {
-    return jobs.map((job) => {
+    return visibleJobs.map((job) => {
       const start = resolveStart(job)
       const end = resolveEnd(job)
       const location = resolveLocation(job)
@@ -1076,10 +1106,10 @@ export default function JobsPage() {
         },
       }
     })
-  }, [jobs, cleanerColorMap])
+  }, [visibleJobs, cleanerColorMap])
 
   const ganttJobs = useMemo<GanttJob[]>(() => {
-    return jobs.map((job) => ({
+    return visibleJobs.map((job) => ({
       id: String(job.id),
       customerName: resolveCustomerName(job),
       cleanerName: resolveCleanerName(job) || "",
@@ -1089,10 +1119,10 @@ export default function JobsPage() {
       status: job.status || "scheduled",
       color: cleanerColorMap.get(resolveCleanerName(job) || ""),
     }))
-  }, [jobs, cleanerColorMap])
+  }, [visibleJobs, cleanerColorMap])
 
   const handleGanttJobClick = useCallback((jobId: string) => {
-    const job = jobs.find((j) => String(j.id) === jobId)
+    const job = visibleJobs.find((j) => String(j.id) === jobId)
     if (!job) return
     const start = resolveStart(job)
     const end = resolveEnd(job)
@@ -1133,19 +1163,19 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
-  }, [jobs])
+  }, [visibleJobs])
 
   // Open job details after creation once jobs list refreshes
   useEffect(() => {
     if (pendingJobOpenRef.current) {
       const jobId = pendingJobOpenRef.current
-      const job = jobs.find((j) => String(j.id) === jobId)
+      const job = visibleJobs.find((j) => String(j.id) === jobId)
       if (job) {
         pendingJobOpenRef.current = null
         handleGanttJobClick(jobId)
       }
     }
-  }, [jobs, handleGanttJobClick])
+  }, [visibleJobs, handleGanttJobClick])
 
   const handleSelect = (info: DateSelectArg) => {
     const d = info.start
@@ -1392,7 +1422,7 @@ export default function JobsPage() {
     const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
 
     // Resolve all assigned cleaner IDs from cleaner_assignments (not just the primary FK)
-    const job = jobs.find(j => String(j.id) === selectedEvent.jobId)
+    const job = visibleJobs.find(j => String(j.id) === selectedEvent.jobId)
     const assignments = job?.cleaner_assignments
     let initialCleanerIds: string[] = []
     if (Array.isArray(assignments) && assignments.length > 0) {
@@ -2337,7 +2367,7 @@ export default function JobsPage() {
         {/* Schedule monitoring strip — at-a-glance daily summary */}
         {(() => {
           const today = new Date().toISOString().split("T")[0]
-          const todayJobs = jobs.filter(j => {
+          const todayJobs = visibleJobs.filter(j => {
             const jobDate = j.date || j.scheduled_date || ""
             return jobDate.startsWith(today)
           })

@@ -515,9 +515,8 @@ export default function CrewAssignmentPage() {
   /* ════════════════════════════════════════════════════════════════════════
      WORKER VIEW — Days off calendar + time block schedule
      ════════════════════════════════════════════════════════════════════════ */
-  // Workers access their schedule via the crew portal, not the dashboard.
-  // All dashboard users see the admin crew board.
-  const showWorkerView = false
+  // Non-admin (field) users see their personal schedule & day-off requests
+  const showWorkerView = !isAdmin
   if (showWorkerView) {
     const workerOffSet = new Set(workerTimeOff.map(t => t.date))
     const calYear = calendarMonth.getFullYear()
@@ -528,7 +527,11 @@ export default function CrewAssignmentPage() {
     const WKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
     // Worker's jobs sorted for day view
-    const workerDayJobs = jobs
+    // Filter to only this worker's jobs (by cleaner_id or crew membership)
+    const myJobs = cleanerId && cleanerId > 0
+      ? jobs.filter(j => j.cleaner_id === cleanerId)
+      : jobs
+    const workerDayJobs = myJobs
       .filter(j => j.date === selectedDay)
       .sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
 
@@ -580,18 +583,34 @@ export default function CrewAssignmentPage() {
                 const off = workerOffSet.has(dateStr)
                 const today = dateStr === todayStr
                 const toggling = togglingOff === dateStr
+                const isPast = dayDate < new Date(new Date().setHours(0, 0, 0, 0))
+                // 2-week advance rule: cannot request off less than 14 days out
+                const twoWeeksOut = new Date()
+                twoWeeksOut.setDate(twoWeeksOut.getDate() + 14)
+                twoWeeksOut.setHours(0, 0, 0, 0)
+                const tooSoon = dayDate < twoWeeksOut && !isPast && !off
+                const isDisabled = toggling || (cleanerId !== null && cleanerId <= 0) || isPast || tooSoon
                 return (
-                  <button key={dateStr} onClick={() => { toggleTimeOff(dateStr); setSelectedDay(dateStr) }}
-                    disabled={toggling || (cleanerId !== null && cleanerId <= 0)}
+                  <button key={dateStr}
+                    onClick={() => {
+                      if (tooSoon && !off) return
+                      toggleTimeOff(dateStr); setSelectedDay(dateStr)
+                    }}
+                    disabled={isDisabled}
+                    title={tooSoon ? "Too soon — text manager for short-notice requests" : undefined}
                     className={`relative flex flex-col items-center justify-center p-1 rounded-lg min-h-[36px] transition-all
-                      ${off ? "bg-red-500/15 border border-red-500/30 text-red-400" : today ? "bg-primary/10 border border-primary/20" : "border border-transparent hover:bg-muted/40"}`}>
+                      ${off ? "bg-red-500/15 border border-red-500/30 text-red-400" : today ? "bg-primary/10 border border-primary/20" : isPast ? "opacity-30 border border-transparent cursor-not-allowed" : tooSoon ? "opacity-40 border border-zinc-700/30 cursor-not-allowed" : "border border-transparent hover:bg-muted/40"}`}>
                     <span className="text-xs font-medium">{i + 1}</span>
                     {off && <span className="text-[7px] font-bold uppercase leading-none">OFF</span>}
+                    {tooSoon && !off && <span className="text-[6px] text-amber-400 font-semibold leading-none">TEXT MGR</span>}
                     {toggling && <Loader2 className="absolute top-0.5 right-0.5 size-2.5 animate-spin" />}
                   </button>
                 )
               })}
             </div>
+            <p className="text-[10px] text-amber-400/70 mt-2 text-center">
+              Off-day requests must be at least 2 weeks in advance. Text your manager for short-notice requests.
+            </p>
           </div>
 
           {/* ── Schedule: Time Blocks ── */}
@@ -665,7 +684,7 @@ export default function CrewAssignmentPage() {
                   const dateStr = toDateStr(day)
                   const off = workerOffSet.has(dateStr)
                   const today = dateStr === todayStr
-                  const dayJobs = jobs.filter(j => j.date === dateStr).sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
+                  const dayJobs = myJobs.filter(j => j.date === dateStr).sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
                   const dayTotal = dayJobs.reduce((s, j) => s + (Number(j.price) || 0), 0)
                   return (
                     <button key={dateStr} onClick={() => { setSelectedDay(dateStr); setViewMode("day") }}
@@ -697,11 +716,14 @@ export default function CrewAssignmentPage() {
         </div>
 
         {/* Bottom total */}
-        {weeklyTotal > 0 && (
-          <div className="px-4 py-2.5 border-t border-border shrink-0">
-            <span className="text-sm font-bold text-foreground">${Math.round(weeklyTotal).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">this week</span></span>
-          </div>
-        )}
+        {(() => {
+          const myWeekTotal = myJobs.reduce((s, j) => s + (j.status !== "cancelled" ? (j.price || 0) : 0), 0)
+          return myWeekTotal > 0 ? (
+            <div className="px-4 py-2.5 border-t border-border shrink-0">
+              <span className="text-sm font-bold text-foreground">${Math.round(myWeekTotal).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">this week</span></span>
+            </div>
+          ) : null
+        })()}
       </div>
     )
   }

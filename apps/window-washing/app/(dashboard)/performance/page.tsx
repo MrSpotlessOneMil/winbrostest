@@ -92,7 +92,7 @@ function periodLabel(period: Period, start: string, end: string): string {
 /* ── Component ────────────────────────────────────────────────────────────── */
 
 export default function PerformancePage() {
-  const { user } = useAuth()
+  const { user, isAdmin } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<Period>("week")
@@ -193,15 +193,45 @@ export default function PerformancePage() {
         <p className="text-red-400 text-sm py-4">{error}</p>
       )}
 
-      {/* Three sections */}
-      {!loading && !error && data && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      {/* Three sections — filtered for non-admin users */}
+      {!loading && !error && data && (() => {
+        // For field users, match by display_name or username to find their row
+        const userName = user?.display_name || user?.username || ""
+        const nameMatch = (rowName: string) =>
+          userName.length > 0 && rowName.toLowerCase().includes(userName.toLowerCase())
+
+        // Determine which sections to show for non-admin users
+        const myTeamLeadRow = data.team_leads.find((r) => nameMatch(r.name))
+        const mySalesRow = data.sales.find((r) => nameMatch(r.name))
+
+        // Filter data for non-admin users
+        const visibleTeamLeads = isAdmin
+          ? data.team_leads
+          : myTeamLeadRow
+            ? [myTeamLeadRow]
+            : []
+        const visibleSales = isAdmin
+          ? data.sales
+          : mySalesRow
+            ? [mySalesRow]
+            : []
+
+        // Non-admin: show team leads section if they are a team lead or technician
+        // Show sales section if they are a salesman
+        // Never show admin team section for non-admin users
+        const showTeamLeads = isAdmin || visibleTeamLeads.length > 0 || (!mySalesRow)
+        const showAdminTeam = isAdmin
+        const showSales = isAdmin || visibleSales.length > 0
+
+        return (
+        <div className={`grid grid-cols-1 ${isAdmin ? "lg:grid-cols-3" : showTeamLeads && showSales ? "lg:grid-cols-2" : ""} gap-5`}>
           {/* Section 1: Team Leads */}
+          {showTeamLeads && (
           <SectionCard
             icon={<Crown className="w-4 h-4 text-amber-400" />}
-            title="Team Leads"
+            title={isAdmin ? "Team Leads" : "Your Performance"}
           >
-            {data.team_leads.length === 0 ? (
+            {visibleTeamLeads.length === 0 ? (
               <EmptyState text="No team lead data for this period." />
             ) : (
               <div className="overflow-x-auto">
@@ -217,7 +247,7 @@ export default function PerformancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.team_leads.map((row, i) => (
+                    {visibleTeamLeads.map((row, i) => (
                       <tr
                         key={row.id}
                         className={`border-b border-zinc-800/40 ${
@@ -249,8 +279,10 @@ export default function PerformancePage() {
               </div>
             )}
           </SectionCard>
+          )}
 
-          {/* Section 2: Admin Team Performance */}
+          {/* Section 2: Admin Team Performance — admin only */}
+          {showAdminTeam && (
           <SectionCard
             icon={<Users className="w-4 h-4 text-blue-400" />}
             title="Admin Team Performance"
@@ -299,13 +331,15 @@ export default function PerformancePage() {
               </div>
             )}
           </SectionCard>
+          )}
 
           {/* Section 3: Sales Performance */}
+          {showSales && (
           <SectionCard
             icon={<Target className="w-4 h-4 text-emerald-400" />}
-            title="Sales Performance"
+            title={isAdmin ? "Sales Performance" : "Your Sales"}
           >
-            {data.sales.length === 0 ? (
+            {visibleSales.length === 0 ? (
               <EmptyState text="No sales data for this period." />
             ) : (
               <div className="overflow-x-auto">
@@ -320,7 +354,7 @@ export default function PerformancePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.sales.map((row, i) => (
+                    {visibleSales.map((row, i) => (
                       <tr
                         key={row.id}
                         className={`border-b border-zinc-800/40 ${
@@ -349,8 +383,10 @@ export default function PerformancePage() {
               </div>
             )}
           </SectionCard>
+          )}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
