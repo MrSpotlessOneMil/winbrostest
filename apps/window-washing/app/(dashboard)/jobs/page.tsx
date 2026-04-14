@@ -3085,6 +3085,14 @@ export default function JobsPage() {
                     <DollarSign className="w-4 h-4" />
                   </button>
                   <button
+                    className="cal-modal-btn"
+                    onClick={() => router.push(`/jobs/${selectedEvent?.jobId}`)}
+                    title="View full job/visit details"
+                    style={{ fontSize: "0.8rem" }}
+                  >
+                    Full Details
+                  </button>
+                  <button
                     className="cal-modal-btn cal-modal-btn-edit"
                     onClick={handleStartEdit}
                   >
