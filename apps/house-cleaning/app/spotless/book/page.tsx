@@ -337,23 +337,7 @@ export default function BookPage() {
         </div>
       </section>
 
-      {/* ---- Sticky CTA (mobile) ---- */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-amber-400 shadow-[0_-4px_12px_rgba(0,0,0,0.15)] pb-6 pt-3 px-4">
-        <div className="flex gap-3 max-w-lg mx-auto">
-          <a
-            href="tel:+14246771146"
-            className="flex-1 flex items-center justify-center gap-2 bg-white text-slate-900 font-semibold py-3 rounded-lg text-sm"
-          >
-            Call Now
-          </a>
-          <a
-            href="#book-now"
-            className="flex-1 flex items-center justify-center gap-2 bg-[#164E63] text-white font-semibold py-3 rounded-lg text-sm"
-          >
-            Get Free Quote
-          </a>
-        </div>
-      </div>
+      <div className="h-20 md:hidden" />
     </>
   )
 }
