@@ -173,7 +173,7 @@ export default function AirbnbPage() {
                 <p className="text-sm text-slate-500 mb-1">AIRBNB TURNOVER CLEANING</p>
                 <p className="text-lg font-semibold text-slate-800">Get your custom quote</p>
               </div>
-              <BookingForm source="meta" preselectedService="airbnb-turnover" ctaLabel="Get Turnover Pricing" />
+              <BookingForm source="meta" preselectedService="airbnb-cleaning" ctaLabel="Get Turnover Pricing" />
             </div>
           </div>
         </div>
@@ -329,7 +329,7 @@ export default function AirbnbPage() {
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="airbnb-turnover" ctaLabel="Get Turnover Pricing" />
+            <BookingForm source="meta" preselectedService="airbnb-cleaning" ctaLabel="Get Turnover Pricing" />
           </div>
 
           <p className="text-xs text-slate-400 mt-6">

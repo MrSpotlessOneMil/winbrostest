@@ -211,7 +211,7 @@ export async function POST(
   // The SMS bot picks up from here — ask for what's still missing so it can
   // reach [BOOKING_COMPLETE] (needs address + bed/bath) and send the 3-tier quote link.
   const sdrName = tenant.sdr_persona || "Mary"
-  const isSpecializedService = ['commercial', 'post_construction', 'airbnb'].includes(serviceType)
+  const isSpecializedService = ['commercial', 'post_construction', 'airbnb', 'airbnb-cleaning'].includes(serviceType)
 
   // Check for promo campaign (shared config — single source of truth)
   const { getPromoConfig } = await import('@/lib/promo-config')

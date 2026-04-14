@@ -132,7 +132,9 @@ export function getPromoConfig(formData: Record<string, unknown> | null | undefi
     return PROMO_CAMPAIGNS[campaign]
   }
   // Fallback: check source_detail + service_type for Meta leads without utm_campaign
-  if (formData.source_detail === 'meta' && formData.service_type === 'deep-cleaning') {
+  // ONLY trigger when utm_campaign is absent — if a campaign IS set (like book-now),
+  // it already went through the lookup above and didn't match a promo. Don't override.
+  if (!campaign && formData.source_detail === 'meta' && formData.service_type === 'deep-cleaning') {
     return PROMO_CAMPAIGNS['99-3hr-clean'] // default Meta promo
   }
   return null
