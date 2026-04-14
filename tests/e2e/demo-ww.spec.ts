@@ -105,7 +105,8 @@ test.describe('WW Demo — Crystal Clear Windows', () => {
     await expect(sidebar).toBeVisible({ timeout: 15000 })
 
     const sidebarText = await sidebar.textContent()
-    for (const tab of ['Quotes', 'Schedule', 'Service Plans', 'Payroll', 'Control Center']) {
+    // Field view (non-admin) sees 6 tabs: Calendar, Jobs, Customers, Off Days, Team Performance, Payroll
+    for (const tab of ['Calendar', 'Jobs', 'Customers', 'Payroll']) {
       expect(sidebarText, `Sidebar missing "${tab}"`).toContain(tab)
     }
   })
