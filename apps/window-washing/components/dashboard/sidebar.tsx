@@ -57,19 +57,19 @@ const DEFAULT_COLORS = {
 
 type UserRole = "admin" | "salesman" | "technician"
 
+// Blake's exact 7-item nav (from his diagram Screenshot 130259)
 const navigation = [
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
-  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
-  { name: "Calendar", href: "/jobs", icon: ClipboardList, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
+  { name: "Jobs", href: "/jobs", icon: ClipboardList, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
   { name: "Crew Assignment", href: "/crews", icon: Users, adminOnly: false, roles: ["admin"] as UserRole[] },
+  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
   { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
-  { name: "Service Plans", href: "/service-plan-schedule", icon: Calendar, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
-  { name: "ARR Dashboard", href: "/service-plan-hub", icon: Repeat, adminOnly: false, roles: ["admin"] as UserRole[] },
   { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false, roles: ["admin"] as UserRole[] },
-  { name: "Performance", href: "/performance", icon: BarChart3, adminOnly: false, roles: ["admin"] as UserRole[] },
   { name: "Control Center", href: "/control-center", icon: Sliders, adminOnly: false, roles: ["admin"] as UserRole[] },
-  { name: "Teams", href: "/teams", icon: Users, adminOnly: true },
-  { name: "Reporting", href: "/insights", icon: BarChart3, adminOnly: true },
+  // Admin-only extras (not in Blake's 7-item nav)
+  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: true },
+  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar, adminOnly: true },
+  { name: "Performance", href: "/performance", icon: BarChart3, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
 
