@@ -183,9 +183,10 @@ export async function GET(request: NextRequest) {
       sms += `\nALERTS:\n${alerts.map(a => `- ${a}`).join('\n')}`
     }
 
-    // Send SMS
+    // Send SMS — bypassFilters because this is an owner notification, not a customer text
     const smsResult = await sendSMS(tenant, DOMINIC_PHONE, sms, {
       source: 'meta_ads_monitor',
+      bypassFilters: true,
     })
 
     // Log the report
