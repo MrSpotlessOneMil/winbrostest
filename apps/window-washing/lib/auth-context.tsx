@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setAuthenticated(true)
         setUser(data.data.user)
-        setIsAdmin(data.data.user.username === 'admin')
+        setIsAdmin(data.data.user.username === 'admin' || data.data.user.username === 'winbros')
         setTenantStatus(data.data.tenantStatus || null)
 
         const sessionToken = data.data.sessionToken
@@ -183,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (data.success && data.data?.user) {
           // Update current user state
           setUser(data.data.user)
-          setIsAdmin(data.data.user.username === 'admin')
+          setIsAdmin(data.data.user.username === 'admin' || data.data.user.username === 'winbros')
           setTenantStatus(data.data.tenantStatus || null)
           setAuthenticated(true)
 
