@@ -184,7 +184,7 @@ export default function DeepCleanOfferPage() {
             Everything. For $149.
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
-            This is the same deep clean we normally charge $250+ for. Fridge, oven, baseboards — all included.
+            4 full hours of the same quality cleaning we normally charge $250+ for. Ceiling fans, light fixtures, every surface — thorough, not rushed.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl mx-auto">
