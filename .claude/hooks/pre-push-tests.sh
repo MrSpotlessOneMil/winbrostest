@@ -49,20 +49,11 @@ to_unix_path() {
 
 UNIX_PROJECT=$(to_unix_path "$PROJECT_DIR")
 
-echo "Tests Running..." >&2
-
 # Run tests, capture output
 TEST_OUTPUT=$(cd "$UNIX_PROJECT" && npm run test 2>&1) || TEST_EXIT=$?
 TEST_EXIT=${TEST_EXIT:-0}
 
-# Parse test counts from vitest output (e.g. "327 passed", "1 failed")
-PASSED=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ passed' | tail -1 | grep -oE '[0-9]+')
-FAILED=$(echo "$TEST_OUTPUT" | grep -oE '[0-9]+ failed' | tail -1 | grep -oE '[0-9]+')
-TOTAL=$(( ${PASSED:-0} + ${FAILED:-0} ))
-
 if [[ "$TEST_EXIT" -ne 0 ]]; then
-  echo "${PASSED:-0}/${TOTAL} passed, ${FAILED:-0} failed" >&2
-
   # Use node to safely build JSON (avoids escaping issues with Windows paths in test output)
   BLOCK_JSON=$(echo "$TEST_OUTPUT" | tail -30 | node -e "
     let d='';
@@ -74,7 +65,6 @@ if [[ "$TEST_EXIT" -ne 0 ]]; then
   ")
   echo "$BLOCK_JSON"
 else
-  echo "Success ${PASSED:-0}/${TOTAL} passed" >&2
   echo '{"decision":"allow"}'
 fi
 
