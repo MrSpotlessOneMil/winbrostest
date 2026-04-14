@@ -66,8 +66,8 @@ const adminNavigation = [
   { name: "Scheduling", href: "/schedule", icon: CalendarDays },
   { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar },
   { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat },
-  { name: "Payroll", href: "/payroll", icon: DollarSign },
   { name: "Team Performance", href: "/performance", icon: BarChart3 },
+  { name: "Payroll", href: "/payroll", icon: DollarSign },
   { name: "Insights", href: "/insights", icon: Lightbulb },
   { name: "Control Center", href: "/control-center", icon: Sliders },
 ]
