@@ -33,7 +33,7 @@ interface Quote {
   square_footage: number | null
   property_type: string | null
   notes: string | null
-  status: "pending" | "approved" | "expired"
+  status: "pending" | "approved" | "expired" | "draft" | "sent" | "converted" | "declined" | "cancelled"
   selected_tier: string | null
   total_price: number | null
   created_at: string
@@ -64,7 +64,7 @@ const STATUS_BADGE: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
   approved: { label: "Approved", className: "bg-green-500/20 text-green-400 border-green-500/30" },
   expired: { label: "Expired", className: "bg-red-500/20 text-red-400 border-red-500/30" },
-  converted: { label: "Converted", className: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  converted: { label: "Converted", className: "bg-green-500/20 text-green-400 border-green-500/30" },
   declined: { label: "Declined", className: "bg-red-500/20 text-red-300 border-red-500/30" },
   draft: { label: "Draft", className: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30" },
   sent: { label: "Sent", className: "bg-violet-500/20 text-violet-400 border-violet-500/30" },
@@ -103,6 +103,7 @@ export default function QuotesPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [smsStatus, setSmsStatus] = useState<{ id: string; message: string } | null>(null)
+  const [approvingId, setApprovingId] = useState<string | null>(null)
 
   // Create form state
   const [showCreate, setShowCreate] = useState(false)
@@ -196,6 +197,30 @@ export default function QuotesPage() {
       setTimeout(() => setSmsStatus(null), 4000)
     } finally {
       setSendingId(null)
+    }
+  }
+
+  async function handleApprove(quoteId: string) {
+    setApprovingId(quoteId)
+    setSmsStatus(null)
+    try {
+      const res = await fetch("/api/actions/quotes/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ quoteId, approvedBy: "salesman" }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to approve quote")
+      }
+      setSmsStatus({ id: quoteId, message: `Converted! Job #${data.job_id}` })
+      setTimeout(() => setSmsStatus(null), 4000)
+      fetchQuotes()
+    } catch (err: unknown) {
+      setSmsStatus({ id: quoteId, message: err instanceof Error ? err.message : "Approve failed" })
+      setTimeout(() => setSmsStatus(null), 4000)
+    } finally {
+      setApprovingId(null)
     }
   }
 
@@ -817,6 +842,22 @@ export default function QuotesPage() {
                           ) : (
                             <MessageSquare className="h-4 w-4" />
                           )}
+                        </Button>
+                      )}
+                      {["draft", "sent", "pending"].includes(quote.status) && (
+                        <Button
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                          onClick={() => handleApprove(quote.id)}
+                          disabled={approvingId === quote.id}
+                          title="Approve & convert to job"
+                        >
+                          {approvingId === quote.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 mr-1" />
+                          )}
+                          Approve & Convert
                         </Button>
                       )}
                       <Button

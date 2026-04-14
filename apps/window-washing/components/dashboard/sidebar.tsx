@@ -55,15 +55,18 @@ const DEFAULT_COLORS = {
   btnHover: "hover:bg-purple-600",
 }
 
+type UserRole = "admin" | "salesman" | "technician"
+
 const navigation = [
-  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
-  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false },
-  { name: "Calendar", href: "/jobs", icon: ClipboardList, adminOnly: false },
-  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false },
-  { name: "Service Plans", href: "/service-plan-schedule", icon: Calendar, adminOnly: false },
-  { name: "ARR Dashboard", href: "/service-plan-hub", icon: Repeat, adminOnly: false },
-  { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false },
-  { name: "Control Center", href: "/control-center", icon: Sliders, adminOnly: false },
+  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
+  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
+  { name: "Calendar", href: "/jobs", icon: ClipboardList, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
+  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
+  { name: "Service Plans", href: "/service-plan-schedule", icon: Calendar, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
+  { name: "ARR Dashboard", href: "/service-plan-hub", icon: Repeat, adminOnly: false, roles: ["admin"] as UserRole[] },
+  { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false, roles: ["admin"] as UserRole[] },
+  { name: "Performance", href: "/performance", icon: BarChart3, adminOnly: false, roles: ["admin"] as UserRole[] },
+  { name: "Control Center", href: "/control-center", icon: Sliders, adminOnly: false, roles: ["admin"] as UserRole[] },
   { name: "Teams", href: "/teams", icon: Users, adminOnly: true },
   { name: "Reporting", href: "/insights", icon: BarChart3, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
@@ -161,10 +164,15 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
-  // Filter navigation items based on admin status
+  // Filter navigation items based on admin status + role
+  const userRole = (user as any)?.role as UserRole | undefined
   const filteredNavigation = navigation.filter(item => {
     if (item.adminOnly && !isAdmin) return false
     if ((item as any).tenantOnly && (item as any).tenantOnly !== tenantSlug) return false
+    // Role-based filtering: admins see everything, otherwise check roles array
+    if (!isAdmin && item.roles && userRole) {
+      if (!item.roles.includes(userRole)) return false
+    }
     return true
   })
 

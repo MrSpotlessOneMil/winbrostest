@@ -181,7 +181,7 @@ export async function activateServicePlan(
       updated_at: new Date().toISOString(),
     })
     .eq('id', planId)
-    .eq('status', 'sent') // Only sent plans can be activated
+    .in('status', ['sent', 'draft']) // Sent or draft plans can be activated
 
   if (updateError) {
     return { success: false, jobs_created: 0, error: `Failed to activate: ${updateError.message}` }

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { useAuth } from "@/lib/auth-context"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Calendar, ChevronLeft, ChevronRight, Loader2, GripVertical } from "lucide-react"
+import { Calendar, ChevronLeft, ChevronRight, Loader2, GripVertical, CalendarPlus, Check, X } from "lucide-react"
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -25,6 +25,10 @@ export default function ServicePlanSchedulePage() {
   const [year, setYear] = useState(new Date().getFullYear())
   const [loading, setLoading] = useState(true)
   const [jobsByMonth, setJobsByMonth] = useState<Record<number, PlanJob[]>>({})
+  const [schedulingId, setSchedulingId] = useState<number | null>(null)
+  const [scheduleDate, setScheduleDate] = useState("")
+  const [submittingId, setSubmittingId] = useState<number | null>(null)
+  const [scheduleMsg, setScheduleMsg] = useState<{ id: number; text: string; ok: boolean } | null>(null)
 
   useEffect(() => {
     async function loadJobs() {
@@ -41,6 +45,48 @@ export default function ServicePlanSchedulePage() {
     }
     loadJobs()
   }, [year])
+
+  async function reloadJobs() {
+    try {
+      const res = await fetch(`/api/actions/service-plan-jobs?year=${year}`)
+      if (res.ok) {
+        setJobsByMonth(await res.json())
+      }
+    } catch {
+      // silent
+    }
+  }
+
+  async function handleSchedule(jobId: number) {
+    if (!scheduleDate) return
+    setSubmittingId(jobId)
+    setScheduleMsg(null)
+    try {
+      const res = await fetch("/api/actions/service-plan-jobs/schedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planJobId: jobId, targetDate: scheduleDate }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to schedule")
+      }
+      setScheduleMsg({ id: jobId, text: `Scheduled! Job #${data.job_id}`, ok: true })
+      setSchedulingId(null)
+      setScheduleDate("")
+      setTimeout(() => setScheduleMsg(null), 3000)
+      reloadJobs()
+    } catch (err: unknown) {
+      setScheduleMsg({
+        id: jobId,
+        text: err instanceof Error ? err.message : "Schedule failed",
+        ok: false,
+      })
+      setTimeout(() => setScheduleMsg(null), 4000)
+    } finally {
+      setSubmittingId(null)
+    }
+  }
 
   const totalUnscheduled = Object.values(jobsByMonth).reduce(
     (sum, jobs) => sum + jobs.filter(j => j.status === "unscheduled").length, 0
@@ -105,22 +151,83 @@ export default function ServicePlanSchedulePage() {
                     <p className="text-xs text-zinc-600 text-center py-4">No plan jobs</p>
                   )}
                   {jobs.map(job => (
-                    <div
-                      key={job.id}
-                      className={`flex items-center gap-2 p-2 rounded text-xs cursor-grab
-                        ${job.status === "unscheduled"
-                          ? "bg-amber-900/10 border border-amber-900/20"
-                          : "bg-zinc-900 border border-zinc-800"
-                        }`}
-                    >
-                      <GripVertical className="w-3 h-3 text-zinc-600 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white truncate">{job.customer_name}</div>
-                        <div className="text-zinc-500 truncate">{job.address}</div>
+                    <div key={job.id} className="space-y-1">
+                      <div
+                        className={`flex items-center gap-2 p-2 rounded text-xs
+                          ${job.status === "unscheduled"
+                            ? "bg-amber-900/10 border border-amber-900/20"
+                            : "bg-green-900/10 border border-green-900/20"
+                          }`}
+                      >
+                        <GripVertical className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white truncate">{job.customer_name}</div>
+                          <div className="text-zinc-500 truncate">{job.address}</div>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] border-zinc-700 flex-shrink-0">
+                          Wk {job.target_week}
+                        </Badge>
+                        {job.status === "unscheduled" && schedulingId !== job.id && (
+                          <button
+                            onClick={() => {
+                              setSchedulingId(job.id)
+                              // Default to target week's Monday in this month
+                              const targetDay = ((job.target_week - 1) * 7) + 1
+                              const d = new Date(year, month - 1, Math.min(targetDay, 28))
+                              setScheduleDate(d.toISOString().split("T")[0])
+                            }}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 flex items-center gap-0.5 flex-shrink-0"
+                            title="Schedule this job"
+                          >
+                            <CalendarPlus className="w-3 h-3" />
+                            Schedule
+                          </button>
+                        )}
+                        {job.status === "scheduled" && (
+                          <span className="text-[10px] text-green-400 flex items-center gap-0.5 flex-shrink-0">
+                            <Check className="w-3 h-3" />
+                            Scheduled
+                          </span>
+                        )}
                       </div>
-                      <Badge variant="outline" className="text-[10px] border-zinc-700 flex-shrink-0">
-                        Wk {job.target_week}
-                      </Badge>
+
+                      {/* Inline date picker */}
+                      {schedulingId === job.id && (
+                        <div className="flex items-center gap-1.5 pl-5">
+                          <input
+                            type="date"
+                            value={scheduleDate}
+                            onChange={(e) => setScheduleDate(e.target.value)}
+                            className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-zinc-500"
+                          />
+                          <button
+                            onClick={() => handleSchedule(job.id)}
+                            disabled={submittingId === job.id || !scheduleDate}
+                            className="p-1 rounded bg-green-700 hover:bg-green-600 text-white disabled:opacity-50"
+                            title="Confirm schedule"
+                          >
+                            {submittingId === job.id ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Check className="w-3 h-3" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => { setSchedulingId(null); setScheduleDate("") }}
+                            className="p-1 rounded bg-zinc-700 hover:bg-zinc-600 text-white"
+                            title="Cancel"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Status message */}
+                      {scheduleMsg?.id === job.id && (
+                        <p className={`text-[10px] pl-5 ${scheduleMsg.ok ? "text-green-400" : "text-red-400"}`}>
+                          {scheduleMsg.text}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
