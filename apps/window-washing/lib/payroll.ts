@@ -35,6 +35,8 @@ interface TechPayrollEntry {
   cleaner_id: number
   role: 'technician' | 'team_lead'
   revenue_completed: number
+  revenue_sold: number
+  revenue_upsell: number
   pay_percentage: number
   hours_worked: number
   overtime_hours: number
@@ -168,8 +170,9 @@ export async function generatePayrollWeek(
     .lte('visit_date', weekEnd)
     .in('status', ['closed', 'payment_collected', 'checklist_done', 'completed'])
 
-  // Build per-person revenue and hours
-  const techRevenue: Record<number, number> = {}
+  // Build per-person revenue (sold vs upsell) and hours
+  const techSold: Record<number, number> = {}
+  const techUpsell: Record<number, number> = {}
   const techHours: Record<number, number> = {}
   const salesmanRevenue: Record<number, { onetime: number; triannual: number; quarterly: number }> = {}
 
@@ -178,23 +181,24 @@ export async function generatePayrollWeek(
     if (visit.started_at && visit.stopped_at) {
       const hours = (new Date(visit.stopped_at).getTime() - new Date(visit.started_at).getTime()) / 3600000
       for (const techId of (visit.technicians as number[]) || []) {
-        techRevenue[techId] = techRevenue[techId] || 0
+        techSold[techId] = techSold[techId] || 0
+        techUpsell[techId] = techUpsell[techId] || 0
         techHours[techId] = (techHours[techId] || 0) + hours
       }
     }
 
-    // Aggregate revenue by type
+    // Aggregate revenue by type — sold vs upsell tracked separately
     for (const item of (visit as any).visit_line_items || []) {
       if (item.revenue_type === 'original_quote') {
         // Credit to assigned technicians (split evenly if multiple)
         const techCount = ((visit.technicians as number[]) || []).length || 1
         for (const techId of (visit.technicians as number[]) || []) {
-          techRevenue[techId] = (techRevenue[techId] || 0) + Number(item.price) / techCount
+          techSold[techId] = (techSold[techId] || 0) + Number(item.price) / techCount
         }
       }
       // Upsells credited to the tech who added them
       if (item.revenue_type === 'technician_upsell' && item.added_by_cleaner_id) {
-        techRevenue[item.added_by_cleaner_id] = (techRevenue[item.added_by_cleaner_id] || 0) + Number(item.price)
+        techUpsell[item.added_by_cleaner_id] = (techUpsell[item.added_by_cleaner_id] || 0) + Number(item.price)
       }
     }
   }
@@ -204,7 +208,9 @@ export async function generatePayrollWeek(
 
   for (const rate of payRates) {
     if (rate.role === 'technician' || rate.role === 'team_lead') {
-      const revenue = techRevenue[rate.cleaner_id] || 0
+      const sold = techSold[rate.cleaner_id] || 0
+      const upsell = techUpsell[rate.cleaner_id] || 0
+      const revenue = sold + upsell
       const hours = techHours[rate.cleaner_id] || 0
       const otHours = Math.max(0, hours - 40) // 40hr work week
       const totalPay = calculateTechPay(
@@ -221,6 +227,8 @@ export async function generatePayrollWeek(
         cleaner_id: rate.cleaner_id,
         role: rate.role,
         revenue_completed: revenue,
+        revenue_sold: sold,
+        revenue_upsell: upsell,
         pay_percentage: rate.pay_percentage,
         hours_worked: hours,
         overtime_hours: otHours,
