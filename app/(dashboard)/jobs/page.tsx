@@ -2727,6 +2727,14 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
+                {(selectedEvent as any)?.cleaner_pay_override ? (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Cleaner Pay Override:</strong> ${Number((selectedEvent as any).cleaner_pay_override)}
+                    {(selectedEvent as any)?.cleaners > 1 && (
+                      <span className="text-muted-foreground"> (${(Number((selectedEvent as any).cleaner_pay_override) / Number((selectedEvent as any).cleaners)).toFixed(2)} per cleaner)</span>
+                    )}
+                  </div>
+                ) : null}
                 {selectedEvent?.notes && (
                   <div style={{ marginBottom: "0.5rem" }}>
                     <strong>Admin Notes:</strong>{" "}
