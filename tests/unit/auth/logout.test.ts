@@ -39,6 +39,7 @@ describe('POST /api/auth/logout', () => {
 
     expect(data.status).toBe(200)
     expect(data.body.success).toBe(true)
+    expect(mockDeleteSession).toHaveBeenCalledTimes(1)
     expect(mockClearSessionCookie).toHaveBeenCalledTimes(1)
   })
 
