@@ -18,6 +18,7 @@ interface Job {
   hours: number | null; price: number | null
   assignment_status: string; assignment_id: string; customer_first_name: string | null
   cleaner_omw_at: string | null; cleaner_arrived_at: string | null; payment_method: string | null
+  visit_status: string | null
 }
 interface TimeOffEntry { id: number; date: string; reason: string | null }
 interface WeeklyDay { available: boolean; start?: string; end?: string }
@@ -39,6 +40,42 @@ const DEFAULT_THEME = { gradient: "linear-gradient(135deg, #58cc02 0%, #2b9348 1
 const STATUS_COLORS: Record<string, string> = {
   completed: "#22c55e", in_progress: "#eab308", scheduled: "#3b82f6",
   confirmed: "#3b82f6", pending: "#a855f7", quoted: "#a855f7", cancelled: "#6b7280",
+}
+
+/* ─── Visit Flow Status Config ─── */
+const VISIT_STEPS = [
+  { key: "on_my_way", short: "OMW", label: "On My Way", color: "#3b82f6" },
+  { key: "in_progress", short: "Start", label: "In Progress", color: "#22c55e" },
+  { key: "stopped", short: "Stop", label: "Stopped", color: "#f97316" },
+  { key: "completed", short: "Done", label: "Completed", color: "#10b981" },
+  { key: "checklist_done", short: "Check", label: "Checklist", color: "#a855f7" },
+  { key: "payment_collected", short: "Pay", label: "Payment", color: "#6366f1" },
+  { key: "closed", short: "Close", label: "Closed", color: "#71717a" },
+] as const
+
+const VISIT_STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
+  not_started: { label: "Not Started", color: "#9ca3af", bg: "#9ca3af20" },
+  on_my_way: { label: "On My Way", color: "#3b82f6", bg: "#3b82f620" },
+  in_progress: { label: "In Progress", color: "#22c55e", bg: "#22c55e20" },
+  stopped: { label: "Stopped", color: "#f97316", bg: "#f9731620" },
+  completed: { label: "Completed", color: "#10b981", bg: "#10b98120" },
+  checklist_done: { label: "Checklist", color: "#a855f7", bg: "#a855f720" },
+  payment_collected: { label: "Payment", color: "#6366f1", bg: "#6366f120" },
+  closed: { label: "Closed", color: "#71717a", bg: "#71717a20" },
+}
+
+function getVisitStepIndex(status: string | null): number {
+  if (!status || status === "not_started") return -1
+  return VISIT_STEPS.findIndex(s => s.key === status)
+}
+
+function getServiceBadgeStyle(type: string | null): { bg: string; color: string } {
+  switch (type) {
+    case "window_cleaning": return { bg: "#0ea5e920", color: "#0ea5e9" }
+    case "pressure_washing": return { bg: "#f9731620", color: "#f97316" }
+    case "gutter_cleaning": return { bg: "#f59e0b20", color: "#f59e0b" }
+    default: return { bg: "#71717a20", color: "#71717a" }
+  }
 }
 
 const DAYS_OF_WEEK = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"] as const
@@ -263,7 +300,7 @@ export default function CrewPortalPage() {
         <div className="absolute -top-8 -right-8 size-28 rounded-full" style={{ background: "rgba(255,255,255,0.1)" }} />
         <div className="relative z-10">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-[10px] font-semibold text-white/70 uppercase tracking-wider">{tenant.name}</span>
+            <span className="text-[10px] font-semibold text-white/70 uppercase tracking-wider">{tenant?.name}</span>
             <button onClick={handleLogout} className="text-[10px] text-white/50 hover:text-white/80 transition-colors flex items-center gap-1">
               <LogOut className="size-3" /> Log out
             </button>
@@ -367,7 +404,7 @@ export default function CrewPortalPage() {
         <span className="text-sm font-bold text-slate-700">
           {(viewMode === "day" ? (jobsByDate[currentDate] || []) : jobs).length} <span className="text-xs font-normal text-slate-400">jobs scheduled</span>
         </span>
-        {cleaner.employee_type === "salesman" && (
+        {cleaner?.employee_type === "salesman" && (
           <button
             onClick={() => router.push(`/crew/${token}/new-quote`)}
             className="size-10 rounded-full flex items-center justify-center shadow-lg"
@@ -396,18 +433,43 @@ export default function CrewPortalPage() {
               <>
                 {/* Status + Time */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[10px] font-bold px-2 py-1 rounded-full text-white"
-                    style={{ background: STATUS_COLORS[selectedJob.status] || "#6b7280" }}>
-                    {humanize(selectedJob.status)}
-                  </span>
+                  {(() => {
+                    const vs = selectedJob.visit_status
+                    const vm = vs ? VISIT_STATUS_META[vs] : null
+                    return vm ? (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-full"
+                        style={{ background: vm.bg, color: vm.color }}>
+                        {vm.label}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-1 rounded-full text-white"
+                        style={{ background: STATUS_COLORS[selectedJob.status] || "#6b7280" }}>
+                        {humanize(selectedJob.status)}
+                      </span>
+                    )
+                  })()}
+                  {selectedJob.service_type && (
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-full border"
+                      style={{
+                        background: getServiceBadgeStyle(selectedJob.service_type).bg,
+                        color: getServiceBadgeStyle(selectedJob.service_type).color,
+                        borderColor: `${getServiceBadgeStyle(selectedJob.service_type).color}30`,
+                      }}>
+                      {humanize(selectedJob.service_type)}
+                    </span>
+                  )}
                   {selectedJob.job_type === "estimate" && (
                     <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-100 text-amber-700">ESTIMATE</span>
                   )}
                   <span className="text-xs text-slate-500">
                     {formatDateLabel(selectedJob.date)} · {formatTime12(selectedJob.scheduled_at)}
-                    {selectedJob.hours ? ` – ${formatTime12(getEndTime(selectedJob.scheduled_at, selectedJob.hours))}` : ""}
+                    {selectedJob.hours ? ` - ${formatTime12(getEndTime(selectedJob.scheduled_at, selectedJob.hours))}` : ""}
                   </span>
                 </div>
+                {/* Visit progress in drawer */}
+                {selectedJob.visit_status && selectedJob.job_type !== "estimate" && (
+                  <VisitProgressDots visitStatus={selectedJob.visit_status} />
+                )}
 
                 {/* Customer */}
                 {selectedJob.customer_first_name && (
@@ -589,6 +651,33 @@ export default function CrewPortalPage() {
   )
 }
 
+/* ═══ VISIT PROGRESS DOTS (shared by day + week views) ═══ */
+function VisitProgressDots({ visitStatus }: { visitStatus: string | null }) {
+  const currentIdx = getVisitStepIndex(visitStatus)
+  return (
+    <div className="flex items-center gap-1">
+      {VISIT_STEPS.map((step, i) => {
+        const isDone = i <= currentIdx
+        const isCurrent = i === currentIdx
+        return (
+          <div
+            key={step.key}
+            title={step.label}
+            className="rounded-full transition-all"
+            style={{
+              width: isCurrent ? 16 : 6,
+              height: 6,
+              borderRadius: isCurrent ? 3 : 3,
+              background: isDone ? step.color : "#e2e8f0",
+              boxShadow: isCurrent ? `0 0 6px ${step.color}60` : "none",
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
 /* ═══ DAY VIEW ═══ */
 function DayView({ jobs, onJobClick, theme }: { jobs: Job[]; onJobClick: (j: Job) => void; theme: typeof DEFAULT_THEME }) {
   if (jobs.length === 0) return (
@@ -606,8 +695,11 @@ function DayView({ jobs, onJobClick, theme }: { jobs: Job[]; onJobClick: (j: Job
     <div className="px-4 py-3 space-y-2">
       {sorted.map(job => {
         const isEstimate = job.job_type === "estimate" || job.job_type === "sales_appointment"
-        const statusColor = STATUS_COLORS[job.status] || "#6b7280"
+        const vs = job.visit_status
+        const visitMeta = vs ? VISIT_STATUS_META[vs] : null
+        const borderColor = isEstimate ? "#f59e0b" : (visitMeta?.color || STATUS_COLORS[job.status] || "#6b7280")
         const endTime = getEndTime(job.scheduled_at, job.hours)
+        const serviceBadge = getServiceBadgeStyle(job.service_type)
 
         return (
           <button
@@ -617,38 +709,66 @@ function DayView({ jobs, onJobClick, theme }: { jobs: Job[]; onJobClick: (j: Job
             style={{
               background: "#fff",
               boxShadow: "0 1px 6px rgba(0,0,0,0.06)",
-              borderLeft: `4px solid ${isEstimate ? "#f59e0b" : statusColor}`,
+              borderLeft: `4px solid ${borderColor}`,
             }}
           >
             <div className="p-3">
-              {/* Time range */}
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-bold" style={{ color: isEstimate ? "#f59e0b" : statusColor }}>
+              {/* Top row: time + badges */}
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold" style={{ color: borderColor }}>
                   {formatTime12(job.scheduled_at)}
-                  {endTime ? ` – ${formatTime12(endTime)}` : ""}
+                  {endTime ? ` - ${formatTime12(endTime)}` : ""}
                 </span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
-                  style={{ background: isEstimate ? "#f59e0b" : statusColor }}>
-                  {isEstimate ? "APPT" : humanize(job.status)}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {/* Service type badge */}
+                  {job.service_type && (
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border"
+                      style={{ background: serviceBadge.bg, color: serviceBadge.color, borderColor: `${serviceBadge.color}30` }}>
+                      {humanize(job.service_type)}
+                    </span>
+                  )}
+                  {/* Visit status badge */}
+                  {isEstimate ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white" style={{ background: "#f59e0b" }}>
+                      APPT
+                    </span>
+                  ) : visitMeta ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                      style={{ background: visitMeta.bg, color: visitMeta.color }}>
+                      {visitMeta.label}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full text-white"
+                      style={{ background: STATUS_COLORS[job.status] || "#6b7280" }}>
+                      {humanize(job.status)}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* Service type + location */}
-              <p className="text-sm font-semibold text-slate-800 mb-0.5">
-                {job.service_type ? humanize(job.service_type) : "Job"}
-              </p>
+              {/* Customer name */}
+              {job.customer_first_name && (
+                <p className="text-sm font-semibold text-slate-800 mb-0.5">{job.customer_first_name}</p>
+              )}
+
+              {/* Address */}
               {job.address && (
-                <p className="text-xs text-slate-400 truncate flex items-center gap-1">
+                <p className="text-xs text-slate-400 truncate flex items-center gap-1 mb-1.5">
                   <MapPin className="size-3 shrink-0" />
                   {job.address}
                 </p>
               )}
 
-              {/* Bottom: customer + hours */}
-              <div className="flex items-center gap-3 mt-1.5 text-[11px] text-slate-400">
-                {job.customer_first_name && <span>{job.customer_first_name}</span>}
+              {/* Visit progress dots */}
+              {!isEstimate && vs && (
+                <div className="mb-1">
+                  <VisitProgressDots visitStatus={vs} />
+                </div>
+              )}
+
+              {/* Bottom: hours */}
+              <div className="flex items-center gap-3 text-[11px] text-slate-400">
                 {job.hours && <span className="flex items-center gap-0.5"><Clock className="size-3" />{job.hours}h</span>}
-                {/* Price hidden from crew */}
               </div>
             </div>
           </button>
@@ -696,23 +816,30 @@ function WeekView({ weekDays, jobsByDate, currentDate, todayStr, onJobClick, onD
             <div className="flex-1 overflow-y-auto p-1 space-y-1">
               {dayJobs.map(job => {
                 const isEst = job.job_type === "estimate" || job.job_type === "sales_appointment"
-                const statusColor = STATUS_COLORS[job.status] || "#6b7280"
+                const vs = job.visit_status
+                const visitMeta = vs ? VISIT_STATUS_META[vs] : null
+                const chipColor = isEst ? "#f59e0b" : (visitMeta?.color || STATUS_COLORS[job.status] || "#6b7280")
                 return (
                   <button
                     key={job.id}
                     onClick={(e) => { e.stopPropagation(); onJobClick(job) }}
                     className="w-full text-left rounded-md p-1.5 transition-colors hover:brightness-95 active:scale-95"
                     style={{
-                      background: `${isEst ? "#f59e0b" : statusColor}12`,
-                      borderLeft: `3px solid ${isEst ? "#f59e0b" : statusColor}`,
+                      background: `${chipColor}12`,
+                      borderLeft: `3px solid ${chipColor}`,
                     }}
                   >
-                    <div className="text-[9px] font-bold" style={{ color: isEst ? "#f59e0b" : statusColor }}>
+                    <div className="text-[9px] font-bold" style={{ color: chipColor }}>
                       {formatTimeShort(job.scheduled_at)}
                     </div>
                     <div className="text-[10px] font-medium text-slate-700 truncate">
-                      {job.service_type ? humanize(job.service_type) : "Job"}
+                      {job.customer_first_name || (job.service_type ? humanize(job.service_type) : "Job")}
                     </div>
+                    {!isEst && vs && vs !== "not_started" && (
+                      <div className="text-[8px] font-bold mt-0.5" style={{ color: chipColor }}>
+                        {visitMeta?.label || humanize(job.status)}
+                      </div>
+                    )}
                   </button>
                 )
               })}

@@ -206,6 +206,30 @@ export async function GET(
   // Sort by date then time
   allJobs.sort((a: any, b: any) => a.date.localeCompare(b.date) || (a.scheduled_at || '').localeCompare(b.scheduled_at || ''))
 
+  // Batch-fetch visit statuses for all jobs so the list view can show progress
+  const allJobIds = allJobs.map((j: any) => j.id)
+  if (allJobIds.length > 0) {
+    const { data: visits } = await client
+      .from('visits')
+      .select('job_id, status')
+      .eq('tenant_id', tenantId)
+      .in('job_id', allJobIds)
+      .order('created_at', { ascending: false })
+
+    // Build a map of job_id -> latest visit status (first occurrence = latest due to desc order)
+    const visitStatusMap = new Map<number, string>()
+    for (const v of visits || []) {
+      if (!visitStatusMap.has(v.job_id)) {
+        visitStatusMap.set(v.job_id, v.status)
+      }
+    }
+
+    // Attach visit_status to each job
+    for (const job of allJobs) {
+      job.visit_status = visitStatusMap.get(job.id) || null
+    }
+  }
+
   // Fetch time-off for current + next month
   const currentMonth = today.slice(0, 7)
   const nextMonthDate = new Date(now.getFullYear(), now.getMonth() + 1, 1)

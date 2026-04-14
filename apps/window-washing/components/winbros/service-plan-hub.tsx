@@ -34,6 +34,7 @@ interface ServicePlanHubProps {
   monthlyArr: MonthlyARR[]
   totalArr: number
   totalPlans: number
+  revenueThisYear?: number
   statusCounts: {
     active: number
     cancelled: number
@@ -49,9 +50,12 @@ export function ServicePlanHub({
   monthlyArr,
   totalArr,
   totalPlans,
+  revenueThisYear,
   statusCounts,
 }: ServicePlanHubProps) {
   const maxMonthlyArr = Math.max(...monthlyArr.map(m => m.booked), 1)
+  const avgRevenuePerPlan = totalPlans > 0 ? Math.round(totalArr / totalPlans) : 0
+  const ytdRevenue = revenueThisYear ?? monthlyArr.reduce((sum, m) => sum + m.booked, 0)
 
   return (
     <div className="space-y-6">
@@ -61,11 +65,59 @@ export function ServicePlanHub({
           <h2 className="text-xl font-bold text-white">Service Plan Hub</h2>
           <p className="text-sm text-zinc-400">ARR tracking for {year}</p>
         </div>
-        <div className="text-right">
+        <Badge variant="secondary" className="text-xs bg-zinc-800 text-zinc-300">
+          Admin View
+        </Badge>
+      </div>
+
+      {/* Summary Boxes — Blake's layout */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Total ARR (Sold) */}
+        <div className="border border-green-800/50 rounded-lg bg-green-950/30 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <DollarSign className="w-4 h-4 text-green-400" />
+            <span className="text-xs font-medium text-green-400 uppercase">Sold ARR</span>
+          </div>
           <div className="text-2xl font-bold text-green-400">
             ${totalArr.toLocaleString()}
           </div>
-          <div className="text-xs text-zinc-400">Total ARR</div>
+          <div className="text-[10px] text-zinc-500 mt-1">Annual recurring revenue</div>
+        </div>
+
+        {/* Active Plans */}
+        <div className="border border-blue-800/50 rounded-lg bg-blue-950/30 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <Calendar className="w-4 h-4 text-blue-400" />
+            <span className="text-xs font-medium text-blue-400 uppercase">Active Plans</span>
+          </div>
+          <div className="text-2xl font-bold text-blue-400">
+            {statusCounts.active}
+          </div>
+          <div className="text-[10px] text-zinc-500 mt-1">{totalPlans} total plans</div>
+        </div>
+
+        {/* Revenue This Year */}
+        <div className="border border-purple-800/50 rounded-lg bg-purple-950/30 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <TrendingUp className="w-4 h-4 text-purple-400" />
+            <span className="text-xs font-medium text-purple-400 uppercase">YTD Revenue</span>
+          </div>
+          <div className="text-2xl font-bold text-purple-400">
+            ${ytdRevenue.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-zinc-500 mt-1">Service revenue {year}</div>
+        </div>
+
+        {/* Avg Revenue / Plan */}
+        <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart3 className="w-4 h-4 text-zinc-400" />
+            <span className="text-xs font-medium text-zinc-400 uppercase">Avg / Plan</span>
+          </div>
+          <div className="text-2xl font-bold text-white">
+            ${avgRevenuePerPlan.toLocaleString()}
+          </div>
+          <div className="text-[10px] text-zinc-500 mt-1">Average ARR per plan</div>
         </div>
       </div>
 

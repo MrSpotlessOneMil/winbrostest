@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Users,
   Send,
+  Trash2,
 } from "lucide-react"
 
 interface Quote {
@@ -56,6 +57,27 @@ interface PreconfirmStatus {
   status: string
   notified_at: string | null
   responded_at: string | null
+}
+
+interface LineItem {
+  id: string
+  service_name: string
+  price: string
+}
+
+const SERVICE_SUGGESTIONS = [
+  "Window Cleaning - Interior/Exterior",
+  "Window Cleaning - Exterior Only",
+  "Screen Cleaning",
+  "Gutter Cleaning",
+  "Pressure Washing",
+  "Hard Water Removal",
+  "Track Cleaning",
+  "Skylight Cleaning",
+]
+
+function generateLineItemId() {
+  return Math.random().toString(36).slice(2, 9)
 }
 
 type FilterTab = "all" | "pending" | "approved" | "expired"
@@ -115,16 +137,16 @@ export default function QuotesPage() {
     customer_phone: "",
     customer_email: "",
     customer_address: "",
-    square_footage: "",
-    property_type: "",
     notes: "",
-    custom_base_price: "",
     // Pre-confirm fields
     preconfirm: false,
     cleaner_pay: "",
     description: "",
     cleaner_ids: [] as number[],
   })
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    { id: generateLineItemId(), service_name: "", price: "" },
+  ])
 
   // Cleaner options for pre-confirm
   const [cleaners, setCleaners] = useState<CleanerOption[]>([])
@@ -232,15 +254,29 @@ export default function QuotesPage() {
     setCreating(true)
     setCreateError(null)
     try {
+      // Build line items array — filter out empty rows
+      const validLineItems = lineItems
+        .filter((item) => item.service_name.trim() && item.price)
+        .map((item) => ({
+          service_name: item.service_name.trim(),
+          price: parseFloat(item.price),
+          quantity: 1,
+        }))
+        .filter((item) => !isNaN(item.price) && item.price > 0)
+
+      if (validLineItems.length === 0) {
+        setCreateError("Add at least one service with a price")
+        setCreating(false)
+        return
+      }
+
       const payload: Record<string, unknown> = {
         customer_name: form.customer_name.trim(),
         customer_phone: form.customer_phone.trim() || undefined,
         customer_email: form.customer_email.trim() || undefined,
         customer_address: form.customer_address.trim() || undefined,
-        square_footage: form.square_footage ? parseInt(form.square_footage, 10) : undefined,
-        property_type: form.property_type || undefined,
         notes: form.notes.trim() || undefined,
-        custom_base_price: form.custom_base_price ? parseFloat(form.custom_base_price) : undefined,
+        line_items: validLineItems,
       }
 
       if (form.preconfirm && form.cleaner_ids.length > 0) {
@@ -272,15 +308,13 @@ export default function QuotesPage() {
         customer_phone: "",
         customer_email: "",
         customer_address: "",
-        square_footage: "",
-        property_type: "",
         notes: "",
-        custom_base_price: "",
         preconfirm: false,
         cleaner_pay: "",
         description: "",
         cleaner_ids: [],
       })
+      setLineItems([{ id: generateLineItemId(), service_name: "", price: "" }])
       fetchQuotes()
     } catch (err: unknown) {
       setCreateError(err instanceof Error ? err.message : "Failed to create quote")
@@ -329,15 +363,13 @@ export default function QuotesPage() {
       customer_phone: "",
       customer_email: "",
       customer_address: "",
-      square_footage: "",
-      property_type: "",
       notes: "",
-      custom_base_price: "",
       preconfirm: false,
       cleaner_pay: "",
       description: "",
       cleaner_ids: [],
     })
+    setLineItems([{ id: generateLineItemId(), service_name: "", price: "" }])
   }
 
   const tabs: { key: FilterTab; label: string }[] = [
@@ -531,51 +563,86 @@ export default function QuotesPage() {
                       }
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="square_footage">Square Footage</Label>
-                    <Input
-                      id="square_footage"
-                      type="number"
-                      placeholder="2000"
-                      value={form.square_footage}
-                      onChange={(e) =>
-                        setForm({ ...form, square_footage: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="property_type">Property Type</Label>
-                    <select
-                      id="property_type"
-                      value={form.property_type}
-                      onChange={(e) =>
-                        setForm({ ...form, property_type: e.target.value })
-                      }
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <option value="">Select type...</option>
-                      <option value="single_story">Single Story</option>
-                      <option value="two_story">Two Story</option>
-                      <option value="larger_two_story">Larger Two Story</option>
-                    </select>
-                  </div>
-                  <div>
-                    <Label htmlFor="custom_base_price">Custom Price (optional)</Label>
-                    <Input
-                      id="custom_base_price"
-                      type="number"
-                      placeholder="e.g. 350"
-                      min="0"
-                      step="0.01"
-                      value={form.custom_base_price}
-                      onChange={(e) =>
-                        setForm({ ...form, custom_base_price: e.target.value })
-                      }
-                    />
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Set a salesman-quoted price. Customer sees this instead of tier selection.
-                    </p>
-                  </div>
+                </div>
+
+                {/* Line Items Builder */}
+                <div className="space-y-3">
+                  <Label>Services</Label>
+                  {lineItems.map((item, index) => (
+                    <div key={item.id} className="flex items-start gap-2">
+                      <div className="flex-1 min-w-0">
+                        <Input
+                          placeholder="Service name"
+                          value={item.service_name}
+                          onChange={(e) => {
+                            const updated = [...lineItems]
+                            updated[index] = { ...item, service_name: e.target.value }
+                            setLineItems(updated)
+                          }}
+                          list="service-suggestions"
+                        />
+                      </div>
+                      <div className="w-28 shrink-0">
+                        <Input
+                          type="number"
+                          placeholder="Price"
+                          min="0"
+                          step="0.01"
+                          value={item.price}
+                          onChange={(e) => {
+                            const updated = [...lineItems]
+                            updated[index] = { ...item, price: e.target.value }
+                            setLineItems(updated)
+                          }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="shrink-0 mt-0.5 text-muted-foreground hover:text-red-400"
+                        onClick={() => {
+                          if (lineItems.length <= 1) return
+                          setLineItems(lineItems.filter((_, i) => i !== index))
+                        }}
+                        disabled={lineItems.length <= 1}
+                        title="Remove service"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  <datalist id="service-suggestions">
+                    {SERVICE_SUGGESTIONS.map((s) => (
+                      <option key={s} value={s} />
+                    ))}
+                  </datalist>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setLineItems([...lineItems, { id: generateLineItemId(), service_name: "", price: "" }])
+                    }
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add Service
+                  </Button>
+                  {/* Total */}
+                  {(() => {
+                    const total = lineItems.reduce((sum, item) => {
+                      const p = parseFloat(item.price)
+                      return sum + (isNaN(p) ? 0 : p)
+                    }, 0)
+                    return (
+                      <div className="flex items-center justify-between pt-2 border-t border-border">
+                        <span className="text-sm font-medium text-muted-foreground">Total</span>
+                        <span className="text-lg font-semibold text-foreground">
+                          ${total.toFixed(2)}
+                        </span>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Pre-Confirm Cleaner Toggle */}

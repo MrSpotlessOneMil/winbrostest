@@ -62,6 +62,7 @@ export default function ServicePlanHubPage() {
         monthlyArr={monthlyArr}
         totalArr={data?.totalArr || 0}
         totalPlans={data?.totalPlans || 0}
+        revenueThisYear={data?.revenueThisYear}
         statusCounts={data?.statusCounts || { active: 0, cancelled: 0, pending: 0 }}
       />
     </div>

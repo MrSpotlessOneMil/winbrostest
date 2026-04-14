@@ -100,11 +100,26 @@ export async function GET(request: NextRequest) {
     }
   })
 
+  // Revenue this year: sum of completed visit payments in the current year
+  let revenueThisYear = 0
+  const { data: yearVisits } = await client
+    .from('visits')
+    .select('payment_amount')
+    .eq('tenant_id', tenantId)
+    .gte('visit_date', `${year}-01-01`)
+    .lte('visit_date', `${year}-12-31`)
+    .in('status', ['payment_collected', 'closed'])
+
+  if (yearVisits) {
+    revenueThisYear = yearVisits.reduce((sum, v) => sum + Number(v.payment_amount || 0), 0)
+  }
+
   return NextResponse.json({
     planTypes,
     monthlyArr,
     totalArr,
     totalPlans: allPlans.length,
+    revenueThisYear,
     statusCounts,
   })
 }

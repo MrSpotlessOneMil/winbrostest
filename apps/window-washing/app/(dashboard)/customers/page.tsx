@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context"
 import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, ChevronUp, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown, ExternalLink, Calendar, MapPin } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import CubeLoader from "@/components/ui/cube-loader"
+import { CustomerInfoTab } from "@/components/winbros/customer-info-tab"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -298,9 +299,10 @@ export default function CustomersPage() {
     if (tab === "quotes" && selectedCustomer) {
       fetchCustomerQuotes(selectedCustomer.id, selectedCustomer.phone_number)
     }
-    // Lazy-fetch logs when switching to info tab
+    // Lazy-fetch logs + info tab data when switching to info tab
     if (tab === "info" && selectedCustomer) {
       fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+      if (!isHouseCleaning) fetchInfoTabData(selectedCustomer.id)
     }
   }
   const [loading, setLoading] = useState(true)
@@ -375,6 +377,12 @@ export default function CustomersPage() {
   const [createQuoteResult, setCreateQuoteResult] = useState<{ url?: string; error?: string } | null>(null)
   const prevSelectedCustomerIdRef = useRef<number | null>(null)
   const [createMembershipError, setCreateMembershipError] = useState("")
+
+  // Customer Info Tab state (WinBros only — tags, visits, tag definitions)
+  const [customerTags, setCustomerTags] = useState<Array<{ id: number; tag_type: string; tag_value: string }>>([])
+  const [customerVisits, setCustomerVisits] = useState<Array<{ id: number; visit_date: string; status: string; services: string[]; total: number }>>([])
+  const [availableTags, setAvailableTags] = useState<Array<{ tag_type: string; tag_value: string; color: string }>>([])
+  const [infoTabLoading, setInfoTabLoading] = useState(false)
 
   // Batch add state
   const [syncingContacts, setSyncingContacts] = useState(false)
@@ -695,13 +703,78 @@ export default function CustomersPage() {
     }
   }
 
+  // Fetch customer tags, visits, and tag definitions for the Info tab (WinBros only)
+  const fetchInfoTabData = async (custId: number) => {
+    setInfoTabLoading(true)
+    try {
+      const [tagsRes, visitsRes, defsRes] = await Promise.all([
+        fetch(`/api/actions/customer-tags?customer_id=${custId}`),
+        fetch(`/api/actions/customer-visits?customer_id=${custId}`),
+        fetch(`/api/actions/tag-definitions`),
+      ])
+      const tagsData = await tagsRes.json()
+      const visitsData = await visitsRes.json()
+      const defsData = await defsRes.json()
+      setCustomerTags(tagsData.data || [])
+      setCustomerVisits(visitsData.data || [])
+      setAvailableTags(defsData.data || [])
+    } catch {
+      setCustomerTags([])
+      setCustomerVisits([])
+      setAvailableTags([])
+    } finally {
+      setInfoTabLoading(false)
+    }
+  }
+
+  const handleAddTag = async (type: string, value: string) => {
+    if (!selectedCustomer) return
+    try {
+      const res = await fetch(`/api/actions/customer-tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: selectedCustomer.id, tag_type: type, tag_value: value }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.tag) setCustomerTags(prev => [...prev, data.tag])
+      }
+    } catch { /* silent */ }
+  }
+
+  const handleRemoveTag = async (tagId: number) => {
+    try {
+      const res = await fetch(`/api/actions/customer-tags?id=${tagId}`, { method: "DELETE" })
+      if (res.ok) setCustomerTags(prev => prev.filter(t => t.id !== tagId))
+    } catch { /* silent */ }
+  }
+
+  const handleSaveInfoNotes = async (notes: string) => {
+    if (!selectedCustomer) return
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedCustomer.id, notes }),
+      })
+      const json = await res.json()
+      if (json.success && json.data) {
+        setCustomers(prev => prev.map(c => c.id === json.data.id ? json.data : c))
+        setSelectedCustomer(json.data)
+      }
+    } catch { /* silent */ }
+  }
+
   // Reset + re-fetch logs when selected customer changes while on info tab
   useEffect(() => {
     if (activeTab === "info" && selectedCustomer) {
       fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+      if (!isHouseCleaning) fetchInfoTabData(selectedCustomer.id)
     }
     if (activeTab !== "info") {
       setCustomerLogs([]) // clear when leaving tab
+      setCustomerTags([])
+      setCustomerVisits([])
     }
   }, [selectedCustomer?.id, activeTab])
 
@@ -3290,6 +3363,21 @@ export default function CustomersPage() {
 
                       return (
                         <div className="space-y-4 p-1 flex-1 overflow-y-auto min-h-0">
+                          {/* WinBros: Tags, Notes, Visit History */}
+                          {!isHouseCleaning && (
+                            <CustomerInfoTab
+                              customerId={selectedCustomer.id}
+                              tags={customerTags}
+                              notes={selectedCustomer.notes || ""}
+                              visits={customerVisits}
+                              availableTags={availableTags}
+                              onAddTag={handleAddTag}
+                              onRemoveTag={handleRemoveTag}
+                              onSaveNotes={handleSaveInfoNotes}
+                              onVisitClick={() => {}}
+                            />
+                          )}
+
                           {/* Core Info */}
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Customer Details</p>
