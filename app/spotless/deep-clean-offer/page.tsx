@@ -4,14 +4,14 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
 
 export const metadata: Metadata = {
-  title: "$149 First Deep Clean | Spotless Scrubbers",
+  title: "$149 First Clean — 4 Hours of Professional Cleaning | Spotless Scrubbers",
   description:
-    "Get your first professional deep clean for just $149 (normally $250+). Fridge, oven, baseboards, ceiling fans — everything included. 5.0 stars, 2,500+ homes cleaned across LA County.",
+    "Get 4 hours of professional cleaning for just $149 (normally $250+). Ceiling fans, light fixtures, window sills, microwave — plus every surface, floor, and bathroom. 5.0 stars, 2,500+ homes cleaned across LA County.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "$149 First Deep Clean | Spotless Scrubbers",
+    title: "$149 First Clean — 4 Hours | Spotless Scrubbers",
     description:
-      "Your first professional deep clean for $149. Normally $250+. Fridge, oven, baseboards included. 5.0 stars across LA County.",
+      "4 hours of professional cleaning for $149. Normally $250+. 5.0 stars across LA County.",
   },
 }
 
@@ -21,11 +21,11 @@ export const metadata: Metadata = {
 
 const INCLUDED_ITEMS = [
   "Full kitchen deep clean",
-  "All bathrooms scrubbed",
-  "Inside your fridge",
-  "Inside your oven",
-  "Baseboards throughout",
+  "All bathrooms scrubbed top to bottom",
   "Ceiling fans dusted",
+  "Light fixtures cleaned",
+  "Window sills wiped down",
+  "Inside your microwave",
   "All bedrooms dusted & vacuumed",
   "Mirrors, glass & fixtures",
   "Mopping all hard floors",
@@ -36,12 +36,12 @@ const VALUE_CARDS = [
   {
     title: "$250+ Value",
     subtitle: "for just $149",
-    description: "Same deep clean our recurring clients get — at a fraction of the price.",
+    description: "4 full hours of professional cleaning — the same quality our recurring clients love, at a fraction of the price.",
   },
   {
-    title: "Fridge + Oven",
-    subtitle: "included free",
-    description: "Most companies charge $50-100 extra for appliances. We include them at no extra cost.",
+    title: "4 Full Hours",
+    subtitle: "no rushing",
+    description: "One dedicated cleaner for 4 hours. Every surface, every room, ceiling fans, fixtures — thorough, not rushed.",
   },
   {
     title: "Set It and Forget It",
@@ -78,9 +78,9 @@ const FAQS = [
       "If you're not happy with the clean, we'll come back and redo it — free. If we still can't get it right, you don't pay. Period.",
   },
   {
-    question: "What's included in the $149 deep clean?",
+    question: "What's included in the $149 clean?",
     answer:
-      "Everything. Kitchen, bathrooms, bedrooms, baseboards, inside your fridge and oven, ceiling fans, all surfaces, mirrors, mopping — the works. It's the same deep clean we normally charge $250+ for.",
+      "4 full hours of professional cleaning: kitchen, bathrooms, bedrooms, ceiling fans, light fixtures, window sills, inside microwave, all surfaces, mirrors, mopping — a thorough clean we normally charge $250+ for.",
   },
   {
     question: "How does recurring work?",
@@ -95,7 +95,7 @@ const FAQS = [
   {
     question: "How long does it take?",
     answer:
-      "Most deep cleans take 2-3 hours depending on home size. We send a team of two so it gets done fast without cutting corners.",
+      "Your $149 first clean is a full 4-hour session with one dedicated cleaner. They work through your entire home methodically — no rushing, no cutting corners.",
   },
   {
     question: "Do I need to be home?",
@@ -124,11 +124,11 @@ export default function DeepCleanOfferPage() {
                 Limited Time Offer
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
-                $149 First Deep Clean.{" "}
-                <span className="text-amber-300">Normally $250+.</span>
+                $149 First Clean.{" "}
+                <span className="text-amber-300">4 Full Hours.</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
-                Kitchen, bathrooms, fridge, oven, baseboards, ceiling fans — everything included.
+                Kitchen, bathrooms, ceiling fans, light fixtures, every surface — one dedicated cleaner, 4 hours, no rushing.
               </p>
               <p className="text-sm text-slate-300 mb-6">
                 2,500+ homes cleaned across LA County. 5.0 stars. Card on file required.
