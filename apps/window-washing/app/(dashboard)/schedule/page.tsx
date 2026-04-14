@@ -2,9 +2,49 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
-import { DaySchedule } from "@/components/winbros/day-schedule"
-import { Loader2, ChevronLeft, ChevronRight, MapPin, DollarSign } from "lucide-react"
+import {
+  ChevronLeft, ChevronRight, Loader2, ChevronDown,
+  Clock, MapPin,
+} from "lucide-react"
 
+/* ─── Types ─── */
+interface ScheduleJob {
+  id: number
+  customer_name: string
+  address: string
+  time: string | null
+  services: string[]
+  price: number
+  status: string
+}
+
+interface CrewSchedule {
+  team_lead_id: number | null
+  team_lead_name: string
+  first_job_town: string
+  daily_revenue: number
+  jobs: ScheduleJob[]
+  members: string[]
+}
+
+interface SalesmanAppointment {
+  id: number
+  salesman_name: string
+  customer_name: string
+  address: string
+  time: string
+  type: string
+}
+
+interface WeekDayData {
+  date: string
+  crews: CrewSchedule[]
+  salesmanAppointments: SalesmanAppointment[]
+  totalRevenue: number
+  totalJobs: number
+}
+
+/* ─── Helpers ─── */
 function getMonday(d: Date): Date {
   const dt = new Date(d)
   const day = dt.getDay()
@@ -13,7 +53,7 @@ function getMonday(d: Date): Date {
   return dt
 }
 
-function addDaysDate(d: Date, n: number): Date {
+function addDays(d: Date, n: number): Date {
   const r = new Date(d)
   r.setDate(r.getDate() + n)
   return r
@@ -23,60 +63,58 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-interface WeekDayData {
-  date: string
-  crews: any[]
-  salesmanAppointments: any[]
-  totalRevenue: number
-  totalJobs: number
+function extractTown(address: string): string {
+  if (!address) return ""
+  const parts = address.split(",")
+  if (parts.length >= 2) return parts[parts.length - 2].trim()
+  return address.split(" ").slice(-2).join(" ")
 }
 
+const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  completed: { bg: "bg-green-500/15 border-green-500/30", text: "text-green-400" },
+  in_progress: { bg: "bg-amber-500/15 border-amber-500/30", text: "text-amber-400" },
+  scheduled: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  confirmed: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  pending: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+  quoted: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+}
+
+function getJobColor(job: ScheduleJob): { card: string; accent: string } {
+  // Service plan jobs = green
+  if (job.services.some(s => s.toLowerCase().includes("service plan"))) {
+    return { card: "bg-green-500/10 border-green-500/25", accent: "text-green-400" }
+  }
+  // Salesman/estimate = amber/orange
+  if (job.services.some(s => s.toLowerCase().includes("estimate") || s.toLowerCase().includes("salesman"))) {
+    return { card: "bg-amber-500/10 border-amber-500/25", accent: "text-amber-400" }
+  }
+  // Regular = teal/blue
+  return { card: "bg-teal-500/10 border-teal-500/25", accent: "text-teal-400" }
+}
+
+function humanizeStatus(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+}
+
+/* ═══ MAIN PAGE ═══ */
 export default function SchedulePage() {
   const { user } = useAuth()
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
-  const [viewMode, setViewMode] = useState<"day" | "week">("day")
+  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
   const [loading, setLoading] = useState(true)
-  const [crews, setCrews] = useState<any[]>([])
-  const [salesmanAppointments, setSalesmanAppointments] = useState<any[]>([])
   const [weekData, setWeekData] = useState<WeekDayData[]>([])
-  const [weekLoading, setWeekLoading] = useState(false)
 
-  const weekStart = useMemo(() => getMonday(new Date(date + "T12:00:00")), [date])
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => addDaysDate(weekStart, i)),
-    [weekStart]
-  )
+  // UI state
+  const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
+
+  // Week days
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart])
   const todayStr = toDateStr(new Date())
 
-  const fetchSchedule = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/actions/schedule-day?date=${date}`)
-      if (res.ok) {
-        const data = await res.json()
-        setCrews(data.crews || [])
-        setSalesmanAppointments(data.salesmanAppointments || [])
-      } else {
-        setCrews([])
-        setSalesmanAppointments([])
-      }
-    } catch {
-      setCrews([])
-      setSalesmanAppointments([])
-    }
-    setLoading(false)
-  }, [date])
-
-  useEffect(() => {
-    if (viewMode === "day") {
-      fetchSchedule()
-    }
-  }, [fetchSchedule, viewMode])
-
-  // Fetch week data when in week view
+  // Fetch week data (7 parallel fetches)
   const fetchWeekData = useCallback(async () => {
-    setWeekLoading(true)
-    const results: WeekDayData[] = []
+    setLoading(true)
     try {
       const fetches = weekDays.map(async (day) => {
         const dateStr = toDateStr(day)
@@ -84,19 +122,13 @@ export default function SchedulePage() {
           const res = await fetch(`/api/actions/schedule-day?date=${dateStr}`)
           if (res.ok) {
             const data = await res.json()
-            const dayCrews = data.crews || []
+            const dayCrews: CrewSchedule[] = data.crews || []
             return {
               date: dateStr,
               crews: dayCrews,
               salesmanAppointments: data.salesmanAppointments || [],
-              totalRevenue: dayCrews.reduce(
-                (s: number, c: any) => s + (c.daily_revenue || 0),
-                0
-              ),
-              totalJobs: dayCrews.reduce(
-                (s: number, c: any) => s + (c.jobs?.length || 0),
-                0
-              ),
+              totalRevenue: dayCrews.reduce((s, c) => s + (c.daily_revenue || 0), 0),
+              totalJobs: dayCrews.reduce((s, c) => s + (c.jobs?.length || 0), 0),
             }
           }
         } catch {
@@ -110,234 +142,291 @@ export default function SchedulePage() {
           totalJobs: 0,
         }
       })
-      const resolved = await Promise.all(fetches)
-      results.push(...resolved)
+      setWeekData(await Promise.all(fetches))
     } catch {
-      // ignore
+      setWeekData([])
     }
-    setWeekData(results)
-    setWeekLoading(false)
+    setLoading(false)
   }, [weekDays])
 
   useEffect(() => {
-    if (viewMode === "week") {
-      fetchWeekData()
-    }
-  }, [fetchWeekData, viewMode])
+    fetchWeekData()
+  }, [fetchWeekData])
 
+  // Navigation
+  const prevWeek = () => setWeekStart(addDays(weekStart, -7))
+  const nextWeek = () => setWeekStart(addDays(weekStart, 7))
+  const goToday = () => {
+    setWeekStart(getMonday(new Date()))
+    setSelectedDay(toDateStr(new Date()))
+  }
+
+  // Toggles
+  const toggleTL = (key: string) =>
+    setExpandedTLs(p => { const n = new Set(p); n.has(key) ? n.delete(key) : n.add(key); return n })
+
+  // Weekly totals
   const weeklyTotal = useMemo(
     () => weekData.reduce((s, d) => s + d.totalRevenue, 0),
     [weekData]
   )
-  const weeklyJobs = useMemo(
-    () => weekData.reduce((s, d) => s + d.totalJobs, 0),
-    [weekData]
-  )
 
-  const handlePrevWeek = () => {
-    const d = new Date(date + "T12:00:00")
-    d.setDate(d.getDate() - 7)
-    setDate(toDateStr(d))
-  }
-  const handleNextWeek = () => {
-    const d = new Date(date + "T12:00:00")
-    d.setDate(d.getDate() + 7)
-    setDate(toDateStr(d))
-  }
+  // Collect all unique team leads across the week
+  const allTeamLeads = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const day of weekData) {
+      for (const crew of day.crews) {
+        const key = crew.team_lead_id != null ? String(crew.team_lead_id) : "unassigned"
+        if (!map.has(key)) {
+          map.set(key, crew.team_lead_name)
+        }
+      }
+    }
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }))
+  }, [weekData])
 
-  if (viewMode === "day" && loading) {
+  const monthName = weekStart.toLocaleString("en-US", { month: "long" })
+
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
+  const daysToShow = viewMode === "week" ? weekDays : [weekDays.find(d => toDateStr(d) === selectedDay) || weekDays[0]]
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      {/* View toggle */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          {viewMode === "week" && (
-            <>
-              <button
-                onClick={handlePrevWeek}
-                className="p-1.5 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setDate(todayStr)}
-                className="px-2.5 py-1 rounded-md border border-zinc-700 bg-zinc-900 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
-              >
-                Today
-              </button>
-              <button
-                onClick={handleNextWeek}
-                className="p-1.5 rounded-md border border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-white transition-colors cursor-pointer"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </>
-          )}
+    <div className="h-full flex flex-col">
+      {/* ═══ HEADER ═══ */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <div>
+          <h1 className="text-lg font-bold text-foreground">Scheduling</h1>
+          <p className="text-xs text-muted-foreground">{monthName} {weekStart.getFullYear()}</p>
         </div>
-        <div className="flex rounded-lg border border-zinc-700 overflow-hidden text-xs">
-          {(["day", "week"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setViewMode(v)}
-              className={`px-3 py-1.5 font-medium capitalize transition-colors cursor-pointer ${
-                viewMode === v
-                  ? "bg-teal-600 text-white"
-                  : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-              }`}
-            >
-              {v}
+        <div className="flex items-center gap-2">
+          <button onClick={goToday} className="text-xs text-primary font-medium hover:underline">Today</button>
+          <div className="flex items-center gap-1">
+            <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted">
+              <ChevronLeft className="size-4" />
             </button>
-          ))}
+            <button onClick={nextWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted">
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {(["day", "week"] as const).map(v => (
+              <button
+                key={v}
+                onClick={() => { setViewMode(v); if (v === "day" && !selectedDay) setSelectedDay(todayStr) }}
+                className={`px-3 py-1 text-[10px] font-bold uppercase ${viewMode === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >{v}</button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {viewMode === "day" ? (
-        <DaySchedule
-          date={date}
-          crews={crews}
-          salesmanAppointments={salesmanAppointments}
-          onDateChange={setDate}
-          onJobClick={(jobId) => {
-            window.location.href = `/jobs?job=${jobId}`
-          }}
-        />
-      ) : weekLoading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-6 h-6 animate-spin text-zinc-500" />
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {/* Week header */}
-          <div className="text-center">
-            <h2 className="text-lg font-semibold text-white">
-              Week of{" "}
-              {weekStart.toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </h2>
-            <div className="flex items-center justify-center gap-4 text-xs text-zinc-400 mt-1">
-              <span>{weeklyJobs} total jobs</span>
-              <span className="text-green-400">
-                ${weeklyTotal.toLocaleString()} total
-              </span>
-            </div>
-          </div>
+      {/* ═══ CALENDAR GRID ═══ */}
+      <div className={`flex-1 overflow-auto grid ${viewMode === "week" ? "grid-cols-7" : "grid-cols-1"} gap-px bg-border`}>
+        {daysToShow.map(day => {
+          const dateStr = toDateStr(day)
+          const isToday = dateStr === todayStr
+          const dayData = weekData.find(d => d.date === dateStr)
+          const dayCrews = dayData?.crews || []
+          const dayAppts = dayData?.salesmanAppointments || []
+          const dayTotal = dayData?.totalRevenue || 0
+          const dayJobCount = dayData?.totalJobs || 0
 
-          {/* Week grid: 7 day columns */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-            {weekDays.map((day) => {
-              const dateStr = toDateStr(day)
-              const isToday = dateStr === todayStr
-              const dayData = weekData.find((d) => d.date === dateStr)
-              const dayCrews = dayData?.crews || []
-              const dayRevenue = dayData?.totalRevenue || 0
-              const dayJobs = dayData?.totalJobs || 0
+          return (
+            <div key={dateStr} className={`bg-background flex flex-col ${isToday ? "ring-1 ring-primary/30 ring-inset" : ""}`}>
+              {/* Day header */}
+              <div className={`px-2 py-1.5 border-b border-border flex items-center justify-between shrink-0 ${isToday ? "bg-primary/5" : ""}`}>
+                <div>
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    {day.toLocaleDateString("en-US", { weekday: "short" })}
+                  </span>
+                  <span className={`ml-1 text-sm font-bold ${isToday ? "text-primary" : "text-foreground"}`}>
+                    {day.getDate()}
+                  </span>
+                </div>
+                {dayJobCount > 0 && (
+                  <span className="text-[9px] text-muted-foreground">{dayJobCount}j</span>
+                )}
+              </div>
 
-              return (
-                <button
-                  key={dateStr}
-                  onClick={() => {
-                    setDate(dateStr)
-                    setViewMode("day")
-                  }}
-                  className={`rounded-lg border p-2 min-h-[140px] text-left transition-colors cursor-pointer ${
-                    isToday
-                      ? "bg-teal-500/5 border-teal-500/20"
-                      : "bg-zinc-950 border-zinc-800 hover:bg-zinc-900/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span
-                      className={`text-[10px] font-semibold uppercase ${
-                        isToday ? "text-teal-400" : "text-zinc-500"
-                      }`}
-                    >
-                      {day.toLocaleDateString("en-US", {
-                        weekday: "short",
-                      })}
-                    </span>
-                    <span
-                      className={`text-sm font-bold ${
-                        isToday ? "text-teal-400" : "text-white"
-                      }`}
-                    >
-                      {day.getDate()}
-                    </span>
-                  </div>
+              {/* Day content */}
+              <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+                {/* Team Leads */}
+                {dayCrews.filter(c => c.team_lead_id != null).map(crew => {
+                  const tlKey = `${dateStr}-${crew.team_lead_id}`
+                  const isExpanded = expandedTLs.has(tlKey)
+                  const crewJobs = crew.jobs || []
+                  const crewTotal = crew.daily_revenue || 0
 
-                  {dayCrews.length === 0 ? (
-                    <div className="text-[10px] text-zinc-600 italic py-2">
-                      No crews
+                  return (
+                    <div key={tlKey} className="rounded-md">
+                      {/* TL Header */}
+                      <button
+                        onClick={() => toggleTL(tlKey)}
+                        className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
+                      >
+                        <span className="text-[9px] font-bold text-blue-400 bg-blue-500/15 px-1 rounded">TL</span>
+                        <span className="text-[11px] font-semibold text-foreground truncate flex-1">
+                          {crew.team_lead_name.split(" ")[0]}
+                        </span>
+                        {crewJobs.length > 0 && <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>}
+                        <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+
+                      {/* Expanded: Job cards */}
+                      {isExpanded && (
+                        <div className="ml-1 pl-2 border-l border-border space-y-1 mt-1">
+                          {crewJobs.map(job => {
+                            const colors = getJobColor(job)
+                            const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.scheduled
+                            return (
+                              <div
+                                key={job.id}
+                                onClick={() => { window.location.href = `/jobs?job=${job.id}` }}
+                                className={`rounded px-1.5 py-1 border text-[10px] cursor-pointer hover:opacity-80 transition-opacity ${colors.card}`}
+                              >
+                                <div className="font-bold text-foreground truncate">
+                                  {job.customer_name}
+                                </div>
+                                <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+                                  <MapPin className="size-2 shrink-0" />
+                                  <span className="truncate">{extractTown(job.address)}</span>
+                                </div>
+                                {job.time && (
+                                  <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+                                    <Clock className="size-2 shrink-0" />
+                                    <span>{job.time}</span>
+                                  </div>
+                                )}
+                                <div className="flex items-center justify-between mt-0.5">
+                                  <span className={`truncate ${colors.accent}`}>
+                                    {job.services[0] || "Job"}
+                                  </span>
+                                  <span className="font-bold text-foreground">${job.price}</span>
+                                </div>
+                                <div className={`inline-block mt-0.5 px-1 rounded border text-[8px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+                                  {humanizeStatus(job.status)}
+                                </div>
+                              </div>
+                            )
+                          })}
+                          {crewJobs.length === 0 && (
+                            <p className="text-[9px] text-muted-foreground italic px-1">No jobs</p>
+                          )}
+                          {crewTotal > 0 && (
+                            <p className="text-[9px] font-medium text-muted-foreground pt-1">
+                              ${Math.round(crewTotal).toLocaleString()} scheduled
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="space-y-1">
-                      {dayCrews.slice(0, 3).map((crew: any) => (
-                        <div
-                          key={crew.team_lead_id}
-                          className="text-[9px] px-1.5 py-1 rounded border border-zinc-800 bg-zinc-900/50"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-white truncate">
-                              {crew.team_lead_name?.split(" ")[0] || "TL"}
-                            </span>
-                            <span className="text-green-400 font-medium">
-                              ${(crew.daily_revenue || 0).toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 text-zinc-500 mt-0.5">
-                            <MapPin className="w-2.5 h-2.5" />
-                            <span className="truncate">
-                              {crew.first_job_town || "TBD"}
-                            </span>
-                            <span className="ml-auto">
-                              {crew.jobs?.length || 0}j
-                            </span>
+                  )
+                })}
+
+                {/* Salesman Appointments */}
+                {dayAppts.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-1 px-1.5 py-1">
+                      <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1 rounded">S</span>
+                      <span className="text-[10px] text-muted-foreground">Appointments</span>
+                      <span className="text-[9px] text-muted-foreground ml-auto">{dayAppts.length}</span>
+                    </div>
+                    <div className="ml-1 pl-2 border-l border-amber-500/20 space-y-1">
+                      {dayAppts.map(apt => (
+                        <div key={apt.id} className="rounded px-1.5 py-1 border bg-amber-500/10 border-amber-500/25 text-[10px]">
+                          <div className="font-bold text-foreground truncate">{apt.customer_name}</div>
+                          <div className="text-muted-foreground truncate">{apt.salesman_name}</div>
+                          <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+                            <Clock className="size-2" />
+                            <span>{apt.time}</span>
+                            <span className="ml-auto text-amber-400 text-[8px] font-semibold uppercase">{apt.type}</span>
                           </div>
                         </div>
                       ))}
-                      {dayCrews.length > 3 && (
-                        <p className="text-[8px] text-zinc-600 pl-1">
-                          +{dayCrews.length - 3} more crews
-                        </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Unassigned section */}
+                {dayCrews.filter(c => c.team_lead_id == null).map(crew => {
+                  const uKey = `${dateStr}-unassigned`
+                  const isExpanded = expandedTLs.has(uKey)
+                  const unJobs = crew.jobs || []
+
+                  if (unJobs.length === 0) return null
+
+                  return (
+                    <div key={uKey} className="rounded-md">
+                      <button
+                        onClick={() => toggleTL(uKey)}
+                        className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
+                      >
+                        <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1 rounded">!</span>
+                        <span className="text-[11px] font-semibold text-red-400 truncate flex-1">Unassigned</span>
+                        <span className="text-[9px] text-muted-foreground">{unJobs.length}</span>
+                        <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                      </button>
+                      {isExpanded && (
+                        <div className="ml-1 pl-2 border-l border-red-500/20 space-y-1 mt-1">
+                          {unJobs.map(job => {
+                            const colors = getJobColor(job)
+                            return (
+                              <div
+                                key={job.id}
+                                onClick={() => { window.location.href = `/jobs?job=${job.id}` }}
+                                className={`rounded px-1.5 py-1 border text-[10px] cursor-pointer hover:opacity-80 ${colors.card}`}
+                              >
+                                <div className="font-bold text-foreground truncate">{job.customer_name}</div>
+                                <div className="flex items-center gap-1 text-muted-foreground">
+                                  <MapPin className="size-2 shrink-0" />
+                                  <span className="truncate">{extractTown(job.address)}</span>
+                                </div>
+                                <div className="flex items-center justify-between mt-0.5">
+                                  <span className={`truncate ${colors.accent}`}>{job.services[0] || "Job"}</span>
+                                  <span className="font-bold text-foreground">${job.price}</span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
-                  )}
+                  )
+                })}
 
-                  {/* Day footer */}
-                  {dayJobs > 0 && (
-                    <div className="mt-1.5 pt-1 border-t border-zinc-800/50 flex items-center justify-between text-[9px]">
-                      <span className="text-zinc-500">{dayJobs} jobs</span>
-                      <span className="text-green-400 font-semibold">
-                        ${dayRevenue.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                </button>
-              )
-            })}
-          </div>
+                {dayCrews.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground italic text-center py-2">No jobs scheduled</p>
+                )}
+              </div>
 
-          {/* Weekly total footer */}
-          {weeklyTotal > 0 && (
-            <div className="flex items-center justify-center gap-2 py-3 border-t border-zinc-800">
-              <DollarSign className="w-4 h-4 text-green-400" />
-              <span className="text-lg font-bold text-white">
-                ${weeklyTotal.toLocaleString()}
-              </span>
-              <span className="text-sm text-zinc-500">weekly total</span>
+              {/* Day total */}
+              {dayTotal > 0 && (
+                <div className="px-2 py-1 border-t border-border text-[10px] font-medium text-muted-foreground shrink-0">
+                  ${Math.round(dayTotal).toLocaleString()} scheduled
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      )}
+          )
+        })}
+      </div>
+
+      {/* ═══ BOTTOM BAR ═══ */}
+      <div className="px-4 py-2.5 border-t border-border flex items-center justify-between shrink-0">
+        <span className="text-sm font-bold text-foreground">
+          ${Math.round(weeklyTotal).toLocaleString()}{" "}
+          <span className="text-xs font-normal text-muted-foreground">this week</span>
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {weekData.reduce((s, d) => s + d.totalJobs, 0)} jobs
+        </span>
+      </div>
     </div>
   )
 }
