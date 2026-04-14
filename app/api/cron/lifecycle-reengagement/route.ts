@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       const { data: candidates, error: queryError } = await client
         .from('customers')
         .select(`
-          id, first_name, phone_number, post_job_stage, sms_opt_out,
+          id, first_name, phone_number, post_job_stage, sms_opt_out, auto_response_disabled,
           jobs!inner(id, completed_at, status)
         `)
         .eq('tenant_id', tenant.id)
@@ -90,6 +90,10 @@ export async function GET(request: NextRequest) {
 
       for (const cust of candidates) {
         if ((cust as any).sms_opt_out) continue
+        if ((cust as any).auto_response_disabled) {
+          console.log(`[lifecycle-reengagement] Skipping disabled customer ${cust.id}`)
+          continue
+        }
         if (membershipCustomerIds.has(cust.id)) continue
 
         const jobs = cust.jobs as Array<{ id: number; completed_at: string | null; status: string }>
@@ -123,7 +127,7 @@ export async function GET(request: NextRequest) {
 
       const { data: neverBookedCandidates } = await client
         .from('customers')
-        .select('id, first_name, phone_number, retargeting_completed_at, sms_opt_out')
+        .select('id, first_name, phone_number, retargeting_completed_at, sms_opt_out, auto_response_disabled')
         .eq('tenant_id', tenant.id)
         .not('phone_number', 'is', null)
         .eq('retargeting_stopped_reason', 'completed')
@@ -134,6 +138,10 @@ export async function GET(request: NextRequest) {
       if (neverBookedCandidates && neverBookedCandidates.length > 0) {
         for (const nb of neverBookedCandidates) {
           if (nb.sms_opt_out) continue
+          if ((nb as any).auto_response_disabled) {
+            console.log(`[lifecycle-reengagement] Skipping disabled customer ${nb.id}`)
+            continue
+          }
           if (membershipCustomerIds.has(nb.id)) continue
 
           // Confirm they have NO completed jobs (truly never-booked)
