@@ -92,12 +92,25 @@ function getPlanColor(planType: string) {
   return PLAN_COLORS[key] || { bg: "bg-zinc-500/10", text: "text-zinc-400", border: "border-zinc-500/25", chipBg: "bg-zinc-500/20" }
 }
 
-/* ─── Draggable Plan Job Chip ─── */
+const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
+  completed: { bg: "bg-green-500/15 border-green-500/30", text: "text-green-400" },
+  in_progress: { bg: "bg-amber-500/15 border-amber-500/30", text: "text-amber-400" },
+  scheduled: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  confirmed: { bg: "bg-blue-500/15 border-blue-500/30", text: "text-blue-400" },
+  pending: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+  quoted: { bg: "bg-purple-500/15 border-purple-500/30", text: "text-purple-400" },
+}
+
+function humanizeStatus(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+}
+
+/* ─── Draggable Plan Job Chip (bank) ─── */
 function DraggablePlanJob({ job }: { job: PlanJob }) {
   const colors = getPlanColor(job.plan_type)
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `plan-job-${job.id}`,
-    data: { planJob: job },
+    data: { planJob: job, type: "bank" },
   })
 
   return (
@@ -119,7 +132,55 @@ function DraggablePlanJob({ job }: { job: PlanJob }) {
   )
 }
 
-/* ─── Droppable Day/TL Cell ─── */
+/* ─── Draggable Scheduled Job Card (in grid) ─── */
+function DraggableScheduledJob({
+  job,
+  fromDate,
+  fromTLId,
+}: {
+  job: ScheduleJob
+  fromDate: string
+  fromTLId: number | null
+}) {
+  const planTypeStr = job.services[0]?.replace("Service Plan - ", "") || ""
+  const colors = getPlanColor(planTypeStr)
+  const statusStyle = STATUS_STYLE[job.status] || STATUS_STYLE.scheduled
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `sched-job-${job.id}`,
+    data: { job, fromDate, fromTLId, type: "scheduled" },
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`rounded px-1.5 py-1 border text-[10px] cursor-grab active:cursor-grabbing transition-opacity ${colors.bg} ${colors.border} ${isDragging ? "opacity-30" : ""}`}
+    >
+      <div className="flex items-center gap-1" {...listeners} {...attributes}>
+        <GripVertical className="size-2.5 opacity-40 shrink-0" />
+        <span className="font-bold text-foreground truncate flex-1">{job.customer_name}</span>
+      </div>
+      <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+        <MapPin className="size-2 shrink-0" />
+        <span className="truncate">{extractTown(job.address)}</span>
+      </div>
+      {job.time && (
+        <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
+          <Clock className="size-2" />
+          <span>{job.time}</span>
+        </div>
+      )}
+      <div className="flex items-center justify-between mt-0.5">
+        <span className={`text-[8px] font-bold ${colors.text}`}>{humanizePlan(planTypeStr)}</span>
+        <span className="font-bold text-foreground">${job.price}</span>
+      </div>
+      <div className={`inline-block mt-0.5 px-1 rounded border text-[8px] font-semibold ${statusStyle.bg} ${statusStyle.text}`}>
+        {humanizeStatus(job.status)}
+      </div>
+    </div>
+  )
+}
+
+/* ─── Droppable Cell ─── */
 function DroppableCell({ id, children }: { id: string; children: React.ReactNode }) {
   const { isOver, setNodeRef } = useDroppable({ id })
   return (
@@ -147,7 +208,15 @@ export default function ServicePlanSchedulePage() {
   // UI state
   const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
   const [expandedBankPlans, setExpandedBankPlans] = useState<Set<string>>(new Set())
-  const [dragItem, setDragItem] = useState<PlanJob | null>(null)
+  const [dragItem, setDragItem] = useState<{
+    type: "bank"
+    planJob: PlanJob
+  } | {
+    type: "scheduled"
+    job: ScheduleJob
+    fromDate: string
+    fromTLId: number | null
+  } | null>(null)
 
   // DnD sensors
   const sensors = useSensors(
@@ -167,10 +236,8 @@ export default function ServicePlanSchedulePage() {
       const res = await fetch(`/api/actions/service-plan-jobs?year=${currentYear}`)
       if (res.ok) {
         const grouped: Record<number, PlanJob[]> = await res.json()
-        // Flatten and keep only unscheduled
         const all = Object.values(grouped).flat().filter(j => j.status === "unscheduled")
         setBankJobs(all)
-        // Auto-expand all plan types that have unscheduled jobs
         const types = new Set(all.map(j => j.plan_type))
         setExpandedBankPlans(types)
       }
@@ -194,8 +261,8 @@ export default function ServicePlanSchedulePage() {
             return {
               date: dateStr,
               crews: dayCrews,
-              totalRevenue: dayCrews.reduce((s, c) => s + (c.daily_revenue || 0), 0),
-              totalJobs: dayCrews.reduce((s, c) => s + (c.jobs?.length || 0), 0),
+              totalRevenue: dayCrews.reduce((s: number, c: CrewSchedule) => s + (c.daily_revenue || 0), 0),
+              totalJobs: dayCrews.reduce((s: number, c: CrewSchedule) => s + (c.jobs?.length || 0), 0),
             }
           }
         } catch {
@@ -237,43 +304,91 @@ export default function ServicePlanSchedulePage() {
 
   // DnD handlers
   const handleDragStart = (e: DragStartEvent) => {
-    setDragItem((e.active.data.current as Record<string, unknown>)?.planJob as PlanJob || null)
+    const data = e.active.data.current as Record<string, unknown> | undefined
+    if (!data) return
+    if (data.type === "bank" && data.planJob) {
+      setDragItem({ type: "bank", planJob: data.planJob as PlanJob })
+    } else if (data.type === "scheduled" && data.job) {
+      setDragItem({
+        type: "scheduled",
+        job: data.job as ScheduleJob,
+        fromDate: data.fromDate as string,
+        fromTLId: data.fromTLId as number | null,
+      })
+    }
   }
 
   const handleDragEnd = async (e: DragEndEvent) => {
     setDragItem(null)
     if (!e.over) return
-    const planJob = (e.active.data.current as Record<string, unknown>)?.planJob as PlanJob | undefined
-    if (!planJob) return
 
-    // Droppable ID format: "drop-{date}-{teamLeadId}" or "drop-{date}"
+    const data = e.active.data.current as Record<string, unknown> | undefined
+    if (!data) return
+
+    // Parse droppable ID: "drop-{date}" or "drop-{date}-{teamLeadId}"
     const overId = e.over.id as string
     const parts = overId.replace("drop-", "").split("-")
-    // date is YYYY-MM-DD (3 parts), optional tlId after
     if (parts.length < 3) return
     const targetDate = parts.slice(0, 3).join("-")
     const crewLeadId = parts.length > 3 ? Number(parts[3]) : undefined
 
-    // Schedule the job
-    setScheduling(true)
-    try {
-      const body: Record<string, unknown> = { planJobId: planJob.id, targetDate }
-      if (crewLeadId) body.crewLeadId = crewLeadId
+    if (data.type === "bank") {
+      // Bank item dropped into grid -- schedule it
+      const planJob = data.planJob as PlanJob
+      setScheduling(true)
+      try {
+        const body: Record<string, unknown> = { planJobId: planJob.id, targetDate }
+        if (crewLeadId) body.crewLeadId = crewLeadId
 
-      const res = await fetch("/api/actions/service-plan-jobs/schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-      if (res.ok) {
-        // Refresh both views
+        const res = await fetch("/api/actions/service-plan-jobs/schedule", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        })
+        if (res.ok) {
+          fetchWeekData()
+          fetchBank()
+        }
+      } catch {
+        // ignore
+      }
+      setScheduling(false)
+    } else if (data.type === "scheduled") {
+      // Scheduled job moved between days/TLs
+      const job = data.job as ScheduleJob
+      const fromDate = data.fromDate as string
+      const fromTLId = data.fromTLId as number | null
+      const tlPart = parts.length > 3 ? parts.slice(3).join("-") : null
+      const targetTLId = tlPart === "unassigned" ? null : (tlPart ? Number(tlPart) : null)
+
+      const dateChanged = targetDate !== fromDate
+      const tlChanged = targetTLId !== fromTLId
+
+      if (!dateChanged && !tlChanged) return
+
+      setScheduling(true)
+      try {
+        if (tlChanged && targetTLId != null) {
+          await fetch("/api/actions/assign-cleaner", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: job.id, cleanerId: String(targetTLId) }),
+          })
+        }
+        if (dateChanged) {
+          await fetch("/api/jobs", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: job.id, date: targetDate }),
+          })
+        }
         fetchWeekData()
         fetchBank()
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
+      setScheduling(false)
     }
-    setScheduling(false)
   }
 
   // Group bank jobs by plan type
@@ -383,7 +498,6 @@ export default function ServicePlanSchedulePage() {
             const isToday = dateStr === todayStr
             const dayData = weekData.find(d => d.date === dateStr)
             const dayCrews = dayData?.crews || []
-            const dayTotal = dayData?.totalRevenue || 0
             const dayJobCount = dayData?.totalJobs || 0
 
             // Filter to show only service plan jobs in the grid
@@ -421,9 +535,11 @@ export default function ServicePlanSchedulePage() {
                       const tlKey = `${dateStr}-${crew.team_lead_id}`
                       const isExpanded = expandedTLs.has(tlKey)
                       const crewJobs = crew.jobs
+                      const crewTotal = crewJobs.reduce((s, j) => s + j.price, 0)
 
                       return (
                         <DroppableCell key={tlKey} id={`drop-${dateStr}-${crew.team_lead_id}`}>
+                          {/* TL Header */}
                           <button
                             onClick={() => toggleTL(tlKey)}
                             className="w-full flex items-center gap-1 px-1.5 py-1 rounded-md hover:bg-muted/50 text-left"
@@ -433,36 +549,19 @@ export default function ServicePlanSchedulePage() {
                               {crew.team_lead_name.split(" ")[0]}
                             </span>
                             <span className="text-[9px] text-muted-foreground">{crewJobs.length}</span>
+                            {crewTotal > 0 && <span className="text-[9px] text-green-400 font-medium">${Math.round(crewTotal)}</span>}
                             <ChevronDown className={`size-3 text-muted-foreground transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                           </button>
                           {isExpanded && (
                             <div className="ml-1 pl-2 border-l border-border space-y-1 mt-1">
-                              {crewJobs.map(job => {
-                                const planTypeStr = job.services[0]?.replace("Service Plan - ", "") || ""
-                                const colors = getPlanColor(planTypeStr)
-                                return (
-                                  <div
-                                    key={job.id}
-                                    className={`rounded px-1.5 py-1 border text-[10px] ${colors.bg} ${colors.border}`}
-                                  >
-                                    <div className="font-bold text-foreground truncate">{job.customer_name}</div>
-                                    <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
-                                      <MapPin className="size-2 shrink-0" />
-                                      <span className="truncate">{extractTown(job.address)}</span>
-                                    </div>
-                                    {job.time && (
-                                      <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
-                                        <Clock className="size-2" />
-                                        <span>{job.time}</span>
-                                      </div>
-                                    )}
-                                    <div className="flex items-center justify-between mt-0.5">
-                                      <span className={`text-[8px] font-bold ${colors.text}`}>{humanizePlan(planTypeStr)}</span>
-                                      <span className="font-bold text-foreground">${job.price}</span>
-                                    </div>
-                                  </div>
-                                )
-                              })}
+                              {crewJobs.map(job => (
+                                <DraggableScheduledJob
+                                  key={job.id}
+                                  job={job}
+                                  fromDate={dateStr}
+                                  fromTLId={crew.team_lead_id}
+                                />
+                              ))}
                             </div>
                           )}
                         </DroppableCell>
@@ -476,7 +575,6 @@ export default function ServicePlanSchedulePage() {
                       )
                       if (nonSpJobs.length === 0) return null
 
-                      // Only show if no SP jobs were shown for this TL (avoid double header)
                       const hasSpJobs = servicePlanCrews.some(c => c.team_lead_id === crew.team_lead_id)
                       if (hasSpJobs) return null
 
@@ -534,14 +632,29 @@ export default function ServicePlanSchedulePage() {
         {/* ═══ DRAG OVERLAY ═══ */}
         <DragOverlay>
           {dragItem && (() => {
-            const colors = getPlanColor(dragItem.plan_type)
+            if (dragItem.type === "bank") {
+              const colors = getPlanColor(dragItem.planJob.plan_type)
+              return (
+                <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-[10px] font-medium shadow-lg ${colors.bg} ${colors.border}`}>
+                  <GripVertical className="size-3 opacity-40" />
+                  <div>
+                    <div className="font-semibold text-foreground">{dragItem.planJob.customer_name}</div>
+                    <span className={`text-[8px] font-bold ${colors.text}`}>{humanizePlan(dragItem.planJob.plan_type)}</span>
+                  </div>
+                </div>
+              )
+            }
+            // scheduled job overlay
+            const planTypeStr = dragItem.job.services[0]?.replace("Service Plan - ", "") || ""
+            const colors = getPlanColor(planTypeStr)
             return (
               <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border text-[10px] font-medium shadow-lg ${colors.bg} ${colors.border}`}>
                 <GripVertical className="size-3 opacity-40" />
                 <div>
-                  <div className="font-semibold text-foreground">{dragItem.customer_name}</div>
-                  <span className={`text-[8px] font-bold ${colors.text}`}>{humanizePlan(dragItem.plan_type)}</span>
+                  <div className="font-semibold text-foreground">{dragItem.job.customer_name}</div>
+                  <div className="text-muted-foreground">{extractTown(dragItem.job.address)}</div>
                 </div>
+                <span className="font-bold text-foreground ml-auto">${dragItem.job.price}</span>
               </div>
             )
           })()}
