@@ -3,637 +3,1182 @@
 import { useEffect, useState, useRef, useCallback } from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, Calendar, Clock, MapPin, User, Phone,
-  CheckCircle2, Circle, Loader2, AlertCircle,
-  Navigation, Home as HomeIcon, CreditCard, DollarSign,
-  Send, MessageCircle, Bed, Bath, Ruler, Timer, Users,
-  ChevronDown, ChevronUp, PartyPopper, Sparkles, Car, Flag,
+  ArrowLeft, Calendar, Clock, MapPin, Phone,
+  CheckCircle2, Loader2, AlertCircle, Lock,
+  Navigation, CreditCard, DollarSign, Banknote,
+  Timer, Plus, X, Check, CircleDot,
+  ClipboardCheck, Receipt, XCircle,
 } from "lucide-react"
 
 // ── Types ──
+
+type VisitStatus =
+  | "scheduled"
+  | "en_route"
+  | "on_site"
+  | "in_progress"
+  | "stopped"
+  | "completed"
+  | "checklist_done"
+  | "payment_recorded"
+  | "closed"
+
+interface Visit {
+  id: number
+  status: VisitStatus
+  started_at: string | null
+  stopped_at: string | null
+  elapsed_seconds: number | null
+  checklist_completed: boolean
+  payment_recorded: boolean
+  payment_type: string | null
+  payment_amount: number | null
+  tip_amount: number | null
+}
+
+interface LineItem {
+  id: number
+  service_name: string
+  price: number
+  is_upsell: boolean
+}
+
+interface ChecklistItem {
+  id: number | string
+  text: string
+  completed: boolean
+}
+
 interface JobDetail {
-  id: number; date: string; scheduled_at: string | null; address: string | null
-  service_type: string | null; status: string; notes: string | null
-  bedrooms: number | null; bathrooms: number | null; sqft: number | null
-  hours: number | null; cleaner_pay: number | null; currency: string; total_hours: number | null
-  hours_per_cleaner: number | null; num_cleaners: number | null
-  paid: boolean; payment_status: string | null
-  cleaner_omw_at: string | null; cleaner_arrived_at: string | null
-  payment_method: string | null; card_on_file: boolean
-}
-interface ChecklistItem { id: number | string; text: string; order: number; required: boolean; completed: boolean; completed_at: string | null }
-interface Message { id: string; content: string; direction: string; role: string; timestamp: string; source: string; is_mine: boolean }
-interface JobData {
-  job: JobDetail; assignment: { id: string; status: string }
-  customer: { first_name: string | null; last_name: string | null; phone?: string | null }
-  checklist: ChecklistItem[]; tenant: { name: string; slug: string }
+  id: number
+  date: string
+  scheduled_at: string | null
+  address: string | null
+  service_type: string | null
+  status: string
+  notes: string | null
+  currency: string
 }
 
-function formatDate(d: string) { return new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) }
-function formatTime(t: string | null) {
+interface CustomerInfo {
+  first_name: string | null
+  last_name: string | null
+  phone?: string | null
+}
+
+interface TenantInfo {
+  name: string
+  slug: string
+}
+
+interface VisitData {
+  visit: Visit
+  checklist: ChecklistItem[]
+  line_items: LineItem[]
+  job: JobDetail
+  customer: CustomerInfo
+  tenant: TenantInfo
+}
+
+// ── Helpers ──
+
+function formatDate(d: string): string {
+  return new Date(d + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function formatTime(t: string | null): string {
   if (!t) return "TBD"
-  try { const [h, m] = t.split(":").map(Number); return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` } catch { return t }
-}
-function humanize(v: string) { return v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) }
-function fmtPay(amount: number, currency = "usd") {
-  const cur = (currency || "usd").toUpperCase()
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: cur, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)
+  try {
+    const [h, m] = t.split(":").map(Number)
+    return `${h % 12 || 12}:${m.toString().padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
+  } catch {
+    return t
+  }
 }
 
-export default function JobDetailPage() {
+function formatElapsed(seconds: number): string {
+  const hrs = Math.floor(seconds / 3600)
+  const mins = Math.floor((seconds % 3600) / 60)
+  const secs = seconds % 60
+  if (hrs > 0) {
+    return `${hrs}h ${mins.toString().padStart(2, "0")}m ${secs.toString().padStart(2, "0")}s`
+  }
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`
+}
+
+function formatCurrency(amount: number, currency = "usd"): string {
+  const cur = (currency || "usd").toUpperCase()
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: cur,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount)
+}
+
+function serviceLabel(type: string | null): string {
+  if (!type) return "Service"
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function serviceBadgeColor(type: string | null): string {
+  switch (type) {
+    case "window_cleaning":
+      return "bg-sky-500/20 text-sky-400 border-sky-500/30"
+    case "pressure_washing":
+      return "bg-orange-500/20 text-orange-400 border-orange-500/30"
+    case "gutter_cleaning":
+      return "bg-amber-500/20 text-amber-400 border-amber-500/30"
+    default:
+      return "bg-zinc-500/20 text-zinc-400 border-zinc-500/30"
+  }
+}
+
+// ── Step Definitions ──
+
+interface StepDef {
+  key: string
+  label: string
+  targetStatus: VisitStatus
+  color: string
+  bgGlow: string
+  description: string
+}
+
+const STEPS: StepDef[] = [
+  {
+    key: "omw",
+    label: "On My Way",
+    targetStatus: "en_route",
+    color: "bg-blue-500",
+    bgGlow: "shadow-blue-500/30",
+    description: "Notifies the customer you are en route",
+  },
+  {
+    key: "start",
+    label: "Start Visit",
+    targetStatus: "in_progress",
+    color: "bg-green-500",
+    bgGlow: "shadow-green-500/30",
+    description: "Starts the job timer",
+  },
+  {
+    key: "stop",
+    label: "Stop Visit",
+    targetStatus: "stopped",
+    color: "bg-orange-500",
+    bgGlow: "shadow-orange-500/30",
+    description: "Stops the job timer",
+  },
+  {
+    key: "completed",
+    label: "Completed",
+    targetStatus: "completed",
+    color: "bg-emerald-500",
+    bgGlow: "shadow-emerald-500/30",
+    description: "Marks the work as done",
+  },
+  {
+    key: "checklist",
+    label: "Checklist",
+    targetStatus: "checklist_done",
+    color: "bg-purple-500",
+    bgGlow: "shadow-purple-500/30",
+    description: "Complete all checklist items",
+  },
+  {
+    key: "payment",
+    label: "Collect Payment",
+    targetStatus: "payment_recorded",
+    color: "bg-indigo-500",
+    bgGlow: "shadow-indigo-500/30",
+    description: "Record the customer payment",
+  },
+  {
+    key: "tip",
+    label: "Record Tip",
+    targetStatus: "payment_recorded", // tip transitions handled separately
+    color: "bg-teal-500",
+    bgGlow: "shadow-teal-500/30",
+    description: "Optional: record a tip",
+  },
+  {
+    key: "close",
+    label: "Close Job",
+    targetStatus: "closed",
+    color: "bg-red-500",
+    bgGlow: "shadow-red-500/30",
+    description: "Finalize and close the job",
+  },
+]
+
+const STATUS_ORDER: VisitStatus[] = [
+  "scheduled",
+  "en_route",
+  "on_site",
+  "in_progress",
+  "stopped",
+  "completed",
+  "checklist_done",
+  "payment_recorded",
+  "closed",
+]
+
+function stepIndex(status: VisitStatus): number {
+  return STATUS_ORDER.indexOf(status)
+}
+
+function currentStepIndex(visit: Visit): number {
+  // Map the current visit status to which step we're on
+  const si = stepIndex(visit.status)
+  // scheduled = before step 0
+  // en_route = step 0 completed, step 1 is next
+  // in_progress = step 1 completed, show timer, step 2 is next
+  // stopped = step 2 completed, step 3 is next
+  // completed = step 3 completed, step 4 (checklist) is next
+  // checklist_done = step 4 completed, step 5 (payment) is next
+  // payment_recorded = steps 5+6 completed, step 7 (close) is next
+  // closed = all steps done
+  switch (visit.status) {
+    case "scheduled":
+      return -1 // no steps completed, step 0 is next
+    case "en_route":
+    case "on_site":
+      return 0 // step 0 done, step 1 next
+    case "in_progress":
+      return 1 // step 1 done, step 2 next
+    case "stopped":
+      return 2 // step 2 done, step 3 next
+    case "completed":
+      return 3 // step 3 done, step 4 next
+    case "checklist_done":
+      return 4 // step 4 done, step 5 next
+    case "payment_recorded":
+      return 6 // steps 5+6 done, step 7 next
+    case "closed":
+      return 7 // all done
+    default:
+      return -1
+  }
+}
+
+// ── Main Component ──
+
+export default function CrewJobVisitPage() {
   const params = useParams()
   const router = useRouter()
   const token = params.token as string
   const jobId = params.jobId as string
 
-  const [data, setData] = useState<JobData | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+  const [data, setData] = useState<VisitData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [updating, setUpdating] = useState<string | null>(null)
-  const [messageText, setMessageText] = useState("")
-  const [sendingMessage, setSendingMessage] = useState(false)
-  const [showMessages, setShowMessages] = useState(false)
-  const [charging, setCharging] = useState(false)
-  const [chargeResult, setChargeResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
-  const [sendingTipLink, setSendingTipLink] = useState(false)
-  const [tipLinkSent, setTipLinkSent] = useState(false)
-  const [showConfetti, setShowConfetti] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [actionLoading, setActionLoading] = useState(false)
 
-  const apiBase = `/api/crew/${token}/job/${jobId}`
+  // Timer
+  const [timerSeconds, setTimerSeconds] = useState(0)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const fetchData = useCallback(() => {
-    fetch(apiBase).then(r => { if (!r.ok) throw new Error("Not found"); return r.json() })
-      .then(setData).catch(e => setError(e.message)).finally(() => setLoading(false))
-  }, [apiBase])
-  const fetchMessages = useCallback(() => {
-    fetch(`${apiBase}/messages`).then(r => r.json()).then(d => setMessages(d.messages || [])).catch(() => {})
-  }, [apiBase])
+  // Upsell form
+  const [showUpsellForm, setShowUpsellForm] = useState(false)
+  const [upsellName, setUpsellName] = useState("")
+  const [upsellPrice, setUpsellPrice] = useState("")
+  const [upsellLoading, setUpsellLoading] = useState(false)
 
-  useEffect(() => { fetchData() }, [fetchData])
-  useEffect(() => {
-    if (showMessages) { fetchMessages(); const iv = setInterval(fetchMessages, 15000); return () => clearInterval(iv) }
-  }, [showMessages, fetchMessages])
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }) }, [messages])
+  // Add checklist item
+  const [showAddChecklist, setShowAddChecklist] = useState(false)
+  const [newChecklistText, setNewChecklistText] = useState("")
 
-  async function updateStatus(status: string) {
-    setUpdating(status)
+  // Payment
+  const [selectedPaymentType, setSelectedPaymentType] = useState<string | null>(null)
+  const [paymentAmount, setPaymentAmount] = useState("")
+  const [tipAmount, setTipAmount] = useState("")
+  const [showTipInput, setShowTipInput] = useState(false)
+
+  const apiBase = `/api/crew/${token}/job/${jobId}/visit`
+
+  // ── Fetch ──
+
+  const fetchData = useCallback(async () => {
     try {
-      const res = await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
-      if (status === "done") { setShowConfetti(true); setTimeout(() => setShowConfetti(false), 3000) }
-      fetchData()
-    } catch { alert("Network error") } finally { setUpdating(null) }
-  }
-  async function updateChecklist(itemId: number | string, completed: boolean) {
-    try {
-      await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checklist_item_id: itemId, completed }) })
-      setData(prev => prev ? { ...prev, checklist: prev.checklist.map(i => i.id === itemId ? { ...i, completed, completed_at: completed ? new Date().toISOString() : null } : i) } : prev)
-    } catch {}
-  }
-  async function updatePayment(method: string) {
-    try {
-      await fetch(apiBase, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payment_method: method }) })
-      setData(prev => prev ? { ...prev, job: { ...prev.job, payment_method: method } } : prev)
-    } catch {}
-  }
-  async function handleCancelAccepted() {
-    if (!confirm("Are you sure you can't make this job? It will be reassigned.")) return
-    setUpdating("cancel")
-    try {
-      const res = await fetch(apiBase, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel_accepted" }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
-      router.push(`/crew/${token}`)
-    } catch { alert("Network error") } finally { setUpdating(null) }
-  }
-  async function handleAcceptDecline(action: "accept" | "decline") {
-    setUpdating(action)
-    try {
-      const res = await fetch(apiBase, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
-      fetchData()
-    } catch { alert("Network error") } finally { setUpdating(null) }
-  }
-  async function chargeCard() {
-    if (charging) return; setCharging(true); setChargeResult(null)
-    try {
-      const res = await fetch(`${apiBase}/charge`, { method: "POST", headers: { "Content-Type": "application/json" } })
+      const res = await fetch(apiBase)
+      if (!res.ok) throw new Error("Not found")
       const json = await res.json()
-      if (!res.ok) setChargeResult({ success: false, error: json.error || "Charge failed" })
-      else { setChargeResult({ success: true, amount: json.amount }); fetchData() }
-    } catch { setChargeResult({ success: false, error: "Network error" }) } finally { setCharging(false) }
-  }
-  async function sendTipLink() {
-    if (sendingTipLink) return; setSendingTipLink(true)
+      setData(json)
+      setError(null)
+    } catch (e: unknown) {
+      if (e instanceof Error) setError(e.message)
+      else setError("Unknown error")
+    } finally {
+      setLoading(false)
+    }
+  }, [apiBase])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // ── Timer Logic ──
+
+  useEffect(() => {
+    if (!data) return
+
+    if (data.visit.status === "in_progress" && data.visit.started_at) {
+      const startMs = new Date(data.visit.started_at).getTime()
+      const tick = () => {
+        const elapsed = Math.floor((Date.now() - startMs) / 1000)
+        setTimerSeconds(elapsed)
+      }
+      tick()
+      timerRef.current = setInterval(tick, 1000)
+      return () => {
+        if (timerRef.current) clearInterval(timerRef.current)
+      }
+    }
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+
+    if (data.visit.elapsed_seconds != null) {
+      setTimerSeconds(data.visit.elapsed_seconds)
+    }
+  }, [data])
+
+  // ── POST Actions ──
+
+  async function postAction(body: Record<string, unknown>): Promise<boolean> {
+    setActionLoading(true)
     try {
-      const res = await fetch(`${apiBase}/tip-link`, { method: "POST", headers: { "Content-Type": "application/json" } })
-      if (res.ok) setTipLinkSent(true)
-      else { const json = await res.json(); alert(json.error || "Failed") }
-    } catch { alert("Network error") } finally { setSendingTipLink(false) }
-  }
-  async function sendMessage() {
-    if (!messageText.trim()) return; setSendingMessage(true)
-    try {
-      const res = await fetch(`${apiBase}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: messageText.trim() }) })
-      if (!res.ok) { const err = await res.json(); alert(err.error || "Failed"); return }
-      setMessageText(""); fetchMessages()
-    } catch { alert("Network error") } finally { setSendingMessage(false) }
+      const res = await fetch(apiBase, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Request failed" }))
+        alert(err.error || "Action failed")
+        return false
+      }
+      await fetchData()
+      return true
+    } catch {
+      alert("Network error")
+      return false
+    } finally {
+      setActionLoading(false)
+    }
   }
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: "#f7f5f0" }}>
-      <Loader2 className="size-8 animate-spin text-emerald-500" />
-    </div>
-  )
-  if (error || !data) return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f7f5f0" }}>
-      <div className="text-center">
-        <AlertCircle className="size-12 text-red-400 mx-auto mb-3" />
-        <h1 className="text-xl font-bold text-slate-800">Job Not Found</h1>
-        <p className="text-slate-500 mt-1 text-sm">Not found or no access.</p>
-        <button onClick={() => router.push(`/crew/${token}`)} className="mt-4 text-sm font-bold text-emerald-600">Back to Portal</button>
+  async function handleTransition(targetStatus: VisitStatus) {
+    await postAction({ action: "transition", target_status: targetStatus })
+  }
+
+  async function handleUpsell() {
+    if (!upsellName.trim() || !upsellPrice) return
+    setUpsellLoading(true)
+    const ok = await postAction({
+      action: "upsell",
+      service_name: upsellName.trim(),
+      price: parseFloat(upsellPrice),
+    })
+    if (ok) {
+      setUpsellName("")
+      setUpsellPrice("")
+      setShowUpsellForm(false)
+    }
+    setUpsellLoading(false)
+  }
+
+  async function handleToggleChecklist(itemId: number | string, completed: boolean) {
+    await postAction({ action: "toggle_checklist", item_id: itemId, completed })
+  }
+
+  async function handleAddChecklistItem() {
+    if (!newChecklistText.trim()) return
+    const ok = await postAction({ action: "add_checklist_item", text: newChecklistText.trim() })
+    if (ok) {
+      setNewChecklistText("")
+      setShowAddChecklist(false)
+    }
+  }
+
+  async function handleRecordPayment() {
+    if (!selectedPaymentType) {
+      alert("Select a payment method")
+      return
+    }
+    const amount = parseFloat(paymentAmount)
+    if (isNaN(amount) || amount <= 0) {
+      alert("Enter a valid payment amount")
+      return
+    }
+    const tip = tipAmount ? parseFloat(tipAmount) : 0
+    await postAction({
+      action: "record_payment",
+      payment_type: selectedPaymentType,
+      payment_amount: amount,
+      tip_amount: tip,
+    })
+  }
+
+  async function handleRecordTip() {
+    const tip = parseFloat(tipAmount)
+    if (isNaN(tip) || tip <= 0) {
+      alert("Enter a valid tip amount")
+      return
+    }
+    await postAction({
+      action: "record_payment",
+      payment_type: data?.visit.payment_type || "cash",
+      payment_amount: data?.visit.payment_amount || 0,
+      tip_amount: tip,
+    })
+    setShowTipInput(false)
+  }
+
+  // ── Loading / Error States ──
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-zinc-400" />
       </div>
-    </div>
-  )
+    )
+  }
 
-  const { job, assignment, customer, checklist, tenant } = data
-  const isPending = assignment.status === "pending"
-  const isCancelled = assignment.status === "cancelled" || assignment.status === "declined"
-  const isActive = ["scheduled", "in_progress"].includes(job.status)
-  const isCompleted = job.status === "completed"
-  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ")
-  const completedCount = checklist.filter(i => i.completed).length
-  const allChecked = checklist.length > 0 && completedCount === checklist.length
+  if (error || !data) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+        <div className="text-center">
+          <AlertCircle className="size-12 text-red-400 mx-auto mb-3" />
+          <h1 className="text-xl font-bold text-white">Job Not Found</h1>
+          <p className="text-zinc-500 mt-1 text-sm">This job could not be loaded.</p>
+          <button
+            onClick={() => router.push(`/crew/${token}`)}
+            className="mt-4 text-sm font-semibold text-blue-400"
+          >
+            Back to Portal
+          </button>
+        </div>
+      </div>
+    )
+  }
 
-  // Step tracker data
-  const steps = [
-    { key: "omw", label: "On My Way", icon: <Car className="size-5" />, done: !!job.cleaner_omw_at, color: "#ff9600" },
-    { key: "here", label: "Arrived", icon: <HomeIcon className="size-5" />, done: !!job.cleaner_arrived_at, color: "#1cb0f6" },
-    { key: "done", label: "Complete", icon: <Flag className="size-5" />, done: isCompleted, color: "#58cc02" },
-  ]
+  const { visit, checklist, line_items, job, customer, tenant } = data
+  const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(" ") || "Customer"
+  const completedStepIdx = currentStepIndex(visit)
+  const isClosed = visit.status === "closed"
+
+  // Calculate totals
+  const quoteItems = line_items.filter((li) => !li.is_upsell)
+  const upsellItems = line_items.filter((li) => li.is_upsell)
+  const totalAmount = line_items.reduce((sum, li) => sum + li.price, 0)
+
+  // Checklist progress
+  const checklistCompleted = checklist.filter((c) => c.completed).length
+  const checklistTotal = checklist.length
+  const allChecklistDone = checklistTotal > 0 && checklistCompleted === checklistTotal
+
+  // Pre-fill payment amount with total
+  useEffect(() => {
+    if (totalAmount > 0 && !paymentAmount) {
+      setPaymentAmount(totalAmount.toFixed(2))
+    }
+  }, [totalAmount, paymentAmount])
+
+  // ── Closed State ──
+
+  if (isClosed) {
+    return (
+      <div className="min-h-screen bg-zinc-950 text-white">
+        <div className="max-w-lg mx-auto px-4 pt-5 pb-8">
+          {/* Header */}
+          <button
+            onClick={() => router.push(`/crew/${token}`)}
+            className="flex items-center gap-1.5 text-zinc-500 text-sm mb-6 active:text-zinc-300 transition-colors"
+          >
+            <ArrowLeft className="size-4" /> Back to Jobs
+          </button>
+
+          {/* Closed Hero */}
+          <div className="text-center py-12">
+            <div className="size-20 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="size-10 text-emerald-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-white mb-1">Job Closed</h1>
+            <p className="text-zinc-400 text-sm">{customerName} - {formatDate(job.date)}</p>
+          </div>
+
+          {/* Summary Card */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Summary</h2>
+
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400 text-sm">Total Collected</span>
+              <span className="text-lg font-bold text-white">
+                {formatCurrency(visit.payment_amount || 0, job.currency)}
+              </span>
+            </div>
+
+            {visit.tip_amount != null && visit.tip_amount > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 text-sm">Tip</span>
+                <span className="text-lg font-bold text-teal-400">
+                  {formatCurrency(visit.tip_amount, job.currency)}
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-between items-center">
+              <span className="text-zinc-400 text-sm">Payment Method</span>
+              <span className="text-sm font-medium text-white capitalize">
+                {visit.payment_type || "N/A"}
+              </span>
+            </div>
+
+            {visit.elapsed_seconds != null && (
+              <div className="flex justify-between items-center">
+                <span className="text-zinc-400 text-sm">Time on Site</span>
+                <span className="text-sm font-medium text-white">
+                  {formatElapsed(visit.elapsed_seconds)}
+                </span>
+              </div>
+            )}
+
+            <div className="border-t border-zinc-800 pt-4 mt-4">
+              <p className="text-xs text-zinc-500 text-center">
+                Receipt, review request, and thank you sent automatically.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Active Visit Render ──
+
+  // Determine the next action step
+  const nextStepIdx = completedStepIdx + 1
+  const nextStep = nextStepIdx < STEPS.length ? STEPS[nextStepIdx] : null
+
+  // For checklist step: only allow transition if all items complete
+  const canAdvanceChecklist = completedStepIdx === 3 && allChecklistDone
+  // For close step: only allow if checklist + payment done
+  const canClose = visit.checklist_completed && visit.payment_recorded
 
   return (
-    <div className="min-h-screen pb-8" style={{ background: "#f7f5f0", fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div className="min-h-screen bg-zinc-950 text-white pb-8">
       <style>{`
-        @keyframes popIn { 0% { opacity:0; transform: scale(0.85) translateY(8px); } 60% { transform: scale(1.02); } 100% { opacity:1; transform: scale(1); } }
-        @keyframes slideUp { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
-        @keyframes checkPop { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
-        @keyframes confettiFall { 0% { transform: translateY(-100vh) rotate(0deg); opacity:1; } 100% { transform: translateY(100vh) rotate(720deg); opacity:0; } }
-        @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(88,204,2,0.4); } 50% { box-shadow: 0 0 0 8px rgba(88,204,2,0); } }
-        .pop-in { animation: popIn 0.5s cubic-bezier(0.34,1.56,0.64,1) both; }
-        .slide-up { animation: slideUp 0.4s ease-out both; }
-        .check-pop { animation: checkPop 0.3s cubic-bezier(0.34,1.56,0.64,1); }
+        @keyframes timerPulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+          50% { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0); }
+        }
+        @keyframes fadeSlideUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-slide-up {
+          animation: fadeSlideUp 0.35s ease-out both;
+        }
       `}</style>
 
-      {/* Confetti overlay */}
-      {showConfetti && (
-        <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
-          {Array.from({ length: 40 }).map((_, i) => (
-            <div
-              key={i}
-              className="absolute rounded-sm"
-              style={{
-                width: 8 + Math.random() * 8,
-                height: 8 + Math.random() * 8,
-                background: ["#58cc02", "#ff9600", "#1cb0f6", "#ff4b4b", "#ce82ff", "#ffd700"][i % 6],
-                left: `${Math.random() * 100}%`,
-                animation: `confettiFall ${1.5 + Math.random() * 2}s linear ${Math.random() * 0.5}s both`,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      <div className="max-w-lg mx-auto px-4 pt-5 space-y-5">
 
-      {/* Cancelled banner */}
-      {isCancelled && (
-        <div className="px-4 py-3 text-center text-sm font-bold text-white" style={{ background: "#ff4b4b" }}>
-          This assignment was cancelled
-        </div>
-      )}
+        {/* ═══════════ 1. HEADER BAR ═══════════ */}
+        <div>
+          <button
+            onClick={() => router.push(`/crew/${token}`)}
+            className="flex items-center gap-1.5 text-zinc-500 text-sm mb-4 active:text-zinc-300 transition-colors"
+          >
+            <ArrowLeft className="size-4" /> Back to Jobs
+          </button>
 
-      {/* ═══ HEADER (inline, no colored bar) ═══ */}
-      <div className="max-w-lg mx-auto px-5 pt-5">
-        <button onClick={() => router.push(`/crew/${token}`)} className="flex items-center gap-1.5 text-slate-400 text-sm mb-4 hover:text-slate-600 transition-colors">
-          <ArrowLeft className="size-4" /> Back
-        </button>
-        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">{tenant.name}</p>
-        <h1 className="text-xl font-black text-slate-800">
-          {job.service_type ? humanize(job.service_type) : "Job"} #{job.id}
-        </h1>
-      </div>
-
-      <div className="max-w-lg mx-auto px-4 space-y-4 mt-4">
-
-        {/* ═══ JOB INFO CARD ═══ */}
-        <div className="bg-white rounded-2xl p-5 pop-in" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-          {/* Date/Time hero */}
-          <div className="flex items-center gap-3 mb-4">
-            <div className="size-12 rounded-2xl flex items-center justify-center" style={{ background: "linear-gradient(135deg, #58cc02, #89e219)" }}>
-              <Calendar className="size-5 text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-slate-800">{formatDate(job.date)}</p>
-              <p className="text-sm text-slate-500 flex items-center gap-1"><Clock className="size-3.5" /> {formatTime(job.scheduled_at)}</p>
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-lg font-bold text-white truncate">{customerName}</h1>
+              {job.address && (
+                <a
+                  href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-sm text-blue-400 mt-0.5 active:text-blue-300"
+                >
+                  <MapPin className="size-3.5 shrink-0" />
+                  <span className="truncate">{job.address}</span>
+                </a>
+              )}
             </div>
           </div>
 
-          {/* Address */}
-          {job.address && (
-            <a href={`https://maps.google.com/?q=${encodeURIComponent(job.address)}`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2.5 py-2.5 px-3 rounded-xl mb-3 transition-colors"
-              style={{ background: "#f0f9ff", border: "1.5px solid #bae6fd" }}>
-              <MapPin className="size-4 text-sky-500 shrink-0" />
-              <span className="text-sm font-medium text-sky-700 truncate">{job.address}</span>
+          <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+              <Calendar className="size-3.5" />
+              <span>{formatDate(job.date)}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+              <Clock className="size-3.5" />
+              <span>{formatTime(job.scheduled_at)}</span>
+            </div>
+            {job.service_type && (
+              <span
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${serviceBadgeColor(job.service_type)}`}
+              >
+                {serviceLabel(job.service_type)}
+              </span>
+            )}
+          </div>
+
+          {customer.phone && (
+            <a
+              href={`tel:${customer.phone}`}
+              className="flex items-center gap-1.5 text-sm text-zinc-400 mt-2 active:text-zinc-200"
+            >
+              <Phone className="size-3.5" />
+              <span>{customer.phone}</span>
             </a>
           )}
-
-          {/* Customer + Phone */}
-          <div className="space-y-2">
-            {customerName && (
-              <div className="flex items-center gap-2.5 text-sm text-slate-600">
-                <User className="size-4 text-slate-400" /> <span className="font-medium">{customerName}</span>
-              </div>
-            )}
-            {customer.phone && (
-              <div className="flex items-center gap-2.5 text-sm">
-                <Phone className="size-4 text-slate-400" />
-                <a href={`tel:${customer.phone}`} className="font-medium text-emerald-600">{customer.phone}</a>
-              </div>
-            )}
-          </div>
-
-          {/* Property pills */}
-          {(job.bedrooms || job.bathrooms || job.sqft) && (
-            <div className="flex flex-wrap gap-2 mt-4">
-              {job.bedrooms != null && <InfoPill icon={<Bed className="size-3.5" />} text={`${job.bedrooms} bed`} />}
-              {job.bathrooms != null && <InfoPill icon={<Bath className="size-3.5" />} text={`${job.bathrooms} bath`} />}
-              {job.sqft != null && <InfoPill icon={<Ruler className="size-3.5" />} text={`${job.sqft} sqft`} />}
-              {(job.total_hours || job.hours) && <InfoPill icon={<Timer className="size-3.5" />} text={`${job.total_hours ?? job.hours}h`} />}
-              {job.num_cleaners && <InfoPill icon={<Users className="size-3.5" />} text={`${job.num_cleaners} crew`} />}
-            </div>
-          )}
-
-          {/* Pay — big and prominent */}
-          {job.cleaner_pay != null && (
-            <div className="mt-4 flex items-center gap-3">
-              <div className="size-10 rounded-xl flex items-center justify-center" style={{ background: "#dcfce7" }}>
-                <DollarSign className="size-5 text-emerald-600" />
-              </div>
-              <div>
-                <p className="text-xl font-black text-emerald-600">{fmtPay(Number(job.cleaner_pay), job.currency)}</p>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Your Pay</p>
-              </div>
-            </div>
-          )}
-
-          {/* Notes */}
-          {job.notes && (
-            <div className="mt-4">
-              <NotesDisplay notes={job.notes} />
-            </div>
-          )}
         </div>
 
-        {/* ═══ ACCEPT / DECLINE ═══ */}
-        {isPending && (
-          <div className="bg-white rounded-2xl p-5 pop-in" style={{ boxShadow: "0 0 0 2px #ff9600, 0 4px 15px rgba(255,150,0,0.15)", animationDelay: "0.1s" }}>
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="size-5 text-amber-500" />
-              <p className="font-bold text-slate-800">New Job Assignment</p>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleAcceptDecline("accept")}
-                disabled={!!updating}
-                className="flex-1 py-3.5 rounded-2xl font-black text-sm text-white active:scale-95 transition-all disabled:opacity-50"
-                style={{ background: "#58cc02", boxShadow: "0 4px 0 #46a302" }}
-              >
-                {updating === "accept" ? <Loader2 className="size-4 animate-spin mx-auto" /> : "ACCEPT"}
-              </button>
-              <button
-                onClick={() => handleAcceptDecline("decline")}
-                disabled={!!updating}
-                className="flex-1 py-3.5 rounded-2xl font-black text-sm text-white active:scale-95 transition-all disabled:opacity-50"
-                style={{ background: "#ff4b4b", boxShadow: "0 4px 0 #d63c3c" }}
-              >
-                {updating === "decline" ? <Loader2 className="size-4 animate-spin mx-auto" /> : "DECLINE"}
-              </button>
-            </div>
-          </div>
-        )}
+        {/* ═══════════ 2. VISIT FLOW — THE HERO ═══════════ */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 animate-slide-up">
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">
+            Visit Progress
+          </h2>
 
-        {/* ═══ STEP TRACKER (OMW → HERE → DONE) ═══ */}
-        {isActive && !isPending && (
-          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.15s" }}>
-            <p className="font-bold text-slate-800 mb-5 text-sm">Job Progress</p>
-
-            {/* Visual step tracker */}
-            <div className="flex items-center justify-between mb-6 px-2">
-              {steps.map((step, i) => (
-                <div key={step.key} className="flex items-center flex-1">
-                  {/* Step circle */}
-                  <div className="flex flex-col items-center gap-1.5">
-                    <div
-                      className="size-12 rounded-2xl flex items-center justify-center transition-all duration-500"
-                      style={{
-                        background: step.done ? step.color : "#f1ede6",
-                        color: step.done ? "#ffffff" : "#c4bfb6",
-                        boxShadow: step.done ? `0 4px 12px ${step.color}40` : "none",
-                        animation: step.done ? "pulse 2s ease-in-out infinite" : "none",
-                      }}
-                    >
-                      {step.done ? <CheckCircle2 className="size-6" /> : step.icon}
-                    </div>
-                    <span className="text-[10px] font-bold text-slate-500">{step.label}</span>
-                  </div>
-                  {/* Connector line */}
-                  {i < steps.length - 1 && (
-                    <div className="flex-1 h-1 rounded-full mx-2 transition-all duration-500"
-                      style={{ background: steps[i + 1].done || step.done ? (step.done ? step.color : "#e2ddd5") : "#e2ddd5" }}
-                    />
-                  )}
+          {/* Completed steps as small badges */}
+          {completedStepIdx >= 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {STEPS.slice(0, completedStepIdx + 1).map((step) => (
+                <div
+                  key={step.key}
+                  className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-zinc-800 text-zinc-400"
+                >
+                  <CheckCircle2 className="size-3 text-emerald-400" />
+                  {step.label}
                 </div>
               ))}
             </div>
+          )}
 
-            {/* Action button — only show the NEXT step as one big button */}
-            {(() => {
-              const nextStep = !job.cleaner_omw_at ? steps[0] :
-                !job.cleaner_arrived_at ? steps[1] :
-                !isCompleted ? steps[2] : null
-              if (!nextStep) return null
-              return (
-                <button
-                  onClick={() => updateStatus(nextStep.key)}
-                  disabled={!!updating}
-                  className="w-full py-4 rounded-2xl font-black text-base text-white active:scale-[0.97] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                  style={{
-                    background: nextStep.color,
-                    boxShadow: `0 4px 0 ${nextStep.color}90, 0 6px 20px ${nextStep.color}30`,
-                  }}
-                >
-                  {updating === nextStep.key
-                    ? <Loader2 className="size-5 animate-spin" />
-                    : <>{nextStep.icon} {nextStep.label.toUpperCase()}</>
-                  }
-                </button>
-              )
-            })()}
-          </div>
-        )}
-
-        {/* Can't Make It */}
-        {isActive && !isPending && !job.cleaner_omw_at && (
-          <button onClick={handleCancelAccepted} disabled={!!updating}
-            className="w-full py-3 rounded-2xl text-sm font-bold text-red-500 active:scale-[0.97] transition-all disabled:opacity-50"
-            style={{ background: "#fff5f5", border: "2px solid #fecaca" }}>
-            {updating === "cancel" ? "Cancelling..." : "Can't Make It"}
-          </button>
-        )}
-
-        {/* ═══ CHECKLIST (CLIPBOARD) ═══ */}
-        {checklist.length > 0 && !isPending && (
-          <div className="relative slide-up" style={{ animationDelay: "0.2s" }}>
-            {/* Clip */}
-            <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10">
-              <div className="w-16 h-5 rounded-b-lg relative" style={{ background: "linear-gradient(180deg, #a8a29e, #78716c)", boxShadow: "0 2px 6px rgba(0,0,0,0.2)" }}>
-                <div className="absolute top-1 left-1/2 -translate-x-1/2 size-3 rounded-full" style={{ background: "linear-gradient(135deg, #e7e5e4, #d6d3d1)", border: "1.5px solid #a8a29e" }} />
+          {/* Timer display — shown during in_progress or after stop */}
+          {(visit.status === "in_progress" || (stepIndex(visit.status) > stepIndex("in_progress") && visit.elapsed_seconds != null)) && (
+            <div className="mb-5">
+              <div
+                className={`rounded-xl px-4 py-3 flex items-center gap-3 ${
+                  visit.status === "in_progress"
+                    ? "bg-green-500/10 border border-green-500/30"
+                    : "bg-zinc-800 border border-zinc-700"
+                }`}
+                style={visit.status === "in_progress" ? { animation: "timerPulse 2s ease-in-out infinite" } : {}}
+              >
+                <Timer
+                  className={`size-5 ${visit.status === "in_progress" ? "text-green-400" : "text-zinc-400"}`}
+                />
+                <div>
+                  <p className={`text-2xl font-mono font-bold ${
+                    visit.status === "in_progress" ? "text-green-400" : "text-zinc-300"
+                  }`}>
+                    {formatElapsed(timerSeconds)}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wider text-zinc-500">
+                    {visit.status === "in_progress" ? "Timer Running" : "Elapsed Time"}
+                  </p>
+                </div>
               </div>
             </div>
+          )}
 
-            <div className="bg-white rounded-2xl pt-8 pb-5 px-5 relative overflow-hidden" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-              {/* Ruled lines */}
-              <div className="absolute inset-0 pointer-events-none" style={{ opacity: 0.04 }}>
-                {Array.from({ length: 15 }).map((_, i) => (
-                  <div key={i} className="w-full absolute" style={{ top: `${50 + i * 36}px`, height: 1, background: "#1e40af" }} />
-                ))}
-              </div>
-              {/* Red margin line */}
-              <div className="absolute top-0 bottom-0 left-12 w-[1px] pointer-events-none" style={{ background: "rgba(239,68,68,0.12)" }} />
+          {/* Next action button — THE big button */}
+          {nextStep && !isClosed && (() => {
+            // Special handling for different steps
+            const isChecklistStep = nextStep.key === "checklist"
+            const isPaymentStep = nextStep.key === "payment"
+            const isTipStep = nextStep.key === "tip"
+            const isCloseStep = nextStep.key === "close"
 
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="font-bold text-slate-800 text-sm">Checklist</p>
-                  <span className="text-xs font-black px-2.5 py-1 rounded-full" style={{
-                    background: allChecked ? "#dcfce7" : "#fef3c7",
-                    color: allChecked ? "#16a34a" : "#d97706",
-                  }}>
-                    {allChecked ? "ALL DONE!" : `${completedCount}/${checklist.length}`}
-                  </span>
+            // Skip rendering the big button for checklist/payment/tip steps — they have their own sections
+            if (isChecklistStep || isPaymentStep || isTipStep) {
+              return (
+                <div className="text-center py-2">
+                  <p className="text-sm text-zinc-400">
+                    {isChecklistStep && "Complete the checklist below to continue"}
+                    {isPaymentStep && "Collect payment below to continue"}
+                    {isTipStep && "Record an optional tip or skip to close"}
+                  </p>
                 </div>
+              )
+            }
 
-                {/* Progress bar */}
-                <div className="h-2 rounded-full mb-4" style={{ background: "#f1ede6" }}>
-                  <div className="h-full rounded-full transition-all duration-500 ease-out" style={{
-                    width: `${(completedCount / checklist.length) * 100}%`,
-                    background: allChecked ? "#58cc02" : "linear-gradient(90deg, #ff9600, #ffb347)",
-                    boxShadow: `0 0 8px ${allChecked ? "rgba(88,204,2,0.4)" : "rgba(255,150,0,0.3)"}`,
-                  }} />
-                </div>
+            const disabled = actionLoading || (isCloseStep && !canClose)
 
-                <div className="space-y-1">
-                  {checklist.map(item => (
-                    <button
-                      key={item.id}
-                      onClick={() => updateChecklist(item.id, !item.completed)}
-                      className="flex items-center gap-3 w-full text-left py-2.5 px-2 rounded-xl active:scale-[0.98] transition-all group"
-                    >
-                      <div className={`size-6 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200 ${item.completed ? "check-pop" : ""}`}
-                        style={{
-                          background: item.completed ? "#58cc02" : "transparent",
-                          border: item.completed ? "none" : "2.5px solid #d6d3d1",
-                          boxShadow: item.completed ? "0 2px 8px rgba(88,204,2,0.3)" : "none",
-                        }}>
-                        {item.completed && (
-                          <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M2 6L5 9L10 3" />
-                          </svg>
-                        )}
-                      </div>
-                      <span className={`text-sm font-medium transition-all ${item.completed ? "line-through text-slate-400" : "text-slate-700"}`}>
-                        {item.text}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-
-                {allChecked && (
-                  <div className="mt-4 flex items-center justify-center gap-2 py-3 rounded-xl" style={{ background: "#f0fdf4" }}>
-                    <PartyPopper className="size-5 text-emerald-500" />
-                    <span className="text-sm font-bold text-emerald-600">Everything done! Nice work!</span>
-                  </div>
+            return (
+              <div>
+                <button
+                  onClick={() => handleTransition(nextStep.targetStatus)}
+                  disabled={disabled}
+                  className={`w-full py-4 rounded-2xl font-bold text-base text-white
+                    active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed
+                    flex items-center justify-center gap-2.5
+                    ${nextStep.color} shadow-lg ${nextStep.bgGlow}`}
+                >
+                  {actionLoading ? (
+                    <Loader2 className="size-5 animate-spin" />
+                  ) : (
+                    <>
+                      {nextStep.key === "omw" && <Navigation className="size-5" />}
+                      {nextStep.key === "start" && <CircleDot className="size-5" />}
+                      {nextStep.key === "stop" && <XCircle className="size-5" />}
+                      {nextStep.key === "completed" && <CheckCircle2 className="size-5" />}
+                      {nextStep.key === "close" && <Lock className="size-5" />}
+                      {nextStep.label.toUpperCase()}
+                    </>
+                  )}
+                </button>
+                <p className="text-xs text-zinc-500 text-center mt-2">{nextStep.description}</p>
+                {isCloseStep && !canClose && (
+                  <p className="text-xs text-red-400 text-center mt-1">
+                    Complete checklist and record payment to close
+                  </p>
                 )}
               </div>
-            </div>
-          </div>
-        )}
+            )
+          })()}
 
-        {/* ═══ PAYMENT ═══ (hidden when card on file — auto-charge handles it) */}
-        {isActive && !isPending && !job.card_on_file && (
-          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.25s" }}>
-            <p className="font-bold text-slate-800 text-sm mb-3">Payment Method</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(["card", "cash", "check", "venmo"] as const).map(method => {
-                const selected = job.payment_method === method
-                return (
-                  <button key={method} onClick={() => updatePayment(method)}
-                    className="py-3 px-3 rounded-xl text-sm font-bold active:scale-95 transition-all"
-                    style={{
-                      background: selected ? "#58cc02" : "#f7f5f0",
-                      color: selected ? "#fff" : "#78716c",
-                      boxShadow: selected ? "0 3px 0 #46a302" : "0 2px 0 #e2ddd5",
-                      border: selected ? "none" : "1.5px solid #e2ddd5",
-                    }}>
-                    {method === "card" && <CreditCard className="size-4 inline mr-1" />}
-                    {method === "cash" && <DollarSign className="size-4 inline mr-1" />}
-                    {method.charAt(0).toUpperCase() + method.slice(1)}
+          {/* Tip skip button — shown when tip step is active */}
+          {nextStep?.key === "tip" && (
+            <div className="flex gap-3 mt-3">
+              {!showTipInput ? (
+                <>
+                  <button
+                    onClick={() => setShowTipInput(true)}
+                    className="flex-1 py-3 rounded-xl font-semibold text-sm bg-teal-500 text-white active:scale-[0.97] transition-all flex items-center justify-center gap-2"
+                  >
+                    <DollarSign className="size-4" /> Add Tip
                   </button>
-                )
-              })}
+                  <button
+                    onClick={() => handleTransition("closed")}
+                    disabled={actionLoading || !canClose}
+                    className="flex-1 py-3 rounded-xl font-semibold text-sm bg-zinc-800 text-zinc-300 border border-zinc-700 active:scale-[0.97] transition-all disabled:opacity-40"
+                  >
+                    Skip to Close
+                  </button>
+                </>
+              ) : (
+                <div className="flex-1 space-y-3">
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={tipAmount}
+                        onChange={(e) => setTipAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-teal-500"
+                      />
+                    </div>
+                    <button
+                      onClick={handleRecordTip}
+                      disabled={actionLoading || !tipAmount}
+                      className="px-4 py-3 rounded-xl font-semibold text-sm bg-teal-500 text-white active:scale-[0.97] transition-all disabled:opacity-40"
+                    >
+                      {actionLoading ? <Loader2 className="size-4 animate-spin" /> : "Save"}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowTipInput(false)
+                      setTipAmount("")
+                    }}
+                    className="text-xs text-zinc-500 active:text-zinc-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* ═══ CHARGE CARD ═══ */}
-        {isCompleted && job.card_on_file && !job.paid && (
-          <div className="bg-white rounded-2xl p-5" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-            <p className="font-bold text-slate-800 text-sm mb-1">Charge Card</p>
-            <p className="text-xs text-slate-400 mb-3">Charge the customer&apos;s saved card</p>
-            {chargeResult?.success && (
-              <div className="rounded-xl p-3 mb-3 flex items-center gap-2 bg-emerald-50 border-2 border-emerald-200">
-                <CheckCircle2 className="size-4 text-emerald-500" />
-                <span className="text-sm font-bold text-emerald-600">Charged ${chargeResult.amount?.toFixed(2)}</span>
-              </div>
-            )}
-            {chargeResult && !chargeResult.success && (
-              <div className="rounded-xl p-3 mb-3 flex items-center gap-2 bg-red-50 border-2 border-red-200">
-                <AlertCircle className="size-4 text-red-500" />
-                <span className="text-sm font-bold text-red-600">{chargeResult.error}</span>
-              </div>
-            )}
-            <button onClick={chargeCard} disabled={charging}
-              className="w-full py-3 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
-              style={{ background: "#58cc02", boxShadow: "0 4px 0 #46a302" }}>
-              {charging ? <Loader2 className="size-4 animate-spin" /> : <><CreditCard className="size-4" /> CHARGE CUSTOMER</>}
-            </button>
-          </div>
-        )}
+        {/* ═══════════ 3. LINE ITEMS ═══════════ */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 animate-slide-up" style={{ animationDelay: "0.05s" }}>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">
+            Line Items
+          </h2>
 
-        {/* Paid */}
-        {isCompleted && job.paid && (
-          <div className="rounded-2xl p-4 flex items-center gap-3" style={{ background: "#dcfce7", border: "2px solid #86efac" }}>
-            <CheckCircle2 className="size-6 text-emerald-500" />
-            <div>
-              <p className="font-bold text-emerald-700 text-sm">Payment Collected</p>
-              <p className="text-xs text-emerald-600">Paid via {job.payment_method || "card"}</p>
+          {/* Original Quote Services */}
+          {quoteItems.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider mb-2">
+                Original Quote
+              </p>
+              <div className="space-y-2">
+                {quoteItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between py-2.5 px-3 bg-zinc-800/50 rounded-xl"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Lock className="size-3.5 text-zinc-600" />
+                      <span className="text-sm text-zinc-300">{item.service_name}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-white">
+                      {formatCurrency(item.price, job.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Tip Link */}
-        {isCompleted && (
-          <div className="bg-white rounded-2xl p-5" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-            <p className="font-bold text-slate-800 text-sm mb-2">Tip Link</p>
-            {tipLinkSent ? (
-              <div className="rounded-xl p-3 flex items-center gap-2 bg-emerald-50 border-2 border-emerald-200">
-                <CheckCircle2 className="size-4 text-emerald-500" />
-                <span className="text-sm font-bold text-emerald-600">Sent!</span>
+          {/* Technician Upsells */}
+          <div>
+            <p className="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider mb-2">
+              Technician Upsells
+            </p>
+            {upsellItems.length > 0 ? (
+              <div className="space-y-2 mb-3">
+                {upsellItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between py-2.5 px-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl"
+                  >
+                    <span className="text-sm text-emerald-300">{item.service_name}</span>
+                    <span className="text-sm font-semibold text-emerald-400">
+                      +{formatCurrency(item.price, job.currency)}
+                    </span>
+                  </div>
+                ))}
               </div>
             ) : (
-              <button onClick={sendTipLink} disabled={sendingTipLink}
-                className="w-full py-3 rounded-2xl font-black text-sm text-white flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50"
-                style={{ background: "#1cb0f6", boxShadow: "0 4px 0 #1499d6" }}>
-                {sendingTipLink ? <Loader2 className="size-4 animate-spin" /> : <><DollarSign className="size-4" /> SEND TIP LINK</>}
+              <p className="text-xs text-zinc-600 mb-3">No upsells added</p>
+            )}
+
+            {/* Upsell form — only during in_progress */}
+            {visit.status === "in_progress" && (
+              <>
+                {!showUpsellForm ? (
+                  <button
+                    onClick={() => setShowUpsellForm(true)}
+                    className="flex items-center gap-1.5 text-sm font-medium text-blue-400 active:text-blue-300 transition-colors"
+                  >
+                    <Plus className="size-4" /> Add Upsell
+                  </button>
+                ) : (
+                  <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-3 space-y-2.5">
+                    <input
+                      type="text"
+                      value={upsellName}
+                      onChange={(e) => setUpsellName(e.target.value)}
+                      placeholder="Service name"
+                      className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500"
+                    />
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={upsellPrice}
+                        onChange={(e) => setUpsellPrice(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleUpsell}
+                        disabled={upsellLoading || !upsellName.trim() || !upsellPrice}
+                        className="flex-1 py-2 rounded-lg text-sm font-semibold bg-blue-500 text-white active:scale-[0.97] transition-all disabled:opacity-40"
+                      >
+                        {upsellLoading ? <Loader2 className="size-4 animate-spin mx-auto" /> : "Add"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowUpsellForm(false)
+                          setUpsellName("")
+                          setUpsellPrice("")
+                        }}
+                        className="px-3 py-2 rounded-lg text-sm text-zinc-400 bg-zinc-700 active:scale-[0.97]"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Total */}
+          <div className="border-t border-zinc-800 mt-4 pt-3 flex justify-between items-center">
+            <span className="text-sm font-semibold text-zinc-400">Total</span>
+            <span className="text-lg font-bold text-white">
+              {formatCurrency(totalAmount, job.currency)}
+            </span>
+          </div>
+        </div>
+
+        {/* ═══════════ 4. CHECKLIST SECTION ═══════════ */}
+        {(completedStepIdx >= 3 || visit.status === "completed" || visit.status === "checklist_done" || stepIndex(visit.status) >= stepIndex("completed")) && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 animate-slide-up" style={{ animationDelay: "0.1s" }}>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <ClipboardCheck className="size-4 text-purple-400" />
+                <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                  Checklist
+                </h2>
+              </div>
+              <span
+                className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                  allChecklistDone
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : "bg-zinc-800 text-zinc-400"
+                }`}
+              >
+                {checklistCompleted}/{checklistTotal} completed
+              </span>
+            </div>
+
+            {/* Progress bar */}
+            {checklistTotal > 0 && (
+              <div className="h-1.5 rounded-full bg-zinc-800 mb-4 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${(checklistCompleted / checklistTotal) * 100}%`,
+                    background: allChecklistDone
+                      ? "rgb(34 197 94)"
+                      : "linear-gradient(90deg, rgb(168 85 247), rgb(139 92 246))",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Checklist items */}
+            <div className="space-y-1">
+              {checklist.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => handleToggleChecklist(item.id, !item.completed)}
+                  className="flex items-center gap-3 w-full text-left py-2.5 px-3 rounded-xl active:bg-zinc-800 transition-colors"
+                >
+                  <div
+                    className={`size-5 rounded-md flex items-center justify-center shrink-0 transition-all duration-200 ${
+                      item.completed
+                        ? "bg-emerald-500"
+                        : "border-2 border-zinc-600"
+                    }`}
+                  >
+                    {item.completed && <Check className="size-3 text-white" strokeWidth={3} />}
+                  </div>
+                  <span
+                    className={`text-sm transition-all ${
+                      item.completed ? "line-through text-zinc-600" : "text-zinc-300"
+                    }`}
+                  >
+                    {item.text}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            {/* Add item */}
+            <div className="mt-3">
+              {!showAddChecklist ? (
+                <button
+                  onClick={() => setShowAddChecklist(true)}
+                  className="flex items-center gap-1.5 text-sm font-medium text-purple-400 active:text-purple-300 transition-colors"
+                >
+                  <Plus className="size-4" /> Add Item
+                </button>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newChecklistText}
+                    onChange={(e) => setNewChecklistText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddChecklistItem()}
+                    placeholder="Checklist item..."
+                    className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-purple-500"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleAddChecklistItem}
+                    disabled={!newChecklistText.trim()}
+                    className="px-3 py-2 rounded-lg text-sm font-semibold bg-purple-500 text-white active:scale-[0.97] disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddChecklist(false)
+                      setNewChecklistText("")
+                    }}
+                    className="px-2 py-2 rounded-lg text-zinc-400 bg-zinc-800"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Warning if incomplete and on checklist step */}
+            {completedStepIdx === 3 && !allChecklistDone && (
+              <div className="mt-4 flex items-center gap-2 py-2.5 px-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                <AlertCircle className="size-4 text-amber-400 shrink-0" />
+                <p className="text-xs text-amber-400">
+                  Complete all items to continue
+                </p>
+              </div>
+            )}
+
+            {/* Advance button when all done and on checklist step */}
+            {completedStepIdx === 3 && allChecklistDone && (
+              <button
+                onClick={() => handleTransition("checklist_done")}
+                disabled={actionLoading}
+                className="w-full mt-4 py-3 rounded-xl font-bold text-sm bg-purple-500 text-white active:scale-[0.97] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {actionLoading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <>
+                    <CheckCircle2 className="size-4" /> CHECKLIST COMPLETE
+                  </>
+                )}
               </button>
             )}
           </div>
         )}
 
-        {/* ═══ MESSAGES ═══ */}
-        {!isPending && (
-          <div className="bg-white rounded-2xl p-5 slide-up" style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.06)", animationDelay: "0.3s" }}>
-            <button onClick={() => setShowMessages(!showMessages)} className="flex items-center justify-between w-full">
-              <div className="flex items-center gap-2">
-                <div className="size-8 rounded-xl flex items-center justify-center" style={{ background: "#eff6ff" }}>
-                  <MessageCircle className="size-4 text-blue-500" />
-                </div>
-                <span className="text-sm font-bold text-slate-800">Message Client</span>
-              </div>
-              {showMessages ? <ChevronUp className="size-4 text-slate-400" /> : <ChevronDown className="size-4 text-slate-400" />}
-            </button>
+        {/* ═══════════ 5. PAYMENT SECTION ═══════════ */}
+        {(visit.status === "checklist_done" || completedStepIdx === 4) && !visit.payment_recorded && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 animate-slide-up" style={{ animationDelay: "0.15s" }}>
+            <div className="flex items-center gap-2 mb-4">
+              <Receipt className="size-4 text-indigo-400" />
+              <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                Collect Payment
+              </h2>
+            </div>
 
-            {showMessages && (
-              <div className="mt-4">
-                <div className="max-h-64 overflow-y-auto space-y-2 mb-3 p-3 rounded-xl" style={{ background: "#f7f5f0" }}>
-                  {messages.length === 0
-                    ? <p className="text-sm text-center py-6 text-slate-400">No messages yet</p>
-                    : messages.map(msg => (
-                        <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
-                          <div className="max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed"
-                            style={{
-                              background: msg.direction === "outbound" ? (msg.is_mine ? "#58cc02" : "#d1d5db") : "#ffffff",
-                              color: msg.direction === "outbound" && msg.is_mine ? "#fff" : "#1e293b",
-                              border: msg.direction !== "outbound" ? "1.5px solid #e2ddd5" : "none",
-                            }}>
-                            <p>{msg.content}</p>
-                            <p className="text-[10px] mt-1" style={{ opacity: 0.5 }}>
-                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                            </p>
-                          </div>
-                        </div>
-                      ))
-                  }
-                  <div ref={messagesEndRef} />
-                </div>
-                <div className="flex gap-2">
-                  <input type="text" value={messageText} onChange={e => setMessageText(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                    placeholder="Type a message..."
-                    className="flex-1 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none"
-                    style={{ background: "#f7f5f0", border: "1.5px solid #e2ddd5" }} maxLength={1000} />
-                  <button onClick={sendMessage} disabled={!messageText.trim() || sendingMessage}
-                    className="p-2.5 rounded-xl text-white disabled:opacity-30 active:scale-90 transition-all"
-                    style={{ background: "#58cc02" }}>
-                    {sendingMessage ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  </button>
+            {/* Payment method buttons */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {[
+                { type: "card", label: "Card", icon: <CreditCard className="size-4" /> },
+                { type: "cash", label: "Cash", icon: <Banknote className="size-4" /> },
+                { type: "check", label: "Check", icon: <Receipt className="size-4" /> },
+              ].map(({ type, label, icon }) => (
+                <button
+                  key={type}
+                  onClick={() => setSelectedPaymentType(type)}
+                  className={`py-3 rounded-xl text-sm font-semibold flex flex-col items-center gap-1.5 transition-all active:scale-[0.97] ${
+                    selectedPaymentType === type
+                      ? "bg-indigo-500 text-white border-2 border-indigo-400"
+                      : "bg-zinc-800 text-zinc-400 border-2 border-zinc-700"
+                  }`}
+                >
+                  {icon}
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {/* Amount input */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-500 mb-1 block">Amount</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
               </div>
-            )}
+
+              <div>
+                <label className="text-xs text-zinc-500 mb-1 block">Tip (optional)</label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-zinc-500" />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={tipAmount}
+                    onChange={(e) => setTipAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl pl-9 pr-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-teal-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Submit button */}
+            <button
+              onClick={handleRecordPayment}
+              disabled={actionLoading || !selectedPaymentType}
+              className="w-full mt-4 py-3.5 rounded-xl font-bold text-sm bg-indigo-500 text-white active:scale-[0.97] transition-all disabled:opacity-40 flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+            >
+              {actionLoading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <>
+                  <CreditCard className="size-4" /> COLLECT PAYMENT
+                </>
+              )}
+            </button>
           </div>
         )}
+
+        {/* ═══════════ PAYMENT RECORDED BANNER ═══════════ */}
+        {visit.payment_recorded && !isClosed && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex items-center gap-3">
+            <CheckCircle2 className="size-5 text-emerald-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-emerald-400">Payment Recorded</p>
+              <p className="text-xs text-zinc-500">
+                {formatCurrency(visit.payment_amount || 0, job.currency)} via {visit.payment_type}
+                {visit.tip_amount != null && visit.tip_amount > 0 && (
+                  <> + {formatCurrency(visit.tip_amount, job.currency)} tip</>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════ CLOSE JOB BUTTON (final step) ═══════════ */}
+        {visit.payment_recorded && !isClosed && nextStep?.key === "close" && (
+          <button
+            onClick={() => handleTransition("closed")}
+            disabled={actionLoading || !canClose}
+            className="w-full py-4 rounded-2xl font-bold text-base bg-red-500 text-white active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 shadow-lg shadow-red-500/20"
+          >
+            {actionLoading ? (
+              <Loader2 className="size-5 animate-spin" />
+            ) : (
+              <>
+                <Lock className="size-5" /> CLOSE JOB
+              </>
+            )}
+          </button>
+        )}
+
+        {/* Bottom padding for safe area */}
+        <div className="h-4" />
       </div>
-    </div>
-  )
-}
-
-function InfoPill({ icon, text }: { icon: React.ReactNode; text: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1.5 rounded-xl" style={{ background: "#f7f5f0", color: "#78716c" }}>
-      {icon} {text}
-    </span>
-  )
-}
-
-function NotesDisplay({ notes }: { notes: string }) {
-  const INTERNAL = /^(PROMO:|NORMAL_PRICE:|__SYS)/i
-  const segments = notes.split(/\||\n/).map(s => s.trim()).filter(s => s && !INTERNAL.test(s))
-  const desc: string[] = []; const bullets: string[] = []
-  for (const seg of segments) { if (seg.startsWith("*")) bullets.push(seg.replace(/^\*\s*/, "")); else desc.push(seg) }
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Notes</p>
-      {desc.length > 0 && <p className="text-sm text-slate-600">{desc.join(" — ")}</p>}
-      {bullets.length > 0 && (
-        <ul className="space-y-1.5">
-          {bullets.map((item, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
-              <span className="mt-1.5 size-2 rounded-full shrink-0" style={{ background: "#ff9600" }} />
-              <span>{item}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   )
 }
