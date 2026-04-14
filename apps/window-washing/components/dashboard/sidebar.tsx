@@ -57,21 +57,33 @@ const DEFAULT_COLORS = {
 
 type UserRole = "admin" | "salesman" | "technician"
 
-// Blake's exact 7-item nav (from his diagram Screenshot 130259)
-const navigation = [
-  { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
-  { name: "Jobs", href: "/jobs", icon: ClipboardList, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
-  { name: "Crew Assignment", href: "/crews", icon: Users, adminOnly: false, roles: ["admin"] as UserRole[] },
-  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat, adminOnly: false, roles: ["admin", "salesman"] as UserRole[] },
-  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false, roles: ["admin", "salesman", "technician"] as UserRole[] },
-  { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false, roles: ["admin"] as UserRole[] },
-  { name: "Control Center", href: "/control-center", icon: Sliders, adminOnly: false, roles: ["admin"] as UserRole[] },
-  // Admin-only extras (not in Blake's 7-item nav)
-  { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: true },
-  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar, adminOnly: true },
-  { name: "Performance", href: "/performance", icon: BarChart3, adminOnly: true },
-  { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
+// ADMIN VIEW — 11 tabs (from WinBros full spec)
+const adminNavigation = [
+  { name: "Command Center", href: "/overview", icon: LayoutDashboard },
+  { name: "Customers", href: "/customers", icon: UserCircle },
+  { name: "Pipeline", href: "/quotes", icon: Target },
+  { name: "Crew Assignment", href: "/crews", icon: Users },
+  { name: "Scheduling", href: "/schedule", icon: CalendarDays },
+  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar },
+  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat },
+  { name: "Payroll", href: "/payroll", icon: DollarSign },
+  { name: "Team Performance", href: "/performance", icon: BarChart3 },
+  { name: "Insights", href: "/insights", icon: Lightbulb },
+  { name: "Control Center", href: "/control-center", icon: Sliders },
 ]
+
+// FIELD VIEW — 6 tabs (Team Lead / Salesman / Technician)
+const fieldNavigation = [
+  { name: "Calendar", href: "/jobs", icon: Calendar },
+  { name: "Jobs", href: "/schedule", icon: ClipboardList },
+  { name: "Customers", href: "/customers", icon: UserCircle },
+  { name: "Off Days", href: "/my-schedule", icon: Clock },
+  { name: "Team Performance", href: "/performance", icon: BarChart3 },
+  { name: "Payroll", href: "/payroll", icon: DollarSign },
+]
+
+// Legacy — kept for backward compat
+const navigation = adminNavigation.map(item => ({ ...item, adminOnly: false }))
 
 interface SidebarProps {
   collapsed: boolean
@@ -165,17 +177,8 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       return accountLabel(a.user).localeCompare(accountLabel(b.user))
     })
 
-  // Filter navigation items based on admin status + role
-  const userRole = (user as any)?.role as UserRole | undefined
-  const filteredNavigation = navigation.filter(item => {
-    if (item.adminOnly && !isAdmin) return false
-    if ((item as any).tenantOnly && (item as any).tenantOnly !== tenantSlug) return false
-    // Role-based filtering: admins see everything, otherwise check roles array
-    if (!isAdmin && item.roles && userRole) {
-      if (!item.roles.includes(userRole)) return false
-    }
-    return true
-  })
+  // Role-based navigation: Admin sees 11 tabs, Field sees 6 tabs
+  const filteredNavigation = isAdmin ? adminNavigation : fieldNavigation
 
   // Prevent scroll events on sidebar from scrolling the main content
   const handleWheel = (e: React.WheelEvent) => {
