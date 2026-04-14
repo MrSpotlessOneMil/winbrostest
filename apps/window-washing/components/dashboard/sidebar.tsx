@@ -56,21 +56,16 @@ const DEFAULT_COLORS = {
 }
 
 const navigation = [
-  { name: "Command Center", href: "/overview", icon: LayoutDashboard, adminOnly: false },
   { name: "Customers", href: "/customers", icon: UserCircle, adminOnly: false },
   { name: "Quotes", href: "/quotes", icon: FileText, adminOnly: false },
-  { name: "Crew Assignment", href: "/crews", icon: Users, adminOnly: false },
-  { name: "Scheduling", href: "/schedule", icon: CalendarDays, adminOnly: false },
-  { name: "Service Plan Scheduling", href: "/service-plan-schedule", icon: Calendar, adminOnly: false },
-  { name: "Service Plan Hub", href: "/service-plan-hub", icon: Repeat, adminOnly: false },
-  { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false },
-  { name: "Reporting", href: "/insights", icon: BarChart3, adminOnly: false },
   { name: "Calendar", href: "/jobs", icon: ClipboardList, adminOnly: false },
-  { name: "Pipeline", href: "/retargeting/v3", icon: Target, adminOnly: false },
-  { name: "Teams", href: "/teams", icon: Users, adminOnly: false },
+  { name: "Schedule", href: "/schedule", icon: CalendarDays, adminOnly: false },
+  { name: "Service Plans", href: "/service-plan-schedule", icon: Calendar, adminOnly: false },
+  { name: "ARR Dashboard", href: "/service-plan-hub", icon: Repeat, adminOnly: false },
+  { name: "Payroll", href: "/payroll", icon: DollarSign, adminOnly: false },
   { name: "Control Center", href: "/control-center", icon: Sliders, adminOnly: false },
-  { name: "Assistant", href: "/assistant", icon: Sparkles, adminOnly: false },
-  { name: "Debug", href: "/exceptions", icon: Bug, adminOnly: true },
+  { name: "Teams", href: "/teams", icon: Users, adminOnly: true },
+  { name: "Reporting", href: "/insights", icon: BarChart3, adminOnly: true },
   { name: "Admin", href: "/admin", icon: ShieldCheck, adminOnly: true },
 ]
 
@@ -189,13 +184,15 @@ export function Sidebar({ collapsed, onNavClick, onOpenSettings }: SidebarProps)
       {/* Logo */}
       <div className="h-14 flex items-center px-4 border-b border-white/[0.06]">
         {!collapsed && (
-          <Link href="/overview" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+          <Link href="/customers" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
-            <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">CLEAN MACHINE</span>
+            <span className="font-semibold text-sidebar-foreground tracking-tight text-sm">
+              {tenant?.name?.toUpperCase() || "OSIRIS"}
+            </span>
           </Link>
         )}
         {collapsed && (
-          <Link href="/overview" className="w-full flex justify-center">
+          <Link href="/customers" className="w-full flex justify-center">
             <img src="/icon-192x192.png" alt="" className="w-7 h-7 rounded-md" />
           </Link>
         )}
