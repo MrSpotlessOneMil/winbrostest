@@ -3,9 +3,10 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { BarChart3, Filter, Users, Repeat, DollarSign } from "lucide-react"
+import { BarChart3, Filter, Users, Repeat, DollarSign, LayoutDashboard } from "lucide-react"
 
 const TABS = [
+  { label: "Overview", href: "/insights", icon: LayoutDashboard },
   { label: "Revenue", href: "/insights/revenue", icon: DollarSign },
   { label: "Lead Sources", href: "/insights/leads", icon: BarChart3 },
   { label: "Funnel", href: "/insights/funnel", icon: Filter },
