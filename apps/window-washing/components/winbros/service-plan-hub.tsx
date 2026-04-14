@@ -1,17 +1,15 @@
 'use client'
 
 /**
- * Service Plan Hub — ARR Dashboard for WinBros
+ * Service Plan Hub — Blake's Financial Dashboard Layout
  *
- * Tracks Annual Recurring Revenue visually:
- * - Sold section: total ARR by plan type
- * - Monthly ARR booked: Jan-Dec with dollar amounts
- * - Year totals with bar chart
- * - See which months are down → schedule heavier
+ * Top row: 3 summary boxes (Sold ARR, Service Revenue, Pricing Hub)
+ * Middle: ARR Booked horizontal bar chart (monthly)
+ * Bottom right: Breakdown by plan type with trend line
  */
 
 import { Badge } from '@/components/ui/badge'
-import { DollarSign, TrendingUp, Calendar, BarChart3 } from 'lucide-react'
+import { DollarSign, TrendingUp, BookOpen, ArrowUpRight } from 'lucide-react'
 
 interface PlanTypeARR {
   type: string
@@ -42,7 +40,55 @@ interface ServicePlanHubProps {
   }
 }
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function formatCurrency(value: number): string {
+  if (value >= 1000) {
+    return `$${value.toLocaleString()}`
+  }
+  return `$${value}`
+}
+
+function formatCompact(value: number): string {
+  if (value >= 1000000) {
+    return `$${(value / 1000000).toFixed(1)}M`
+  }
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(0)}k`
+  }
+  return `$${value}`
+}
+
+/** Simple inline SVG sparkline for the breakdown box */
+function TrendSparkline({ data, color }: { data: number[]; color: string }) {
+  if (data.length < 2) return null
+
+  const max = Math.max(...data, 1)
+  const min = Math.min(...data, 0)
+  const range = max - min || 1
+  const width = 120
+  const height = 32
+  const padding = 2
+
+  const points = data
+    .map((val, i) => {
+      const x = padding + (i / (data.length - 1)) * (width - padding * 2)
+      const y = height - padding - ((val - min) / range) * (height - padding * 2)
+      return `${x},${y}`
+    })
+    .join(' ')
+
+  return (
+    <svg width={width} height={height} className="mt-1">
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points}
+      />
+    </svg>
+  )
+}
 
 export function ServicePlanHub({
   year,
@@ -53,176 +99,214 @@ export function ServicePlanHub({
   revenueThisYear,
   statusCounts,
 }: ServicePlanHubProps) {
-  const maxMonthlyArr = Math.max(...monthlyArr.map(m => m.booked), 1)
-  const avgRevenuePerPlan = totalPlans > 0 ? Math.round(totalArr / totalPlans) : 0
   const ytdRevenue = revenueThisYear ?? monthlyArr.reduce((sum, m) => sum + m.booked, 0)
+  const maxMonthlyBooked = Math.max(...monthlyArr.map(m => m.booked), 1)
+  const yearTotal = monthlyArr.reduce((sum, m) => sum + m.booked, 0)
+
+  // Build cumulative monthly data for the sparkline
+  const cumulativeMonthly: number[] = []
+  let running = 0
+  for (const m of monthlyArr) {
+    running += m.booked
+    cumulativeMonthly.push(running)
+  }
+
+  // Derive breakdown values from planTypes
+  const quarterlyArr = planTypes.find(p => p.type === 'quarterly')?.total_arr ?? 0
+  const biannualArr = planTypes.find(p =>
+    p.type === 'biannual' || p.type === 'triannual' || p.type === 'triannual_exterior'
+  )?.total_arr ?? 0
+  // Sum remaining types not already counted
+  const knownTypes = new Set(['quarterly', 'biannual', 'triannual', 'triannual_exterior'])
+  const referredArr = planTypes
+    .filter(p => !knownTypes.has(p.type))
+    .reduce((sum, p) => sum + p.total_arr, 0)
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header row with admin badge */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white">Service Plan Hub</h2>
-          <p className="text-sm text-zinc-400">ARR tracking for {year}</p>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Service Plan Hub</h1>
+          <p className="text-sm text-zinc-500">{year} Financial Overview</p>
         </div>
-        <Badge variant="secondary" className="text-xs bg-zinc-800 text-zinc-300">
-          Admin View
+        <Badge variant="secondary" className="text-xs bg-zinc-800 text-zinc-400 border border-zinc-700">
+          Admin view
         </Badge>
       </div>
 
-      {/* Summary Boxes — Blake's layout */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {/* Total ARR (Sold) */}
-        <div className="border border-green-800/50 rounded-lg bg-green-950/30 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <DollarSign className="w-4 h-4 text-green-400" />
-            <span className="text-xs font-medium text-green-400 uppercase">Sold ARR</span>
-          </div>
-          <div className="text-2xl font-bold text-green-400">
-            ${totalArr.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-zinc-500 mt-1">Annual recurring revenue</div>
-        </div>
-
-        {/* Active Plans */}
-        <div className="border border-blue-800/50 rounded-lg bg-blue-950/30 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <Calendar className="w-4 h-4 text-blue-400" />
-            <span className="text-xs font-medium text-blue-400 uppercase">Active Plans</span>
-          </div>
-          <div className="text-2xl font-bold text-blue-400">
-            {statusCounts.active}
-          </div>
-          <div className="text-[10px] text-zinc-500 mt-1">{totalPlans} total plans</div>
-        </div>
-
-        {/* Revenue This Year */}
-        <div className="border border-purple-800/50 rounded-lg bg-purple-950/30 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <TrendingUp className="w-4 h-4 text-purple-400" />
-            <span className="text-xs font-medium text-purple-400 uppercase">YTD Revenue</span>
-          </div>
-          <div className="text-2xl font-bold text-purple-400">
-            ${ytdRevenue.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-zinc-500 mt-1">Service revenue {year}</div>
-        </div>
-
-        {/* Avg Revenue / Plan */}
-        <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <BarChart3 className="w-4 h-4 text-zinc-400" />
-            <span className="text-xs font-medium text-zinc-400 uppercase">Avg / Plan</span>
-          </div>
-          <div className="text-2xl font-bold text-white">
-            ${avgRevenuePerPlan.toLocaleString()}
-          </div>
-          <div className="text-[10px] text-zinc-500 mt-1">Average ARR per plan</div>
-        </div>
-      </div>
-
-      {/* Status counts */}
-      <div className="flex gap-3">
-        <Badge variant="secondary" className="text-xs bg-green-900/30 text-green-400">
-          {statusCounts.active} Active
-        </Badge>
-        <Badge variant="secondary" className="text-xs bg-zinc-800 text-zinc-400">
-          {statusCounts.pending} Pending
-        </Badge>
-        <Badge variant="secondary" className="text-xs bg-red-900/30 text-red-400">
-          {statusCounts.cancelled} Cancelled
-        </Badge>
-        <Badge variant="secondary" className="text-xs bg-zinc-800 text-zinc-300">
-          {totalPlans} Total Plans
-        </Badge>
-      </div>
-
-      {/* ARR by Plan Type */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {planTypes.map(pt => (
-          <div
-            key={pt.type}
-            className="border border-zinc-800 rounded-lg bg-zinc-950 p-4"
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: pt.color }} />
-              <span className="text-xs font-medium text-zinc-400">{pt.label}</span>
+      {/* ========== TOP ROW — 3 summary boxes ========== */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* BOX 1: Sold */}
+        <div className="relative overflow-hidden rounded-xl border border-teal-800/50 bg-gradient-to-br from-teal-950/60 to-zinc-950 p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-teal-900/50">
+              <DollarSign className="w-4 h-4 text-teal-400" />
             </div>
-            <div className="text-lg font-bold text-white">
-              ${pt.total_arr.toLocaleString()}
+            <span className="text-sm font-semibold text-teal-400 uppercase tracking-wider">Sold</span>
+          </div>
+          <div className="text-3xl font-bold text-white">
+            {formatCurrency(totalArr)}
+          </div>
+          <div className="text-sm text-teal-400/70 mt-1">ARR</div>
+          <div className="flex items-center gap-1 mt-2">
+            <Badge variant="secondary" className="text-[10px] bg-teal-900/30 text-teal-300 border-0">
+              {statusCounts.active} active
+            </Badge>
+            <Badge variant="secondary" className="text-[10px] bg-zinc-800 text-zinc-400 border-0">
+              {totalPlans} total
+            </Badge>
+          </div>
+        </div>
+
+        {/* BOX 2: Service */}
+        <div className="relative overflow-hidden rounded-xl border border-blue-800/50 bg-gradient-to-br from-blue-950/60 to-zinc-950 p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-900/50">
+              <TrendingUp className="w-4 h-4 text-blue-400" />
             </div>
-            <div className="text-xs text-zinc-500">{pt.plan_count} plans</div>
+            <span className="text-sm font-semibold text-blue-400 uppercase tracking-wider">Service</span>
           </div>
-        ))}
-      </div>
-
-      {/* Monthly ARR Chart */}
-      <div className="border border-zinc-800 rounded-lg bg-zinc-950 p-4">
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-4 h-4 text-zinc-500" />
-          <h3 className="text-sm font-semibold text-zinc-300">Monthly ARR Booked</h3>
+          <div className="text-3xl font-bold text-white">
+            {formatCurrency(ytdRevenue)}
+          </div>
+          <div className="text-sm text-blue-400/70 mt-1">ARR</div>
+          <div className="flex items-center gap-1 mt-2">
+            <Badge variant="secondary" className="text-[10px] bg-zinc-800 text-zinc-400 border-0">
+              {statusCounts.pending} pending
+            </Badge>
+            <Badge variant="secondary" className="text-[10px] bg-red-900/30 text-red-400 border-0">
+              {statusCounts.cancelled} cancelled
+            </Badge>
+          </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-1.5 h-40">
-          {monthlyArr.map(m => {
-            const heightPct = maxMonthlyArr > 0 ? (m.booked / maxMonthlyArr) * 100 : 0
-            const isLow = m.booked < (totalArr / 12) * 0.7 // Below 70% of average
-            return (
-              <div key={m.month} className="flex flex-col items-center justify-end h-full">
-                <div className="text-[10px] text-zinc-400 mb-1">
-                  ${(m.booked / 1000).toFixed(1)}k
-                </div>
-                <div
-                  className={`w-full rounded-t transition-all ${
-                    isLow ? 'bg-red-600/60' : 'bg-blue-600/60'
-                  }`}
-                  style={{ height: `${Math.max(heightPct, 2)}%` }}
-                />
-                <div className="text-[10px] text-zinc-500 mt-1">
-                  {MONTH_NAMES[m.month - 1]}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {/* Low months warning */}
-        {monthlyArr.some(m => m.booked < (totalArr / 12) * 0.7 && m.booked > 0) && (
-          <div className="mt-3 p-2 bg-red-900/20 border border-red-900/30 rounded text-xs text-red-400">
-            <TrendingUp className="w-3 h-3 inline mr-1" />
-            Some months are below target. Consider scheduling heavier in red months.
+        {/* BOX 3: Pricing Hub */}
+        <div className="relative overflow-hidden rounded-xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900 to-zinc-950 p-6 group cursor-pointer hover:border-zinc-600 transition-colors">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800">
+              <BookOpen className="w-4 h-4 text-zinc-400" />
+            </div>
+            <span className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Pricing Hub</span>
           </div>
-        )}
+          <div className="text-lg font-medium text-zinc-300 mt-1">
+            Price Book
+          </div>
+          <div className="text-sm text-zinc-500 mt-1">View & manage pricing</div>
+          <ArrowUpRight className="absolute top-4 right-4 w-4 h-4 text-zinc-600 group-hover:text-zinc-400 transition-colors" />
+        </div>
       </div>
 
-      {/* Monthly Detail Table */}
-      <div className="border border-zinc-800 rounded-lg bg-zinc-950">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-800 text-xs text-zinc-500">
-                <th className="text-left p-3">Month</th>
-                <th className="text-right p-3">Booked</th>
-                <th className="text-right p-3">Target</th>
-                <th className="text-right p-3">Variance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {monthlyArr.map(m => {
-                const variance = m.booked - m.target
+      {/* ========== MIDDLE + BOTTOM — Chart & Breakdown ========== */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* ARR Booked — Horizontal Bar Chart (spans 2 cols) */}
+        <div className="lg:col-span-2 rounded-xl border border-zinc-800 bg-zinc-950 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-semibold text-white">ARR Booked</h2>
+              <p className="text-xs text-zinc-500">Monthly revenue booked in {year}</p>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-zinc-400">Year totals</div>
+              <div className="text-lg font-bold text-teal-400">{formatCurrency(yearTotal)}</div>
+            </div>
+          </div>
+
+          {/* Horizontal bars */}
+          <div className="space-y-2.5">
+            {monthlyArr.map(m => {
+              const pct = maxMonthlyBooked > 0 ? (m.booked / maxMonthlyBooked) * 100 : 0
+              const hasValue = m.booked > 0
+              return (
+                <div key={m.month} className="flex items-center gap-3">
+                  {/* Month label — fixed width */}
+                  <div className="w-10 text-xs text-zinc-500 text-right font-medium shrink-0">
+                    {m.month_name.slice(0, 3)}
+                  </div>
+
+                  {/* Bar track */}
+                  <div className="flex-1 h-7 bg-zinc-900 rounded-md overflow-hidden relative">
+                    {/* Filled bar */}
+                    <div
+                      className="h-full rounded-md transition-all duration-500 ease-out"
+                      style={{
+                        width: `${Math.max(pct, hasValue ? 2 : 0)}%`,
+                        background: hasValue
+                          ? 'linear-gradient(90deg, #0d9488, #14b8a6)'
+                          : 'transparent',
+                      }}
+                    />
+                  </div>
+
+                  {/* Dollar label */}
+                  <div className="w-16 text-right text-xs font-medium text-zinc-300 shrink-0">
+                    {hasValue ? formatCompact(m.booked) : '--'}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Bottom Right — Breakdown Box */}
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-6 flex flex-col justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">
+              Breakdown
+            </h3>
+
+            {/* Total */}
+            <div className="mb-4 pb-4 border-b border-zinc-800">
+              <div className="text-xs text-zinc-500">Total ARR</div>
+              <div className="text-2xl font-bold text-white">{formatCurrency(totalArr)}</div>
+            </div>
+
+            {/* Plan type breakdown */}
+            <div className="space-y-3">
+              {planTypes.map(pt => {
+                const pct = totalArr > 0 ? ((pt.total_arr / totalArr) * 100).toFixed(0) : '0'
                 return (
-                  <tr key={m.month} className="border-b border-zinc-900">
-                    <td className="p-3 text-white">{m.month_name}</td>
-                    <td className="text-right p-3 text-zinc-300">${m.booked.toLocaleString()}</td>
-                    <td className="text-right p-3 text-zinc-500">${m.target.toLocaleString()}</td>
-                    <td className={`text-right p-3 font-medium ${variance >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {variance >= 0 ? '+' : ''}{variance.toLocaleString()}
-                    </td>
-                  </tr>
+                  <div key={pt.type} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: pt.color }}
+                      />
+                      <span className="text-sm text-zinc-300">{pt.label}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-semibold text-white">
+                        {formatCurrency(pt.total_arr)}
+                      </span>
+                      <span className="text-xs text-zinc-500 ml-2">{pct}%</span>
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Referred / Other if any */}
+            {referredArr > 0 && (
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-zinc-800">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                  <span className="text-sm text-zinc-300">Referred</span>
+                </div>
+                <span className="text-sm font-semibold text-white">
+                  {formatCurrency(referredArr)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Trend sparkline */}
+          <div className="mt-6 pt-4 border-t border-zinc-800">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-zinc-500">YoY Trend</span>
+              <TrendingUp className="w-3 h-3 text-teal-500" />
+            </div>
+            <TrendSparkline data={cumulativeMonthly} color="#14b8a6" />
+          </div>
         </div>
       </div>
     </div>
