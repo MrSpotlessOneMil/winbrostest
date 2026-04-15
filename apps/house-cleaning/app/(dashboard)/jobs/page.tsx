@@ -13,6 +13,7 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
+import { TIER_UPGRADES, isIncludedInTier } from "@/lib/service-scope"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
@@ -513,7 +514,7 @@ export default function JobsPage() {
           const addonTotal = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
             const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
             if (dbInc || codeInc) return sum
             return sum + (addon?.flat_price || 0)
           }, 0)
@@ -524,7 +525,7 @@ export default function JobsPage() {
           const addonMins = createForm.selected_addons.reduce((sum, key) => {
             const addon = addonsList.find((a) => a.addon_key === key)
             const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-            const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+            const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
             if (dbInc || codeInc) return sum // time already in base labor_hours
             return sum + (addon?.minutes || 0)
           }, 0)
@@ -591,7 +592,7 @@ export default function JobsPage() {
     const addonTotal = createForm.selected_addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
       const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-      const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
       if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
@@ -601,7 +602,7 @@ export default function JobsPage() {
       const addonMins = createForm.selected_addons.reduce((sum, key) => {
         const addon = derivedAddonsList.find((a) => a.addon_key === key)
         const dbInc = isHouseCleaning && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-        const codeInc = isHouseCleaning && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+        const codeInc = isHouseCleaning && isIncludedInTier(key, tierKey)
         if (dbInc || codeInc) return sum
         return sum + (addon?.minutes || 0)
       }, 0)
@@ -642,11 +643,7 @@ export default function JobsPage() {
     }
   }, [createForm.service_type])
 
-  // Addons included per tier (code-level source of truth, matches quote-pricing.ts)
-  const TIER_INCLUDED_ADDONS: Record<string, string[]> = {
-    deep: ['inside_fridge', 'inside_oven', 'inside_microwave', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills'],
-    move: ['inside_fridge', 'inside_oven', 'inside_microwave', 'inside_cabinets', 'inside_dishwasher', 'range_hood', 'baseboards', 'ceiling_fans', 'light_fixtures', 'window_sills', 'wall_spot_cleaning', 'grout_scrubbing', 'behind_under_appliances', 'window_tracks', 'baseboards_hand_wipe', 'light_fixtures_detailed'],
-  }
+  // Tier-included addons now imported from @/lib/service-scope (TIER_UPGRADES, isIncludedInTier)
 
   // Auto-select add-ons included in the chosen service type (house cleaning only)
   useEffect(() => {
@@ -658,7 +655,7 @@ export default function JobsPage() {
     const dbIncludedKeys = addonsList
       .filter((a: any) => Array.isArray(a.included_in) && a.included_in.includes(tierKey))
       .map((a: any) => a.addon_key)
-    const codeIncludedKeys = (TIER_INCLUDED_ADDONS[tierKey] || [])
+    const codeIncludedKeys = (TIER_UPGRADES[tierKey] || [])
       .filter((key) => addonsList.some((a: any) => a.addon_key === key))
     const includedKeys = [...new Set([...dbIncludedKeys, ...codeIncludedKeys])]
     // All addon keys that are included in ANY tier (so we can remove stale ones on switch)
@@ -666,7 +663,7 @@ export default function JobsPage() {
       ...addonsList
         .filter((a: any) => Array.isArray(a.included_in) && a.included_in.length > 0)
         .map((a: any) => a.addon_key),
-      ...Object.values(TIER_INCLUDED_ADDONS).flat(),
+      ...Object.values(TIER_UPGRADES).flat(),
     ]
     const allIncludableSet = [...new Set(allIncludableKeys)]
     setCreateForm((prev) => {
@@ -741,7 +738,7 @@ export default function JobsPage() {
     const addonTotal = addons.reduce((sum, key) => {
       const addon = derivedAddonsList.find((a) => a.addon_key === key)
       const dbInc = isHC && Array.isArray((addon as any)?.included_in) && (addon as any).included_in.includes(tierKey)
-      const codeInc = isHC && (TIER_INCLUDED_ADDONS[tierKey] || []).includes(key)
+      const codeInc = isHC && isIncludedInTier(key, tierKey)
       if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
