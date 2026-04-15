@@ -739,6 +739,45 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     }
   }
 
+  // Populate job addons from quote — only paid add-ons (filter out base tasks and tier-included items)
+  if (newJob?.id && quote.selected_addons && Array.isArray(quote.selected_addons) && quote.selected_addons.length > 0) {
+    try {
+      const { getPaidAddons } = await import('@/lib/service-scope')
+      const tier = quote.selected_tier || quote.service_category || 'standard'
+      const paid = getPaidAddons(quote.selected_addons, tier)
+
+      if (paid.length > 0) {
+        // Look up labels/prices from pricing_addons
+        const addonKeys = paid.map((a: any) => typeof a === 'string' ? a : a.key)
+        const { data: addonDetails } = await serviceClient
+          .from('pricing_addons')
+          .select('addon_key, label, flat_price')
+          .eq('tenant_id', quote.tenant_id)
+          .in('addon_key', addonKeys)
+          .eq('active', true)
+
+        const addonsWithDetails = paid.map((a: any) => {
+          const key = typeof a === 'string' ? a : a.key
+          const detail = addonDetails?.find((d: any) => d.addon_key === key)
+          return {
+            key,
+            label: detail?.label || key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+            price: detail?.flat_price || 0,
+            quantity: typeof a !== 'string' ? a.quantity || 1 : 1,
+          }
+        })
+
+        await serviceClient.from('jobs').update({
+          addons: addonsWithDetails,
+        }).eq('id', newJob.id)
+
+        console.log(`[Stripe Webhook] Populated ${addonsWithDetails.length} paid add-ons on job ${newJob.id}`)
+      }
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to populate job add-ons:', err)
+    }
+  }
+
   // Generate professional invoice email (non-blocking)
   if (newJob?.id && tenant) {
     try {
