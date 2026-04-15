@@ -2722,6 +2722,27 @@ export default function JobsPage() {
                     <strong>Service:</strong> {selectedEvent.service}
                   </div>
                 )}
+                {/* Paid Add-ons breakdown */}
+                {(() => {
+                  if (!selectedEvent?.addons || selectedEvent.addons.length === 0) return null
+                  const st = (selectedEvent.serviceType || "").toLowerCase()
+                  const tier = st.includes("move") ? "move" : st.includes("deep") ? "deep" : "standard"
+                  const paid = getPaidAddons(selectedEvent.addons, tier)
+                  if (paid.length === 0) return null
+                  return (
+                    <div style={{ marginBottom: "0.5rem" }}>
+                      <strong style={{ fontSize: "0.85rem" }}>Add-ons:</strong>
+                      {paid.map((addon) => (
+                        <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
+                          <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</span>
+                          {addon.price != null && addon.price > 0 && (
+                            <span style={{ color: "#a1a1aa" }}>${addon.price}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
                 {selectedEvent?.frequency && selectedEvent.frequency !== "one-time" && (
                   <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{

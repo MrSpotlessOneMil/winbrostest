@@ -22,6 +22,7 @@ import {
   Users,
   Send,
 } from "lucide-react"
+import { getPaidAddons } from "@/lib/service-scope"
 
 interface Quote {
   id: string
@@ -41,6 +42,7 @@ interface Quote {
   preconfirm_status: string | null
   cleaner_pay: number | null
   description: string | null
+  selected_addons: string[] | { key: string; label?: string; price?: number }[] | null
 }
 
 interface CleanerOption {
@@ -759,6 +761,26 @@ export default function QuotesPage() {
                           </span>
                         )}
                       </div>
+                      {/* Paid Add-ons */}
+                      {(() => {
+                        if (!quote.selected_addons || !Array.isArray(quote.selected_addons) || quote.selected_addons.length === 0) return null
+                        const tier = quote.selected_tier || "standard"
+                        // Normalize to string[] for getPaidAddons
+                        const addonKeys: string[] = quote.selected_addons.map((a: string | { key: string }) =>
+                          typeof a === "string" ? a : a.key
+                        )
+                        const paid = getPaidAddons(addonKeys, tier)
+                        if (paid.length === 0) return null
+                        const labels = paid.map((key: string) =>
+                          key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+                        )
+                        return (
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            <span className="font-medium">Add-ons:</span>{" "}
+                            {labels.join(", ")}
+                          </div>
+                        )
+                      })()}
                     </div>
 
                     {/* Right: Actions */}
