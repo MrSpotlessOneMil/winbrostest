@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# Pre-push hook: runs regression tests before allowing push to main.
+# These tests scan source code for patterns that caused past incidents.
+# They run in <5 seconds. If they fail, the push is blocked.
+#
+# Install: git config core.hooksPath .githooks
+#
+
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# Only guard pushes to main (production)
+if [ "$BRANCH" != "main" ]; then
+  exit 0
+fi
+
+echo "🔒 Running regression guards before push to main..."
+echo ""
+
+# Run only the regression test suite (fast — reads files, no network)
+npx vitest run tests/regression/ --reporter=verbose 2>&1
+
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo ""
+  echo "❌ REGRESSION TESTS FAILED — push blocked."
+  echo ""
+  echo "A past incident would have re-occurred if this code shipped."
+  echo "Fix the failing tests, then try again."
+  echo ""
+  exit 1
+fi
+
+echo ""
+echo "✅ All regression guards passed. Pushing to main."
+exit 0
