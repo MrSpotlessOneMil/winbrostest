@@ -1311,6 +1311,27 @@ export default function QuotePage() {
 
       {/* ── Mobile Sticky Bottom Bar ──────────────────────────── */}
       <div className="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-sm border-t-2 border-blue-100 px-4 py-3 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-50">
+        {/* Line-item breakdown on mobile */}
+        {addonTotal > 0 && (
+          <div className="mb-2 pb-2 border-b border-blue-50 space-y-0.5">
+            <div className="flex justify-between text-xs text-slate-500">
+              <span>Base Service</span>
+              <span>{fmt(isCustomPriced ? customBasePrice : (selectedTierPrice?.price || 0))}</span>
+            </div>
+            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+              <div key={addon.key} className="flex justify-between text-xs text-slate-500">
+                <span>+ {addon.name}</span>
+                <span>{fmt(getAddonPrice(addon))}</span>
+              </div>
+            ))}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-xs text-slate-500">
+                <span>+ {ca.label}</span>
+                <span>{fmt(ca.price)}</span>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-center justify-between mb-2.5">
           <div>
             <span className="text-xs text-slate-400">Total</span>
