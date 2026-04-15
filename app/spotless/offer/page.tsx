@@ -4,14 +4,14 @@ import { TrustBar } from "@/components/marketing/trust-bar"
 import { HowItWorks } from "@/components/marketing/how-it-works"
 
 export const metadata: Metadata = {
-  title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+  title: "$149 Deep Clean — 3 Hours of Professional Cleaning | Spotless Scrubbers",
   description:
-    "Get 3 hours of professional cleaning for just $99. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works. 5.0 stars, 2,500+ homes cleaned across LA County.",
+    "Get 3 hours of professional deep cleaning for just $149. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works. 5.0 stars, 2,500+ homes cleaned across LA County.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "$99 for 3 Hours of Professional Cleaning | Spotless Scrubbers",
+    title: "$149 Deep Clean — 3 Hours of Professional Cleaning | Spotless Scrubbers",
     description:
-      "3 hours of professional cleaning for $99. Kitchen, bathrooms, bedrooms, and more. 5.0 stars across LA County.",
+      "3 hours of professional deep cleaning for $149. Kitchen, bathrooms, bedrooms, and more. 5.0 stars across LA County.",
   },
 }
 
@@ -35,8 +35,8 @@ const INCLUDED_ITEMS = [
 
 const VALUE_CARDS = [
   {
-    title: "$99 for 3 Hours",
-    subtitle: "of professional cleaning",
+    title: "$149 Deep Clean",
+    subtitle: "3 hours of professional cleaning",
     description: "A full team in your home for 3 hours — kitchen, bathrooms, bedrooms, the works.",
   },
   {
@@ -79,9 +79,9 @@ const FAQS = [
       "If you're not happy with the clean, we'll come back and redo it — free. If we still can't get it right, you don't pay. Period.",
   },
   {
-    question: "What's included in the $99 clean?",
+    question: "What's included in the $149 deep clean?",
     answer:
-      "3 full hours of professional cleaning. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures, window sills, microwave, all surfaces, mirrors, mopping — the works.",
+      "3 full hours of professional deep cleaning. Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures, window sills, microwave, all surfaces, mirrors, mopping — the works.",
   },
   {
     question: "How does recurring work?",
@@ -91,7 +91,7 @@ const FAQS = [
   {
     question: "Is there a catch?",
     answer:
-      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $99 price is for your first professional cleaning only. If you love it and go recurring, your regular rate kicks in on visit two.",
+      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $149 price is for your first deep cleaning only. If you love it and go recurring, your regular rate kicks in on visit two.",
   },
   {
     question: "How long does it take?",
@@ -126,7 +126,7 @@ export default function OfferPage() {
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
                 3 Hours of Professional Cleaning.{" "}
-                <span className="text-amber-300">$99.</span>
+                <span className="text-amber-300">$149.</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
                 Kitchen, bathrooms, bedrooms, ceiling fans, light fixtures — the works.
@@ -140,7 +140,7 @@ export default function OfferPage() {
                 href="#claim-offer"
                 className="inline-block lg:hidden px-8 py-3.5 bg-amber-400 text-slate-900 font-bold rounded-lg text-base hover:bg-amber-300 transition-colors shadow-lg"
               >
-                Claim Your $99 Clean
+                Claim Your $149 Deep Clean
               </a>
 
               {/* Trust signals */}
@@ -162,10 +162,10 @@ export default function OfferPage() {
               <div className="text-center mb-5">
                 <p className="text-sm text-slate-500 mb-1">3 HOURS OF PROFESSIONAL CLEANING</p>
                 <div className="flex items-center justify-center gap-3">
-                  <span className="text-4xl font-bold text-[#2195b4]">$99</span>
+                  <span className="text-4xl font-bold text-[#2195b4]">$149</span>
                 </div>
               </div>
-              <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+              <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $149 Deep Clean" />
             </div>
           </div>
         </div>
@@ -181,7 +181,7 @@ export default function OfferPage() {
             What you get
           </p>
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            3 Hours. Every Room. $99.
+            3 Hours. Every Room. $149.
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
             A full team in your home for 3 hours of professional cleaning. No corners cut.
@@ -297,11 +297,11 @@ export default function OfferPage() {
             Ready for a spotless home?
           </h2>
           <p className="text-slate-300 mb-8">
-            Claim your $99 professional cleaning. Book in 60 seconds. Instant confirmation.
+            Claim your $149 deep clean. Book in 60 seconds. Instant confirmation.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">
-            <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $99 Clean" />
+            <BookingForm source="meta" preselectedService="standard" ctaLabel="Claim Your $149 Deep Clean" />
           </div>
 
           <p className="text-xs text-slate-400 mt-6">
@@ -326,7 +326,7 @@ export default function OfferPage() {
             href="#claim-offer"
             className="flex-1 flex items-center justify-center gap-2 bg-[#164E63] text-white font-semibold py-3 rounded-lg text-sm"
           >
-            Claim $99 Clean
+            Claim $149 Deep Clean
           </a>
         </div>
       </div>
