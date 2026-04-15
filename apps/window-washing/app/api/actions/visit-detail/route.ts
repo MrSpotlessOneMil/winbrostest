@@ -32,12 +32,11 @@ export async function GET(request: NextRequest) {
   const { data: job, error: jobErr } = await client
     .from('jobs')
     .select(`
-      id, date, scheduled_at, scheduled_time, address, phone_number, service_type,
-      status, notes, price, hours, bedrooms, bathrooms, sqft, frequency,
+      id, date, scheduled_at, address, phone_number, service_type,
+      status, notes, price, hours, frequency,
       cleaner_id, customer_id, parent_job_id, membership_id,
       customers(id, first_name, last_name, phone_number, email, address, stripe_customer_id, card_on_file_at),
-      cleaners:cleaner_id(id, name),
-      leads(source)
+      cleaners:cleaner_id(id, name)
     `)
     .eq('id', Number(jobId))
     .eq('tenant_id', tenant.id)
