@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
+import { getTenantById, tenantUsesFeature, formatTenantCurrency } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
@@ -182,21 +182,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
 
-  // Unified cleaner pay: override > hourly model > percentage > PAY tag
+  // Unified cleaner pay: override > PAY tag > hourly model > percentage (NEVER cross models)
   const numCleaners = job.cleaners ? Number(job.cleaners) : 1
   let cleanerPay: number | null = null
+  let cleanerPayRate: number | null = null // hourly rate when hours unknown
   if (job.cleaner_pay_override != null) {
     cleanerPay = Number(job.cleaner_pay_override)
   } else if (estimate.cleanerPay != null) {
     cleanerPay = estimate.cleanerPay
-  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+    // Hourly model: calculate total if hours known, otherwise expose rate only
     const isDeep = job.service_type?.toLowerCase().includes('deep')
     const rate = isDeep
       ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
       : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
-    const totalPay = rate * Number(job.hours)
-    cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    if (job.hours) {
+      const totalPay = rate * Number(job.hours)
+      cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    } else {
+      // No hours — show rate only, NEVER fall through to percentage
+      cleanerPayRate = rate
+    }
   } else if (job.price) {
+    // Percentage model — only for tenants that are NOT hourly
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage) {
       let payBase = parseFloat(String(job.price))
@@ -212,17 +220,21 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Strip structured tags from notes so frontend only shows human-readable instructions
   const cleanedNotes = job.notes
     ? job.notes
-        .split('\n')
+        .split(/[\n|]/)
+        .map((s: string) => s.trim())
         .filter((line: string) => {
-          const trimmed = line.trim().toUpperCase()
-          return (
+          const trimmed = line.toUpperCase()
+          return line && (
             !trimmed.startsWith('OVERRIDE:') &&
             !trimmed.startsWith('PAYMENT:') &&
             !trimmed.startsWith('HOURS:') &&
-            !trimmed.startsWith('PAY:')
+            !trimmed.startsWith('PAY:') &&
+            !trimmed.startsWith('PROMO:') &&
+            !trimmed.startsWith('NORMAL_PRICE:') &&
+            !trimmed.startsWith('__SYS')
           )
         })
-        .join('\n')
+        .join(' — ')
         .trim() || null
     : null
 
@@ -240,6 +252,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       sqft: job.sqft,
       hours: job.hours,
       cleaner_pay: cleanerPay,
+      cleaner_pay_rate: cleanerPayRate,
       currency: tenant.currency || 'usd',
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,
@@ -368,7 +381,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             }).eq('id', parseInt(jobId))
 
             if (customerPhone) {
-              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged $${(chargeCents / 100).toFixed(2)}. Thank you for choosing ${businessName}!`)
+              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged ${formatTenantCurrency(tenant, chargeCents / 100)}. Thank you for choosing ${businessName}!`)
             }
             console.log(`[crew/job] Auto-charged $${(chargeCents / 100).toFixed(2)} for job ${jobId}`)
           } else {

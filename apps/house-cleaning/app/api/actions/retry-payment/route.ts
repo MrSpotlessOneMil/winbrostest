@@ -166,7 +166,8 @@ export async function executeRetryPayment(jobId: string): Promise<{
   const smsMessage = paymentRetryTemplate(
     config.businessName,
     chargeAmount,
-    paymentLink.url
+    paymentLink.url,
+    tenant.currency || 'USD'
   )
 
   let smsSent = false

@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getTenantById, tenantUsesFeature } from '@/lib/tenant'
+import { getTenantById, tenantUsesFeature, formatTenantCurrency } from '@/lib/tenant'
 import { notifyCustomerStatus } from '@/lib/cleaner-sms'
 import { sendSMS } from '@/lib/openphone'
 import { maybeMarkBooked } from '@/lib/maybe-mark-booked'
@@ -381,7 +381,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             }).eq('id', parseInt(jobId))
 
             if (customerPhone) {
-              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged $${(chargeCents / 100).toFixed(2)}. Thank you for choosing ${businessName}!`)
+              await sendSMS(tenant, customerPhone, `Hey ${custName}! Your ${businessName} service is complete. Your card on file has been charged ${formatTenantCurrency(tenant, chargeCents / 100)}. Thank you for choosing ${businessName}!`)
             }
             console.log(`[crew/job] Auto-charged $${(chargeCents / 100).toFixed(2)} for job ${jobId}`)
           } else {

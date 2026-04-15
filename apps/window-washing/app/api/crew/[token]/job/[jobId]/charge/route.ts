@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseServiceClient } from '@/lib/supabase'
-import { getTenantById } from '@/lib/tenant'
+import { getTenantById, formatTenantCurrency } from '@/lib/tenant'
 import { chargeCardOnFile } from '@/lib/stripe-client'
 import { sendSMS } from '@/lib/openphone'
 
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     try {
       const businessName = tenant.business_name_short || tenant.name
       const amount = (amountCents / 100).toFixed(2)
-      await sendSMS(tenant, customerPhone, `Your card has been charged $${amount} for your ${businessName} service. Thank you!`)
+      await sendSMS(tenant, customerPhone, `Your card has been charged ${formatTenantCurrency(tenant, amountCents / 100)} for your ${businessName} service. Thank you!`)
     } catch (err) {
       console.error('[crew/charge] Failed to send receipt SMS:', err)
     }

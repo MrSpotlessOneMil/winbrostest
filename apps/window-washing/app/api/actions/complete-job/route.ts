@@ -22,7 +22,7 @@ import { sendSMS } from '@/lib/openphone'
 import { findOrCreateStripeCustomer, resolveStripeChargeCents, getTenantRedirectDomain, getStripeClientForTenant, chargeCardOnFile } from '@/lib/stripe-client'
 import { logSystemEvent } from '@/lib/system-events'
 import { getPaymentTotalsFromNotes, getOverridesFromNotes } from '@/lib/pricing-config'
-import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
+import { getTenantById, getTenantBusinessName, formatTenantCurrency } from '@/lib/tenant'
 import { requireAuthWithTenant } from '@/lib/auth'
 import { notifyOwnerSMS } from '@/lib/cleaner-sms'
 import { triggerSatisfactionCheck } from '@/lib/lifecycle-engine'
@@ -486,7 +486,9 @@ export async function executeCompleteJob(jobId: string): Promise<{
         .eq("converted_to_job_id", Number(jobId))
 
       // Send receipt SMS
-      const receiptMsg = `Your ${job.service_type || 'cleaning'} is complete! $${chargeAmount.toFixed(2)} has been charged to your card on file. Thank you!`
+      const receiptMsg = tenant
+        ? `Your ${job.service_type || 'cleaning'} is complete! ${formatTenantCurrency(tenant, chargeAmount)} has been charged to your card on file. Thank you!`
+        : `Your ${job.service_type || 'cleaning'} is complete! $${chargeAmount.toFixed(2)} has been charged to your card on file. Thank you!`
       const sendResult = tenant
         ? await sendSMS(tenant, customer.phone_number, receiptMsg)
         : { success: false, error: 'No tenant' }

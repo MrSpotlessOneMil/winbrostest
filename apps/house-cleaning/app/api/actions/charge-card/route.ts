@@ -14,7 +14,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 import { chargeCardOnFile } from '@/lib/stripe-client'
 import { sendSMS } from '@/lib/openphone'
 import { logSystemEvent } from '@/lib/system-events'
-import { getTenantById, getTenantBusinessName } from '@/lib/tenant'
+import { getTenantById, getTenantBusinessName, formatTenantCurrency } from '@/lib/tenant'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const tenant = await getTenantById(authTenant.id)
     if (tenant && customer.phone_number) {
       const businessName = getTenantBusinessName(tenant)
-      const smsMsg = `Your card on file has been charged $${amount.toFixed(2)} for: ${chargeDescription}. Thank you! - ${businessName}`
+      const smsMsg = `Your card on file has been charged ${formatTenantCurrency(tenant, amount)} for: ${chargeDescription}. Thank you! - ${businessName}`
       await sendSMS(tenant, customer.phone_number, smsMsg)
     }
 

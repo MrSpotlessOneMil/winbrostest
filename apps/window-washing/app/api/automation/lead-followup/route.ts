@@ -367,14 +367,15 @@ async function executeStage5(
         console.error(`[lead-followup] Tenant ${tenant?.slug || 'unknown'} has no stripe_secret_key — cannot create deposit link`)
         return { success: false, error: 'Stripe not configured for this tenant' }
       }
-      paymentLinkResult = await createDepositPaymentLink(customer, job, undefined, tenant.id, tenant.stripe_secret_key)
+      paymentLinkResult = await createDepositPaymentLink(customer, job, undefined, tenant.id, tenant.stripe_secret_key, tenant.currency || 'usd')
 
       if (paymentLinkResult.success && paymentLinkResult.url) {
         // Send SMS with payment link
         const paymentMessage = paymentLink(
           name,
           paymentLinkResult.amount || 0,
-          paymentLinkResult.url
+          paymentLinkResult.url,
+          tenant?.currency || 'USD'
         )
         if (!tenant) {
           console.error(`[lead-followup] Stage 5 has no tenant — skipping payment link SMS to ${phone}`)
