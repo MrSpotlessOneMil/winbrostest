@@ -716,6 +716,22 @@ export default function QuotePage() {
                 </div>
                 <span className="text-2xl font-bold text-slate-800">{fmt(customBasePrice)}</span>
               </div>
+              {/* What's included — inside the blue box */}
+              {serviceType === "house_cleaning" && (
+                <div className="border-t border-blue-200 pt-4">
+                  <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {STANDARD_BASE_TASKS.map(task => (
+                      <div key={task.key} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {task.label}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           )
@@ -854,8 +870,8 @@ export default function QuotePage() {
         </div>
         )}
 
-        {/* ── What's Included (standard base tasks — always included) */}
-        {serviceType === "house_cleaning" && (
+        {/* ── What's Included (for non-custom quotes that don't have it in the blue box) */}
+        {serviceType === "house_cleaning" && !isCustomPriced && !singleTierMode && (
           <div className="mb-6">
             <h3 className="text-sm font-medium text-muted-foreground mb-2">Included in your {selectedTier?.name || 'Standard'} Clean</h3>
             <ul className="space-y-1">
