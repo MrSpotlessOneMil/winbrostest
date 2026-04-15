@@ -16,6 +16,7 @@ import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pr
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
+import { JobDetailDrawer } from "@/components/winbros/job-detail-drawer"
 import "./calendar.css"
 
 type CalendarJob = {
@@ -408,6 +409,7 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
+  const [drawerJobId, setDrawerJobId] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const calendarRef = useRef<FullCalendar | null>(null)
   const [ganttView, setGanttView] = useState(getSavedIsGantt)
@@ -3116,7 +3118,12 @@ export default function JobsPage() {
                   </button>
                   <button
                     className="cal-modal-btn"
-                    onClick={() => router.push(`/jobs/${selectedEvent?.jobId}`)}
+                    onClick={() => {
+                      if (selectedEvent?.jobId) {
+                        setDrawerJobId(selectedEvent.jobId)
+                        setSelectedEvent(null)
+                      }
+                    }}
                     title="View full job/visit details"
                     style={{ fontSize: "0.8rem" }}
                   >
@@ -4411,6 +4418,14 @@ export default function JobsPage() {
           </div>
         </div>
       )}
+
+      {/* Job Detail Drawer — full execution flow slides in from right */}
+      <JobDetailDrawer
+        jobId={drawerJobId}
+        open={drawerJobId !== null}
+        onClose={() => setDrawerJobId(null)}
+        onJobUpdated={refreshJobs}
+      />
     </>
   )
 }
