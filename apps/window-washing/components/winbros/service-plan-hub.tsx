@@ -24,6 +24,7 @@ interface MonthlyARR {
   month_name: string
   booked: number
   target: number
+  by_type?: Record<string, number>
 }
 
 interface ServicePlanHubProps {
@@ -38,6 +39,8 @@ interface ServicePlanHubProps {
     cancelled: number
     pending: number
   }
+  cancelledArr?: number
+  cancelledCount?: number
 }
 
 function formatCurrency(value: number): string {
@@ -90,6 +93,15 @@ function TrendSparkline({ data, color }: { data: number[]; color: string }) {
   )
 }
 
+/** Color map for plan types in bar segments */
+const PLAN_TYPE_COLORS: Record<string, string> = {
+  quarterly: '#3b82f6',
+  triannual: '#8b5cf6',
+  triannual_exterior: '#06b6d4',
+  monthly: '#22d3ee',
+  biannual: '#f59e0b',
+}
+
 export function ServicePlanHub({
   year,
   planTypes,
@@ -98,6 +110,8 @@ export function ServicePlanHub({
   totalPlans,
   revenueThisYear,
   statusCounts,
+  cancelledArr,
+  cancelledCount,
 }: ServicePlanHubProps) {
   const ytdRevenue = revenueThisYear ?? monthlyArr.reduce((sum, m) => sum + m.booked, 0)
   const maxMonthlyBooked = Math.max(...monthlyArr.map(m => m.booked), 1)
@@ -179,6 +193,13 @@ export function ServicePlanHub({
               {statusCounts.cancelled} cancelled
             </Badge>
           </div>
+          {(cancelledCount ?? 0) > 0 && (
+            <div className="mt-2 pt-2 border-t border-blue-800/30">
+              <div className="text-xs text-red-400/80">
+                {cancelledCount} cancelled ({formatCurrency(cancelledArr ?? 0)} ARR lost)
+              </div>
+            </div>
+          )}
         </div>
 
         {/* BOX 3: Pricing Hub */}
@@ -212,11 +233,25 @@ export function ServicePlanHub({
             </div>
           </div>
 
-          {/* Horizontal bars */}
+          {/* Horizontal bars — color-segmented by plan type */}
           <div className="space-y-2.5">
             {monthlyArr.map(m => {
               const pct = maxMonthlyBooked > 0 ? (m.booked / maxMonthlyBooked) * 100 : 0
               const hasValue = m.booked > 0
+
+              // Build segments from by_type breakdown
+              const segments: { type: string; value: number; color: string }[] = []
+              if (m.by_type && hasValue) {
+                for (const [type, value] of Object.entries(m.by_type)) {
+                  if (value > 0) {
+                    const color = planTypes.find(p => p.type === type)?.color
+                      || PLAN_TYPE_COLORS[type]
+                      || '#14b8a6'
+                    segments.push({ type, value, color })
+                  }
+                }
+              }
+
               return (
                 <div key={m.month} className="flex items-center gap-3">
                   {/* Month label — fixed width */}
@@ -226,16 +261,36 @@ export function ServicePlanHub({
 
                   {/* Bar track */}
                   <div className="flex-1 h-7 bg-zinc-900 rounded-md overflow-hidden relative">
-                    {/* Filled bar */}
-                    <div
-                      className="h-full rounded-md transition-all duration-500 ease-out"
-                      style={{
-                        width: `${Math.max(pct, hasValue ? 2 : 0)}%`,
-                        background: hasValue
-                          ? 'linear-gradient(90deg, #0d9488, #14b8a6)'
-                          : 'transparent',
-                      }}
-                    />
+                    {segments.length > 0 ? (
+                      <div
+                        className="h-full flex rounded-md overflow-hidden transition-all duration-500 ease-out"
+                        style={{ width: `${Math.max(pct, 2)}%` }}
+                      >
+                        {segments.map(seg => {
+                          const segPct = m.booked > 0 ? (seg.value / m.booked) * 100 : 0
+                          return (
+                            <div
+                              key={seg.type}
+                              className="h-full transition-all duration-500"
+                              style={{
+                                width: `${segPct}%`,
+                                backgroundColor: seg.color,
+                                minWidth: segPct > 0 ? '2px' : 0,
+                              }}
+                              title={`${seg.type}: $${seg.value.toLocaleString()}`}
+                            />
+                          )
+                        })}
+                      </div>
+                    ) : hasValue ? (
+                      <div
+                        className="h-full rounded-md transition-all duration-500 ease-out"
+                        style={{
+                          width: `${Math.max(pct, 2)}%`,
+                          background: 'linear-gradient(90deg, #0d9488, #14b8a6)',
+                        }}
+                      />
+                    ) : null}
                   </div>
 
                   {/* Dollar label */}
@@ -246,6 +301,21 @@ export function ServicePlanHub({
               )
             })}
           </div>
+
+          {/* Legend for bar colors */}
+          {planTypes.some(pt => pt.total_arr > 0) && (
+            <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-zinc-800">
+              {planTypes.filter(pt => pt.total_arr > 0).map(pt => (
+                <div key={pt.type} className="flex items-center gap-1.5">
+                  <div
+                    className="w-3 h-3 rounded-sm"
+                    style={{ backgroundColor: pt.color }}
+                  />
+                  <span className="text-[10px] text-zinc-400">{pt.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Bottom Right — Breakdown Box */}

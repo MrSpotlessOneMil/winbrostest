@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import {
   ChevronLeft, ChevronRight, Loader2, ChevronDown,
-  Clock, MapPin, GripVertical, Calendar,
+  Clock, MapPin, GripVertical, Calendar, Wand2,
 } from "lucide-react"
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
@@ -391,6 +391,125 @@ export default function ServicePlanSchedulePage() {
     }
   }
 
+  // ── Auto-schedule state ──
+  const [autoScheduling, setAutoScheduling] = useState(false)
+  const [autoScheduleResult, setAutoScheduleResult] = useState<{ scheduled: number; failed: number } | null>(null)
+
+  // Auto-schedule: distribute unscheduled plan jobs across team leads (round-robin)
+  const handleAutoSchedule = async () => {
+    if (bankJobs.length === 0) return
+    if (!confirm(`Auto-schedule ${bankJobs.length} unscheduled job${bankJobs.length === 1 ? '' : 's'} across available crews?`)) return
+
+    setAutoScheduling(true)
+    setAutoScheduleResult(null)
+
+    try {
+      // Get team leads from existing week schedule data
+      const teamLeadIds = new Set<number>()
+      for (const day of weekData) {
+        for (const crew of day.crews) {
+          if (crew.team_lead_id != null) {
+            teamLeadIds.add(crew.team_lead_id)
+          }
+        }
+      }
+
+      // If no team leads found in current week data, try fetching cleaners
+      let leadIds = Array.from(teamLeadIds)
+      if (leadIds.length === 0) {
+        try {
+          const res = await fetch("/api/actions/cleaners")
+          if (res.ok) {
+            const json = await res.json()
+            const cleaners = json.data || []
+            leadIds = cleaners
+              .filter((c: { is_team_lead?: boolean; active?: boolean }) => c.is_team_lead && c.active !== false)
+              .map((c: { id: number }) => c.id)
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (leadIds.length === 0) {
+        alert("No active team leads found. Add team leads first.")
+        setAutoScheduling(false)
+        return
+      }
+
+      // Build week date range (Mon-Sat working days)
+      const workDays = weekDays.filter(d => {
+        const dow = d.getDay()
+        return dow >= 1 && dow <= 6 // Mon-Sat
+      })
+
+      // Build a town-to-crew map from existing schedule for geographic matching
+      const crewTownMap = new Map<number, Set<string>>()
+      for (const day of weekData) {
+        for (const crew of day.crews) {
+          if (crew.team_lead_id != null && crew.first_job_town) {
+            if (!crewTownMap.has(crew.team_lead_id)) crewTownMap.set(crew.team_lead_id, new Set())
+            crewTownMap.get(crew.team_lead_id)!.add(crew.first_job_town.toLowerCase())
+          }
+        }
+      }
+
+      let scheduled = 0
+      let failed = 0
+      let leadIndex = 0
+
+      for (const job of bankJobs) {
+        // Try geographic matching: find a crew that has jobs in the same town
+        const jobTown = extractTown(job.address).toLowerCase()
+        let bestLeadId: number | undefined
+
+        if (jobTown) {
+          for (const [leadId, towns] of crewTownMap) {
+            if (towns.has(jobTown)) {
+              bestLeadId = leadId
+              break
+            }
+          }
+        }
+
+        // Fallback to round-robin
+        const assignedLeadId = bestLeadId ?? leadIds[leadIndex % leadIds.length]
+        if (!bestLeadId) leadIndex++
+
+        // Pick a date — spread across working days
+        const dayIdx = (scheduled) % workDays.length
+        const targetDate = toDateStr(workDays[dayIdx])
+
+        try {
+          const res = await fetch("/api/actions/service-plan-jobs/schedule", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              planJobId: job.id,
+              targetDate,
+              crewLeadId: assignedLeadId,
+            }),
+          })
+          if (res.ok) {
+            scheduled++
+          } else {
+            failed++
+          }
+        } catch {
+          failed++
+        }
+      }
+
+      setAutoScheduleResult({ scheduled, failed })
+      fetchWeekData()
+      fetchBank()
+    } catch {
+      setAutoScheduleResult({ scheduled: 0, failed: bankJobs.length })
+    }
+
+    setAutoScheduling(false)
+  }
+
   // Group bank jobs by plan type
   const bankByPlan = useMemo(() => {
     const map = new Map<string, PlanJob[]>()
@@ -430,6 +549,16 @@ export default function ServicePlanSchedulePage() {
           </div>
           <div className="flex items-center gap-2">
             {scheduling && <Loader2 className="size-4 animate-spin text-primary" />}
+            {bankJobs.length > 0 && (
+              <button
+                onClick={handleAutoSchedule}
+                disabled={autoScheduling}
+                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase rounded-md bg-primary/10 text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+              >
+                {autoScheduling ? <Loader2 className="size-3 animate-spin" /> : <Wand2 className="size-3" />}
+                Auto Schedule
+              </button>
+            )}
             <button onClick={goToday} className="text-xs text-primary font-medium hover:underline">Today</button>
             <div className="flex items-center gap-1">
               <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted">
@@ -450,6 +579,24 @@ export default function ServicePlanSchedulePage() {
             </div>
           </div>
         </div>
+
+        {/* ═══ AUTO-SCHEDULE RESULT ═══ */}
+        {autoScheduleResult && (
+          <div className="px-4 py-2 bg-primary/5 border-b border-primary/10 flex items-center justify-between shrink-0">
+            <span className="text-xs text-primary font-medium">
+              Auto-scheduled {autoScheduleResult.scheduled} job{autoScheduleResult.scheduled !== 1 ? 's' : ''}
+              {autoScheduleResult.failed > 0 && (
+                <span className="text-red-400 ml-2">({autoScheduleResult.failed} failed)</span>
+              )}
+            </span>
+            <button
+              onClick={() => setAutoScheduleResult(null)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* ═══ UNSCHEDULED BANK ═══ */}
         {bankJobs.length > 0 && (

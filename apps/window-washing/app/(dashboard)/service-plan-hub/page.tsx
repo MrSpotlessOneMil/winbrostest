@@ -81,6 +81,8 @@ export default function ServicePlanHubPage() {
         totalPlans={(data?.totalPlans as number) || 0}
         revenueThisYear={data?.revenueThisYear as number | undefined}
         statusCounts={statusCounts}
+        cancelledArr={(data?.cancelledArr as number) || 0}
+        cancelledCount={(data?.cancelledCount as number) || 0}
       />
     </div>
   )

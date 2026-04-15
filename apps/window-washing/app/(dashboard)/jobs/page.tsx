@@ -73,6 +73,7 @@ type CalendarEventDetails = {
   customerPhone: string
   customerEmail: string
   customerId: string
+  salesmanName: string
 }
 
 type PendingMove = {
@@ -289,6 +290,14 @@ function resolveCleanerId(job: CalendarJob): string {
 function resolveLeadSource(job: CalendarJob): string {
   if (job.leads && Array.isArray(job.leads) && job.leads.length > 0) {
     return job.leads[0].source || ""
+  }
+  return ""
+}
+
+function resolveSalesmanName(job: CalendarJob): string {
+  if (job.credited_salesman) {
+    const s = Array.isArray(job.credited_salesman) ? job.credited_salesman[0] : job.credited_salesman
+    return s?.name || ""
   }
   return ""
 }
@@ -1141,6 +1150,7 @@ export default function JobsPage() {
           leadSource: resolveLeadSource(job),
           customerPhone: customer?.phone_number || job.phone_number || "",
           customerEmail: customer?.email || "",
+          salesmanName: resolveSalesmanName(job),
           customerId: customer?.id ? String(customer.id) : "",
         },
       }
@@ -1194,6 +1204,7 @@ export default function JobsPage() {
       customerPhone: customer?.phone_number || job.phone_number || "",
       customerEmail: customer?.email || "",
       customerId: customer?.id ? String(customer.id) : "",
+      salesmanName: resolveSalesmanName(job),
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1318,6 +1329,7 @@ export default function JobsPage() {
       customerPhone: info.event.extendedProps.customerPhone || "",
       customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
+      salesmanName: info.event.extendedProps.salesmanName || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -2523,8 +2535,16 @@ export default function JobsPage() {
                 const price = arg.event.extendedProps.price
                 const status = arg.event.extendedProps.status
                 const service = arg.event.extendedProps.service
+                const salesmanName = arg.event.extendedProps.salesmanName || ''
+                const cleanerName = arg.event.extendedProps.cleanerName || ''
                 const view = arg.view.type
                 const dotColor = status === 'completed' ? '#22c55e' : status === 'in_progress' ? '#f59e0b' : '#6366f1'
+                const soldBadge = salesmanName
+                  ? `<span style="font-size:8px;background:rgba(245,158,11,0.15);color:#f59e0b;padding:0 3px;border-radius:3px;font-weight:500;white-space:nowrap">Sold: ${salesmanName.split(' ')[0]}</span>`
+                  : ''
+                const crewBadge = cleanerName
+                  ? `<span style="font-size:8px;background:rgba(59,130,246,0.15);color:#60a5fa;padding:0 3px;border-radius:3px;font-weight:500;white-space:nowrap">Crew: ${cleanerName.split(' ')[0]}</span>`
+                  : ''
                 if (view === 'dayGridMonth') {
                   const timeText = arg.timeText || ''
                   return {
@@ -2532,6 +2552,7 @@ export default function JobsPage() {
                       <div style="display:flex;align-items:center;gap:3px;padding:1px 3px;overflow:hidden;white-space:nowrap">
                         <span style="font-size:10px;opacity:0.75;flex-shrink:0">${timeText}</span>
                         <span style="font-weight:600;font-size:11px;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
+                        ${soldBadge}
                       </div>
                     `
                   }
@@ -2544,10 +2565,11 @@ export default function JobsPage() {
                         <span style="width:6px;height:6px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
                         <span style="font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${arg.event.title}</span>
                       </div>
-                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px">
+                      <div style="display:flex;gap:4px;font-size:10px;opacity:0.85;margin-top:1px;flex-wrap:wrap">
                         ${price ? `<span style="font-weight:500">$${Number(price).toLocaleString()}</span>` : ''}
                         ${service ? `<span style="opacity:0.7">${service}</span>` : ''}
                       </div>
+                      ${(soldBadge || crewBadge) ? `<div style="display:flex;gap:3px;margin-top:1px;flex-wrap:wrap">${soldBadge}${crewBadge}</div>` : ''}
                     </div>
                   `
                 }
@@ -2820,9 +2842,36 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <strong>Cleaner:</strong> {selectedEvent?.cleaner || "Unassigned"}
+                <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                  <strong>Crew:</strong>{" "}
+                  <span style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "2px 8px",
+                    borderRadius: 8,
+                    fontSize: "0.7rem",
+                    fontWeight: 600,
+                    backgroundColor: "rgba(59, 130, 246, 0.15)",
+                    color: "#60a5fa",
+                    border: "1px solid rgba(59, 130, 246, 0.25)",
+                  }}>{selectedEvent?.cleaner || "Unassigned"}</span>
                 </div>
+                {selectedEvent?.salesmanName && (
+                  <div style={{ marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: 6 }}>
+                    <strong>Sold by:</strong>{" "}
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "2px 8px",
+                      borderRadius: 8,
+                      fontSize: "0.7rem",
+                      fontWeight: 600,
+                      backgroundColor: "rgba(245, 158, 11, 0.15)",
+                      color: "#fbbf24",
+                      border: "1px solid rgba(245, 158, 11, 0.25)",
+                    }}>{selectedEvent.salesmanName}</span>
+                  </div>
+                )}
                 {selectedEvent?.team && (
                   <div style={{ marginBottom: "0.5rem" }}>
                     <strong>Team:</strong> {selectedEvent.team}

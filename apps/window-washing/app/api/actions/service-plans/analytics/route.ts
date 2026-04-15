@@ -79,16 +79,29 @@ export async function GET(request: NextRequest) {
     ...data,
   }))
 
-  // Monthly ARR booked
+  // Cancelled plan revenue for summary
+  let cancelledArr = 0
+  const cancelledCount = allPlans.filter(p => p.status === 'cancelled').length
+  for (const plan of allPlans.filter(p => p.status === 'cancelled')) {
+    const type = plan.plan_type || 'quarterly'
+    const price = Number(plan.plan_price || 0)
+    cancelledArr += price * getAnnualMultiplier(type)
+  }
+
+  // Monthly ARR booked — with per-plan-type breakdown
   const monthlyTarget = totalArr / 12
   const monthlyArr = MONTH_NAMES.map((name, i) => {
     const month = i + 1
     let booked = 0
+    const byType: Record<string, number> = {}
 
     for (const plan of allPlans.filter(p => p.status === 'active')) {
       const months: number[] = plan.service_months || []
       if (months.includes(month)) {
-        booked += Number(plan.plan_price || 0)
+        const price = Number(plan.plan_price || 0)
+        const type = plan.plan_type || 'quarterly'
+        booked += price
+        byType[type] = (byType[type] || 0) + price
       }
     }
 
@@ -97,6 +110,7 @@ export async function GET(request: NextRequest) {
       month_name: name,
       booked,
       target: Math.round(monthlyTarget),
+      by_type: byType,
     }
   })
 
@@ -121,5 +135,7 @@ export async function GET(request: NextRequest) {
     totalPlans: allPlans.length,
     revenueThisYear,
     statusCounts,
+    cancelledArr,
+    cancelledCount,
   })
 }

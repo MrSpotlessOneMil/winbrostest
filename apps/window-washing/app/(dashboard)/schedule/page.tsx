@@ -165,7 +165,7 @@ function DraggableJobCard({
         </span>
         {job.salesman_name && (
           <span className="text-[8px] text-amber-400 bg-amber-500/15 px-1 rounded font-medium truncate">
-            {job.salesman_name.split(" ")[0]}
+            Sold: {job.salesman_name.split(" ")[0]}
           </span>
         )}
       </div>

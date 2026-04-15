@@ -141,6 +141,12 @@ export default function ControlCenterPage() {
   const [newPlanName, setNewPlanName] = useState("")
   const [showAddPlan, setShowAddPlan] = useState(false)
 
+  // ── Configurable section label ──
+  const [sectionLabel, setSectionLabel] = useState("Service Plans")
+  const [editingLabel, setEditingLabel] = useState(false)
+  const [labelDraft, setLabelDraft] = useState("Service Plans")
+  const [labelSaving, setLabelSaving] = useState(false)
+
   // ── Fetch helpers ──
   const fetchMessages = useCallback(async () => {
     setMessagesLoading(true)
@@ -215,12 +221,49 @@ export default function ControlCenterPage() {
     }
   }, [showToast])
 
+  // ── Config fetch ──
+  const fetchConfig = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}?type=config`)
+      const json = await res.json()
+      if (json.success && json.data) {
+        const label = json.data.service_plan_label || "Service Plans"
+        setSectionLabel(label)
+        setLabelDraft(label)
+      }
+    } catch {
+      // Use default
+    }
+  }, [])
+
+  async function saveSectionLabel() {
+    const trimmed = labelDraft.trim() || "Service Plans"
+    setLabelSaving(true)
+    try {
+      const res = await fetch(API, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "config", data: { service_plan_label: trimmed } }),
+      })
+      const json = await res.json()
+      if (!json.success) throw new Error(json.error)
+      setSectionLabel(trimmed)
+      setEditingLabel(false)
+      showToast("success", "Label saved")
+    } catch (err) {
+      showToast("error", err instanceof Error ? err.message : "Failed to save label")
+    } finally {
+      setLabelSaving(false)
+    }
+  }
+
   useEffect(() => {
     fetchMessages()
     fetchPricebook()
     fetchTags()
     fetchChecklists()
-  }, [fetchMessages, fetchPricebook, fetchTags, fetchChecklists])
+    fetchConfig()
+  }, [fetchMessages, fetchPricebook, fetchTags, fetchChecklists, fetchConfig])
 
   // ── Messages handlers ──
   async function saveMessageTemplate(trigger: string) {
@@ -981,13 +1024,52 @@ export default function ControlCenterPage() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* SECTION 2: Auto Cleanings Configuration                               */}
+      {/* SECTION 2: Service Plans Configuration (label is configurable)        */}
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       <div className="rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
-          <h2 className="text-sm font-semibold text-zinc-100 uppercase tracking-wider">
-            Auto Cleanings Configuration
-          </h2>
+        <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50 flex items-center justify-between">
+          {editingLabel ? (
+            <div className="flex items-center gap-2 flex-1">
+              <Input
+                value={labelDraft}
+                onChange={(e) => setLabelDraft(e.target.value)}
+                className="text-sm font-semibold h-7 max-w-[220px]"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveSectionLabel()
+                  if (e.key === "Escape") {
+                    setEditingLabel(false)
+                    setLabelDraft(sectionLabel)
+                  }
+                }}
+              />
+              <Button size="sm" onClick={saveSectionLabel} disabled={labelSaving} className="cursor-pointer text-xs h-7">
+                {labelSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setEditingLabel(false); setLabelDraft(sectionLabel) }}
+                className="cursor-pointer text-xs text-zinc-500 h-7"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <h2 className="text-sm font-semibold text-zinc-100 uppercase tracking-wider">
+              {sectionLabel} Configuration
+            </h2>
+          )}
+          {!editingLabel && (
+            <button
+              type="button"
+              className="text-zinc-500 hover:text-white p-1 cursor-pointer"
+              onClick={() => { setEditingLabel(true); setLabelDraft(sectionLabel) }}
+              title="Edit section label"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
 
         <div className="divide-y divide-zinc-800/50">

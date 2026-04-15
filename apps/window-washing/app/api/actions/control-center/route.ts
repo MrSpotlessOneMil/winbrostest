@@ -17,9 +17,9 @@ import { getSupabaseServiceClient } from "@/lib/supabase"
 
 // route-check:no-vercel-cron
 
-type ResourceType = "messages" | "pricebook" | "tags" | "checklists"
+type ResourceType = "messages" | "pricebook" | "tags" | "checklists" | "config"
 
-const VALID_TYPES: ResourceType[] = ["messages", "pricebook", "tags", "checklists"]
+const VALID_TYPES: ResourceType[] = ["messages", "pricebook", "tags", "checklists", "config"]
 
 function isValidType(t: string): t is ResourceType {
   return VALID_TYPES.includes(t as ResourceType)
@@ -88,6 +88,16 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 })
       }
       return NextResponse.json({ success: true, data: data ?? [] })
+    }
+
+    case "config": {
+      const wc = (authTenant.workflow_config as unknown as Record<string, unknown>) ?? {}
+      return NextResponse.json({
+        success: true,
+        data: {
+          service_plan_label: (wc.service_plan_label as string) || "Service Plans",
+        },
+      })
     }
   }
 }
@@ -243,9 +253,16 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { type, id, data } = body
-  if (!type || !isValidType(type) || id == null || !data) {
+  if (!type || !isValidType(type) || !data) {
     return NextResponse.json(
-      { success: false, error: "type, id, and data are required" },
+      { success: false, error: "type and data are required" },
+      { status: 400 }
+    )
+  }
+  // id is required for all types except config
+  if (type !== "config" && id == null) {
+    return NextResponse.json(
+      { success: false, error: "id is required for this type" },
       { status: 400 }
     )
   }
@@ -361,6 +378,22 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ success: false, error: "Not found" }, { status: 404 })
       }
       return NextResponse.json({ success: true, data: row })
+    }
+
+    case "config": {
+      const wc = { ...((authTenant.workflow_config as unknown as Record<string, unknown>) ?? {}) }
+      if (typeof data.service_plan_label === "string") {
+        wc.service_plan_label = data.service_plan_label.trim() || "Service Plans"
+      }
+      const { error } = await client
+        .from("tenants")
+        .update({ workflow_config: wc })
+        .eq("id", tenantId)
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 500 })
+      }
+      return NextResponse.json({ success: true, data: { service_plan_label: wc.service_plan_label } })
     }
   }
 }
