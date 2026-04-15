@@ -73,7 +73,7 @@ async function getAffectedJobs(date: string, tenantId: string, client: SupabaseC
 
     return {
       id: String(row.id),
-      hcp_job_id: row.hcp_job_id ? String(row.hcp_job_id) : "",
+      hcp_job_id: row.housecall_pro_job_id ? String(row.housecall_pro_job_id) : "",
       customer_id: customer?.id != null ? String(customer.id) : String(row.customer_id ?? ""),
       customer_name: customerName,
       customer_phone: String(customer?.phone_number || row.phone_number || ""),

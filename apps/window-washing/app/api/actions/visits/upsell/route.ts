@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
     service_name,
     description,
     price,
-    added_by_cleaner_id: authResult.user?.cleaner_id || null,
+    added_by_cleaner_id: null, // Dashboard upsells are added by admin, not a cleaner
   })
 
   if (!result.success) {

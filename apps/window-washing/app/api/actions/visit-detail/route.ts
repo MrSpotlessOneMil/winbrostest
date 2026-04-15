@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
       id, date, scheduled_at, address, phone_number, service_type,
       status, notes, price, hours, frequency, quote_id,
       cleaner_id, customer_id, parent_job_id, membership_id,
+      bedrooms, bathrooms, sqft, source,
       customers(id, first_name, last_name, phone_number, email, address, stripe_customer_id, card_on_file_at),
       cleaners:cleaner_id(id, name)
     `)
@@ -273,7 +274,7 @@ export async function GET(request: NextRequest) {
       id: (job as any).id,
       date: (job as any).date,
       scheduled_at: (job as any).scheduled_at,
-      scheduled_time: (job as any).scheduled_time,
+      scheduled_time: (job as any).scheduled_at,
       address: (job as any).address,
       phone_number: (job as any).phone_number,
       service_type: (job as any).service_type,
@@ -287,7 +288,7 @@ export async function GET(request: NextRequest) {
       frequency: (job as any).frequency,
       parent_job_id: (job as any).parent_job_id,
       membership_id: (job as any).membership_id,
-      lead_source: (job as any).leads?.[0]?.source || null,
+      lead_source: (job as any).source || null,
     },
     visit: {
       id: visit.id,

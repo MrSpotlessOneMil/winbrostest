@@ -130,12 +130,12 @@ export async function GET(request: NextRequest) {
   if (visitIds.length > 0) {
     const { data: lineItems } = await client
       .from("visit_line_items")
-      .select("visit_id, amount")
+      .select("visit_id, price")
       .in("visit_id", visitIds)
       .eq("revenue_type", "technician_upsell")
 
     for (const li of lineItems ?? []) {
-      upsellMap.set(li.visit_id, (upsellMap.get(li.visit_id) ?? 0) + (li.amount ?? 0))
+      upsellMap.set(li.visit_id, (upsellMap.get(li.visit_id) ?? 0) + (li.price ?? 0))
     }
   }
 
@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
   // ── Fetch service plans sold in period ──────────────────────────────────
   const { data: plans } = await client
     .from("service_plans")
-    .select("id, salesman_id, status, plan_price, frequency, created_at")
+    .select("id, salesman_id, status, plan_price, plan_type, created_at")
     .eq("tenant_id", tenantId)
     .gte("created_at", start + "T00:00:00")
     .lte("created_at", end + "T23:59:59")
@@ -242,7 +242,7 @@ export async function GET(request: NextRequest) {
     const agg = salesAgg.get(sid) ?? { one_time_sales: 0, one_time_revenue: 0, plan_sales: 0, plans_sold: 0, arr: 0, quoteDates: [] }
     agg.plans_sold++
     agg.plan_sales += p.plan_price ?? 0
-    agg.arr += (p.plan_price ?? 0) * freqMultiplier(p.frequency)
+    agg.arr += (p.plan_price ?? 0) * freqMultiplier(p.plan_type)
     if (p.created_at) agg.quoteDates.push(p.created_at.slice(0, 10))
     salesAgg.set(sid, agg)
   }

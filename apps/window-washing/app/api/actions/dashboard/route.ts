@@ -144,11 +144,11 @@ export async function GET(request: NextRequest) {
       // Today's schedule preview (next jobs with details)
       client
         .from('jobs')
-        .select('id, customer_name, address, scheduled_time, date, price, status, service_type, team_id')
+        .select('id, address, scheduled_at, date, price, status, service_type, team_id, phone_number, customers(first_name, last_name)')
         .eq('tenant_id', tenantId)
         .eq('date', today)
         .in('status', ['scheduled', 'confirmed', 'in_progress'])
-        .order('scheduled_time', { ascending: true })
+        .order('scheduled_at', { ascending: true })
         .limit(6),
     ])
 
@@ -191,16 +191,22 @@ export async function GET(request: NextRequest) {
     const totalCrews = (cleanersRes.data || []).length
 
     // Schedule preview
-    const schedulePreview = (todayScheduleRes.data || []).map(j => ({
-      id: j.id,
-      customer: j.customer_name || 'Unknown',
-      address: j.address || '',
-      time: j.scheduled_time || '',
-      price: Number(j.price || 0),
-      status: j.status,
-      service: j.service_type || 'window_cleaning',
-      team_id: j.team_id,
-    }))
+    const schedulePreview = (todayScheduleRes.data || []).map(j => {
+      const customer = (j as any).customers
+      const customerName = customer
+        ? [customer.first_name, customer.last_name].filter(Boolean).join(' ')
+        : null
+      return {
+        id: j.id,
+        customer: customerName || j.phone_number || 'Unknown',
+        address: j.address || '',
+        time: j.scheduled_at || '',
+        price: Number(j.price || 0),
+        status: j.status,
+        service: j.service_type || 'window_cleaning',
+        team_id: j.team_id,
+      }
+    })
 
     return NextResponse.json({
       success: true,
