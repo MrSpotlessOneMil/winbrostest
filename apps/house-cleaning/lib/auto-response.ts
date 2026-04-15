@@ -587,6 +587,47 @@ function detectSilentHandoff(
 }
 
 /**
+ * Quote-promise guardrail: detect when the AI promises to send a quote/pricing
+ * but doesn't include the [BOOKING_COMPLETE] tag that triggers actual quote creation.
+ * If the customer data (bedrooms + bathrooms) is available, append the tag.
+ * Otherwise log a warning so we can monitor over-promising.
+ *
+ * Returns the (possibly modified) response text and whether bookingComplete was forced.
+ */
+function applyQuotePromiseGuardrail(
+  responseText: string,
+  hasBookingComplete: boolean,
+  knownCustomerInfo?: KnownCustomerInfo | null,
+): { text: string; forcedBookingComplete: boolean } {
+  if (hasBookingComplete) {
+    return { text: responseText, forcedBookingComplete: false }
+  }
+
+  const quotePromisePattern = /\b(send|sending|get|getting|prepare|preparing|put together|putting together)\s+(you|your)\s+(a\s+)?(quote|pricing|options|estimate|price)/i
+  const promisesQuote = quotePromisePattern.test(responseText)
+
+  if (!promisesQuote) {
+    return { text: responseText, forcedBookingComplete: false }
+  }
+
+  // AI promised a quote — check if we have enough data to deliver
+  const hasBedBath = !!(knownCustomerInfo?.bedrooms && knownCustomerInfo?.bathrooms)
+
+  if (hasBedBath) {
+    // We have the data — append the tag so the webhook creates the actual quote
+    console.log(`[Auto-Response] Quote-promise guardrail: appended [BOOKING_COMPLETE] (had bed/bath data)`)
+    return {
+      text: responseText.trimEnd() + '\n[BOOKING_COMPLETE]',
+      forcedBookingComplete: true,
+    }
+  }
+
+  // AI promised but we can't deliver — log warning for monitoring
+  console.warn(`[Auto-Response] Quote-promise guardrail: AI promised quote without bed/bath data — may have over-promised`)
+  return { text: responseText, forcedBookingComplete: false }
+}
+
+/**
  * Safety net: detect when the AI offers specific days/times without emitting [SCHEDULE_READY].
  * This prevents the AI from fabricating availability. If detected, we return true so the
  * caller can inject [SCHEDULE_READY] and let the real scheduler provide actual times.
@@ -865,7 +906,7 @@ async function generateWinBrosResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
 
@@ -881,6 +922,11 @@ async function generateWinBrosResponse(
     // Safety net: if the AI said "reach out" / "get back to you" but didn't include
     // any action tag, treat it as a silent escalation so the owner gets notified.
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, isScheduleReady)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrail = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrail.text
+    if (guardrail.forcedBookingComplete) isBookingComplete = true
 
     // If the AI says it's ready to schedule, call the estimate scheduler
     // and append the available time options to the response
@@ -957,7 +1003,7 @@ async function generateWinBrosResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
     let cleanResponse = stripEscalationTags(rawText)
 
@@ -969,6 +1015,11 @@ async function generateWinBrosResponse(
     }
 
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, isScheduleReady)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrailOai = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrailOai.text
+    if (guardrailOai.forcedBookingComplete) isBookingComplete = true
 
     // Same scheduling logic for OpenAI fallback
     if (isScheduleReady) {
@@ -1331,8 +1382,13 @@ export async function generateEmailResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrail = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrail.text
+    if (guardrail.forcedBookingComplete) isBookingComplete = true
 
     return {
       response: cleanResponse,
@@ -1366,8 +1422,13 @@ export async function generateEmailResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrailOai = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrailOai.text
+    if (guardrailOai.forcedBookingComplete) isBookingComplete = true
 
     return {
       response: cleanResponse,
@@ -1660,6 +1721,34 @@ async function generateHouseCleaningResponse(
     console.error('[HC AI] Mega brain context failed (non-blocking):', megaBrainErr)
   }
 
+  // 2b. Owner messaging patterns — learned from human-sent messages (highest authority)
+  let ownerPatternsBlock = ''
+  try {
+    const { getSupabaseServiceClient: getSvc } = await import('./supabase')
+    const svc = getSvc()
+
+    // Get human patterns for the current conversation stage
+    const { data: ownerPatterns } = await svc
+      .from('conversation_intelligence')
+      .select('action_type, conv_stage, message_content, timing_gap_seconds, led_to_booking, patterns')
+      .eq('tenant_id', tenant.id)
+      .eq('is_human', true)
+      .eq('led_to_booking', true)
+      .not('message_content', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(5)
+
+    if (ownerPatterns?.length) {
+      ownerPatternsBlock = '\n\nOWNER MESSAGING PATTERNS (how the business owner texts — highest authority, mimic this style):\n'
+      ownerPatternsBlock += 'These are REAL messages from the owner that led to bookings. Match this tone and approach:\n'
+      for (const p of ownerPatterns) {
+        ownerPatternsBlock += `- [${p.action_type} at ${p.conv_stage}] "${p.message_content}"\n`
+      }
+    }
+  } catch {
+    // Non-blocking — owner patterns not yet available (cold start)
+  }
+
   // ── PROMPT ASSEMBLY ORDER ──
   // 1. Date/time context (grounding)
   // 2. Conversation history (what's been said)
@@ -1669,10 +1758,11 @@ async function generateHouseCleaningResponse(
   // 6. Customer context (active jobs, history, notes)
   // 7. Customer brain (DB profile, spend, preferences)
   // 8. Memory (remembered facts from past conversations)
-  // 9. Industry intelligence (Osiris Brain knowledge chunks)
-  // 10. AI learning (conversation stage + frustration + winning patterns)
-  // 11. The customer's actual message
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  // 9. Owner patterns (learned from human-sent messages — highest authority)
+  // 10. Industry intelligence (Osiris Brain knowledge chunks)
+  // 11. AI learning (conversation stage + frustration + winning patterns)
+  // 12. The customer's actual message
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${ownerPatternsBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -1695,9 +1785,14 @@ async function generateHouseCleaningResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrail = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrail.text
+    if (guardrail.forcedBookingComplete) isBookingComplete = true
 
     return {
       response: cleanResponse,
@@ -1733,9 +1828,14 @@ async function generateHouseCleaningResponse(
 
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
-    const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    let isBookingComplete = detectBookingComplete(rawText)
+    let cleanResponse = stripEscalationTags(rawText)
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
+
+    // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
+    const guardrailOai = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
+    cleanResponse = guardrailOai.text
+    if (guardrailOai.forcedBookingComplete) isBookingComplete = true
 
     return {
       response: cleanResponse,
