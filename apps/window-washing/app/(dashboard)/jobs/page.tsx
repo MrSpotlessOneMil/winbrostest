@@ -2603,6 +2603,24 @@ export default function JobsPage() {
                     recurBadge.style.cssText = "font-size:0.7em;opacity:0.7;"
                     titleEl.appendChild(recurBadge)
                   }
+
+                  // Sold by badge (list view)
+                  const smName = info.event.extendedProps.salesmanName
+                  if (smName) {
+                    const soldBadge = document.createElement("span")
+                    soldBadge.textContent = ` Sold: ${smName.split(' ')[0]}`
+                    soldBadge.style.cssText = "font-size:0.65em;font-weight:600;margin-left:4px;padding:1px 4px;border-radius:4px;background:rgba(245,158,11,0.15);color:#f59e0b;"
+                    titleEl.appendChild(soldBadge)
+                  }
+
+                  // Crew badge (list view)
+                  const crName = info.event.extendedProps.cleanerName
+                  if (crName) {
+                    const crewBadge = document.createElement("span")
+                    crewBadge.textContent = ` Crew: ${crName.split(' ')[0]}`
+                    crewBadge.style.cssText = "font-size:0.65em;font-weight:600;margin-left:4px;padding:1px 4px;border-radius:4px;background:rgba(59,130,246,0.15);color:#60a5fa;"
+                    titleEl.appendChild(crewBadge)
+                  }
                 }
                 const service = info.event.extendedProps.service || ""
                 const loc = info.event.extendedProps.location || ""
