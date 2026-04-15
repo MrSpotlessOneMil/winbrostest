@@ -344,7 +344,7 @@ export default function QuotePage() {
   const addonTotal = catalogAddonTotal + customAddonTotal
 
   const subtotal = isCustomPriced
-    ? customBasePrice + addonTotal
+    ? customBasePrice // Override price IS the final total — add-ons are for scope, not additive
     : selectedTierPrice
       ? selectedTierPrice.price + addonTotal
       : 0
@@ -1193,9 +1193,21 @@ export default function QuotePage() {
           </div>
           <div className="p-5 space-y-2.5">
             {isCustomPriced ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Base Service</span>
-                <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+              <div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Custom Quote</span>
+                  <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+                </div>
+                {/* Show selected add-ons as "included" — not additive, since override price covers everything */}
+                {(() => {
+                  const incAddons = [
+                    ...addons.filter(a => selectedAddons[a.key] && !STANDARD_BASE_KEYS.has(a.key)).map(a => a.name),
+                    ...customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map(ca => ca.label),
+                  ]
+                  return incAddons.length > 0 ? (
+                    <p className="text-xs text-slate-400 mt-1">Includes: {incAddons.join(', ')}</p>
+                  ) : null
+                })()}
               </div>
             ) : selectedTier && selectedTierPrice ? (
               <div>
@@ -1223,15 +1235,16 @@ export default function QuotePage() {
               </div>
             ) : null}
 
-            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+            {/* Add-on line items — only for non-custom quotes (custom quotes show "Includes:" above) */}
+            {!isCustomPriced && addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">+ {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}</span>
                 <span className="text-slate-700">{fmt(getAddonPrice(addon))}</span>
               </div>
             ))}
 
-            {/* Custom add-ons (not in catalog) as line items */}
-            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
+            {/* Custom add-ons line items — only for non-custom quotes */}
+            {!isCustomPriced && customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
               <div key={ca.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">+ {ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
                 <span className="text-slate-700">{fmt(ca.price)}</span>
