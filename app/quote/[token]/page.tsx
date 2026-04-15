@@ -34,6 +34,7 @@ import { STANDARD_BASE_KEYS, STANDARD_BASE_TASKS, TIER_UPGRADES } from "@/lib/se
 
 interface QuoteTier { key: string; name: string; tagline: string; badge?: string; included: string[]; description: string }
 interface QuoteAddon { key: string; name: string; description: string; priceType: "flat" | "per_unit"; price: number; unit?: string }
+interface CustomAddon { key: string; label: string; price: number; custom: true }
 interface TierPrice { price: number; breakdown: { service: string; price: number }[]; tier: string }
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
@@ -157,6 +158,7 @@ export default function QuotePage() {
   const [customerNotes, setCustomerNotes] = useState("")
   const [showAllTiers, setShowAllTiers] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [customAddonsFromQuote, setCustomAddonsFromQuote] = useState<CustomAddon[]>([])
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -176,27 +178,6 @@ export default function QuotePage() {
           setTierLocked(true)
           const preselectedTier = json.quote.selected_tier as string
           setSelectedTierKey(preselectedTier)
-
-          // Pre-toggle salesman's selected addons if available, otherwise use tier included
-          const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number }> | null
-          if (savedAddons && savedAddons.length > 0) {
-            const inc: Record<string, boolean> = {}
-            const qty: Record<string, number> = {}
-            for (const addon of savedAddons) {
-              const key = typeof addon === 'string' ? addon : addon.key
-              inc[key] = true
-              if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
-            }
-            setSelectedAddons(inc)
-            if (Object.keys(qty).length > 0) setAddonQuantities(prev => ({ ...prev, ...qty }))
-          } else {
-            const tierDef = (json.tiers as QuoteTier[]).find((t) => t.key === preselectedTier)
-            if (tierDef) {
-              const inc: Record<string, boolean> = {}
-              tierDef.included.forEach((k) => { inc[k] = true })
-              setSelectedAddons(inc)
-            }
-          }
         } else {
           const tierKeys = (json.tiers as QuoteTier[]).map((t) => t.key)
           // Default to the tier matching the quote's service_category (e.g. customer asked for standard on the call)
@@ -207,12 +188,45 @@ export default function QuotePage() {
             ? categoryTier
             : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
           setSelectedTierKey(defaultTier)
+        }
 
-          // Pre-select included addons for default tier
-          const defaultTierDef = (json.tiers as QuoteTier[]).find((t) => t.key === defaultTier)
-          if (defaultTierDef) {
+        // Initialize default per_unit addon quantities (before saved addons may override)
+        const defaultQty: Record<string, number> = {}
+        json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") defaultQty[a.key] = 1 })
+
+        // Pre-select saved addons for ALL quote types (custom-priced, tier-locked, default)
+        const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number; label?: string; price?: number; custom?: boolean }> | null
+        if (savedAddons && savedAddons.length > 0) {
+          const inc: Record<string, boolean> = {}
+          const qty: Record<string, number> = {}
+          const customAddonsList: CustomAddon[] = []
+          for (const addon of savedAddons) {
+            const key = typeof addon === 'string' ? addon : addon.key
+            inc[key] = true
+            if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
+            // Collect custom add-ons (not in catalog) for separate display
+            if (typeof addon !== 'string' && addon.custom && addon.label && addon.price != null) {
+              customAddonsList.push({ key: addon.key, label: addon.label, price: addon.price, custom: true })
+            }
+          }
+          setSelectedAddons(inc)
+          setAddonQuantities({ ...defaultQty, ...qty })
+          if (customAddonsList.length > 0) setCustomAddonsFromQuote(customAddonsList)
+        } else {
+          // No saved addons — fall back to tier included addons
+          const fallbackTierKey = json.quote.selected_tier as string
+            || (() => {
+              const tierKeys = (json.tiers as QuoteTier[]).map((t: QuoteTier) => t.key)
+              const categoryTierMap: Record<string, string> = { standard: 'standard', deep: 'deep', move_in_out: 'move' }
+              const categoryTier = categoryTierMap[json.quote.service_category as string]
+              return (categoryTier && tierKeys.includes(categoryTier))
+                ? categoryTier
+                : tierKeys[Math.min(1, tierKeys.length - 1)] || tierKeys[0]
+            })()
+          const tierDef = (json.tiers as QuoteTier[]).find((t: QuoteTier) => t.key === fallbackTierKey)
+          if (tierDef) {
             const inc: Record<string, boolean> = {}
-            defaultTierDef.included.forEach((k) => { inc[k] = true })
+            tierDef.included.forEach((k: string) => { inc[k] = true })
             setSelectedAddons(inc)
           }
         }
@@ -230,9 +244,10 @@ export default function QuotePage() {
           setMembershipLocked(true)
         }
 
-        const q: Record<string, number> = {}
-        json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") q[a.key] = 1 })
-        setAddonQuantities(q)
+        // Set default quantities if not already set by saved addons
+        if (!savedAddons || savedAddons.length === 0) {
+          setAddonQuantities(defaultQty)
+        }
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : "Failed to load quote")
       } finally {
@@ -281,18 +296,13 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
-  // For custom-priced quotes, pre-selected addons are treated as INCLUDED (free)
-  const originalSelectedAddons = data?.quote?.selected_addons as Array<string | { key: string }> | null
-  const customIncludedKeys = isCustomPriced && originalSelectedAddons
-    ? new Set(originalSelectedAddons.map(a => typeof a === 'string' ? a : a.key))
-    : null
-
+  // For custom-priced quotes, admin-selected paid add-ons are NOT free — they are separate line items.
+  // Only tier-included addons (from selectedTier.included) are treated as "included".
   const isAddonIncluded = useCallback(
     (addonKey: string): boolean => {
-      if (customIncludedKeys?.has(addonKey)) return true
       return !!selectedTier && selectedTier.included.includes(addonKey)
     },
-    [selectedTier, customIncludedKeys]
+    [selectedTier]
   )
 
   const getAddonPrice = useCallback(
@@ -318,12 +328,20 @@ export default function QuotePage() {
     [selectedTierPrice, addonQuantities, tierPrices]
   )
 
-  const addonTotal = addons.reduce((sum, addon) => {
+  const catalogAddonTotal = addons.reduce((sum, addon) => {
     if (!selectedAddons[addon.key]) return sum
     if (isAddonIncluded(addon.key)) return sum
     if (STANDARD_BASE_KEYS.has(addon.key)) return sum
     return sum + getAddonPrice(addon)
   }, 0)
+
+  // Custom add-ons (not in catalog) contribute to the total
+  const customAddonTotal = customAddonsFromQuote.reduce((sum, ca) => {
+    if (!selectedAddons[ca.key]) return sum
+    return sum + ca.price
+  }, 0)
+
+  const addonTotal = catalogAddonTotal + customAddonTotal
 
   const subtotal = isCustomPriced
     ? customBasePrice + addonTotal
@@ -342,7 +360,14 @@ export default function QuotePage() {
     if (!selectedTierKey || !quote) return
     setApproving(true)
     try {
-      const activeAddons = Object.entries(selectedAddons).filter(([, v]) => v).map(([key]) => key)
+      const customKeys = new Set(customAddonsFromQuote.map(ca => ca.key))
+      const activeCatalogAddons: Array<string> = Object.entries(selectedAddons)
+        .filter(([, v]) => v)
+        .map(([key]) => key)
+        .filter(key => !customKeys.has(key))
+      const activeCustomAddons = customAddonsFromQuote
+        .filter(ca => selectedAddons[ca.key])
+      const activeAddons: Array<string | CustomAddon> = [...activeCatalogAddons, ...activeCustomAddons]
       const res = await fetch(`/api/quotes/${token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -406,6 +431,7 @@ export default function QuotePage() {
   const quoteNumber = token.slice(0, 8).toUpperCase()
   const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
   const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).length
+    + customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).length
 
   // ── Approved ─────────────────────────────────────────────────────
 
@@ -846,7 +872,7 @@ export default function QuotePage() {
         )}
 
         {/* ── Add-ons (filter out standard base tasks — they're included in every cleaning) */}
-        {addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).length > 0 && (
+        {(addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).length > 0 || customAddonsFromQuote.length > 0) && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
             <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
@@ -913,6 +939,37 @@ export default function QuotePage() {
                         <span className="text-xs text-slate-500">= {fmt(addon.price * (addonQuantities[addon.key] || 1))}</span>
                       </div>
                     )}
+                  </div>
+                )
+              })}
+
+              {/* Custom add-ons from quote (not in catalog) — displayed as read-only checked items */}
+              {customAddonsFromQuote.map((ca) => {
+                const checked = !!selectedAddons[ca.key]
+                return (
+                  <div key={ca.key}
+                    className={`rounded-xl border-2 transition-all duration-150 overflow-hidden ${
+                      checked ? "border-blue-300 bg-blue-50/50" : "border-blue-100 bg-white"
+                    } ${isExpired ? "opacity-50" : ""}`}
+                  >
+                    <div className="w-full text-left p-4 flex items-center gap-3">
+                      <div className={`size-7 rounded-lg border-2 flex items-center justify-center shrink-0 transition-all ${
+                        checked ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 bg-white"
+                      }`}>
+                        {checked && <Check className="size-4" />}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-slate-800">{ca.label}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">CUSTOM</span>
+                        </div>
+                      </div>
+
+                      <span className="text-sm font-bold shrink-0 text-slate-700">
+                        {fmt(ca.price)}
+                      </span>
+                    </div>
                   </div>
                 )
               })}
@@ -1154,6 +1211,14 @@ export default function QuotePage() {
               <div key={addon.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">+ {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}</span>
                 <span className="text-slate-700">{fmt(getAddonPrice(addon))}</span>
+              </div>
+            ))}
+
+            {/* Custom add-ons (not in catalog) as line items */}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key]).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-sm">
+                <span className="text-slate-500">+ {ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
+                <span className="text-slate-700">{fmt(ca.price)}</span>
               </div>
             ))}
 
