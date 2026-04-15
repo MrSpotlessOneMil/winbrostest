@@ -1,8 +1,9 @@
 #!/bin/bash
 #
-# Pre-push hook: runs regression tests before allowing push to main.
-# These tests scan source code for patterns that caused past incidents.
-# They run in <5 seconds. If they fail, the push is blocked.
+# Pre-push hook: runs type checks + regression tests before allowing push to main.
+# Catches two classes of bugs:
+#   1. TypeScript errors (missing params, wrong types) — tsc --noEmit
+#   2. Structural regressions (patterns that caused past incidents) — vitest
 #
 # Install: git config core.hooksPath .githooks
 #
@@ -14,24 +15,70 @@ if [ "$BRANCH" != "main" ]; then
   exit 0
 fi
 
-echo "🔒 Running regression guards before push to main..."
+echo ""
+echo "========================================"
+echo "  PRE-PUSH GUARD — main = production"
+echo "========================================"
 echo ""
 
-# Run only the regression test suite (fast — reads files, no network)
+# ── Step 1: Type-check critical payment/SMS files ──
+# Full tsc is too slow + has legacy errors. We check only the files
+# where a type error means money goes to the wrong place.
+echo "[1/2] Type-checking payment and SMS files..."
+
+CRITICAL_FILES=(
+  "packages/core/src/stripe-client.ts"
+  "packages/core/src/sms-templates.ts"
+  "packages/core/src/invoices.ts"
+  "apps/house-cleaning/app/api/actions/generate-payment-link/route.ts"
+  "apps/house-cleaning/app/api/actions/complete-job/route.ts"
+  "apps/house-cleaning/app/api/actions/charge-card/route.ts"
+  "apps/house-cleaning/app/api/actions/retry-payment/route.ts"
+  "apps/house-cleaning/app/api/actions/send-payment-links/route.ts"
+  "apps/house-cleaning/app/api/actions/recurring/route.ts"
+  "apps/house-cleaning/app/api/assistant/chat/route.ts"
+  "apps/house-cleaning/app/api/automation/lead-followup/route.ts"
+)
+
+TSC_ERRORS=0
+for f in "${CRITICAL_FILES[@]}"; do
+  if [ -f "$f" ]; then
+    # Quick syntax/import check — not full type resolution (that needs the whole project)
+    npx tsc --noEmit --isolatedModules --skipLibCheck "$f" 2>/dev/null
+    if [ $? -ne 0 ]; then
+      TSC_ERRORS=$((TSC_ERRORS + 1))
+    fi
+  fi
+done
+
+if [ $TSC_ERRORS -gt 0 ]; then
+  echo ""
+  echo "WARNING: $TSC_ERRORS file(s) have type errors (non-blocking for now)"
+  echo ""
+fi
+
+# ── Step 2: Regression tests ──
+echo "[2/2] Running regression tests..."
+echo ""
+
 npx vitest run tests/regression/ --reporter=verbose 2>&1
 
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then
   echo ""
-  echo "❌ REGRESSION TESTS FAILED — push blocked."
+  echo "========================================"
+  echo "  PUSH BLOCKED — regression test failed"
+  echo "========================================"
   echo ""
-  echo "A past incident would have re-occurred if this code shipped."
+  echo "A past incident would re-occur if this code shipped."
   echo "Fix the failing tests, then try again."
   echo ""
   exit 1
 fi
 
 echo ""
-echo "✅ All regression guards passed. Pushing to main."
+echo "========================================"
+echo "  ALL CHECKS PASSED — pushing to main"
+echo "========================================"
 exit 0

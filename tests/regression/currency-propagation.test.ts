@@ -203,7 +203,7 @@ describe('Currency propagation — Stripe payment functions', () => {
       expect(hardcodedUS, `Hardcoded country: 'US' found at lines: ${hardcodedUS.join(', ')}`).toHaveLength(0)
     })
 
-    it('all Stripe payment functions accept a currency parameter', () => {
+    it('all Stripe payment functions have REQUIRED currency parameter (no default)', () => {
       const source = readFile(path.join(CORE_ROOT, 'stripe-client.ts'))
       const funcs = [
         'createAndSendInvoice',
@@ -216,7 +216,23 @@ describe('Currency propagation — Stripe payment functions', () => {
       for (const func of funcs) {
         const funcMatch = source.match(new RegExp(`export async function ${func}\\([^)]*\\)`, 's'))
         expect(funcMatch, `${func} not found`).toBeTruthy()
-        expect(funcMatch![0]).toContain('currency')
+        const sig = funcMatch![0]
+        expect(sig, `${func} must accept currency`).toContain('currency')
+        // Currency must NOT have a default — it must be required
+        expect(sig, `${func} has currency = 'usd' default — REMOVE IT. Required params catch missing callers at compile time.`).not.toMatch(/currency\s*=\s*['"]/)
+      }
+    })
+
+    it('SMS template functions have REQUIRED currency parameter (no default)', () => {
+      const source = readFile(path.join(CORE_ROOT, 'sms-templates.ts'))
+      const funcs = ['paymentLink', 'paymentRetry']
+
+      for (const func of funcs) {
+        const funcMatch = source.match(new RegExp(`export function ${func}\\([^)]*\\)`, 's'))
+        expect(funcMatch, `${func} not found`).toBeTruthy()
+        const sig = funcMatch![0]
+        expect(sig, `${func} must accept currency`).toContain('currency')
+        expect(sig, `${func} has currency default — REMOVE IT.`).not.toMatch(/currency\s*=\s*['"]/)
       }
     })
   })
