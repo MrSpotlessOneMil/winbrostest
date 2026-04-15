@@ -76,6 +76,32 @@ const SERVICE_SUGGESTIONS = [
   "Skylight Cleaning",
 ]
 
+// Pane count pricing ranges
+const PANE_RANGES: { min: number; max: number | null; price: number; label: string }[] = [
+  { min: 1, max: 20, price: 200, label: "1-20 panes" },
+  { min: 21, max: 40, price: 350, label: "21-40 panes" },
+  { min: 41, max: 60, price: 500, label: "41-60 panes" },
+  { min: 61, max: 80, price: 650, label: "61-80 panes" },
+  { min: 81, max: null, price: 800, label: "81+ panes" },
+]
+
+function getPriceForPanes(count: number): number {
+  for (const range of PANE_RANGES) {
+    if (range.max === null && count >= range.min) return range.price
+    if (count >= range.min && range.max !== null && count <= range.max) return range.price
+  }
+  return 200
+}
+
+// Team lead options for assignment
+const TEAM_LEADS = [
+  { id: "unassigned", name: "Unassigned" },
+  { id: "blake_johnson", name: "Blake Johnson" },
+  { id: "josh_rivera", name: "Josh Rivera" },
+  { id: "trac_nguyen", name: "Trac Nguyen" },
+  { id: "max_shoemaker", name: "Max Shoemaker" },
+]
+
 function generateLineItemId() {
   return Math.random().toString(36).slice(2, 9)
 }
@@ -138,6 +164,10 @@ export default function QuotesPage() {
     customer_email: "",
     customer_address: "",
     notes: "",
+    // Pane count pricing
+    pane_count: "",
+    price_override: "",
+    assign_to: "unassigned",
     // Pre-confirm fields
     preconfirm: false,
     cleaner_pay: "",
@@ -255,7 +285,7 @@ export default function QuotesPage() {
     setCreateError(null)
     try {
       // Build line items array — filter out empty rows
-      const validLineItems = lineItems
+      let validLineItems = lineItems
         .filter((item) => item.service_name.trim() && item.price)
         .map((item) => ({
           service_name: item.service_name.trim(),
@@ -264,8 +294,21 @@ export default function QuotesPage() {
         }))
         .filter((item) => !isNaN(item.price) && item.price > 0)
 
+      // If pane count is set, auto-generate a line item (unless user manually added window cleaning items)
+      const paneCount = parseInt(form.pane_count) || 0
+      if (paneCount > 0 && validLineItems.length === 0) {
+        const autoPrice = form.price_override ? parseFloat(form.price_override) : getPriceForPanes(paneCount)
+        if (!isNaN(autoPrice) && autoPrice > 0) {
+          validLineItems = [{
+            service_name: `Window Cleaning - Exterior (${paneCount} panes)`,
+            price: autoPrice,
+            quantity: 1,
+          }]
+        }
+      }
+
       if (validLineItems.length === 0) {
-        setCreateError("Add at least one service with a price")
+        setCreateError("Add at least one service with a price, or enter a pane count")
         setCreating(false)
         return
       }
@@ -277,6 +320,13 @@ export default function QuotesPage() {
         customer_address: form.customer_address.trim() || undefined,
         notes: form.notes.trim() || undefined,
         line_items: validLineItems,
+      }
+
+      // Include assignment info in notes if assigned
+      if (form.assign_to && form.assign_to !== "unassigned") {
+        const lead = TEAM_LEADS.find(t => t.id === form.assign_to)
+        const assignNote = `Assigned to: ${lead?.name || form.assign_to}`
+        payload.notes = payload.notes ? `${payload.notes}\n${assignNote}` : assignNote
       }
 
       if (form.preconfirm && form.cleaner_ids.length > 0) {
@@ -309,6 +359,9 @@ export default function QuotesPage() {
         customer_email: "",
         customer_address: "",
         notes: "",
+        pane_count: "",
+        price_override: "",
+        assign_to: "unassigned",
         preconfirm: false,
         cleaner_pay: "",
         description: "",
@@ -364,6 +417,9 @@ export default function QuotesPage() {
       customer_email: "",
       customer_address: "",
       notes: "",
+      pane_count: "",
+      price_override: "",
+      assign_to: "unassigned",
       preconfirm: false,
       cleaner_pay: "",
       description: "",
@@ -563,6 +619,102 @@ export default function QuotesPage() {
                       }
                     />
                   </div>
+                </div>
+
+                {/* Pane Count Pricing */}
+                <div className="border-t border-border pt-4">
+                  <Label className="text-sm font-medium flex items-center gap-2 mb-3">
+                    Pane Count Pricing
+                    <span className="text-muted-foreground font-normal text-xs">(auto-calculates price)</span>
+                  </Label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="pane_count" className="text-xs text-muted-foreground">Pane Count</Label>
+                      <Input
+                        id="pane_count"
+                        type="number"
+                        placeholder="e.g. 35"
+                        min="1"
+                        value={form.pane_count}
+                        onChange={(e) => {
+                          const newPaneCount = e.target.value
+                          setForm({ ...form, pane_count: newPaneCount, price_override: "" })
+                          // Auto-populate line items when pane count changes
+                          const count = parseInt(newPaneCount) || 0
+                          if (count > 0) {
+                            const autoPrice = getPriceForPanes(count)
+                            setLineItems([{
+                              id: generateLineItemId(),
+                              service_name: `Window Cleaning - Exterior (${count} panes)`,
+                              price: String(autoPrice),
+                            }])
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">Auto Price</Label>
+                      <div className="h-9 flex items-center px-3 rounded-md border border-input bg-muted text-sm font-medium">
+                        {form.pane_count && parseInt(form.pane_count) > 0
+                          ? `$${getPriceForPanes(parseInt(form.pane_count)).toFixed(2)}`
+                          : "--"}
+                      </div>
+                    </div>
+                    <div>
+                      <Label htmlFor="price_override" className="text-xs text-muted-foreground">Override Price ($)</Label>
+                      <Input
+                        id="price_override"
+                        type="number"
+                        placeholder="Override"
+                        min="0"
+                        step="0.01"
+                        value={form.price_override}
+                        onChange={(e) => {
+                          const override = e.target.value
+                          setForm({ ...form, price_override: override })
+                          // Update line items with override price
+                          const count = parseInt(form.pane_count) || 0
+                          if (count > 0 && override) {
+                            setLineItems([{
+                              id: generateLineItemId(),
+                              service_name: `Window Cleaning - Exterior (${count} panes)`,
+                              price: override,
+                            }])
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  {form.pane_count && parseInt(form.pane_count) > 0 && (
+                    <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
+                      <p className="font-medium text-foreground/70">Pane Pricing Ranges:</p>
+                      {PANE_RANGES.map((r) => (
+                        <p key={r.label} className={parseInt(form.pane_count) >= r.min && (r.max === null || parseInt(form.pane_count) <= r.max) ? "text-primary font-semibold" : ""}>
+                          {r.label}: ${r.price}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Assignment Dropdown */}
+                <div className="border-t border-border pt-4">
+                  <Label htmlFor="assign_to">Assign To</Label>
+                  <select
+                    id="assign_to"
+                    value={form.assign_to}
+                    onChange={(e) => setForm({ ...form, assign_to: e.target.value })}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring mt-1"
+                  >
+                    {TEAM_LEADS.map((lead) => (
+                      <option key={lead.id} value={lead.id}>
+                        {lead.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Unassigned quotes go to the unscheduled bank
+                  </p>
                 </div>
 
                 {/* Line Items Builder */}
