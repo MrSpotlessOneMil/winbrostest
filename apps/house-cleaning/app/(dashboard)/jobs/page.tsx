@@ -1927,6 +1927,21 @@ export default function JobsPage() {
             })(),
             notes: createForm.notes.trim() || undefined,
             custom_base_price: createForm.price ? Number(createForm.price) : undefined,
+            selected_addons: (() => {
+              const st = (createForm.service_type || "").toLowerCase()
+              const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
+              const catalogAddons = createForm.selected_addons
+                .filter((key) => !isIncludedInTier(key, tierKey))
+                .map((key) => {
+                  const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                  return { key, label: addon?.label || key, price: addon?.flat_price || 0, quantity: 1 }
+                })
+              const allAddons = [
+                ...catalogAddons,
+                ...createForm.customAddons.map((ca) => ({ key: ca.key, label: ca.label, price: ca.price, quantity: 1, custom: true })),
+              ]
+              return allAddons.length > 0 ? allAddons : undefined
+            })(),
             membership_plan: (() => {
               if (!isHouseCleaning || !createForm.frequency || createForm.frequency === "one-time") return undefined
               const map: Record<string, string> = { "weekly": "weekly", "bi-weekly": "biweekly", "monthly": "monthly" }

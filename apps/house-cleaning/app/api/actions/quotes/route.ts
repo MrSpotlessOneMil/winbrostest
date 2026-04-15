@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     notes,
     custom_base_price,
     selected_tier,
+    selected_addons,
     membership_plan,
     send_sms,
     // Pre-confirm cleaner fields
@@ -165,6 +166,7 @@ export async function POST(request: NextRequest) {
       property_type: property_type || null,
       service_category: category,
       selected_tier: selected_tier || null,
+      selected_addons: Array.isArray(selected_addons) && selected_addons.length > 0 ? selected_addons : null,
       membership_plan: membership_plan && typeof membership_plan === 'string' ? membership_plan : null,
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
