@@ -689,7 +689,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     status: hasServiceDate ? 'scheduled' : 'pending',
     booked: false,
     paid: false,
-    payment_status: 'pending',
+    payment_status: 'card_on_file',
     confirmed_at: new Date().toISOString(),
     stripe_checkout_session_id: session.id,
     notes: jobNotes,
@@ -711,6 +711,20 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
 
   if (jobError) {
     console.error(`[Stripe Webhook] Failed to create job from quote ${quote_id}:`, jobError.message)
+  }
+
+  // Link quote back to the created job + update customer lifecycle
+  if (newJob?.id) {
+    await serviceClient.from('quotes').update({
+      converted_job_id: newJob.id,
+    }).eq('id', quote_id)
+
+    if (quote.customer_id) {
+      await serviceClient.from('customers').update({
+        lifecycle_stage: 'booked',
+        lifecycle_updated_at: new Date().toISOString(),
+      }).eq('id', quote.customer_id)
+    }
   }
 
   // Generate professional invoice email (non-blocking)
@@ -954,7 +968,11 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   if (quote.customer_id) {
     try {
       await serviceClient.from('leads')
-        .update({ status: 'booked', followup_stage: 99 })
+        .update({
+          status: 'booked',
+          followup_stage: 99,
+          ...(newJob?.id ? { converted_to_job_id: newJob.id } : {}),
+        })
         .eq('customer_id', quote.customer_id)
         .eq('tenant_id', quote.tenant_id)
         .in('status', ['new', 'contacted', 'qualified'])
