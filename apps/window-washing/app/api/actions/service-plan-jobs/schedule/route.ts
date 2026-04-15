@@ -13,9 +13,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   let body: { planJobId: number; targetDate: string; crewLeadId?: number }
   try {

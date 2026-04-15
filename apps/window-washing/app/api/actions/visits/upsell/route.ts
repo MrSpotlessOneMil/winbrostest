@@ -15,9 +15,7 @@ import { addUpsell } from '@/lib/visit-flow'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   let body: { visitId: number; service_name: string; price: number; description?: string }
   try {
@@ -48,7 +46,7 @@ export async function POST(request: NextRequest) {
     service_name,
     description,
     price,
-    added_by_cleaner_id: authResult.user?.cleaner_id || 0,
+    added_by_cleaner_id: authResult.user?.cleaner_id || null,
   })
 
   if (!result.success) {

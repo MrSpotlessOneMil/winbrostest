@@ -17,9 +17,7 @@ import { sendSMS } from '@/lib/openphone'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   let body: { visitId: number; targetStatus: VisitStatus; technicians?: number[] }
   try {

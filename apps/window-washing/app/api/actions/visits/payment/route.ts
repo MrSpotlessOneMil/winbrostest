@@ -14,9 +14,7 @@ import { recordPayment } from '@/lib/visit-flow'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   let body: {
     visitId: number

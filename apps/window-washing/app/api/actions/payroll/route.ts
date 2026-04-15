@@ -1,8 +1,12 @@
 /**
  * Payroll API
- * GET /api/actions/payroll?weekStart=2026-04-07&weekEnd=2026-04-13
+ * GET  /api/actions/payroll?weekStart=2026-04-07&weekEnd=2026-04-13
+ *       Returns payroll data for a given week — technicians + salesmen + status.
  *
- * Returns payroll data for a given week — technicians + salesmen + status.
+ * POST /api/actions/payroll
+ *       Update pay rates for a cleaner.
+ *       Body: { cleaner_id, hourly_rate?, pay_percentage?, commission_1time_pct?,
+ *               commission_triannual_pct?, commission_quarterly_pct?, review_count?, weekStart? }
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -11,9 +15,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   const url = new URL(request.url)
   const weekStart = url.searchParams.get('weekStart')
@@ -117,4 +119,71 @@ export async function GET(request: NextRequest) {
     salesmen,
     status: week.status,
   })
+}
+
+export async function POST(request: NextRequest) {
+  const authResult = await requireAuthWithTenant(request)
+  if (authResult instanceof NextResponse) return authResult
+
+  let body: Record<string, unknown>
+  try {
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  const cleanerId = body.cleaner_id as number
+  if (!cleanerId) {
+    return NextResponse.json({ error: 'cleaner_id is required' }, { status: 400 })
+  }
+
+  const client = getSupabaseServiceClient()
+  const tenantId = authResult.tenant.id
+
+  // Build updates for pay_rates table
+  const updates: Record<string, unknown> = {}
+  const allowedFields = [
+    'hourly_rate', 'pay_percentage',
+    'commission_1time_pct', 'commission_triannual_pct', 'commission_quarterly_pct',
+  ] as const
+
+  for (const field of allowedFields) {
+    if (field in body && typeof body[field] === 'number') {
+      updates[field] = body[field]
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    // Upsert into pay_rates
+    const { error } = await client
+      .from('pay_rates')
+      .update(updates)
+      .eq('tenant_id', tenantId)
+      .eq('cleaner_id', cleanerId)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+  }
+
+  // Handle review_count updates for payroll entries
+  if ('review_count' in body && typeof body.review_count === 'number' && body.weekStart) {
+    const weekStart = body.weekStart as string
+    const { data: week } = await client
+      .from('payroll_weeks')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('week_start', weekStart)
+      .single()
+
+    if (week) {
+      await client
+        .from('payroll_entries')
+        .update({ review_count: body.review_count })
+        .eq('payroll_week_id', week.id)
+        .eq('cleaner_id', cleanerId)
+    }
+  }
+
+  return NextResponse.json({ success: true })
 }

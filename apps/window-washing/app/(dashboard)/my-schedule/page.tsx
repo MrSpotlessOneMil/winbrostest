@@ -143,7 +143,7 @@ function DroppableCell({ id, children }: { id: string; children: React.ReactNode
    ══════════════════════════════════════════════════════════════════════════ */
 
 export default function CrewAssignmentPage() {
-  const { isAdmin, user } = useAuth()
+  const { isAdmin, user, cleanerId } = useAuth()
 
   // ── Shared state ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -157,8 +157,6 @@ export default function CrewAssignmentPage() {
   const [crewDays, setCrewDays] = useState<CrewDay[]>([])
   const [timeOff, setTimeOff] = useState<TimeOffEntry[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
-  const [cleanerId, setCleanerId] = useState<number | null>(null)
-
   // ── Admin UI state ──
   const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
   const [expandedTs, setExpandedTs] = useState<Set<string>>(new Set())
@@ -233,12 +231,6 @@ export default function CrewAssignmentPage() {
     const assigned = getAssignedIdsForDay(dateStr)
     return salesmen.filter(s => !isOff(s.id, dateStr) && !assigned.has(s.id))
   }, [salesmen, isOff, getAssignedIdsForDay])
-
-  // ── Resolve worker cleaner_id ──
-  useEffect(() => {
-    if (isAdmin || !user?.id) return
-    fetch("/api/actions/settings").then(r => r.json()).then(d => setCleanerId(d.cleaner_id || -1)).catch(() => setCleanerId(-1))
-  }, [user, isAdmin])
 
   // ── Fetch data ──
   const fetchData = useCallback(async () => {

@@ -207,7 +207,7 @@ export async function addUpsell(
     service_name: string
     description?: string
     price: number
-    added_by_cleaner_id: number
+    added_by_cleaner_id: number | null
   }
 ): Promise<{ success: boolean; line_item_id?: number; error?: string }> {
   // Fetch visit to check status

@@ -26,9 +26,7 @@ function getAnnualMultiplier(planType: string): number {
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   const url = new URL(request.url)
   const year = parseInt(url.searchParams.get('year') || new Date().getFullYear().toString())

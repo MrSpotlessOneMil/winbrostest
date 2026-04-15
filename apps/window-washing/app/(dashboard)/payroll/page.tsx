@@ -19,24 +19,14 @@ function getWeekBounds(date: Date): { start: string; end: string } {
 }
 
 export default function PayrollPage() {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, cleanerId: myCleanerId } = useAuth()
   const [loading, setLoading] = useState(true)
   const [weekDate, setWeekDate] = useState(() => new Date())
   const [technicians, setTechnicians] = useState<any[]>([])
   const [salesmen, setSalesmen] = useState<any[]>([])
   const [status, setStatus] = useState<"draft" | "finalized">("draft")
-  const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
 
   const { start, end } = getWeekBounds(weekDate)
-
-  // Resolve logged-in user's cleaner_id for field view filtering
-  useEffect(() => {
-    if (isAdmin || !user?.id) return
-    fetch("/api/actions/settings", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
-      .catch(() => setMyCleanerId(-1))
-  }, [isAdmin, user?.id])
 
   const fetchPayroll = useCallback(async () => {
     setLoading(true)
@@ -66,6 +56,40 @@ export default function PayrollPage() {
       next.setDate(next.getDate() + direction * 7)
       return next
     })
+  }
+
+  const handlePayRateChange = (cleanerId: number, field: 'hourly_rate' | 'pay_percentage', value: number) => {
+    setTechnicians(prev =>
+      prev.map(t => t.cleaner_id === cleanerId ? { ...t, [field]: value } : t)
+    )
+    // Debounced save to pay_rates table
+    fetch('/api/actions/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cleaner_id: cleanerId, [field]: value }),
+    }).catch(() => {})
+  }
+
+  const handleSalesCommissionChange = (cleanerId: number, field: 'commission_1time_pct' | 'commission_triannual_pct' | 'commission_quarterly_pct', value: number) => {
+    setSalesmen(prev =>
+      prev.map(s => s.cleaner_id === cleanerId ? { ...s, [field]: value } : s)
+    )
+    fetch('/api/actions/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cleaner_id: cleanerId, [field]: value }),
+    }).catch(() => {})
+  }
+
+  const handleReviewCountChange = (cleanerId: number, count: number) => {
+    setTechnicians(prev =>
+      prev.map(t => t.cleaner_id === cleanerId ? { ...t, review_count: count } : t)
+    )
+    fetch('/api/actions/payroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cleaner_id: cleanerId, review_count: count, weekStart: start }),
+    }).catch(() => {})
   }
 
   if (loading) {
@@ -104,6 +128,9 @@ export default function PayrollPage() {
         onEmployeeClick={(id) => {
           // TODO: open employee detail drawer
         }}
+        onReviewCountChange={handleReviewCountChange}
+        onPayRateChange={handlePayRateChange}
+        onSalesCommissionChange={handleSalesCommissionChange}
       />
     </div>
   )

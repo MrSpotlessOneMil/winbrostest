@@ -53,6 +53,8 @@ interface PayrollWeekProps {
   onWeekChange: (direction: -1 | 1) => void
   onEmployeeClick: (cleanerId: number) => void
   onReviewCountChange?: (cleanerId: number, count: number) => void
+  onPayRateChange?: (cleanerId: number, field: 'hourly_rate' | 'pay_percentage', value: number) => void
+  onSalesCommissionChange?: (cleanerId: number, field: 'commission_1time_pct' | 'commission_triannual_pct' | 'commission_quarterly_pct', value: number) => void
 }
 
 function formatWeekLabel(start: string): string {
@@ -86,6 +88,8 @@ export function PayrollWeek({
   onWeekChange,
   onEmployeeClick,
   onReviewCountChange,
+  onPayRateChange,
+  onSalesCommissionChange,
 }: PayrollWeekProps) {
   const REVIEW_BONUS = 10
 
@@ -214,13 +218,39 @@ export function PayrollWeek({
                             <span className="text-zinc-600">$0.00</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-400">
-                          {isCommission && !isHourly && <span>{tech.pay_percentage}% of revenue</span>}
-                          {isHourly && !isCommission && <span>${tech.hourly_rate}/hr</span>}
-                          {isHourly && isCommission && (
-                            <span>{tech.pay_percentage}% + ${tech.hourly_rate}/hr</span>
-                          )}
-                          {!isHourly && !isCommission && <span className="text-zinc-600">--</span>}
+                        <td className="px-4 py-3 text-right text-zinc-400" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {(isCommission || (!isHourly && !isCommission)) && (
+                              <div className="flex items-center gap-0.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={tech.pay_percentage || 0}
+                                  onChange={e => onPayRateChange?.(tech.cleaner_id, 'pay_percentage', Math.max(0, parseFloat(e.target.value) || 0))}
+                                  className="w-12 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <span className="text-[10px] text-zinc-500">%</span>
+                              </div>
+                            )}
+                            {(isCommission && isHourly) && (
+                              <span className="text-zinc-600 text-xs">+</span>
+                            )}
+                            {(isHourly || (!isHourly && !isCommission)) && (
+                              <div className="flex items-center gap-0.5">
+                                <span className="text-[10px] text-zinc-500">$</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.50"
+                                  value={tech.hourly_rate || 0}
+                                  onChange={e => onPayRateChange?.(tech.cleaner_id, 'hourly_rate', Math.max(0, parseFloat(e.target.value) || 0))}
+                                  className="w-14 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                                <span className="text-[10px] text-zinc-500">/hr</span>
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right text-zinc-400">
                           {isHourly && tech.hours_worked > 0 ? (
@@ -315,35 +345,53 @@ export function PayrollWeek({
                             Sales
                           </Badge>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-300">
-                          {s.revenue_1time > 0 ? (
-                            <span>
-                              {$(s.revenue_1time)}
-                              <span className="text-zinc-600 text-[10px] ml-1">({s.commission_1time_pct}%)</span>
-                            </span>
-                          ) : (
-                            <span className="text-zinc-600">$0.00</span>
-                          )}
+                        <td className="px-4 py-3 text-right text-zinc-300" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>{$(s.revenue_1time)}</span>
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={s.commission_1time_pct || 0}
+                                onChange={e => onSalesCommissionChange?.(s.cleaner_id, 'commission_1time_pct', Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="w-10 text-right bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-400 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="text-[10px] text-zinc-600">%</span>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-300">
-                          {s.revenue_triannual > 0 ? (
-                            <span>
-                              {$(s.revenue_triannual)}
-                              <span className="text-zinc-600 text-[10px] ml-1">({s.commission_triannual_pct}%)</span>
-                            </span>
-                          ) : (
-                            <span className="text-zinc-600">$0.00</span>
-                          )}
+                        <td className="px-4 py-3 text-right text-zinc-300" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>{$(s.revenue_triannual)}</span>
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={s.commission_triannual_pct || 0}
+                                onChange={e => onSalesCommissionChange?.(s.cleaner_id, 'commission_triannual_pct', Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="w-10 text-right bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-400 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="text-[10px] text-zinc-600">%</span>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-300">
-                          {s.revenue_quarterly > 0 ? (
-                            <span>
-                              {$(s.revenue_quarterly)}
-                              <span className="text-zinc-600 text-[10px] ml-1">({s.commission_quarterly_pct}%)</span>
-                            </span>
-                          ) : (
-                            <span className="text-zinc-600">$0.00</span>
-                          )}
+                        <td className="px-4 py-3 text-right text-zinc-300" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <span>{$(s.revenue_quarterly)}</span>
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <input
+                                type="number"
+                                min={0}
+                                max={100}
+                                value={s.commission_quarterly_pct || 0}
+                                onChange={e => onSalesCommissionChange?.(s.cleaner_id, 'commission_quarterly_pct', Math.max(0, parseFloat(e.target.value) || 0))}
+                                className="w-10 text-right bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[10px] text-zinc-400 focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="text-[10px] text-zinc-600">%</span>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-right text-zinc-400">
                           {$(totalComm)}
