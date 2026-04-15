@@ -433,7 +433,9 @@ export default function JobDetailPage() {
                 </div>
 
                 <div className="space-y-1">
-                  {checklist.map(item => (
+                  {checklist.map(item => {
+                    const isAddon = typeof item.id === 'string' && String(item.id).startsWith('addon_')
+                    return (
                     <button
                       key={item.id}
                       onClick={() => updateChecklist(item.id, !item.completed)}
@@ -442,7 +444,7 @@ export default function JobDetailPage() {
                       <div className={`size-6 rounded-lg flex items-center justify-center shrink-0 transition-all duration-200 ${item.completed ? "check-pop" : ""}`}
                         style={{
                           background: item.completed ? "#58cc02" : "transparent",
-                          border: item.completed ? "none" : "2.5px solid #d6d3d1",
+                          border: item.completed ? "none" : isAddon ? "2.5px solid #c084fc" : "2.5px solid #d6d3d1",
                           boxShadow: item.completed ? "0 2px 8px rgba(88,204,2,0.3)" : "none",
                         }}>
                         {item.completed && (
@@ -454,8 +456,14 @@ export default function JobDetailPage() {
                       <span className={`text-sm font-medium transition-all ${item.completed ? "line-through text-slate-400" : "text-slate-700"}`}>
                         {item.text}
                       </span>
+                      {isAddon && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md shrink-0" style={{ background: "#f3e8ff", color: "#9333ea" }}>
+                          Add-on
+                        </span>
+                      )}
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {allChecked && (

@@ -37,6 +37,7 @@ export interface JobInfo {
   price?: number | string | null
   phone_number?: string | null
   frequency?: string | null
+  addons?: Array<{ key: string; label?: string; price?: number }> | null
 }
 
 export interface CustomerInfo {
@@ -140,6 +141,16 @@ export async function notifyCleanerAssignment(
     details.push(`Your pay: $${totalPay.toFixed(0)}`)
   }
 
+  // Add paid add-ons to message (labels only — NEVER show prices to cleaners)
+  if (job.addons && Array.isArray(job.addons) && job.addons.length > 0) {
+    const addonLabels = job.addons
+      .map((a: { key: string; label?: string }) => a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+      .filter(Boolean)
+    if (addonLabels.length > 0) {
+      details.push(`Add-ons: ${addonLabels.join(', ')}`)
+    }
+  }
+
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
   const custStr = custName ? `\nCustomer: ${custName}` : ''
 
@@ -234,12 +245,23 @@ export async function notifyCleanerAwarded(
     }
   }
 
+  // Add paid add-ons to message (labels only — NEVER show prices to cleaners)
+  let addonsStr = ''
+  if (job.addons && Array.isArray(job.addons) && job.addons.length > 0) {
+    const addonLabels = job.addons
+      .map((a: { key: string; label?: string }) => a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+      .filter(Boolean)
+    if (addonLabels.length > 0) {
+      addonsStr = `\nAdd-ons: ${addonLabels.join(', ')}`
+    }
+  }
+
   let link = ''
   if (cleaner.portal_token && job.id) {
     link = `\n\nView checklist & details:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${link}`
+  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${addonsStr}${link}`
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 
