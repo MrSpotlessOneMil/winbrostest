@@ -5,7 +5,6 @@ import { useAuth } from "@/lib/auth-context"
 import {
   BarChart3,
   Loader2,
-  Users,
   Target,
   Crown,
   ChevronLeft,
@@ -26,15 +25,6 @@ interface TeamLeadRow {
   reviews: number
 }
 
-interface AdminTeamRow {
-  id: number
-  name: string
-  area: string
-  one_time_revenue: number
-  plan_revenue: number
-  days_worked: number
-}
-
 interface SalesRow {
   id: number
   name: string
@@ -49,7 +39,6 @@ interface PerformanceData {
   start: string
   end: string
   team_leads: TeamLeadRow[]
-  admin_team: AdminTeamRow[]
   sales: SalesRow[]
 }
 
@@ -193,43 +182,30 @@ export default function PerformancePage() {
         <p className="text-red-400 text-sm py-4">{error}</p>
       )}
 
-      {/* Three sections — filtered for non-admin users */}
+      {/* Two sections: Team Leads + Sales — all rows visible for competition */}
       {!loading && !error && data && (() => {
-        // For field users, match by display_name or username to find their row
+        // For non-admin (field) users, show ALL rows so they can see competition
         const userName = user?.display_name || user?.username || ""
         const nameMatch = (rowName: string) =>
           userName.length > 0 && rowName.toLowerCase().includes(userName.toLowerCase())
 
-        // Determine which sections to show for non-admin users
+        // Everyone sees all rows — field users see all team leads or all sales
+        const visibleTeamLeads = data.team_leads
+        const visibleSales = data.sales
+
+        // Non-admin: show the section that's relevant to them (or both if they appear in both)
         const myTeamLeadRow = data.team_leads.find((r) => nameMatch(r.name))
         const mySalesRow = data.sales.find((r) => nameMatch(r.name))
-
-        // Filter data for non-admin users
-        const visibleTeamLeads = isAdmin
-          ? data.team_leads
-          : myTeamLeadRow
-            ? [myTeamLeadRow]
-            : []
-        const visibleSales = isAdmin
-          ? data.sales
-          : mySalesRow
-            ? [mySalesRow]
-            : []
-
-        // Non-admin: show team leads section if they are a team lead or technician
-        // Show sales section if they are a salesman
-        // Never show admin team section for non-admin users
-        const showTeamLeads = isAdmin || visibleTeamLeads.length > 0 || (!mySalesRow)
-        const showAdminTeam = isAdmin
-        const showSales = isAdmin || visibleSales.length > 0
+        const showTeamLeads = isAdmin || myTeamLeadRow !== undefined || (!mySalesRow)
+        const showSales = isAdmin || mySalesRow !== undefined || visibleSales.length > 0
 
         return (
-        <div className={`grid grid-cols-1 ${isAdmin ? "lg:grid-cols-3" : showTeamLeads && showSales ? "lg:grid-cols-2" : ""} gap-5`}>
+        <div className={`grid grid-cols-1 ${showTeamLeads && showSales ? "lg:grid-cols-2" : ""} gap-5`}>
           {/* Section 1: Team Leads */}
           {showTeamLeads && (
           <SectionCard
             icon={<Crown className="w-4 h-4 text-amber-400" />}
-            title={isAdmin ? "Team Leads" : "Your Performance"}
+            title="Team Leads"
           >
             {visibleTeamLeads.length === 0 ? (
               <EmptyState text="No team lead data for this period." />
@@ -281,63 +257,11 @@ export default function PerformancePage() {
           </SectionCard>
           )}
 
-          {/* Section 2: Admin Team Performance — admin only */}
-          {showAdminTeam && (
-          <SectionCard
-            icon={<Users className="w-4 h-4 text-blue-400" />}
-            title="Admin Team Performance"
-          >
-            {data.admin_team.length === 0 ? (
-              <EmptyState text="No employee data for this period." />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-zinc-500 border-b border-zinc-800">
-                      <th className="text-left py-2 pr-2 font-medium">Name</th>
-                      <th className="text-left py-2 px-1 font-medium">Area</th>
-                      <th className="text-right py-2 px-1 font-medium">1-Time</th>
-                      <th className="text-right py-2 px-1 font-medium">Plan $</th>
-                      <th className="text-right py-2 pl-1 font-medium">Days</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.admin_team.map((row, i) => (
-                      <tr
-                        key={row.id}
-                        className={`border-b border-zinc-800/40 ${
-                          i % 2 === 1 ? "bg-zinc-900/40" : ""
-                        }`}
-                      >
-                        <td className="py-2 pr-2 text-white font-medium whitespace-nowrap">
-                          {row.name}
-                        </td>
-                        <td className="py-2 px-1 text-zinc-400 whitespace-nowrap truncate max-w-[80px]">
-                          {row.area || "-"}
-                        </td>
-                        <td className="py-2 px-1 text-right text-zinc-200">
-                          {formatCurrency(row.one_time_revenue)}
-                        </td>
-                        <td className="py-2 px-1 text-right text-zinc-200">
-                          {formatCurrency(row.plan_revenue)}
-                        </td>
-                        <td className="py-2 pl-1 text-right text-zinc-300">
-                          {row.days_worked}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </SectionCard>
-          )}
-
-          {/* Section 3: Sales Performance */}
+          {/* Section 2: Sales Performance */}
           {showSales && (
           <SectionCard
             icon={<Target className="w-4 h-4 text-emerald-400" />}
-            title={isAdmin ? "Sales Performance" : "Your Sales"}
+            title="Sales Performance"
           >
             {visibleSales.length === 0 ? (
               <EmptyState text="No sales data for this period." />
