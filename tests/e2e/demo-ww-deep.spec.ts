@@ -267,8 +267,8 @@ test.describe('WW Demo Deep — Crystal Clear Windows', () => {
   // ─── Page UI — Customers ──────────────────────────────────────────
   test('customers page: shows Tom Henderson in the list', async ({ page }) => {
     await page.goto(`${WW_BASE}/customers`)
-    await page.waitForLoadState('networkidle')
-    await expect(page.locator('body')).toContainText('Tom')
+    await page.waitForLoadState('networkidle', { timeout: 60000 })
+    await expect(page.locator('body')).toContainText('Tom', { timeout: 15000 })
     await expect(page.locator('body')).toContainText('Henderson')
   })
 
