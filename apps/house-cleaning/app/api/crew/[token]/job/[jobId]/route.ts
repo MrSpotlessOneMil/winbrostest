@@ -182,21 +182,29 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   // Parse structured tags from notes
   const estimate = getEstimateFromNotes(job.notes)
 
-  // Unified cleaner pay: override > hourly model > percentage > PAY tag
+  // Unified cleaner pay: override > PAY tag > hourly model > percentage (NEVER cross models)
   const numCleaners = job.cleaners ? Number(job.cleaners) : 1
   let cleanerPay: number | null = null
+  let cleanerPayRate: number | null = null // hourly rate when hours unknown
   if (job.cleaner_pay_override != null) {
     cleanerPay = Number(job.cleaner_pay_override)
   } else if (estimate.cleanerPay != null) {
     cleanerPay = estimate.cleanerPay
-  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly' && job.hours) {
+  } else if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+    // Hourly model: calculate total if hours known, otherwise expose rate only
     const isDeep = job.service_type?.toLowerCase().includes('deep')
     const rate = isDeep
       ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
       : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
-    const totalPay = rate * Number(job.hours)
-    cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    if (job.hours) {
+      const totalPay = rate * Number(job.hours)
+      cleanerPay = numCleaners > 1 ? totalPay / numCleaners : totalPay
+    } else {
+      // No hours — show rate only, NEVER fall through to percentage
+      cleanerPayRate = rate
+    }
   } else if (job.price) {
+    // Percentage model — only for tenants that are NOT hourly
     const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
     if (payPercentage) {
       let payBase = parseFloat(String(job.price))
@@ -244,6 +252,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       sqft: job.sqft,
       hours: job.hours,
       cleaner_pay: cleanerPay,
+      cleaner_pay_rate: cleanerPayRate,
       currency: tenant.currency || 'usd',
       total_hours: estimate.totalHours ?? null,
       hours_per_cleaner: estimate.hoursPerCleaner ?? null,

@@ -679,6 +679,14 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     } catch { /* non-blocking */ }
   }
 
+  // Estimate hours from property size for cleaner pay calculation (only if not set by promo)
+  let estimatedHours: number | null = null
+  if (!promoEntry) {
+    const beds = Number(quote.bedrooms) || 1
+    const baths = Number(quote.bathrooms) || 1
+    estimatedHours = Math.max(2, 1.5 + (beds - 1) * 0.5 + (baths - 1) * 0.5)
+  }
+
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -694,6 +702,8 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     stripe_checkout_session_id: session.id,
     notes: jobNotes,
     quote_id: quote.id,
+    bedrooms: quote.bedrooms || null,
+    bathrooms: quote.bathrooms || null,
     ...(hasServiceDate ? { date: quote.service_date } : {}),
     ...(hasServiceTime ? { scheduled_at: quote.service_time } : {}),
     ...(membershipId ? { membership_id: membershipId } : {}),
@@ -701,6 +711,8 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
     // $99 promo: lock at 1 cleaner, 3 hours, with pay override ($75 = 3hrs x $25/hr)
     ...(promoEntry ? { hours: promoEntry.hours, cleaners: promoEntry.cleaners, cleaner_pay_override: promoEntry.payOverride } : {}),
+    // Estimated hours from bed/bath for hourly pay calculation (only when promo doesn't set hours)
+    ...(estimatedHours && !promoEntry ? { hours: estimatedHours } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
