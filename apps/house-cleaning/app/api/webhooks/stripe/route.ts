@@ -740,6 +740,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   }
 
   // Populate job addons from quote — only paid add-ons (filter out base tasks and tier-included items)
+  let jobAddonLabels: string[] = []
   if (newJob?.id && quote.selected_addons && Array.isArray(quote.selected_addons) && quote.selected_addons.length > 0) {
     try {
       const { getPaidAddons } = await import('@/lib/service-scope')
@@ -771,6 +772,7 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
           addons: addonsWithDetails,
         }).eq('id', newJob.id)
 
+        jobAddonLabels = addonsWithDetails.map(a => a.label)
         console.log(`[Stripe Webhook] Populated ${addonsWithDetails.length} paid add-ons on job ${newJob.id}`)
       }
     } catch (err) {
@@ -905,9 +907,10 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
               ? new Date(quote.service_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
               : 'TBD'
             const payStr = primaryCleaner.cleaner_pay ? `\nYour pay: ${formatTenantCurrency(tenant, Number(primaryCleaner.cleaner_pay))}` : ''
-            const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://cleanmachine.live')
+            const addonsStr = jobAddonLabels.length > 0 ? `\nAdd-ons: ${jobAddonLabels.join(', ')}` : ''
+            const appBaseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://cleanmachine.live'
             const portalLink = cleaner.portal_token ? `\n\nDetails: ${appBaseUrl}/crew/${cleaner.portal_token}/job/${newJob.id}` : ''
-            const msg = `You're confirmed! ${custName} booked for ${dateStr}.\n${serviceName} at ${quote.customer_address || 'See portal'}${payStr}${portalLink}`
+            const msg = `You're confirmed! ${custName} booked for ${dateStr}.\n${serviceName} at ${quote.customer_address || 'See portal'}${payStr}${addonsStr}${portalLink}`
             await sendSMS(tenant, cleaner.phone, msg)
           }
         } catch (err) {
