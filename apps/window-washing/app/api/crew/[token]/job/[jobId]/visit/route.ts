@@ -139,6 +139,89 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     }
 
     visit = newVisit
+
+    // ── Auto-populate default checklist items ──
+    // Try checklist_templates first, fall back to hardcoded defaults
+    let checklistItemTexts: string[] = []
+
+    const { data: template } = await client
+      .from('checklist_templates')
+      .select('items')
+      .eq('tenant_id', cleaner.tenant_id)
+      .eq('is_default', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (template?.items && Array.isArray(template.items) && template.items.length > 0) {
+      checklistItemTexts = template.items as string[]
+    } else {
+      checklistItemTexts = [
+        'Sent "on my way" text',
+        'Arrived and confirmed with customer',
+        'Uploaded pre-existing damage photos',
+        'Counted window panes',
+        'Completed all services',
+        'Uploaded before/after photos',
+        'Put up yard sign',
+        'Sent Google review link',
+        'Asked for referrals',
+      ]
+    }
+
+    if (checklistItemTexts.length > 0) {
+      const checklistRows = checklistItemTexts.map((text, idx) => ({
+        visit_id: newVisit.id,
+        tenant_id: cleaner.tenant_id,
+        item_text: text,
+        is_completed: false,
+        sort_order: idx + 1,
+      }))
+      await client.from('visit_checklists').insert(checklistRows)
+    }
+
+    // ── Auto-populate visit line items from quote or job ──
+    const { data: fullJob } = await client
+      .from('jobs')
+      .select('quote_id, price, service_type')
+      .eq('id', jobIdNum)
+      .eq('tenant_id', cleaner.tenant_id)
+      .maybeSingle()
+
+    if (fullJob?.quote_id) {
+      const { data: quoteLineItems } = await client
+        .from('quote_line_items')
+        .select('service_name, description, price, quantity')
+        .eq('quote_id', fullJob.quote_id)
+        .order('sort_order', { ascending: true })
+
+      if (quoteLineItems && quoteLineItems.length > 0) {
+        const visitLineItems = quoteLineItems.map((item: { service_name: string; description: string | null; price: number; quantity: number }) => ({
+          visit_id: newVisit.id,
+          job_id: jobIdNum,
+          tenant_id: cleaner.tenant_id,
+          service_name: item.service_name,
+          description: item.description,
+          price: item.price * (item.quantity || 1),
+          revenue_type: 'original_quote',
+          added_by_cleaner_id: null,
+        }))
+        await client.from('visit_line_items').insert(visitLineItems)
+      }
+    } else if (fullJob?.price) {
+      // No quote — create a single line item from job data
+      await client.from('visit_line_items').insert({
+        visit_id: newVisit.id,
+        job_id: jobIdNum,
+        tenant_id: cleaner.tenant_id,
+        service_name: fullJob.service_type
+          ? fullJob.service_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+          : 'Service',
+        description: null,
+        price: fullJob.price,
+        revenue_type: 'original_quote',
+        added_by_cleaner_id: null,
+      })
+    }
   }
 
   // Fetch checklist items for this visit

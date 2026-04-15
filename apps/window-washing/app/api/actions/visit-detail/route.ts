@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     .from('jobs')
     .select(`
       id, date, scheduled_at, address, phone_number, service_type,
-      status, notes, price, hours, frequency,
+      status, notes, price, hours, frequency, quote_id,
       cleaner_id, customer_id, parent_job_id, membership_id,
       customers(id, first_name, last_name, phone_number, email, address, stripe_customer_id, card_on_file_at),
       cleaners:cleaner_id(id, name)
@@ -84,6 +84,80 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create visit' }, { status: 500 })
     }
     visit = newVisit
+
+    // ── Auto-populate default checklist items ──
+    let checklistItemTexts: string[] = []
+
+    const { data: template } = await client
+      .from('checklist_templates')
+      .select('items')
+      .eq('tenant_id', tenant.id)
+      .eq('is_default', true)
+      .limit(1)
+      .maybeSingle()
+
+    if (template?.items && Array.isArray(template.items) && template.items.length > 0) {
+      checklistItemTexts = template.items as string[]
+    } else {
+      checklistItemTexts = [
+        'Sent "on my way" text',
+        'Arrived and confirmed with customer',
+        'Uploaded pre-existing damage photos',
+        'Counted window panes',
+        'Completed all services',
+        'Uploaded before/after photos',
+        'Put up yard sign',
+        'Sent Google review link',
+        'Asked for referrals',
+      ]
+    }
+
+    if (checklistItemTexts.length > 0) {
+      const checklistRows = checklistItemTexts.map((text, idx) => ({
+        visit_id: newVisit.id,
+        tenant_id: tenant.id,
+        item_text: text,
+        is_completed: false,
+        sort_order: idx + 1,
+      }))
+      await client.from('visit_checklists').insert(checklistRows)
+    }
+
+    // ── Auto-populate visit line items from quote or job ──
+    if ((job as any).quote_id) {
+      const { data: quoteLineItems } = await client
+        .from('quote_line_items')
+        .select('service_name, description, price, quantity')
+        .eq('quote_id', (job as any).quote_id)
+        .order('sort_order', { ascending: true })
+
+      if (quoteLineItems && quoteLineItems.length > 0) {
+        const visitLineItems = quoteLineItems.map((item: { service_name: string; description: string | null; price: number; quantity: number }) => ({
+          visit_id: newVisit.id,
+          job_id: Number(jobId),
+          tenant_id: tenant.id,
+          service_name: item.service_name,
+          description: item.description,
+          price: item.price * (item.quantity || 1),
+          revenue_type: 'original_quote',
+          added_by_cleaner_id: null,
+        }))
+        await client.from('visit_line_items').insert(visitLineItems)
+      }
+    } else if ((job as any).price) {
+      await client.from('visit_line_items').insert({
+        visit_id: newVisit.id,
+        job_id: Number(jobId),
+        tenant_id: tenant.id,
+        service_name: (job as any).service_type
+          ? (job as any).service_type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+          : 'Service',
+        description: null,
+        price: (job as any).price,
+        revenue_type: 'original_quote',
+        added_by_cleaner_id: null,
+      })
+    }
   }
 
   // 3. Fetch checklist items

@@ -13,14 +13,13 @@ import {
 // ── Types ──
 
 type VisitStatus =
-  | "scheduled"
-  | "en_route"
-  | "on_site"
+  | "not_started"
+  | "on_my_way"
   | "in_progress"
   | "stopped"
   | "completed"
   | "checklist_done"
-  | "payment_recorded"
+  | "payment_collected"
   | "closed"
 
 interface Visit {
@@ -39,14 +38,16 @@ interface Visit {
 interface LineItem {
   id: number
   service_name: string
+  description: string | null
   price: number
-  is_upsell: boolean
+  revenue_type: string
 }
 
 interface ChecklistItem {
   id: number | string
-  text: string
-  completed: boolean
+  item_text: string
+  is_completed: boolean
+  completed_at: string | null
 }
 
 interface JobDetail {
@@ -63,7 +64,7 @@ interface JobDetail {
 interface CustomerInfo {
   first_name: string | null
   last_name: string | null
-  phone?: string | null
+  phone_number?: string | null
 }
 
 interface TenantInfo {
@@ -153,7 +154,7 @@ const STEPS: StepDef[] = [
   {
     key: "omw",
     label: "On My Way",
-    targetStatus: "en_route",
+    targetStatus: "on_my_way",
     color: "bg-blue-500",
     bgGlow: "shadow-blue-500/30",
     description: "Notifies the customer you are en route",
@@ -193,7 +194,7 @@ const STEPS: StepDef[] = [
   {
     key: "payment",
     label: "Collect Payment",
-    targetStatus: "payment_recorded",
+    targetStatus: "payment_collected",
     color: "bg-indigo-500",
     bgGlow: "shadow-indigo-500/30",
     description: "Record the customer payment",
@@ -201,7 +202,7 @@ const STEPS: StepDef[] = [
   {
     key: "tip",
     label: "Record Tip",
-    targetStatus: "payment_recorded", // tip transitions handled separately
+    targetStatus: "payment_collected", // tip transitions handled separately
     color: "bg-teal-500",
     bgGlow: "shadow-teal-500/30",
     description: "Optional: record a tip",
@@ -217,14 +218,13 @@ const STEPS: StepDef[] = [
 ]
 
 const STATUS_ORDER: VisitStatus[] = [
-  "scheduled",
-  "en_route",
-  "on_site",
+  "not_started",
+  "on_my_way",
   "in_progress",
   "stopped",
   "completed",
   "checklist_done",
-  "payment_recorded",
+  "payment_collected",
   "closed",
 ]
 
@@ -234,20 +234,18 @@ function stepIndex(status: VisitStatus): number {
 
 function currentStepIndex(visit: Visit): number {
   // Map the current visit status to which step we're on
-  const si = stepIndex(visit.status)
-  // scheduled = before step 0
-  // en_route = step 0 completed, step 1 is next
+  // not_started = before step 0
+  // on_my_way = step 0 completed, step 1 is next
   // in_progress = step 1 completed, show timer, step 2 is next
   // stopped = step 2 completed, step 3 is next
   // completed = step 3 completed, step 4 (checklist) is next
   // checklist_done = step 4 completed, step 5 (payment) is next
-  // payment_recorded = steps 5+6 completed, step 7 (close) is next
+  // payment_collected = steps 5+6 completed, step 7 (close) is next
   // closed = all steps done
   switch (visit.status) {
-    case "scheduled":
+    case "not_started":
       return -1 // no steps completed, step 0 is next
-    case "en_route":
-    case "on_site":
+    case "on_my_way":
       return 0 // step 0 done, step 1 next
     case "in_progress":
       return 1 // step 1 done, step 2 next
@@ -257,7 +255,7 @@ function currentStepIndex(visit: Visit): number {
       return 3 // step 3 done, step 4 next
     case "checklist_done":
       return 4 // step 4 done, step 5 next
-    case "payment_recorded":
+    case "payment_collected":
       return 6 // steps 5+6 done, step 7 next
     case "closed":
       return 7 // all done
@@ -476,12 +474,12 @@ export default function CrewJobVisitPage() {
   const isClosed = visit.status === "closed"
 
   // Calculate totals
-  const quoteItems = line_items.filter((li) => !li.is_upsell)
-  const upsellItems = line_items.filter((li) => li.is_upsell)
+  const quoteItems = line_items.filter((li) => li.revenue_type === 'original_quote')
+  const upsellItems = line_items.filter((li) => li.revenue_type !== 'original_quote')
   const totalAmount = line_items.reduce((sum, li) => sum + li.price, 0)
 
   // Checklist progress
-  const checklistCompleted = checklist.filter((c) => c.completed).length
+  const checklistCompleted = checklist.filter((c) => c.is_completed).length
   const checklistTotal = checklist.length
   const allChecklistDone = checklistTotal > 0 && checklistCompleted === checklistTotal
 
@@ -635,13 +633,13 @@ export default function CrewJobVisitPage() {
             )}
           </div>
 
-          {customer.phone && (
+          {customer.phone_number && (
             <a
-              href={`tel:${customer.phone}`}
+              href={`tel:${customer.phone_number}`}
               className="flex items-center gap-1.5 text-sm text-zinc-400 mt-2 active:text-zinc-200"
             >
               <Phone className="size-3.5" />
-              <span>{customer.phone}</span>
+              <span>{customer.phone_number}</span>
             </a>
           )}
         </div>
@@ -968,24 +966,24 @@ export default function CrewJobVisitPage() {
               {checklist.map((item) => (
                 <button
                   key={item.id}
-                  onClick={() => handleToggleChecklist(item.id, !item.completed)}
+                  onClick={() => handleToggleChecklist(item.id, !item.is_completed)}
                   className="flex items-center gap-3 w-full text-left py-2.5 px-3 rounded-xl active:bg-zinc-800 transition-colors"
                 >
                   <div
                     className={`size-5 rounded-md flex items-center justify-center shrink-0 transition-all duration-200 ${
-                      item.completed
+                      item.is_completed
                         ? "bg-emerald-500"
                         : "border-2 border-zinc-600"
                     }`}
                   >
-                    {item.completed && <Check className="size-3 text-white" strokeWidth={3} />}
+                    {item.is_completed && <Check className="size-3 text-white" strokeWidth={3} />}
                   </div>
                   <span
                     className={`text-sm transition-all ${
-                      item.completed ? "line-through text-zinc-600" : "text-zinc-300"
+                      item.is_completed ? "line-through text-zinc-600" : "text-zinc-300"
                     }`}
                   >
-                    {item.text}
+                    {item.item_text}
                   </span>
                 </button>
               ))}
