@@ -836,3 +836,16 @@ select.cal-form-control {
   background: rgba(63, 63, 70, 0.6);
   color: #e4e4e7;
 }
+
+/* ── Salesman sold/not-sold visual distinction ──────────── */
+
+.fc .event-salesman-sold {
+  border-left: 4px solid #22c55e !important;
+  position: relative;
+}
+
+.fc .event-salesman-not-sold {
+  opacity: 0.55;
+  filter: saturate(0.5);
+  border-left: 3px solid #6b7280 !important;
+}

@@ -24,6 +24,8 @@ interface AuthState {
   authenticated: boolean
   loading: boolean
   isAdmin: boolean
+  isSalesman: boolean
+  cleanerId: number | null
   user: User | null
   tenantStatus: TenantStatus | null
   accounts: StoredAccount[]
@@ -38,6 +40,8 @@ const AuthContext = createContext<AuthState>({
   authenticated: false,
   loading: true,
   isAdmin: false,
+  isSalesman: false,
+  cleanerId: null,
   user: null,
   tenantStatus: null,
   accounts: [],
@@ -55,6 +59,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState<User | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isSalesman, setIsSalesman] = useState(false)
+  const [cleanerId, setCleanerId] = useState<number | null>(null)
   const [tenantStatus, setTenantStatus] = useState<TenantStatus | null>(null)
   const [accounts, setAccounts] = useState<StoredAccount[]>([])
 
@@ -100,10 +106,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json()
 
       if (data.success && data.data?.user) {
-        // Employee sessions should not access the dashboard — redirect to portal
-        if (data.data.type === 'employee' && data.data.portalToken) {
-          window.location.href = `/crew/${data.data.portalToken}`
-          return
+        // Employee sessions: salesmen access the dashboard, others redirect to portal
+        if (data.data.type === 'employee') {
+          if (data.data.employeeType === 'salesman') {
+            // Salesmen get dashboard access
+            setIsSalesman(true)
+            setCleanerId(data.data.cleanerId || null)
+          } else if (data.data.portalToken) {
+            // Non-salesman employees go to crew portal
+            window.location.href = `/crew/${data.data.portalToken}`
+            return
+          }
+        } else {
+          setIsSalesman(false)
+          setCleanerId(null)
         }
 
         setAuthenticated(true)
@@ -132,12 +148,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthenticated(false)
         setUser(null)
         setIsAdmin(false)
+        setIsSalesman(false)
+        setCleanerId(null)
         setTenantStatus(null)
       }
     } catch {
       setAuthenticated(false)
       setUser(null)
       setIsAdmin(false)
+      setIsSalesman(false)
+      setCleanerId(null)
       setTenantStatus(null)
     } finally {
       setLoading(false)
@@ -162,6 +182,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthenticated(false)
     setUser(null)
     setIsAdmin(false)
+    setIsSalesman(false)
+    setCleanerId(null)
     window.location.href = '/login'
   }
 
@@ -255,6 +277,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         authenticated,
         loading,
         isAdmin,
+        isSalesman,
+        cleanerId,
         user,
         tenantStatus,
         accounts,

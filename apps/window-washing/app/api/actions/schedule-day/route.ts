@@ -11,9 +11,7 @@ import { getSupabaseServiceClient } from '@/lib/supabase'
 
 export async function GET(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
-  if ('error' in authResult) {
-    return NextResponse.json({ error: authResult.error }, { status: 401 })
-  }
+  if (authResult instanceof NextResponse) return authResult
 
   const url = new URL(request.url)
   const date = url.searchParams.get('date') || new Date().toISOString().split('T')[0]
@@ -24,7 +22,7 @@ export async function GET(request: NextRequest) {
   // Get all jobs for this date
   const { data: jobs } = await client
     .from('jobs')
-    .select('id, address, price, status, scheduled_at, service_type, phone_number, cleaner_id, customers(first_name, last_name)')
+    .select('id, address, price, status, scheduled_at, service_type, phone_number, cleaner_id, credited_salesman_id, customers(first_name, last_name), credited_salesman:credited_salesman_id(id, name)')
     .eq('tenant_id', tenantId)
     .eq('date', date)
 
@@ -57,6 +55,7 @@ export async function GET(request: NextRequest) {
   }
 
   function mapJob(j: any) {
+    const salesman = j.credited_salesman
     return {
       id: j.id,
       customer_name: [j.customers?.first_name, j.customers?.last_name].filter(Boolean).join(' ') || j.phone_number || 'Unknown',
@@ -65,6 +64,8 @@ export async function GET(request: NextRequest) {
       services: [j.service_type].filter(Boolean),
       price: Number(j.price || 0),
       status: j.status,
+      credited_salesman_id: j.credited_salesman_id || null,
+      salesman_name: salesman?.name || null,
     }
   }
 

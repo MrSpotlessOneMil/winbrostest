@@ -23,6 +23,8 @@ export interface AuthCleaner {
   phone: string | null
   portal_token: string | null
   tenant_id: string
+  employee_type: 'technician' | 'salesman' | null
+  is_team_lead: boolean
 }
 
 export interface Session {
@@ -167,7 +169,7 @@ export async function verifyEmployeePassword(
 
   const { data: cleaner, error } = await client
     .from('cleaners')
-    .select('id, username, name, phone, portal_token, tenant_id, pin, active')
+    .select('id, username, name, phone, portal_token, tenant_id, pin, active, employee_type, is_team_lead')
     .ilike('username', username)
     .eq('active', true)
     .is('deleted_at', null)
@@ -183,6 +185,8 @@ export async function verifyEmployeePassword(
     phone: cleaner.phone,
     portal_token: cleaner.portal_token,
     tenant_id: cleaner.tenant_id,
+    employee_type: cleaner.employee_type || null,
+    is_team_lead: cleaner.is_team_lead || false,
   }
 }
 
@@ -212,7 +216,7 @@ export async function getSession(
   if (session.cleaner_id && !session.user_id) {
     const { data: cleaner, error: cleanerError } = await client
       .from('cleaners')
-      .select('id, username, name, phone, portal_token, tenant_id, active')
+      .select('id, username, name, phone, portal_token, tenant_id, active, employee_type, is_team_lead')
       .eq('id', session.cleaner_id)
       .eq('active', true)
       .is('deleted_at', null)
@@ -239,6 +243,8 @@ export async function getSession(
         phone: cleaner.phone,
         portal_token: cleaner.portal_token,
         tenant_id: cleaner.tenant_id,
+        employee_type: cleaner.employee_type || null,
+        is_team_lead: cleaner.is_team_lead || false,
       },
     }
   }

@@ -44,6 +44,8 @@ type CalendarJob = {
   parent_job_id?: number | null
   membership_id?: string | null
   leads?: { source: string }[]
+  credited_salesman_id?: number | null
+  credited_salesman?: { id: number; name: string } | null
 }
 
 type CalendarEventDetails = {
@@ -401,11 +403,12 @@ function getSavedDate(): string | undefined {
 }
 
 export default function JobsPage() {
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, isSalesman, cleanerId: authCleanerId } = useAuth()
   const router = useRouter()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [jobs, setJobs] = useState<CalendarJob[]>([])
   const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
+  const [crewMemberIds, setCrewMemberIds] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
   const [jobServiceTypes, setJobServiceTypes] = useState<string[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEventDetails | null>(null)
@@ -975,11 +978,25 @@ export default function JobsPage() {
   // Resolve logged-in user's cleaner_id for field view filtering
   useEffect(() => {
     if (isAdmin || !user?.id) return
+    // Salesmen get their cleaner_id directly from auth context
+    if (isSalesman && authCleanerId) {
+      setMyCleanerId(authCleanerId)
+      // Fetch crew info for the salesman so they can see full crew schedule
+      fetch(`/api/actions/salesman-crew?cleaner_id=${authCleanerId}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.crew_member_ids && Array.isArray(d.crew_member_ids)) {
+            setCrewMemberIds(d.crew_member_ids)
+          }
+        })
+        .catch(() => {})
+      return
+    }
     fetch("/api/actions/settings", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
       .catch(() => setMyCleanerId(-1))
-  }, [isAdmin, user?.id])
+  }, [isAdmin, isSalesman, authCleanerId, user?.id])
 
   useEffect(() => {
     async function fetchJobs() {
@@ -1026,8 +1043,24 @@ export default function JobsPage() {
   }, [])
 
   // For field (non-admin) users, filter to only their jobs
+  // Salesmen see all jobs on their crew's schedule
   const visibleJobs = useMemo(() => {
     if (isAdmin || !myCleanerId || myCleanerId <= 0) return jobs
+
+    // Salesmen see all jobs assigned to any crew member
+    if (isSalesman && crewMemberIds.length > 0) {
+      return jobs.filter((job) => {
+        // Show jobs assigned to any crew member
+        if (job.cleaner_id && crewMemberIds.includes(job.cleaner_id)) return true
+        // Also show jobs the salesman sold (regardless of crew assignment)
+        if ((job as any).credited_salesman_id === myCleanerId) return true
+        // Check cleaner assignments
+        const assignedId = resolveCleanerId(job)
+        if (assignedId && crewMemberIds.includes(Number(assignedId))) return true
+        return false
+      })
+    }
+
     return jobs.filter((job) => {
       // Direct cleaner assignment
       if (job.cleaner_id === myCleanerId) return true
@@ -1043,7 +1076,7 @@ export default function JobsPage() {
       }
       return false
     })
-  }, [jobs, isAdmin, myCleanerId])
+  }, [jobs, isAdmin, isSalesman, myCleanerId, crewMemberIds])
 
   const cleanerColorMap = useMemo(() => {
     const names = [...new Set(
@@ -1073,13 +1106,17 @@ export default function JobsPage() {
         : job.title || job.service_type || customerName
       const className = eventClassForStatus(job.status)
       const cleanerColor = cleanerName ? cleanerColorMap.get(cleanerName) : undefined
+      // Salesman visual distinction
+      const isMySale = isSalesman && myCleanerId && job.credited_salesman_id === myCleanerId
+      const isNotMySale = isSalesman && myCleanerId && job.credited_salesman_id !== myCleanerId
+      const salesmanClasses = isMySale ? ['event-salesman-sold'] : isNotMySale ? ['event-salesman-not-sold'] : []
 
       return {
         id: String(job.id),
-        title,
+        title: isMySale ? `${title} [SOLD]` : isNotMySale ? `${title}` : title,
         start,
         end,
-        classNames: [className, ...(job.membership_id ? ['event-membership'] : [])],
+        classNames: [className, ...(job.membership_id ? ['event-membership'] : []), ...salesmanClasses],
         borderColor: cleanerColor,
         extendedProps: {
           description,
@@ -1211,7 +1248,7 @@ export default function JobsPage() {
       membership_id: "",
       selected_tier_index: "",
       lead_source: "",
-      credited_salesman_id: "",
+      credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -2619,7 +2656,7 @@ export default function JobsPage() {
             membership_id: "",
             selected_tier_index: "",
             lead_source: "",
-            credited_salesman_id: "",
+            credited_salesman_id: isSalesman && authCleanerId ? String(authCleanerId) : "",
           })
           setCreateError("")
           setPhoneLookedUp("")
