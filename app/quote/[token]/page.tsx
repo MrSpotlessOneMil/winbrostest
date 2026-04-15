@@ -28,6 +28,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
+import { STANDARD_BASE_KEYS, STANDARD_BASE_TASKS, TIER_UPGRADES } from "@/lib/service-scope"
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -152,7 +153,10 @@ export default function QuotePage() {
   const [customerAddress, setCustomerAddress] = useState("")
   const [showTerms, setShowTerms] = useState(false)
   const [serviceDate, setServiceDate] = useState("")
+  const [serviceTime, setServiceTime] = useState("")
   const [customerNotes, setCustomerNotes] = useState("")
+  const [showAllTiers, setShowAllTiers] = useState(false)
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -317,6 +321,7 @@ export default function QuotePage() {
   const addonTotal = addons.reduce((sum, addon) => {
     if (!selectedAddons[addon.key]) return sum
     if (isAddonIncluded(addon.key)) return sum
+    if (STANDARD_BASE_KEYS.has(addon.key)) return sum
     return sum + getAddonPrice(addon)
   }, 0)
 
@@ -400,24 +405,185 @@ export default function QuotePage() {
   const singleTierMode = isVapiQuote && !tierLocked && selectedTierKey && !showAllTiers
   const quoteNumber = token.slice(0, 8).toUpperCase()
   const canApprove = selectedTierKey && !approving && agreementAccepted && !isExpired
-  const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).length
+  const activeExtraAddons = addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).length
 
   // ── Approved ─────────────────────────────────────────────────────
 
   if (isApproved) {
+    // Determine the tier name for the approved quote
+    const approvedTier = tiers.find((t) => t.key === quote.selected_tier)
+    const approvedTierPrice = quote.selected_tier ? tierPrices[quote.selected_tier] : null
+    const approvedBasePrice = isCustomPriced ? customBasePrice : (approvedTierPrice?.price ?? 0)
+
+    // Separate base tasks from paid add-ons in the saved selections
+    const savedAddons = (quote.selected_addons || []) as Array<string | { key: string; quantity?: number }>
+    const savedAddonKeys = savedAddons.map(a => typeof a === 'string' ? a : a.key)
+    const paidAddonKeys = savedAddonKeys.filter(k => !STANDARD_BASE_KEYS.has(k))
+
+    // Get tier upgrade keys for the selected tier
+    const tierUpgradeKeys = TIER_UPGRADES[quote.selected_tier || ''] || []
+
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center px-4">
-        <div className="bg-white border border-blue-100 rounded-2xl shadow-sm max-w-lg w-full p-8 text-center">
-          <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-6 ring-4 ring-emerald-100">
-            <CheckCircle className="size-10 text-emerald-500" />
+      <div className="min-h-screen bg-white px-4 py-8" style={{ colorScheme: 'light' }}>
+        <div className="h-1.5 bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-600 fixed top-0 left-0 right-0 z-50" />
+        <div className="max-w-lg mx-auto space-y-6 pt-4">
+          {/* Success header */}
+          <div className="text-center">
+            <div className="size-20 rounded-full bg-emerald-50 flex items-center justify-center mx-auto mb-4 ring-4 ring-emerald-100">
+              <CheckCircle className="size-10 text-emerald-500" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
+            <p className="text-slate-500 text-sm">Your card is on file and your cleaning is booked. Here&apos;s a summary of what you booked.</p>
           </div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
-          <p className="text-slate-500 mb-6">Your card is on file and your cleaning is booked. We&apos;ll be in touch!</p>
+
+          {/* Booking details card */}
+          <div className="bg-white border border-blue-100 rounded-2xl shadow-sm overflow-hidden">
+            <div className="px-5 py-4 border-b border-blue-50 bg-blue-50/50">
+              <h3 className="font-bold text-slate-800">Booking Summary</h3>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Service type & tier */}
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shrink-0 text-white shadow-sm">
+                  <Sparkles className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{approvedTier?.name || (isCustomPriced ? 'Custom Service Package' : 'Cleaning Service')}</p>
+                  {approvedTier?.tagline && <p className="text-xs text-slate-400">{approvedTier.tagline}</p>}
+                </div>
+              </div>
+
+              {/* Property details */}
+              {(quote.bedrooms || quote.bathrooms || quote.customer_address) && (
+                <div className="space-y-1.5">
+                  {quote.customer_address && (
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <MapPin className="size-4 text-blue-400 shrink-0" />
+                      <span>{quote.customer_address}</span>
+                    </div>
+                  )}
+                  {(quote.bedrooms || quote.bathrooms) && (
+                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                      <Home className="size-4 text-blue-400 shrink-0" />
+                      <span>{quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Scheduled date/time */}
+              {(quote.service_date || quote.service_time) && (
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Calendar className="size-4 text-blue-400 shrink-0" />
+                  <span>
+                    {quote.service_date && fmtDate(quote.service_date)}
+                    {quote.service_time && ` at ${new Date(`2000-01-01T${quote.service_time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}`}
+                  </span>
+                </div>
+              )}
+
+              {/* Included base tasks */}
+              <div className="border-t border-blue-50 pt-4">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
+                <div className="space-y-1.5">
+                  {STANDARD_BASE_TASKS.map(task => (
+                    <div key={task.key} className="flex items-center gap-2 text-sm text-slate-600">
+                      <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {task.label}
+                    </div>
+                  ))}
+                  {tierUpgradeKeys.map(key => {
+                    const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    return (
+                      <div key={key} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {label}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Paid add-ons */}
+              {paidAddonKeys.length > 0 && (
+                <div className="border-t border-blue-50 pt-4">
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Add-Ons</p>
+                  <div className="space-y-1.5">
+                    {paidAddonKeys.map(key => {
+                      // Also filter out tier upgrades from paid add-ons display
+                      if (tierUpgradeKeys.includes(key)) return null
+                      const addonDef = addons.find(a => a.key === key)
+                      const addonPrice = addonDef ? getAddonPrice(addonDef) : 0
+                      return (
+                        <div key={key} className="flex items-center justify-between text-sm">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <Plus className="size-3.5 text-blue-500 shrink-0" />
+                            {addonDef?.name || key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                          </div>
+                          {addonPrice > 0 && <span className="text-slate-700 font-medium">{fmt(addonPrice)}</span>}
+                        </div>
+                      )
+                    }).filter(Boolean)}
+                  </div>
+                </div>
+              )}
+
+              {/* Price breakdown */}
+              <div className="border-t-2 border-blue-100 pt-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Base service</span>
+                  <span className="text-slate-700">{fmt(approvedBasePrice)}</span>
+                </div>
+                {paidAddonKeys.filter(k => !tierUpgradeKeys.includes(k)).length > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Add-ons</span>
+                    <span className="text-slate-700">
+                      {fmt(paidAddonKeys.filter(k => !tierUpgradeKeys.includes(k)).reduce((sum, key) => {
+                        const addonDef = addons.find(a => a.key === key)
+                        return sum + (addonDef ? getAddonPrice(addonDef) : 0)
+                      }, 0))}
+                    </span>
+                  </div>
+                )}
+                {Number(quote.discount) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Discount</span>
+                    <span className="text-emerald-600">-{fmt(Number(quote.discount))}</span>
+                  </div>
+                )}
+                {Number(quote.membership_discount) > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-emerald-600">Membership discount</span>
+                    <span className="text-emerald-600">-{fmt(Number(quote.membership_discount))}</span>
+                  </div>
+                )}
+                <div className="border-t border-blue-50 pt-2">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-slate-800 font-bold text-lg">Total</span>
+                    <span className="text-slate-800 font-bold text-2xl">{quote.total ? fmt(Number(quote.total)) : fmt(approvedBasePrice)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Contact info */}
           {tenant?.phone && (
-            <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
-              <Phone className="size-4" /> {tenant.phone}
-            </a>
+            <div className="text-center">
+              <p className="text-slate-400 text-sm mb-2">Questions? Give us a call.</p>
+              <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
+                <Phone className="size-4" /> {tenant.phone}
+              </a>
+            </div>
           )}
+
+          <div className="text-center pb-4">
+            <p className="text-slate-300 text-xs">Powered by {businessName}</p>
+          </div>
         </div>
       </div>
     )
@@ -662,14 +828,31 @@ export default function QuotePage() {
         </div>
         )}
 
-        {/* ── Add-ons */}
-        {addons.length > 0 && (
+        {/* ── What's Included (standard base tasks — always included) */}
+        {serviceType === "house_cleaning" && (
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-muted-foreground mb-2">Included in your {selectedTier?.name || 'Standard'} Clean</h3>
+            <ul className="space-y-1">
+              {STANDARD_BASE_TASKS.map(task => (
+                <li key={task.key} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  {task.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* ── Add-ons (filter out standard base tasks — they're included in every cleaning) */}
+        {addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).length > 0 && (
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
             <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
 
             <div className="space-y-2">
-              {addons.map((addon) => {
+              {addons.filter(a => !STANDARD_BASE_KEYS.has(a.key)).map((addon) => {
                 const checked = !!selectedAddons[addon.key]
                 const included = isAddonIncluded(addon.key)
                 const addonPrice = getAddonPrice(addon)
@@ -865,26 +1048,6 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Customer Notes ──────────────────────────────────── */}
-        {!isExpired && (
-          <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1 flex items-center gap-2">
-              <FileText className="size-5 text-blue-500" />
-              Notes
-            </h2>
-            <p className="text-slate-400 text-sm mb-4">Anything we should know? Special instructions, pets, access codes, etc.</p>
-            <textarea
-              value={customerNotes}
-              onChange={(e) => setCustomerNotes(e.target.value)}
-              placeholder="e.g. Key under the mat, please avoid the back bedroom..."
-              rows={3}
-              maxLength={500}
-              className="w-full px-4 py-3 rounded-xl border-2 border-blue-100 bg-white text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 resize-none placeholder:text-slate-300"
-            />
-            <p className="text-right text-xs text-slate-300 mt-1">{customerNotes.length}/500</p>
-          </div>
-        )}
-
         {/* ── Service Agreement ───────────────────────────────── */}
         {!isExpired && serviceAgreement && (
           <div>
@@ -987,14 +1150,14 @@ export default function QuotePage() {
               </div>
             ) : null}
 
-            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key)).map((addon) => (
+            {addons.filter((a) => selectedAddons[a.key] && !isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">+ {addon.name}{addon.priceType === "per_unit" && (addonQuantities[addon.key] || 1) > 1 ? ` x${addonQuantities[addon.key]}` : ""}</span>
                 <span className="text-slate-700">{fmt(getAddonPrice(addon))}</span>
               </div>
             ))}
 
-            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key)).map((addon) => (
+            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
               <div key={addon.key} className="flex justify-between text-sm">
                 <span className="text-slate-400">{addon.name}</span>
                 <span className="text-emerald-500 text-xs font-medium">Included</span>
