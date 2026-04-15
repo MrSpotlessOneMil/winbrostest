@@ -5,7 +5,7 @@
  *
  * Blake's spec: Unified payroll table with per-employee breakdown.
  * - Week selector at top (< Week of Apr 14 >)
- * - Technicians section: Name | Role | Revenue (Sold) | Revenue (Upsell) | Pay Rate | Total Pay
+ * - Technicians section: Name | Role | Revenue (Upsell) | Pay Rate | Hours | Reviews | Total Pay
  * - Salesmen section: Name | Role | Revenue (1-Time) | Revenue (Triannual) | Revenue (Quarterly) | Commission | Total Pay
  * - Salesman commission on ORIGINAL QUOTE revenue only
  * - Tech pay on completed revenue + upsells
@@ -28,6 +28,7 @@ interface TechEntry {
   hours_worked: number
   overtime_hours: number
   hourly_rate: number
+  review_count: number
   total_pay: number
 }
 
@@ -51,6 +52,7 @@ interface PayrollWeekProps {
   status: 'draft' | 'finalized'
   onWeekChange: (direction: -1 | 1) => void
   onEmployeeClick: (cleanerId: number) => void
+  onReviewCountChange?: (cleanerId: number, count: number) => void
 }
 
 function formatWeekLabel(start: string): string {
@@ -83,14 +85,17 @@ export function PayrollWeek({
   status,
   onWeekChange,
   onEmployeeClick,
+  onReviewCountChange,
 }: PayrollWeekProps) {
-  const techTotalPay = technicians.reduce((s, t) => s + t.total_pay, 0)
-  const techTotalSold = technicians.reduce((s, t) => s + t.revenue_sold, 0)
+  const REVIEW_BONUS = 10
+
+  const techTotalPay = technicians.reduce((s, t) => s + t.total_pay + (t.review_count || 0) * REVIEW_BONUS, 0)
   const techTotalUpsell = technicians.reduce((s, t) => s + t.revenue_upsell, 0)
+  const techTotalReviews = technicians.reduce((s, t) => s + (t.review_count || 0), 0)
   const salesTotalPay = salesmen.reduce((s, e) => s + e.total_pay, 0)
   const salesTotalRevenue = salesmen.reduce((s, e) => s + e.revenue_1time + e.revenue_triannual + e.revenue_quarterly, 0)
   const grandTotalPay = techTotalPay + salesTotalPay
-  const grandTotalRevenue = techTotalSold + techTotalUpsell + salesTotalRevenue
+  const grandTotalRevenue = techTotalUpsell + salesTotalRevenue
 
   return (
     <div className="space-y-6">
@@ -162,10 +167,10 @@ export function PayrollWeek({
               <tr className="bg-zinc-950 border-b border-zinc-800">
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Name</th>
                 <th className="text-left px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Role</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Revenue (Sold)</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Revenue (Upsell)</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Pay Rate</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Hours</th>
+                <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide">Reviews</th>
                 <th className="text-right px-4 py-2.5 text-xs font-medium text-zinc-500 uppercase tracking-wide font-semibold">Total Pay</th>
               </tr>
             </thead>
@@ -178,59 +183,83 @@ export function PayrollWeek({
                 </tr>
               ) : (
                 <>
-                  {technicians.map(tech => (
-                    <tr
-                      key={tech.cleaner_id}
-                      className="hover:bg-zinc-900/60 transition-colors cursor-pointer"
-                      onClick={() => onEmployeeClick(tech.cleaner_id)}
-                    >
-                      <td className="px-4 py-3 text-white font-medium">{tech.name}</td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          variant="outline"
-                          className={
-                            tech.role === 'team_lead'
-                              ? 'border-blue-700 text-blue-400 text-[10px]'
-                              : 'border-zinc-700 text-zinc-400 text-[10px]'
-                          }
-                        >
-                          {tech.role === 'team_lead' ? 'TL' : 'Tech'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-right text-zinc-300">{$(tech.revenue_sold)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {tech.revenue_upsell > 0 ? (
-                          <span className="text-emerald-400">{$(tech.revenue_upsell)}</span>
-                        ) : (
-                          <span className="text-zinc-600">$0.00</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right text-zinc-400">
-                        {tech.pay_percentage > 0 && <span>{tech.pay_percentage}%</span>}
-                        {tech.pay_percentage > 0 && tech.hourly_rate > 0 && <span className="text-zinc-600"> + </span>}
-                        {tech.hourly_rate > 0 && <span>${tech.hourly_rate}/hr</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right text-zinc-400">
-                        {tech.hours_worked > 0 ? (
-                          <span>
-                            {tech.hours_worked.toFixed(1)}h
-                            {tech.overtime_hours > 0 && (
-                              <span className="text-amber-400 ml-1 text-xs">+{tech.overtime_hours.toFixed(1)} OT</span>
+                  {technicians.map(tech => {
+                    const isHourly = tech.hourly_rate > 0
+                    const isCommission = tech.pay_percentage > 0
+                    const reviewBonus = (tech.review_count || 0) * REVIEW_BONUS
+
+                    return (
+                      <tr
+                        key={tech.cleaner_id}
+                        className="hover:bg-zinc-900/60 transition-colors cursor-pointer"
+                        onClick={() => onEmployeeClick(tech.cleaner_id)}
+                      >
+                        <td className="px-4 py-3 text-white font-medium">{tech.name}</td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant="outline"
+                            className={
+                              tech.role === 'team_lead'
+                                ? 'border-blue-700 text-blue-400 text-[10px]'
+                                : 'border-zinc-700 text-zinc-400 text-[10px]'
+                            }
+                          >
+                            {tech.role === 'team_lead' ? 'TL' : 'Tech'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {tech.revenue_upsell > 0 ? (
+                            <span className="text-emerald-400">{$(tech.revenue_upsell)}</span>
+                          ) : (
+                            <span className="text-zinc-600">$0.00</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-400">
+                          {isCommission && !isHourly && <span>{tech.pay_percentage}% of revenue</span>}
+                          {isHourly && !isCommission && <span>${tech.hourly_rate}/hr</span>}
+                          {isHourly && isCommission && (
+                            <span>{tech.pay_percentage}% + ${tech.hourly_rate}/hr</span>
+                          )}
+                          {!isHourly && !isCommission && <span className="text-zinc-600">--</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-400">
+                          {isHourly && tech.hours_worked > 0 ? (
+                            <span>
+                              {tech.hours_worked.toFixed(1)}h
+                              {tech.overtime_hours > 0 && (
+                                <span className="text-amber-400 ml-1 text-xs">+{tech.overtime_hours.toFixed(1)} OT</span>
+                              )}
+                            </span>
+                          ) : isHourly ? (
+                            <span className="text-zinc-600">0h</span>
+                          ) : (
+                            <span className="text-zinc-600">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <input
+                              type="number"
+                              min={0}
+                              value={tech.review_count || 0}
+                              onChange={e => onReviewCountChange?.(tech.cleaner_id, Math.max(0, parseInt(e.target.value) || 0))}
+                              className="w-12 text-right bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            {(tech.review_count || 0) > 0 && (
+                              <span className="text-emerald-400 text-xs whitespace-nowrap">+{$(reviewBonus)}</span>
                             )}
-                          </span>
-                        ) : (
-                          <span className="text-zinc-600">--</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-white">{$(tech.total_pay)}</td>
-                    </tr>
-                  ))}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-white">{$(tech.total_pay + reviewBonus)}</td>
+                      </tr>
+                    )
+                  })}
                   {/* Technician subtotal row */}
                   <tr className="bg-zinc-900/40 border-t border-zinc-800">
                     <td className="px-4 py-2.5 text-xs font-semibold text-zinc-400 uppercase" colSpan={2}>Subtotal</td>
-                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-300">{$(techTotalSold)}</td>
                     <td className="px-4 py-2.5 text-right text-xs font-semibold text-emerald-400">{$(techTotalUpsell)}</td>
                     <td className="px-4 py-2.5" colSpan={2}></td>
+                    <td className="px-4 py-2.5 text-right text-xs font-semibold text-zinc-300">{techTotalReviews} reviews</td>
                     <td className="px-4 py-2.5 text-right text-sm font-bold text-green-400">{$(techTotalPay)}</td>
                   </tr>
                 </>

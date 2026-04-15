@@ -19,16 +19,44 @@ interface ChecklistItem {
   item_text: string
   is_completed: boolean
   completed_at: string | null
+  number_value?: number | null
 }
 
 interface VisitChecklistProps {
   items: ChecklistItem[]
   onToggle: (itemId: number, completed: boolean) => Promise<void>
   onAddItem: (text: string) => Promise<void>
+  onNumberChange?: (itemId: number, value: number) => Promise<void>
   disabled?: boolean
 }
 
-export function VisitChecklist({ items, onToggle, onAddItem, disabled }: VisitChecklistProps) {
+/**
+ * Default operational checklist items for WinBros technicians.
+ * These are operational tasks, NOT customer services.
+ */
+export const DEFAULT_CHECKLIST_ITEMS = [
+  'Sent "on my way" text',
+  'Arrived and confirmed with customer',
+  'Uploaded pre-existing damage photos',
+  'Counted window panes (enter number: ___)',
+  'Completed all services',
+  'Uploaded before/after photos',
+  'Put up yard sign',
+  'Sent Google review link',
+  'Asked for referrals',
+]
+
+/** Check if item expects a number input (e.g. "Counted window panes (enter number: ___)") */
+function isNumberItem(text: string): boolean {
+  return /\(enter number[:\s]/i.test(text)
+}
+
+/** Extract the label portion before the number indicator */
+function getItemLabel(text: string): string {
+  return text.replace(/\s*\(enter number[^)]*\)\s*/i, '').trim()
+}
+
+export function VisitChecklist({ items, onToggle, onAddItem, onNumberChange, disabled }: VisitChecklistProps) {
   const [newItem, setNewItem] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -76,27 +104,47 @@ export function VisitChecklist({ items, onToggle, onAddItem, disabled }: VisitCh
           <p className="text-xs text-zinc-500">No checklist items. Add items below.</p>
         )}
 
-        {items.map(item => (
-          <label
-            key={item.id}
-            className={`flex items-center gap-3 p-2 rounded transition-colors cursor-pointer
-              ${item.is_completed ? 'bg-zinc-900' : 'hover:bg-zinc-900/50'}`}
-          >
-            <Checkbox
-              checked={item.is_completed}
-              onCheckedChange={(checked) => onToggle(item.id, checked as boolean)}
-              disabled={disabled}
-            />
-            <span className={`text-sm ${item.is_completed ? 'text-zinc-500 line-through' : 'text-white'}`}>
-              {item.item_text}
-            </span>
-            {item.is_completed ? (
-              <CheckCircle2 className="w-3 h-3 text-green-500 ml-auto" />
-            ) : (
-              <Circle className="w-3 h-3 text-zinc-700 ml-auto" />
-            )}
-          </label>
-        ))}
+        {items.map(item => {
+          const hasNumber = isNumberItem(item.item_text)
+          const label = hasNumber ? getItemLabel(item.item_text) : item.item_text
+
+          return (
+            <div
+              key={item.id}
+              className={`flex items-center gap-3 p-2 rounded transition-colors
+                ${item.is_completed ? 'bg-zinc-900' : 'hover:bg-zinc-900/50'}`}
+            >
+              <Checkbox
+                checked={item.is_completed}
+                onCheckedChange={(checked) => onToggle(item.id, checked as boolean)}
+                disabled={disabled}
+                className="cursor-pointer"
+              />
+              <span className={`text-sm ${item.is_completed ? 'text-zinc-500 line-through' : 'text-white'}`}>
+                {label}
+              </span>
+              {hasNumber && (
+                <input
+                  type="number"
+                  min={0}
+                  value={item.number_value ?? ''}
+                  placeholder="#"
+                  onChange={e => {
+                    const val = parseInt(e.target.value) || 0
+                    onNumberChange?.(item.id, val)
+                  }}
+                  disabled={disabled}
+                  className="w-16 text-center bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-sm text-white focus:border-zinc-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+              )}
+              {item.is_completed ? (
+                <CheckCircle2 className="w-3 h-3 text-green-500 ml-auto shrink-0" />
+              ) : (
+                <Circle className="w-3 h-3 text-zinc-700 ml-auto shrink-0" />
+              )}
+            </div>
+          )
+        })}
 
         {/* Add item */}
         <div className="flex gap-2 pt-2 border-t border-zinc-800">

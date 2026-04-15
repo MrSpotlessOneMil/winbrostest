@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
         hours_worked: 0,
         overtime_hours: 0,
         hourly_rate: Number(r.hourly_rate || 0),
+        review_count: 0,
         total_pay: 0,
       }))
 
@@ -93,6 +94,7 @@ export async function GET(request: NextRequest) {
       hours_worked: Number(e.hours_worked || 0),
       overtime_hours: Number(e.overtime_hours || 0),
       hourly_rate: Number(e.hourly_rate || 0),
+      review_count: Number(e.review_count || 0),
       total_pay: Number(e.total_pay || 0),
     }))
 

@@ -234,6 +234,7 @@ export async function generatePayrollWeek(
         overtime_hours: otHours,
         overtime_rate: 1.5,
         hourly_rate: rate.hourly_rate,
+        review_count: 0,
         total_pay: totalPay,
       })
     } else if (rate.role === 'salesman') {
