@@ -13,7 +13,7 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
-import { TIER_UPGRADES, isIncludedInTier } from "@/lib/service-scope"
+import { TIER_UPGRADES, isIncludedInTier, getPaidAddons } from "@/lib/service-scope"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
@@ -44,6 +44,7 @@ type CalendarJob = {
   parent_job_id?: number | null
   membership_id?: string | null
   leads?: { source: string }[]
+  addons?: { key: string; label?: string; price?: number }[]
 }
 
 type CalendarEventDetails = {
@@ -71,6 +72,8 @@ type CalendarEventDetails = {
   customerPhone: string
   customerEmail: string
   customerId: string
+  addons: { key: string; label?: string; price?: number }[]
+  serviceType: string
 }
 
 type PendingMove = {
@@ -97,6 +100,13 @@ type AddonOption = {
 
 type AssignmentMode = "auto_broadcast" | "ranked" | "unassigned" | "specific"
 
+type CustomAddon = {
+  key: string
+  label: string
+  price: number
+  custom: true
+}
+
 type CreateForm = {
   customer_phone: string
   customer_name: string
@@ -121,6 +131,9 @@ type CreateForm = {
   selected_tier_index: string
   lead_source: string
   credited_salesman_id: string
+  customAddonName: string
+  customAddonPrice: string
+  customAddons: CustomAddon[]
 }
 
 type CustomerMembership = {
@@ -437,6 +450,9 @@ export default function JobsPage() {
     selected_tier_index: "",
     lead_source: "",
     credited_salesman_id: "",
+    customAddonName: "",
+    customAddonPrice: "",
+    customAddons: [],
   })
   const [createSaving, setCreateSaving] = useState(false)
   const [createError, setCreateError] = useState("")
@@ -531,7 +547,8 @@ export default function JobsPage() {
           }, 0)
           const wallMins = Math.ceil((laborMins + addonMins) / (recCleaners || 1))
           const snapped = [60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480
-          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
+          const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+          setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal + customTotal), duration_minutes: String(snapped), cleaner_count: String(recCleaners) }))
         }
       })
       .catch(() => {})
@@ -596,7 +613,8 @@ export default function JobsPage() {
       if (dbInc || codeInc) return sum
       return sum + (addon?.flat_price || 0)
     }, 0)
-    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal) }
+    const customAddonTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+    const updates: Partial<CreateForm> = { price: String(basePrice + addonTotal + customAddonTotal) }
     // Auto-update duration if we have base labor minutes
     if (baseLaborMinutes > 0) {
       const addonMins = createForm.selected_addons.reduce((sum, key) => {
@@ -611,7 +629,7 @@ export default function JobsPage() {
       updates.duration_minutes = String([60, 90, 120, 150, 180, 240, 300, 360, 420, 480].find(v => v >= wallMins) || 480)
     }
     setCreateForm((prev) => ({ ...prev, ...updates }))
-  }, [createForm.selected_addons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
+  }, [createForm.selected_addons, createForm.customAddons, createForm.cleaner_count, basePrice, baseLaborMinutes, derivedAddonsList])
 
   // Auto-populate price when window tier changes (WinBros only)
   useEffect(() => {
@@ -629,7 +647,8 @@ export default function JobsPage() {
       const addon = addonsList.find((a) => a.addon_key === key)
       return sum + (addon?.flat_price || 0)
     }, 0)
-    setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal) }))
+    const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+    setCreateForm((prev) => ({ ...prev, price: String(base + addonTotal + customTotal) }))
   }, [createForm.selected_tier_index, windowTiers])
 
   // Reset tier and price when WinBros service type changes away from window cleaning
@@ -1069,6 +1088,8 @@ export default function JobsPage() {
           customerPhone: customer?.phone_number || job.phone_number || "",
           customerEmail: customer?.email || "",
           customerId: customer?.id ? String(customer.id) : "",
+          addons: Array.isArray(job.addons) ? job.addons : [],
+          serviceType: job.service_type || "",
         },
       }
     })
@@ -1121,6 +1142,8 @@ export default function JobsPage() {
       customerPhone: customer?.phone_number || job.phone_number || "",
       customerEmail: customer?.email || "",
       customerId: customer?.id ? String(customer.id) : "",
+      addons: Array.isArray(job.addons) ? job.addons : [],
+      serviceType: job.service_type || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1176,6 +1199,9 @@ export default function JobsPage() {
       selected_tier_index: "",
       lead_source: "",
       credited_salesman_id: "",
+      customAddonName: "",
+      customAddonPrice: "",
+      customAddons: [],
     })
     setCreateError("")
     setPhoneLookedUp("")
@@ -1245,6 +1271,8 @@ export default function JobsPage() {
       customerPhone: info.event.extendedProps.customerPhone || "",
       customerEmail: info.event.extendedProps.customerEmail || "",
       customerId: info.event.extendedProps.customerId || "",
+      addons: Array.isArray(info.event.extendedProps.addons) ? info.event.extendedProps.addons : [],
+      serviceType: info.event.extendedProps.serviceType || "",
     }
     setSelectedEvent(details)
     setEditMode(false)
@@ -1978,7 +2006,8 @@ export default function JobsPage() {
           if (included) return sum
           return sum + (addon?.flat_price || 0)
         }, 0)
-        finalPrice = Math.max(0, basePrice + addonTotal - frequencyDiscount)
+        const customAddonTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+        finalPrice = Math.max(0, basePrice + addonTotal + customAddonTotal - frequencyDiscount)
       }
 
       const res = await fetch("/api/jobs", {
@@ -2008,10 +2037,17 @@ export default function JobsPage() {
           status: "scheduled",
           lead_source: createForm.lead_source.trim() && createForm.lead_source !== "__custom__" ? createForm.lead_source.trim() : undefined,
           credited_salesman_id: createForm.credited_salesman_id ? Number(createForm.credited_salesman_id) : undefined,
-          addons: createForm.selected_addons.length > 0 ? createForm.selected_addons.map((key) => {
-            const addon = derivedAddonsList.find((a) => a.addon_key === key)
-            return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
-          }) : undefined,
+          addons: (() => {
+            const catalogAddons = createForm.selected_addons.map((key) => {
+              const addon = derivedAddonsList.find((a) => a.addon_key === key)
+              return { key, label: addon?.label || key, price: addon?.flat_price || 0 }
+            })
+            const allAddons = [
+              ...catalogAddons,
+              ...createForm.customAddons.map((ca) => ({ key: ca.key, label: ca.label, price: ca.price, custom: true })),
+            ]
+            return allAddons.length > 0 ? allAddons : undefined
+          })(),
         }),
       })
 
@@ -2542,6 +2578,9 @@ export default function JobsPage() {
             selected_tier_index: "",
             lead_source: "",
             credited_salesman_id: "",
+            customAddonName: "",
+            customAddonPrice: "",
+            customAddons: [],
           })
           setCreateError("")
           setPhoneLookedUp("")
@@ -4258,6 +4297,84 @@ export default function JobsPage() {
                   </div>
                 )}
 
+                {/* Custom Add-on */}
+                <div style={{ marginTop: "0.75rem", borderTop: "1px solid rgba(63, 63, 70, 0.4)", paddingTop: "0.75rem" }}>
+                  <label className="cal-form-label" style={{ fontSize: "0.7rem", color: "#a1a1aa" }}>Custom Add-on</label>
+                  <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. Poop cleanup, Fridge organizing..."
+                      className="cal-form-control"
+                      style={{ flex: 1 }}
+                      value={createForm.customAddonName}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, customAddonName: e.target.value }))}
+                    />
+                    <input
+                      type="number"
+                      placeholder="$"
+                      className="cal-form-control"
+                      style={{ width: "5rem" }}
+                      min="0"
+                      step="1"
+                      value={createForm.customAddonPrice}
+                      onChange={(e) => setCreateForm((prev) => ({ ...prev, customAddonPrice: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      style={{
+                        borderRadius: 6,
+                        background: "rgba(139, 92, 246, 0.8)",
+                        padding: "0.3rem 0.75rem",
+                        fontSize: "0.8rem",
+                        color: "#fff",
+                        border: "none",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={() => {
+                        if (!createForm.customAddonName.trim()) return
+                        const price = parseFloat(createForm.customAddonPrice) || 0
+                        setCreateForm((prev) => ({
+                          ...prev,
+                          customAddonName: "",
+                          customAddonPrice: "",
+                          customAddons: [...prev.customAddons, {
+                            key: `custom_${Date.now()}`,
+                            label: createForm.customAddonName.trim(),
+                            price,
+                            custom: true as const,
+                          }],
+                        }))
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {createForm.customAddons.length > 0 && (
+                    <div style={{ marginTop: "0.5rem" }}>
+                      {createForm.customAddons.map((addon, i) => (
+                        <div key={addon.key} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", padding: "0.2rem 0" }}>
+                          <span style={{ flex: 1, color: "#e4e4e7" }}>{addon.label}</span>
+                          <span style={{ color: "#a1a1aa", fontSize: "0.75rem" }}>
+                            {addon.price > 0 ? `+$${addon.price}` : "FREE"}
+                          </span>
+                          <span style={{ fontSize: "0.6rem", background: "rgba(139, 92, 246, 0.2)", color: "#a78bfa", padding: "0.1rem 0.35rem", borderRadius: 4, fontWeight: 600 }}>CUSTOM</span>
+                          <button
+                            type="button"
+                            style={{ color: "#ef4444", fontSize: "0.7rem", background: "none", border: "none", cursor: "pointer", padding: "0.1rem 0.25rem" }}
+                            onClick={() => setCreateForm((prev) => ({
+                              ...prev,
+                              customAddons: prev.customAddons.filter((_, j) => j !== i),
+                            }))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {/* Price Summary */}
                 <div style={{
                   background: "rgba(39, 39, 42, 0.3)",
@@ -4299,6 +4416,11 @@ export default function JobsPage() {
                         if (addonIncluded) continue // included in tier price, don't add to summary
                         items.push({ label: addon.label, price: addon.flat_price || 0 })
                       }
+                    }
+
+                    // Custom add-ons
+                    for (const ca of createForm.customAddons) {
+                      items.push({ label: `${ca.label} (Custom)`, price: ca.price })
                     }
 
                     // Membership / frequency discount
@@ -4397,7 +4519,8 @@ export default function JobsPage() {
                           const addon = derivedAddonsList.find((a) => a.addon_key === key)
                           return sum + (addon?.flat_price || 0)
                         }, 0)
-                        setBasePrice(Math.max(0, total - addonTotal))
+                        const customTotal = createForm.customAddons.reduce((sum, a) => sum + a.price, 0)
+                        setBasePrice(Math.max(0, total - addonTotal - customTotal))
                       }
                     }}
                   />
