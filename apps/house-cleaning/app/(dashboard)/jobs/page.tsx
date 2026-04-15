@@ -4432,8 +4432,11 @@ export default function JobsPage() {
 
                     if (isWindow && tier) {
                       items.push({ label: "Exterior Window Cleaning", price: tier.exterior })
-                    } else if (basePrice > 0) {
-                      items.push({ label: createForm.service_type || "Base Service", price: basePrice })
+                    } else {
+                      const displayBase = createForm.price ? Number(createForm.price) : basePrice
+                      if (displayBase > 0) {
+                        items.push({ label: createForm.service_type || "Base Service", price: displayBase })
+                      }
                     }
 
                     // Selected add-ons (skip price for included addons)
