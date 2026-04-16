@@ -39,7 +39,7 @@ interface TierPrice { price: number; breakdown: { service: string; price: number
 interface ServicePlan { id: string; slug: string; name: string; visits_per_year: number; interval_months: number; discount_per_visit: number; free_addons: string[] | null; agreement_text: string | null }
 interface ServiceAgreement { cancellation_fee: number; cancellation_window_hours: number; satisfaction_guarantee: boolean; deposit_percentage: number; processing_fee_percentage: number; terms: string[] }
 interface Quote { id: string; token: string; status: "pending" | "approved" | "expired" | "cancelled"; customer_name: string | null; customer_phone: string | null; customer_email: string | null; customer_address: string | null; square_footage: number | null; bedrooms: number | null; bathrooms: number | null; selected_tier: string | null; selected_addons: string[]; subtotal: string | null; discount: string | null; total: string | null; membership_discount: string | null; membership_plan: string | null; deposit_amount: string | null; valid_until: string; approved_at: string | null; created_at: string; service_date: string | null; service_time: string | null; notes: string | null }
-interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
+interface APIResponse { success: boolean; quote: Quote; tierPrices: Record<string, TierPrice>; tiers: QuoteTier[]; addons: QuoteAddon[]; serviceType: "window_cleaning" | "house_cleaning"; servicePlans: ServicePlan[]; serviceAgreement: ServiceAgreement; custom_base_price: number | null; custom_terms: string[] | null; quote_notes: string | null; checklists?: Record<string, string[]>; tenant: { name: string; slug: string; phone: string | null; email: string | null; brand_color?: string | null; brand_color_light?: string | null; logo_url?: string | null; currency?: string | null } }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -117,16 +117,44 @@ const MOVE_CHECKLIST = [
   "Empty all trash and replace liners",
 ]
 
-function getDetailedChecklist(tierKey: string): string[] {
+/**
+ * Resolve the detailed checklist for a tier. Prefers the tenant's cleaner-
+ * portal checklist from the DB (cleaning_checklists table) so the customer
+ * sees the exact same list the cleaner works through in the field. Falls
+ * back to hardcoded defaults if the DB is empty for a category.
+ */
+function tierToServiceCategory(tierKey: string): string {
+  if (tierKey === 'deep' || tierKey === 'extra_deep') return 'deep_cleaning'
+  if (tierKey.startsWith('move')) return 'move_in_out'
+  return 'standard_cleaning'
+}
+
+function getDetailedChecklist(
+  tierKey: string,
+  dbChecklists?: Record<string, string[]>
+): string[] {
+  const category = tierToServiceCategory(tierKey)
+  const fromDb = dbChecklists?.[category]
+  if (fromDb && fromDb.length > 0) {
+    // Deep tier: show STANDARD + DEEP items so the customer sees the full
+    // base clean plus the deep upgrades (matches cleaner's actual workflow).
+    if (category === 'deep_cleaning') {
+      const std = dbChecklists?.['standard_cleaning'] || []
+      return [...std, ...fromDb]
+    }
+    return fromDb
+  }
+  // Fallback for tenants whose cleaning_checklists aren't seeded yet.
   switch (tierKey) {
-    case "standard": return STANDARD_CHECKLIST
-    case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
-    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS] // backward compat for old quotes
-    case "move": return MOVE_CHECKLIST
-    // Backward compat for old quotes
-    case "move_good": return MOVE_CHECKLIST
-    case "move_better": return MOVE_CHECKLIST
-    case "move_best": return MOVE_CHECKLIST
+    case 'standard': return STANDARD_CHECKLIST
+    case 'deep':
+    case 'extra_deep':
+      return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
+    case 'move':
+    case 'move_good':
+    case 'move_better':
+    case 'move_best':
+      return MOVE_CHECKLIST
     default: return []
   }
 }
@@ -547,19 +575,20 @@ export default function QuotePage() {
                 </div>
               )}
 
-              {/* Included base tasks */}
+              {/* Included in Your Clean — mirrors the cleaner's actual field checklist */}
               <div className="border-t border-blue-50 pt-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
                 <div className="space-y-1.5">
-                  {STANDARD_BASE_TASKS.map(task => (
-                    <div key={task.key} className="flex items-center gap-2 text-sm text-slate-600">
+                  {getDetailedChecklist(quote.selected_tier || '', data?.checklists).map((task, i) => (
+                    <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
                       <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
-                      {task.label}
+                      {task}
                     </div>
                   ))}
-                  {tierUpgradeKeys.map(key => {
+                  {/* Legacy tier upgrade labels — only render as fallback when DB checklist is empty */}
+                  {(!data?.checklists || Object.keys(data.checklists).length === 0) && tierUpgradeKeys.map(key => {
                     const label = key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
                     return (
                       <div key={key} className="flex items-center gap-2 text-sm text-slate-600">
@@ -757,7 +786,7 @@ export default function QuotePage() {
           const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
           const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
           const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
-          const customChecklist = getDetailedChecklist(customTierKey)
+          const customChecklist = getDetailedChecklist(customTierKey, data?.checklists)
           // Show service type name
           const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
           const serviceName = nameMap[customTierKey] || 'Custom Service Package'
@@ -778,12 +807,29 @@ export default function QuotePage() {
                 <div className="border-t border-blue-200 pt-4">
                   <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {STANDARD_BASE_TASKS.map(task => (
-                      <div key={task.key} className="flex items-center gap-2 text-sm text-slate-600">
+                    {customChecklist.map((task, i) => (
+                      <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
                         <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        {task.label}
+                        {task}
+                      </div>
+                    ))}
+                    {/* Included add-ons — shown in the customer scope AND the cleaner's portal */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={`addon-${addon.key}`} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {addon.name}
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={`custom-${ca.key}`} className="flex items-center gap-2 text-sm text-slate-600">
+                        <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        {ca.label}
                       </div>
                     ))}
                   </div>
@@ -812,14 +858,27 @@ export default function QuotePage() {
                   <span className="text-3xl font-bold text-slate-800">{fmt(selectedTierPrice.price)}</span>
                 </div>
 
-                {/* What's included checklist */}
+                {/* What's included checklist — mirrors the cleaner's field checklist 1:1 */}
                 <div className="border-t border-blue-200 pt-4 space-y-2">
                   <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists).map((task, i) => (
+                      <div key={`task-${i}`} className="flex items-start gap-2">
                         <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
                         <span className="text-sm text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                    {/* Included add-ons become checklist items too — cleaner sees these in their portal */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={`addon-${addon.key}`} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{addon.name}</span>
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={`custom-${ca.key}`} className="flex items-start gap-2">
+                        <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
+                        <span className="text-sm text-slate-600">{ca.label}</span>
                       </div>
                     ))}
                   </div>
@@ -1262,29 +1321,33 @@ export default function QuotePage() {
                   </span>
                   <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
                 </button>
-                {summaryExpanded && (
+                {summaryExpanded && (() => {
+                  // Mirror the cleaner-portal checklist for the quote's tier.
+                  const q = quote as Quote & { selected_tier?: string | null; service_category?: string | null }
+                  const tierKey = (q.selected_tier as string) || (q.service_category === 'move_in_out' ? 'move' : 'standard')
+                  return (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
-                    {STANDARD_BASE_TASKS.map((task) => (
-                      <div key={task.key} className="flex items-start gap-2">
+                    {getDetailedChecklist(tierKey, data?.checklists).map((task, i) => (
+                      <div key={`task-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
-                        <span className="text-xs text-slate-600">{task.label}</span>
+                        <span className="text-xs text-slate-600">{task}</span>
                       </div>
                     ))}
                     {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
-                      <div key={addon.key} className="flex items-start gap-2">
+                      <div key={`addon-${addon.key}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{addon.name}</span>
                       </div>
                     ))}
                     {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
-                      <div key={ca.key} className="flex items-start gap-2">
+                      <div key={`custom-${ca.key}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{ca.label}</span>
                       </div>
                     ))}
                   </div>
-                )}
+                )})()}
               </div>
             ) : selectedTier && selectedTierPrice ? (
               <div>
@@ -1302,7 +1365,7 @@ export default function QuotePage() {
                 {summaryExpanded && (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
-                    {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists).map((task, i) => (
                       <div key={`base-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>

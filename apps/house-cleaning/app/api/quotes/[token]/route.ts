@@ -84,6 +84,22 @@ export async function GET(
     .eq("active", true)
     .order("discount_per_visit", { ascending: true })
 
+  // Load cleaner checklists (per service_category) so the customer-facing
+  // "What's included" list is 1:1 with what the cleaner actually sees in the
+  // field. Shared source of truth: cleaning_checklists table.
+  const { data: checklistRows } = await supabase
+    .from('cleaning_checklists')
+    .select('service_category, item_text, item_order, required')
+    .eq('tenant_id', tenant.id)
+    .order('item_order', { ascending: true })
+
+  const checklistsByCategory: Record<string, string[]> = {}
+  for (const row of checklistRows || []) {
+    const cat = row.service_category as string
+    if (!checklistsByCategory[cat]) checklistsByCategory[cat] = []
+    checklistsByCategory[cat].push(row.item_text as string)
+  }
+
   // Build service agreement text
   const wc = tenant.workflow_config as Record<string, unknown> || {}
   const cancellationFee = Number(wc.cancellation_fee_cents || 5000) / 100
@@ -115,6 +131,7 @@ export async function GET(
     custom_base_price: quote.custom_base_price ? Number(quote.custom_base_price) : null,
     custom_terms: quote.custom_terms || null,
     quote_notes: quote.notes || null,
+    checklists: checklistsByCategory,
     tenant: {
       name: tenant.business_name || tenant.name,
       slug: tenant.slug,
