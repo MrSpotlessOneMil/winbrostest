@@ -507,7 +507,7 @@ Return ONLY the SMS text, nothing else.`
   }
 
   return {
-    response: smsText,
+    response: sanitizeAIResponse(autoSplitLongMessage(smsText)),
     shouldSend: true,
     reason: 'AI-generated response'
   }
@@ -570,7 +570,7 @@ Write the SMS reply only.`
   }
 
   return {
-    response: smsText,
+    response: sanitizeAIResponse(autoSplitLongMessage(smsText)),
     shouldSend: true,
     reason: 'AI-generated response'
   }
