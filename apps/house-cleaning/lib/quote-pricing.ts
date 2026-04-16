@@ -12,6 +12,7 @@
 import { computeTierPrice, QUOTE_TIERS, QUOTE_ADDONS, type QuoteTier, type QuoteAddon } from './pricebook'
 import { getWindowTiersFromDB } from './pricebook-db'
 import { getSupabaseServiceClient } from './supabase'
+import { isEffectivelyIncluded, type AddonInput } from './service-scope'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -540,19 +541,33 @@ function getAddonDescription(key: string): string {
 
 /**
  * Compute the total price for a quote approval (server-side validation).
+ *
+ * Rules:
+ *   - Tier-based quotes: add-ons in TIER_UPGRADES[tier] contribute $0 (already
+ *     baked into the tier price).
+ *   - Custom-priced quotes (hasCustomPrice=true): every add-on defaults to
+ *     included unless explicitly flagged { included: false }.
+ *   - Explicit per-addon flag on the object wins over tier/custom defaults.
+ *
+ * Inclusion is decided by service-scope.isEffectivelyIncluded() — single source
+ * of truth across server + UI.
  */
 export async function computeQuoteTotal(
   tenantId: string,
   tenantSlug: string,
   selectedTier: string,
-  selectedAddons: string[],
+  selectedAddons: AddonInput[],
   params: {
     squareFootage?: number | null
     bedrooms?: number | null
     bathrooms?: number | null
   },
-  serviceCategory: 'standard' | 'move_in_out' = 'standard'
-): Promise<{ subtotal: number; breakdown: { service: string; price: number }[] }> {
+  serviceCategory: 'standard' | 'move_in_out' = 'standard',
+  hasCustomPrice: boolean = false
+): Promise<{
+  subtotal: number
+  breakdown: { service: string; price: number; included?: boolean }[]
+}> {
   const pricing = await getQuotePricing(tenantId, tenantSlug, params, serviceCategory)
 
   // Backward compat: old 3-tier move keys → single tier
@@ -569,16 +584,25 @@ export async function computeQuoteTotal(
   }
 
   let subtotal = tierPrice.price
+  const addonBreakdown: { service: string; price: number; included: boolean }[] = []
 
-  // Add selected addon prices (only those not already included in the tier)
-  const tier = pricing.tiers.find(t => t.key === effectiveTier)
-  for (const addonKey of selectedAddons) {
-    if (tier?.included.includes(addonKey)) continue // Skip — already in tier
-    const addon = pricing.addons.find(a => a.key === addonKey)
-    if (addon && addon.price > 0) {
+  for (const raw of selectedAddons) {
+    const addonObj =
+      typeof raw === 'string' ? { key: raw } : { key: raw.key, included: raw.included }
+    const addon = pricing.addons.find((a) => a.key === addonObj.key)
+    if (!addon) continue
+    const included = isEffectivelyIncluded(addonObj, effectiveTier, hasCustomPrice)
+    addonBreakdown.push({ service: addon.name, price: addon.price, included })
+    if (!included && addon.price > 0) {
       subtotal += addon.price
     }
   }
 
-  return { subtotal, breakdown: tierPrice.breakdown }
+  return {
+    subtotal,
+    breakdown: [
+      ...tierPrice.breakdown.map((b) => ({ ...b, included: true })),
+      ...addonBreakdown,
+    ],
+  }
 }

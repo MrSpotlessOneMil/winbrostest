@@ -159,6 +159,9 @@ export default function QuotePage() {
   const [showAllTiers, setShowAllTiers] = useState(false)
   const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [customAddonsFromQuote, setCustomAddonsFromQuote] = useState<CustomAddon[]>([])
+  // Explicit included-flag per addon (from saved_addons on the quote). Undefined means
+  // no explicit flag — fall through to tier/custom defaults in isAddonIncluded.
+  const [addonIncludedMap, setAddonIncludedMap] = useState<Record<string, boolean>>({})
 
   // ── Fetch quote ──────────────────────────────────────────────────
 
@@ -195,15 +198,19 @@ export default function QuotePage() {
         json.addons.forEach((a: QuoteAddon) => { if (a.priceType === "per_unit") defaultQty[a.key] = 1 })
 
         // Pre-select saved addons for ALL quote types (custom-priced, tier-locked, default)
-        const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number; label?: string; price?: number; custom?: boolean }> | null
+        const savedAddons = json.quote.selected_addons as Array<string | { key: string; quantity?: number; label?: string; price?: number; custom?: boolean; included?: boolean }> | null
         if (savedAddons && savedAddons.length > 0) {
           const inc: Record<string, boolean> = {}
           const qty: Record<string, number> = {}
+          const includedMap: Record<string, boolean> = {}
           const customAddonsList: CustomAddon[] = []
           for (const addon of savedAddons) {
             const key = typeof addon === 'string' ? addon : addon.key
             inc[key] = true
             if (typeof addon !== 'string' && addon.quantity) qty[key] = addon.quantity
+            if (typeof addon !== 'string' && typeof addon.included === 'boolean') {
+              includedMap[key] = addon.included
+            }
             // Collect custom add-ons (not in catalog) for separate display
             if (typeof addon !== 'string' && addon.custom && addon.label && addon.price != null) {
               customAddonsList.push({ key: addon.key, label: addon.label, price: addon.price, custom: true })
@@ -211,6 +218,7 @@ export default function QuotePage() {
           }
           setSelectedAddons(inc)
           setAddonQuantities({ ...defaultQty, ...qty })
+          setAddonIncludedMap(includedMap)
           if (customAddonsList.length > 0) setCustomAddonsFromQuote(customAddonsList)
         } else {
           // No saved addons — fall back to tier included addons
@@ -296,13 +304,18 @@ export default function QuotePage() {
   const selectedTier = tiers.find((t) => t.key === selectedTierKey) ?? null
   const selectedTierPrice = selectedTierKey ? tierPrices[selectedTierKey] : null
 
-  // For custom-priced quotes, admin-selected paid add-ons are NOT free — they are separate line items.
-  // Only tier-included addons (from selectedTier.included) are treated as "included".
+  // Single inclusion rule — mirrors server-side service-scope.isEffectivelyIncluded.
+  // Resolution order: explicit flag on saved addon → custom-priced default (true) →
+  // tier-included fallback. Keeps admin/server/customer views in lockstep.
   const isAddonIncluded = useCallback(
     (addonKey: string): boolean => {
+      const explicit = addonIncludedMap[addonKey]
+      if (explicit === true) return true
+      if (explicit === false) return false
+      if (isCustomPriced) return true
       return !!selectedTier && selectedTier.included.includes(addonKey)
     },
-    [selectedTier]
+    [selectedTier, isCustomPriced, addonIncludedMap]
   )
 
   const getAddonPrice = useCallback(
@@ -335,16 +348,19 @@ export default function QuotePage() {
     return sum + getAddonPrice(addon)
   }, 0)
 
-  // Custom add-ons (not in catalog) contribute to the total
+  // Custom add-ons (not in catalog) contribute to the total — unless flagged included.
   const customAddonTotal = customAddonsFromQuote.reduce((sum, ca) => {
     if (!selectedAddons[ca.key]) return sum
+    if (isAddonIncluded(ca.key)) return sum
     return sum + ca.price
   }, 0)
 
   const addonTotal = catalogAddonTotal + customAddonTotal
 
+  // Subtotal: tier/custom base + only the add-ons that are NOT included.
+  // isAddonIncluded already gates catalog/custom addon totals above, so we can just sum.
   const subtotal = isCustomPriced
-    ? customBasePrice + addonTotal // Override replaces base price only — add-ons are additive on top
+    ? customBasePrice + addonTotal
     : selectedTierPrice
       ? selectedTierPrice.price + addonTotal
       : 0
@@ -361,13 +377,17 @@ export default function QuotePage() {
     setApproving(true)
     try {
       const customKeys = new Set(customAddonsFromQuote.map(ca => ca.key))
-      const activeCatalogAddons: Array<string> = Object.entries(selectedAddons)
+      // Catalog addons carry an explicit included flag so the server persists it verbatim
+      const activeCatalogAddons = Object.entries(selectedAddons)
         .filter(([, v]) => v)
         .map(([key]) => key)
         .filter(key => !customKeys.has(key))
+        .map(key => ({ key, quantity: addonQuantities[key] || 1, included: isAddonIncluded(key) }))
+      // Custom add-ons: preserve label/price AND carry included flag
       const activeCustomAddons = customAddonsFromQuote
         .filter(ca => selectedAddons[ca.key])
-      const activeAddons: Array<string | CustomAddon> = [...activeCatalogAddons, ...activeCustomAddons]
+        .map(ca => ({ ...ca, included: isAddonIncluded(ca.key) }))
+      const activeAddons = [...activeCatalogAddons, ...activeCustomAddons]
       const res = await fetch(`/api/quotes/${token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -441,10 +461,15 @@ export default function QuotePage() {
     const approvedTierPrice = quote.selected_tier ? tierPrices[quote.selected_tier] : null
     const approvedBasePrice = isCustomPriced ? customBasePrice : (approvedTierPrice?.price ?? 0)
 
-    // Separate base tasks from paid add-ons in the saved selections
-    const savedAddons = (quote.selected_addons || []) as Array<string | { key: string; quantity?: number }>
-    const savedAddonKeys = savedAddons.map(a => typeof a === 'string' ? a : a.key)
-    const paidAddonKeys = savedAddonKeys.filter(k => !STANDARD_BASE_KEYS.has(k))
+    // Separate base tasks / included / billable add-ons from the saved selections
+    const savedAddons = (quote.selected_addons || []) as Array<string | { key: string; quantity?: number; included?: boolean; custom?: boolean; label?: string; price?: number }>
+    const includedAddonObjs = savedAddons
+      .map((a) => (typeof a === 'string' ? { key: a } : a))
+      .filter((a) => !STANDARD_BASE_KEYS.has(a.key) && a.included === true)
+    const paidAddonKeys = savedAddons
+      .map((a) => (typeof a === 'string' ? { key: a, included: undefined as boolean | undefined } : a))
+      .filter((a) => !STANDARD_BASE_KEYS.has(a.key) && a.included !== true)
+      .map((a) => a.key)
 
     // Get tier upgrade keys for the selected tier
     const tierUpgradeKeys = TIER_UPGRADES[quote.selected_tier || ''] || []
@@ -528,6 +553,24 @@ export default function QuotePage() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         {label}
+                      </div>
+                    )
+                  })}
+                  {includedAddonObjs.filter((a) => !tierUpgradeKeys.includes(a.key)).map((a) => {
+                    const catalog = addons.find((ad) => ad.key === a.key)
+                    const displayLabel = catalog?.name || a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    const refPrice = catalog ? getAddonPrice(catalog) : (a.price ?? 0)
+                    return (
+                      <div key={a.key} className="flex items-center justify-between gap-2 text-sm">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                          {displayLabel}
+                        </div>
+                        {refPrice > 0 && (
+                          <span className="text-xs text-slate-400">{fmt(refPrice)} value</span>
+                        )}
                       </div>
                     )
                   })}
@@ -1193,9 +1236,41 @@ export default function QuotePage() {
           </div>
           <div className="p-5 space-y-2.5">
             {isCustomPriced ? (
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Base Service</span>
-                <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setSummaryExpanded(!summaryExpanded)}
+                  className="w-full flex justify-between items-center text-sm group"
+                >
+                  <span className="text-slate-600 flex items-center gap-1.5">
+                    Custom Service Package
+                    {summaryExpanded ? <ChevronUp className="size-3.5 text-slate-400" /> : <ChevronDown className="size-3.5 text-slate-400" />}
+                  </span>
+                  <span className="text-slate-800 font-semibold">{fmt(customBasePrice)}</span>
+                </button>
+                {summaryExpanded && (
+                  <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
+                    {STANDARD_BASE_TASKS.map((task) => (
+                      <div key={task.key} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{task.label}</span>
+                      </div>
+                    ))}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
+                      <div key={addon.key} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{addon.name}</span>
+                      </div>
+                    ))}
+                    {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+                      <div key={ca.key} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{ca.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ) : selectedTier && selectedTierPrice ? (
               <div>
@@ -1212,10 +1287,18 @@ export default function QuotePage() {
                 </button>
                 {summaryExpanded && (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
                     {getDetailedChecklist(selectedTierKey || '').map((task, i) => (
-                      <div key={i} className="flex items-start gap-2">
+                      <div key={`base-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>
+                      </div>
+                    ))}
+                    {/* Extra add-ons the admin marked as included */}
+                    {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key) && !(selectedTier?.included || []).includes(a.key)).map((addon) => (
+                      <div key={`extra-${addon.key}`} className="flex items-start gap-2">
+                        <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
+                        <span className="text-xs text-slate-600">{addon.name}</span>
                       </div>
                     ))}
                   </div>
@@ -1239,10 +1322,25 @@ export default function QuotePage() {
               </div>
             ))}
 
-            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => (
-              <div key={addon.key} className="flex justify-between text-sm">
-                <span className="text-slate-400">{addon.name}</span>
-                <span className="text-emerald-500 text-xs font-medium">Included</span>
+            {addons.filter((a) => selectedAddons[a.key] && isAddonIncluded(a.key) && !STANDARD_BASE_KEYS.has(a.key)).map((addon) => {
+              const refPrice = getAddonPrice(addon)
+              return (
+                <div key={addon.key} className="flex justify-between text-sm">
+                  <span className="text-slate-500">{addon.name}</span>
+                  <span className="text-xs font-medium flex items-center gap-2">
+                    {refPrice > 0 && <span className="text-slate-400">{fmt(refPrice)} value</span>}
+                    <span className="text-emerald-500">Included</span>
+                  </span>
+                </div>
+              )
+            })}
+            {customAddonsFromQuote.filter(ca => selectedAddons[ca.key] && isAddonIncluded(ca.key)).map((ca) => (
+              <div key={ca.key} className="flex justify-between text-sm">
+                <span className="text-slate-500">{ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
+                <span className="text-xs font-medium flex items-center gap-2">
+                  {ca.price > 0 && <span className="text-slate-400">{fmt(ca.price)} value</span>}
+                  <span className="text-emerald-500">Included</span>
+                </span>
               </div>
             ))}
 

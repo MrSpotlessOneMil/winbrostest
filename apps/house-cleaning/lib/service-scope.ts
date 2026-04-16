@@ -72,19 +72,91 @@ export function isIncludedInTier(addonKey: string, tier: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// 5. getPaidAddons — filters out base tasks and tier-included items
-//    Handles both string[] and {key: string, quantity?: number}[] formats
+// 5. Addon inclusion — normalize + decide whether an add-on adds charge
+//    Handles both string[] and object formats.
 // ---------------------------------------------------------------------------
 
-type AddonInput = string | { key: string; quantity?: number; [k: string]: unknown }
+export interface AddonObjectInput {
+  key: string
+  quantity?: number
+  included?: boolean
+  [k: string]: unknown
+}
 
+export type AddonInput = string | AddonObjectInput
+
+export interface NormalizedAddon extends AddonObjectInput {
+  key: string
+  quantity: number
+  included: boolean
+}
+
+/**
+ * isEffectivelyIncluded — single source of truth for "is this add-on $0?"
+ * Resolution order (most specific first):
+ *   1. Explicit flag on the addon object (included: true/false)
+ *   2. Custom-priced quote → default to included (locked total)
+ *   3. Tiered quote → included if the key is a base task or tier upgrade
+ */
+export function isEffectivelyIncluded(
+  addon: { key: string; included?: boolean },
+  tier: string,
+  hasCustomPrice: boolean
+): boolean {
+  if (addon.included === true) return true
+  if (addon.included === false) return false
+  if (hasCustomPrice) return true
+  return isIncludedInTier(addon.key, tier)
+}
+
+/**
+ * normalizeAddon — turn any input shape into { key, quantity, included } with
+ * the correct default so every call site agrees.
+ */
+export function normalizeAddon(
+  raw: AddonInput,
+  tier: string,
+  hasCustomPrice: boolean
+): NormalizedAddon {
+  if (typeof raw === 'string') {
+    return {
+      key: raw,
+      quantity: 1,
+      included: isEffectivelyIncluded({ key: raw }, tier, hasCustomPrice),
+    }
+  }
+  const key = raw.key
+  const quantity = Math.max(1, Math.floor(raw.quantity ?? 1))
+  const included = isEffectivelyIncluded(raw, tier, hasCustomPrice)
+  return { key, quantity, included }
+}
+
+/**
+ * normalizeAddons — bulk variant.
+ */
+export function normalizeAddons(
+  raws: AddonInput[],
+  tier: string,
+  hasCustomPrice: boolean
+): NormalizedAddon[] {
+  return raws.map((r) => normalizeAddon(r, tier, hasCustomPrice))
+}
+
+/**
+ * getPaidAddons — legacy helper, now routed through isEffectivelyIncluded.
+ * Filters out base tasks, tier-included items, and anything marked included.
+ */
 export function getPaidAddons<T extends AddonInput>(
   selectedAddons: T[],
-  tier: string
+  tier: string,
+  hasCustomPrice: boolean = false
 ): T[] {
   return selectedAddons.filter((addon) => {
-    const key = typeof addon === 'string' ? addon : addon.key
-    return !isIncludedInTier(key, tier)
+    const obj =
+      typeof addon === 'string'
+        ? { key: addon }
+        : { key: addon.key, included: addon.included }
+    return !isEffectivelyIncluded(obj, tier, hasCustomPrice)
   })
 }
 

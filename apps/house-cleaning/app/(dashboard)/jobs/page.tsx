@@ -13,7 +13,7 @@ import interactionPlugin from "@fullcalendar/interaction"
 import { formatDate } from "@fullcalendar/core"
 import type { DateSelectArg, EventClickArg, EventDropArg, EventInput } from "@fullcalendar/core"
 import { WINBROS_CALENDAR_ADDONS, WINDOW_TIERS, type WindowTier } from "@/lib/pricebook"
-import { TIER_UPGRADES, isIncludedInTier, getPaidAddons } from "@/lib/service-scope"
+import { TIER_UPGRADES, isIncludedInTier, getPaidAddons, isEffectivelyIncluded } from "@/lib/service-scope"
 import ScheduleGantt, { type GanttJob } from "@/components/dashboard/schedule-gantt"
 import { DollarSign, CreditCard, FileText, KeyRound, Zap, Copy, Check, Send, Loader2 } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
@@ -1930,15 +1930,31 @@ export default function JobsPage() {
             selected_addons: (() => {
               const st = (createForm.service_type || "").toLowerCase()
               const tierKey = st.includes("deep") ? "deep" : st.includes("move") ? "move" : "standard"
-              const catalogAddons = createForm.selected_addons
-                .filter((key) => !isIncludedInTier(key, tierKey))
-                .map((key) => {
-                  const addon = derivedAddonsList.find((a) => a.addon_key === key)
-                  return { key, label: addon?.label || key, price: addon?.flat_price || 0, quantity: 1 }
-                })
+              const hasCustomPrice = !!(createForm.price && Number(createForm.price) > 0)
+              // Send ALL selected addons with included flag set — the invoice/quote
+              // renders included ones with "$X value — Included" so the customer sees
+              // the full scope even when the salesman locked a custom total.
+              const catalogAddons = createForm.selected_addons.map((key) => {
+                const addon = derivedAddonsList.find((a) => a.addon_key === key)
+                return {
+                  key,
+                  label: addon?.label || key,
+                  price: addon?.flat_price || 0,
+                  quantity: 1,
+                  included: isEffectivelyIncluded({ key }, hasCustomPrice ? 'custom' : tierKey, hasCustomPrice),
+                }
+              })
               const allAddons = [
                 ...catalogAddons,
-                ...createForm.customAddons.map((ca) => ({ key: ca.key, label: ca.label, price: ca.price, quantity: 1, custom: true })),
+                ...createForm.customAddons.map((ca) => ({
+                  key: ca.key,
+                  label: ca.label,
+                  price: ca.price,
+                  quantity: 1,
+                  custom: true,
+                  // Custom addons: respect custom-priced default (included) or billable otherwise.
+                  included: hasCustomPrice,
+                })),
               ]
               return allAddons.length > 0 ? allAddons : undefined
             })(),
@@ -2737,25 +2753,51 @@ export default function JobsPage() {
                     <strong>Service:</strong> {selectedEvent.service}
                   </div>
                 )}
-                {/* Paid Add-ons breakdown */}
+                {/* Add-ons breakdown — separates billable (charged) from included ($0) */}
                 {(() => {
                   if (!selectedEvent?.addons || selectedEvent.addons.length === 0) return null
                   const st = (selectedEvent.serviceType || "").toLowerCase()
                   const tier = st.includes("move") ? "move" : st.includes("deep") ? "deep" : "standard"
-                  const paid = getPaidAddons(selectedEvent.addons, tier)
-                  if (paid.length === 0) return null
+                  // Any addon without an included flag + job created from a custom-priced
+                  // quote defaults to included. For calendar-side jobs without an explicit
+                  // hasCustomPrice signal, trust the stored flag or fall back to tier rules.
+                  const billable = selectedEvent.addons.filter((a: any) =>
+                    !isEffectivelyIncluded({ key: a.key, included: a.included }, tier, false)
+                  )
+                  const included = selectedEvent.addons.filter((a: any) =>
+                    isEffectivelyIncluded({ key: a.key, included: a.included }, tier, false)
+                    && !['kitchen_surfaces','bathroom_sanitize','vacuum_mop','dusting','trash_removal'].includes(a.key)
+                  )
+                  if (billable.length === 0 && included.length === 0) return null
                   return (
-                    <div style={{ marginBottom: "0.5rem" }}>
-                      <strong style={{ fontSize: "0.85rem" }}>Add-ons:</strong>
-                      {paid.map((addon) => (
-                        <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
-                          <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</span>
-                          {addon.price != null && addon.price > 0 && (
-                            <span style={{ color: "#a1a1aa" }}>${addon.price}</span>
-                          )}
+                    <>
+                      {billable.length > 0 && (
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <strong style={{ fontSize: "0.85rem" }}>Add-ons (billed):</strong>
+                          {billable.map((addon: any) => (
+                            <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
+                              <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                              {addon.price != null && addon.price > 0 && (
+                                <span style={{ color: "#a1a1aa" }}>+${addon.price}</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                      {included.length > 0 && (
+                        <div style={{ marginBottom: "0.5rem" }}>
+                          <strong style={{ fontSize: "0.85rem" }}>Included:</strong>
+                          {included.map((addon: any) => (
+                            <div key={addon.key} style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem", padding: "1px 0" }}>
+                              <span style={{ color: "#e4e4e7" }}>{addon.label || addon.key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</span>
+                              <span style={{ color: "#10b981", fontSize: "0.75rem", fontWeight: 600 }}>
+                                {addon.price != null && addon.price > 0 ? `$${addon.price} value — ` : ''}Included
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )
                 })()}
                 {selectedEvent?.frequency && selectedEvent.frequency !== "one-time" && (

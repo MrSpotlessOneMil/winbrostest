@@ -6,6 +6,9 @@
 import { getStripeClientForTenant, findOrCreateStripeCustomer } from './stripe-client'
 import { getSupabaseServiceClient } from './supabase'
 import { getQuotePricing } from './quote-pricing'
+import { isEffectivelyIncluded } from './service-scope'
+
+type StoredAddon = string | { key: string; quantity?: number; included?: boolean; label?: string; price?: number; custom?: boolean }
 
 interface QuoteData {
   id: number
@@ -15,11 +18,12 @@ interface QuoteData {
   customer_email?: string | null
   customer_address?: string | null
   selected_tier?: string | null
-  selected_addons?: string[] | null
+  selected_addons?: StoredAddon[] | null
   total?: number | null
   subtotal?: number | null
   discount?: number | null
   deposit_amount?: number | null
+  custom_base_price?: number | null
   service_category?: string | null
   bedrooms?: number | null
   bathrooms?: number | null
@@ -118,17 +122,34 @@ export async function generateQuoteInvoice(
       description: `${tierName} — ${businessName}${quote.customer_address ? ` — ${quote.customer_address}` : ''}`,
     })
 
-    // Add-on line items (skip addons already included in the tier)
-    for (const addonKey of selectedAddons) {
-      if (tierDef?.included.includes(addonKey)) continue
-      const addonDef = pricing.addons.find(a => a.key === addonKey)
-      if (addonDef && addonDef.price > 0) {
+    // Add-on line items. Billable: charged as-is. Included: shown on invoice at
+    // $0 with "Included" note so the customer sees the value they're getting.
+    const hasCustomPriceInv = quote.custom_base_price != null
+    for (const rawAddon of selectedAddons) {
+      const key = typeof rawAddon === 'string' ? rawAddon : rawAddon.key
+      const explicitIncluded = typeof rawAddon === 'string' ? undefined : rawAddon.included
+      const included = isEffectivelyIncluded({ key, included: explicitIncluded }, selectedTier, hasCustomPriceInv)
+      const addonDef = pricing.addons.find((a) => a.key === key)
+      const label = addonDef?.name || (typeof rawAddon !== 'string' ? rawAddon.label : undefined) || key
+      const refPrice = addonDef?.price ?? (typeof rawAddon !== 'string' ? rawAddon.price ?? 0 : 0)
+      if (included) {
+        // Zero-amount line item — customer sees the value but pays $0 extra.
+        if (refPrice > 0) {
+          await stripe.invoiceItems.create({
+            customer: stripeCustomer.id,
+            invoice: invoice.id,
+            amount: 0,
+            currency: resolvedCurrency,
+            description: `${label} (${refPrice > 0 ? `$${refPrice.toFixed(0)} value — ` : ''}Included in package)`,
+          })
+        }
+      } else if (refPrice > 0) {
         await stripe.invoiceItems.create({
           customer: stripeCustomer.id,
           invoice: invoice.id,
-          amount: Math.round(addonDef.price * 100),
+          amount: Math.round(refPrice * 100),
           currency: resolvedCurrency,
-          description: addonDef.name,
+          description: label,
         })
       }
     }

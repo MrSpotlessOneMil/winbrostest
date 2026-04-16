@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
+import { normalizeAddons, type AddonInput } from "@/lib/service-scope"
 
 /**
  * GET — List quotes for the tenant
@@ -151,6 +152,17 @@ export async function POST(request: NextRequest) {
 
   const hasPreconfirm = Array.isArray(cleaner_ids) && cleaner_ids.length > 0
 
+  // Normalize add-ons with the correct included-flag defaults at write time so
+  // downstream reads (customer page, create-job, invoice) don't re-derive.
+  const hasCustomPriceForNorm = parsedCustomPrice != null
+  const tierForNorm = hasCustomPriceForNorm ? 'custom' : ((selected_tier as string | undefined) || 'standard')
+  const rawAddonsIn = Array.isArray(selected_addons) ? (selected_addons as unknown[]) : []
+  const filteredAddonsIn: AddonInput[] = rawAddonsIn.filter(
+    (a): a is AddonInput =>
+      typeof a === 'string' || (typeof a === 'object' && a !== null && 'key' in a)
+  )
+  const normalizedAddonsIn = normalizeAddons(filteredAddonsIn, tierForNorm, hasCustomPriceForNorm)
+
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
@@ -166,7 +178,7 @@ export async function POST(request: NextRequest) {
       property_type: property_type || null,
       service_category: category,
       selected_tier: selected_tier || null,
-      selected_addons: Array.isArray(selected_addons) && selected_addons.length > 0 ? selected_addons : null,
+      selected_addons: normalizedAddonsIn.length > 0 ? normalizedAddonsIn : null,
       membership_plan: membership_plan && typeof membership_plan === 'string' ? membership_plan : null,
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
@@ -262,7 +274,7 @@ export async function PATCH(request: NextRequest) {
   // Verify quote belongs to tenant
   const { data: existing } = await supabase
     .from("quotes")
-    .select("id, tenant_id, status")
+    .select("id, tenant_id, status, selected_tier, custom_base_price")
     .eq("id", Number(id))
     .eq("tenant_id", tenant.id)
     .single()
@@ -286,6 +298,30 @@ export async function PATCH(request: NextRequest) {
     if (field in body) {
       updates[field] = body[field] ?? null
     }
+  }
+
+  // Normalize selected_addons with the correct included-flag defaults.
+  // Use the pending update values when present, fall back to stored row.
+  if ('selected_addons' in updates && Array.isArray(updates.selected_addons)) {
+    const nextCustomBase =
+      'custom_base_price' in updates && updates.custom_base_price != null
+        ? Number(updates.custom_base_price)
+        : existing.custom_base_price != null
+          ? Number(existing.custom_base_price)
+          : null
+    const hasCustomPriceUpd = nextCustomBase != null
+    const nextTier =
+      'selected_tier' in updates && updates.selected_tier
+        ? (updates.selected_tier as string)
+        : (existing.selected_tier as string | null) || 'standard'
+    const tierForUpd = hasCustomPriceUpd ? 'custom' : nextTier
+    const rawAddonsUpd = updates.selected_addons as unknown[]
+    const filteredAddonsUpd: AddonInput[] = rawAddonsUpd.filter(
+      (a): a is AddonInput =>
+        typeof a === 'string' || (typeof a === 'object' && a !== null && 'key' in a)
+    )
+    const normalizedUpd = normalizeAddons(filteredAddonsUpd, tierForUpd, hasCustomPriceUpd)
+    updates.selected_addons = normalizedUpd.length > 0 ? normalizedUpd : null
   }
 
   // Validate numeric fields
