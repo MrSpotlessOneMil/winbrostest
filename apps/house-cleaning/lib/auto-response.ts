@@ -10,6 +10,43 @@ import type { Tenant } from './tenant'
 import { getTenantServiceDescription, getTenantBusinessContext, tenantUsesFeature } from './tenant'
 import { getPromoConfig, CAMPAIGN_CONTEXTS } from './promo-config'
 
+// =====================================================================
+// POST-PROCESSING: Sanitize AI output before sending as SMS
+// =====================================================================
+
+function sanitizeAIResponse(text: string): string {
+  let cleaned = text
+  // Strip ALL emoji characters
+  cleaned = cleaned.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{231A}-\u{231B}\u{23E9}-\u{23F3}\u{23F8}-\u{23FA}\u{25AA}-\u{25AB}\u{25B6}\u{25C0}\u{25FB}-\u{25FE}\u{2934}-\u{2935}\u{2B05}-\u{2B07}\u{2B1B}-\u{2B1C}\u{2B50}\u{2B55}\u{3030}\u{303D}\u{3297}\u{3299}]/gu, '')
+  // Replace em/en dashes
+  cleaned = cleaned.replace(/\u2014/g, ',').replace(/\u2013/g, '-')
+  // Strip markdown
+  cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '').replace(/^[-*+]\s+/gm, '')
+  // Clean up whitespace
+  cleaned = cleaned.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim()
+  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown')
+  return cleaned
+}
+
+function autoSplitLongMessage(text: string, maxChars: number = 200): string {
+  if (text.includes('|||') || text.length <= maxChars) return text
+  const sentences = text.match(/[^.!?]+[.!?]+\s*/g)
+  if (!sentences || sentences.length <= 1) return text
+  const chunks: string[] = []
+  let current = ''
+  for (const sentence of sentences) {
+    if (current.length + sentence.length > maxChars && current.length > 0) {
+      chunks.push(current.trim())
+      current = sentence
+    } else {
+      current += sentence
+    }
+  }
+  if (current.trim()) chunks.push(current.trim())
+  return chunks.slice(0, 3).join('|||')
+}
+
 export interface AutoResponseResult {
   response: string
   shouldSend: boolean
@@ -908,7 +945,7 @@ async function generateWinBrosResponse(
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Safety net: if the AI offered specific days/times without [SCHEDULE_READY],
     // strip the fake times and trigger the real scheduler instead.
@@ -1005,7 +1042,7 @@ async function generateWinBrosResponse(
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
     let isScheduleReady = detectScheduleReady(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Safety net: same fake-scheduling detection as Claude path
     if (!isScheduleReady && detectFakeScheduling(rawText, isScheduleReady)) {
@@ -1383,7 +1420,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
     const guardrail = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
@@ -1423,7 +1460,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
     const guardrailOai = applyQuotePromiseGuardrail(cleanResponse, isBookingComplete, knownCustomerInfo)
@@ -1764,7 +1801,7 @@ async function generateHouseCleaningResponse(
   // 10. Industry intelligence (Osiris Brain knowledge chunks)
   // 11. AI learning (conversation stage + frustration + winning patterns)
   // 12. The customer's actual message
-  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${ownerPatternsBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.`
+  const userMessage = `Today's date: ${today}\n\nConversation so far:\n${historyContext}${knownInfoBlock}${verifiedPricingBlock}${returningCustomerBlock}${contextBlock}${customerBrainBlock}${memoryBlock}${ownerPatternsBlock}${brainBlock}${aiLearningBlock}${patternsBlock}\n\nCustomer just texted: "${message}"\n\nRespond as ${sdrName}. Write ONLY the SMS text (and escalation/booking-complete tag if needed). Nothing else.\n\nFORMATTING: NO emojis (blocked if included). NO em dashes. NO markdown. Plain short texts. Use ||| to split. Match the customer's texting style.`
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY
   if (anthropicKey) {
@@ -1788,7 +1825,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
@@ -1831,7 +1868,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     let isBookingComplete = detectBookingComplete(rawText)
-    let cleanResponse = stripEscalationTags(rawText)
+    let cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     // Quote-promise guardrail: catch "I'll send you a quote" without [BOOKING_COMPLETE]
