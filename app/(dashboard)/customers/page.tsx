@@ -338,6 +338,7 @@ export default function CustomersPage() {
   const [paymentLoading, setPaymentLoading] = useState(false)
   const [paymentResult, setPaymentResult] = useState<{ url?: string; invoiceId?: string } | null>(null)
   const [paymentCopied, setPaymentCopied] = useState(false)
+  const [quoteCopied, setQuoteCopied] = useState(false)
   const [paymentSmsSent, setPaymentSmsSent] = useState(false)
   const [chargeCardLoading, setChargeCardLoading] = useState(false)
   const [chargeCardResult, setChargeCardResult] = useState<{ success: boolean; amount?: number; error?: string } | null>(null)
@@ -2432,10 +2433,11 @@ export default function CustomersPage() {
                                     )}
                                     {createQuoteResult.url && (
                                       <button
-                                        onClick={() => { navigator.clipboard.writeText(createQuoteResult.url!); }}
+                                        onClick={() => { navigator.clipboard.writeText(createQuoteResult.url!); setQuoteCopied(true); setTimeout(() => setQuoteCopied(false), 2000); }}
                                         className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg transition-colors"
                                       >
-                                        <Copy className="w-3.5 h-3.5" /> Copy Link
+                                        {quoteCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                                        {quoteCopied ? "Copied!" : "Copy Link"}
                                       </button>
                                     )}
                                   </>
