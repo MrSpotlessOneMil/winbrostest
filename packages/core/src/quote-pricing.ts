@@ -144,7 +144,6 @@ const MOVE_ADDON_KEYS = [
   'inside_washer_dryer',
   'pet_hair_removal',
   'blinds',
-  'full_wall_washing',
   'exhaust_fans',
 ]
 
