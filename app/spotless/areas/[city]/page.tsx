@@ -32,7 +32,7 @@ export async function generateMetadata({ params }: CityPageProps): Promise<Metad
     title: `House Cleaning in ${area.city}, CA | Spotless Scrubbers`,
     description: `Professional house cleaning in ${area.city}, CA. Serving ${area.neighborhoods.slice(0, 3).join(", ")} and more. Insured cleaners, satisfaction guaranteed.`,
     alternates: {
-      canonical: `${SPOTLESS_BUSINESS.url}/spotless/areas/${city}`,
+      canonical: `${SPOTLESS_BUSINESS.url}/areas/${city}`,
     },
   }
 }
@@ -55,7 +55,7 @@ export default async function CityPage({ params }: CityPageProps) {
     },
     {
       question: `How do I book a cleaning in ${area.city}?`,
-      answer: `Booking a cleaning in ${area.city} is simple. Fill out the form on this page, call us at ${SPOTLESS_BUSINESS.phone}, or email ${SPOTLESS_BUSINESS.email}. We will confirm your appointment within the hour and match you with the best local cleaner for your needs.`,
+      answer: `Booking a cleaning in ${area.city} is simple. Fill out the form on this page, call us at ${SPOTLESS_BUSINESS.phone}, or email ${SPOTLESS_BUSINESS.email}. We confirm your appointment instantly and match you with the best local cleaner for your needs.`,
     },
     {
       question: `Are your cleaners local to ${area.city}?`,
@@ -128,7 +128,7 @@ export default async function CityPage({ params }: CityPageProps) {
             {SPOTLESS_SERVICES.map((service) => (
               <Link
                 key={service.slug}
-                href={`/spotless/services/${service.slug}/${area.slug}`}
+                href={`/services/${service.slug}/${area.slug}`}
                 className="group rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow p-5"
               >
                 <h3 className="text-lg font-bold text-slate-900 mb-1 group-hover:text-[#2195b4] transition-colors">
@@ -207,7 +207,7 @@ export default async function CityPage({ params }: CityPageProps) {
             Book a Cleaning in {area.city}
           </h2>
           <p className="text-slate-600 text-center mb-8">
-            Fill out the form below and we will confirm your appointment within the hour.
+            Fill out the form below for instant confirmation.
           </p>
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8">
             <BookingForm source={`area-${area.slug}`} />
@@ -224,7 +224,7 @@ export default async function CityPage({ params }: CityPageProps) {
           {nearbyCities.map((nearby) => (
             <Link
               key={nearby.slug}
-              href={`/spotless/areas/${nearby.slug}`}
+              href={`/areas/${nearby.slug}`}
               className="text-center px-4 py-3 rounded-lg border border-slate-200 bg-white text-sm font-medium text-[#2195b4] hover:bg-[#2195b4] hover:text-white transition-colors"
             >
               {nearby.city}

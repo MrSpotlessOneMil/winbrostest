@@ -18,15 +18,10 @@ export type SystemEventSource =
   | 'lead_actions'
   | 'email_cron'
   | 'website'
+  | 'meta'
+  | 'google'
+  | 'referral'
   | 'thumbtack'
-  | 'dashboard'
-  | 'osiris-brain'
-  | 'tip'
-  | 'complete-job'
-  | 'google_lsa'
-  | 'lifecycle'
-  | 'offers'
-  | 'ghost_watchdog'
 
 export type SystemEventType =
   | 'CALL_COMPLETED'

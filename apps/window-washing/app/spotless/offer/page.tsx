@@ -5,14 +5,14 @@ import { HowItWorks } from "@/components/marketing/how-it-works"
 import { StickyCTA } from "@/components/marketing/sticky-cta"
 
 export const metadata: Metadata = {
-  title: "$99 First Deep Clean | Spotless Scrubbers",
+  title: "$149 First Deep Clean | Spotless Scrubbers",
   description:
-    "Get your first professional deep clean for just $99 (normally $250+). Kitchen, bathrooms, baseboards, fridge, oven — everything. 5.0 stars, 2,500+ homes cleaned across LA County.",
+    "Get your first professional deep clean for just $149 (normally $250+). Kitchen, bathrooms, baseboards, fridge, oven — everything. 5.0 stars, 2,500+ homes cleaned across LA County.",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "$99 First Deep Clean | Spotless Scrubbers",
+    title: "$149 First Deep Clean | Spotless Scrubbers",
     description:
-      "Your first professional deep clean for $99. Normally $250+. Fridge, oven, baseboards included. 5.0 stars across LA County.",
+      "Your first professional deep clean for $149. Normally $250+. Fridge, oven, baseboards included. 5.0 stars across LA County.",
   },
 }
 
@@ -36,7 +36,7 @@ const INCLUDED_ITEMS = [
 const VALUE_CARDS = [
   {
     title: "$250+ Value",
-    subtitle: "for just $99",
+    subtitle: "for just $149",
     description: "Same deep clean our recurring clients get — at a fraction of the price.",
   },
   {
@@ -79,7 +79,7 @@ const FAQS = [
       "If you're not happy with the clean, we'll come back and redo it — free. If we still can't get it right, you don't pay. Period.",
   },
   {
-    question: "What's included in the $99 deep clean?",
+    question: "What's included in the $149 deep clean?",
     answer:
       "Everything. Kitchen, bathrooms, bedrooms, baseboards, inside your fridge and oven, all surfaces, mirrors, mopping — the works. It's the same deep clean we normally charge $250+ for.",
   },
@@ -91,7 +91,7 @@ const FAQS = [
   {
     question: "Is there a catch?",
     answer:
-      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $99 price is for your first deep clean only. If you love it and go recurring, your regular rate kicks in on visit two.",
+      "No catch. We ask for a card on file when you book (standard practice — we don't charge until after the clean). The $149 price is for your first deep clean only. If you love it and go recurring, your regular rate kicks in on visit two.",
   },
   {
     question: "How long does it take?",
@@ -126,7 +126,7 @@ export default function OfferPage() {
               </div>
               <h1 className="text-4xl md:text-5xl font-bold text-white leading-tight mb-4 font-heading">
                 Your First Deep Clean.{" "}
-                <span className="text-amber-300">$99.</span>
+                <span className="text-amber-300">$149.</span>
               </h1>
               <p className="text-lg text-slate-200 mb-2">
                 Normally $250+. Kitchen, bathrooms, baseboards, fridge, oven — everything.
@@ -140,7 +140,7 @@ export default function OfferPage() {
                 href="#claim-offer"
                 className="inline-block lg:hidden px-8 py-3.5 bg-amber-400 text-slate-900 font-bold rounded-lg text-base hover:bg-amber-300 transition-colors shadow-lg"
               >
-                Claim Your $99 Clean
+                Claim Your $149 Clean
               </a>
 
               {/* Trust signals */}
@@ -163,7 +163,7 @@ export default function OfferPage() {
                 <p className="text-sm text-slate-500 mb-1">YOUR FIRST DEEP CLEAN</p>
                 <div className="flex items-center justify-center gap-3">
                   <span className="text-lg text-slate-400 line-through">$250+</span>
-                  <span className="text-4xl font-bold text-[#2195b4]">$99</span>
+                  <span className="text-4xl font-bold text-[#2195b4]">$149</span>
                 </div>
               </div>
               <BookingForm source="meta" preselectedService="deep-cleaning" />
@@ -182,7 +182,7 @@ export default function OfferPage() {
             What you get
           </p>
           <h2 className="text-3xl font-bold text-center text-gray-900 mb-3 font-heading">
-            Everything. For $99.
+            Everything. For $149.
           </h2>
           <p className="text-center text-slate-500 mb-10 max-w-lg mx-auto">
             This is the same deep clean we normally charge $250+ for. No corners cut.
@@ -298,7 +298,7 @@ export default function OfferPage() {
             Ready for a spotless home?
           </h2>
           <p className="text-slate-300 mb-8">
-            Claim your $99 first deep clean. Available times in 60 seconds.
+            Claim your $149 first deep clean. Available times in 60 seconds.
           </p>
 
           <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 text-left">

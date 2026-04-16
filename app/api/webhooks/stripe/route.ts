@@ -358,6 +358,7 @@ async function handleDepositPayment(
 
   // Log the system event
   await logSystemEvent({
+    tenant_id: jobTenantId,
     source: 'stripe',
     event_type: 'DEPOSIT_PAID',
     message: `Deposit payment received for job ${jobId}`,
@@ -661,6 +662,23 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
   // Create job from the approved quote (with membership_id if applicable)
   const hasServiceDate = quote.service_date && typeof quote.service_date === 'string'
   const hasServiceTime = quote.service_time && typeof quote.service_time === 'string'
+
+  // For promo jobs, look up config and set notes + job params
+  const { PROMO_CAMPAIGNS } = await import('@/lib/promo-config')
+  let jobNotes: string | null = null
+  const promoPrice = quote.custom_base_price ? Number(quote.custom_base_price) : null
+  const isPromoQuote = promoPrice != null && (quote.notes || '').includes('Meta Promo')
+  // Find matching promo config by price
+  const promoEntry = isPromoQuote ? Object.values(PROMO_CAMPAIGNS).find(c => c.price === promoPrice) : null
+  if (isPromoQuote && quote.bedrooms && quote.bathrooms) {
+    try {
+      const { getPricingRow } = await import('@/lib/pricing-db')
+      const normalRow = await getPricingRow('deep', quote.bedrooms, quote.bathrooms, null, quote.tenant_id)
+      const normalPrice = normalRow?.price || 0
+      jobNotes = `PROMO:$${promoPrice}|NORMAL_PRICE:${normalPrice}`
+    } catch { /* non-blocking */ }
+  }
+
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
     customer_id: quote.customer_id || null,
@@ -674,13 +692,15 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
     payment_status: 'pending',
     confirmed_at: new Date().toISOString(),
     stripe_checkout_session_id: session.id,
-    notes: null,
+    notes: jobNotes,
     quote_id: quote.id,
     ...(hasServiceDate ? { date: quote.service_date } : {}),
     ...(hasServiceTime ? { scheduled_at: quote.service_time } : {}),
     ...(membershipId ? { membership_id: membershipId } : {}),
     // Set frequency from membership plan so recurring cron creates future instances
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
+    // $99 promo: lock at 1 cleaner, 3 hours, with pay override ($75 = 3hrs x $25/hr)
+    ...(promoEntry ? { hours: promoEntry.hours, cleaners: promoEntry.cleaners, cleaner_pay_override: promoEntry.payOverride } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
@@ -929,6 +949,20 @@ async function handleQuoteCardOnFile(session: Stripe.Checkout.Session) {
       console.error('[Stripe Webhook] Failed to notify salesman:', err)
     }
   }
+
+  // Update lead status to 'booked' so follow-up crons stop texting
+  if (quote.customer_id) {
+    try {
+      await serviceClient.from('leads')
+        .update({ status: 'booked', followup_stage: 99 })
+        .eq('customer_id', quote.customer_id)
+        .eq('tenant_id', quote.tenant_id)
+        .in('status', ['new', 'contacted', 'qualified'])
+      console.log(`[Stripe Webhook] Updated lead status to booked for customer ${quote.customer_id}`)
+    } catch (err) {
+      console.error('[Stripe Webhook] Failed to update lead status:', err)
+    }
+  }
 }
 
 async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
@@ -1041,6 +1075,21 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     }
   }
 
+  // For promo jobs, look up config and set notes + job params
+  const { PROMO_CAMPAIGNS } = await import('@/lib/promo-config')
+  let depositJobNotes: string | null = `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved & deposit paid — ${serviceName} package`
+  const depositPromoPrice = quote.custom_base_price ? Number(quote.custom_base_price) : null
+  const isDepositPromo = depositPromoPrice != null && (quote.notes || '').includes('Meta Promo')
+  const depositPromoEntry = isDepositPromo ? Object.values(PROMO_CAMPAIGNS).find(c => c.price === depositPromoPrice) : null
+  if (isDepositPromo && quote.bedrooms && quote.bathrooms) {
+    try {
+      const { getPricingRow } = await import('@/lib/pricing-db')
+      const normalRow = await getPricingRow('deep', quote.bedrooms, quote.bathrooms, null, quote.tenant_id)
+      const normalPrice = normalRow?.price || 0
+      depositJobNotes = `PROMO:$${depositPromoPrice}|NORMAL_PRICE:${normalPrice}`
+    } catch { /* non-blocking */ }
+  }
+
   // Create job from the approved quote (with membership_id if applicable)
   const jobInsert: Record<string, unknown> = {
     tenant_id: quote.tenant_id,
@@ -1055,10 +1104,11 @@ async function handleQuoteDepositPayment(session: Stripe.Checkout.Session) {
     payment_status: 'deposit_paid',
     confirmed_at: new Date().toISOString(),
     stripe_checkout_session_id: session.id,
-    notes: `Quote #${(quote_token || '').slice(0, 8).toUpperCase()} approved & deposit paid — ${serviceName} package`,
+    notes: depositJobNotes,
     quote_id: quote.id,
     ...(depositMembershipId ? { membership_id: depositMembershipId } : {}),
     ...(membership_plan && membership_plan !== 'one-time' ? { frequency: membership_plan } : {}),
+    ...(depositPromoEntry ? { hours: depositPromoEntry.hours, cleaners: depositPromoEntry.cleaners, cleaner_pay_override: depositPromoEntry.payOverride } : {}),
   }
 
   const { data: newJob, error: jobError } = await serviceClient
@@ -1137,6 +1187,7 @@ async function handleFinalPayment(jobId: string, session: Stripe.Checkout.Sessio
 
   // Log the system event
   await logSystemEvent({
+    tenant_id: (updatedJob as any).tenant_id,
     source: 'stripe',
     event_type: 'FINAL_PAID',
     message: `Final payment received for job ${jobId}`,
@@ -1209,8 +1260,16 @@ async function handleTipPayment(session: Stripe.Checkout.Session) {
     ).catch(err => console.error('[Stripe Webhook] Failed to distribute tip:', err))
   }
 
+  // Get tenant_id from the job for logging
+  let tipTenantId: string | undefined
+  if (job_id) {
+    const tipJob = await getJobById(job_id, client)
+    tipTenantId = (tipJob as any)?.tenant_id
+  }
+
   // Log the tip payment
   await logSystemEvent({
+    tenant_id: tipTenantId,
     source: 'stripe',
     event_type: 'INVOICE_PAID',
     message: `Tip of $${tipDollars.toFixed(2)} received for ${cleanerName}`,
@@ -1249,6 +1308,7 @@ async function handlePaymentIntentSucceeded(paymentIntent: Stripe.PaymentIntent)
 
     if (job) {
       await logSystemEvent({
+        tenant_id: (job as any).tenant_id,
         source: 'stripe',
         event_type: payment_type === 'DEPOSIT' ? 'DEPOSIT_PAID' : 'FINAL_PAID',
         message: `Payment intent confirmed for job ${job_id}`,
@@ -1389,6 +1449,7 @@ async function handlePaymentIntentFailed(paymentIntent: Stripe.PaymentIntent) {
 
   // Log system event
   await logSystemEvent({
+    tenant_id: jobTenantId,
     source: 'stripe',
     event_type: 'PAYMENT_FAILED',
     message: `Payment failed for job ${job_id}: ${failureMessage}`,
@@ -1804,6 +1865,7 @@ async function handleCardOnFileSaved(session: Stripe.Checkout.Session) {
 
   // Log system event with full details
   await logSystemEvent({
+    tenant_id: tenant.id,
     source: 'stripe',
     event_type: 'CARD_ON_FILE_SAVED',
     message: `Card on file saved${phone_number ? ` for ${phone_number}` : ''}${job ? ` — job ${actualJobId} (${job.service_type}, ${job.date})` : ''}`,

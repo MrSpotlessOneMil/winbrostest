@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from "react"
 import { useAuth } from "@/lib/auth-context"
 import {
   ChevronLeft, ChevronRight, Loader2, Plus, MapPin,
-  Clock, X as XIcon, ChevronDown, GripVertical, Check, Phone, User,
+  X as XIcon, ChevronDown, GripVertical, Phone, User,
 } from "lucide-react"
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
@@ -48,7 +48,6 @@ function toDateStr(d: Date): string {
 
 function parseTime(val: string | null): { h: number; m: number } | null {
   if (!val) return null
-  // Handle both "14:30" and "2026-04-01T14:30:00" formats
   if (val.includes("T")) {
     const d = new Date(val)
     if (isNaN(d.getTime())) return null
@@ -101,8 +100,8 @@ const STATUS_BG: Record<string, string> = {
 }
 
 const STATUS_MARK: Record<string, React.ReactNode> = {
-  completed: <span className="text-green-400 font-bold text-[10px]">✕</span>,
-  in_progress: <span className="text-amber-400 font-bold text-[10px]">●</span>,
+  completed: <span className="text-green-400 font-bold text-[10px]">&#x2715;</span>,
+  in_progress: <span className="text-amber-400 font-bold text-[10px]">&#x25CF;</span>,
   not_completed: <span className="text-red-400 font-bold text-[10px]">!</span>,
 }
 
@@ -110,103 +109,6 @@ const ROLE_BADGE: Record<string, { label: string; color: string }> = {
   team_lead: { label: "TL", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
   technician: { label: "T", color: "bg-green-500/20 text-green-400 border-green-500/30" },
   salesman: { label: "S", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   DEMO DATA
-   ══════════════════════════════════════════════════════════════════════════ */
-
-function generateDemoData(monday: Date) {
-  const cleaners: Cleaner[] = [
-    { id: 101, name: "Max Rivera", phone: "(309) 555-0101", is_team_lead: true, employee_type: "team_lead", active: true },
-    { id: 102, name: "Blake Harrison", phone: "(309) 555-0102", is_team_lead: true, employee_type: "team_lead", active: true },
-    { id: 103, name: "Josh Kendall", phone: "(309) 555-0103", is_team_lead: true, employee_type: "team_lead", active: true },
-    { id: 104, name: "Trac Nguyen", phone: "(309) 555-0104", is_team_lead: true, employee_type: "team_lead", active: true },
-    { id: 105, name: "Paul Martinez", phone: "(309) 555-0105", is_team_lead: false, employee_type: "technician", active: true },
-    { id: 106, name: "Jerry Walsh", phone: "(309) 555-0106", is_team_lead: false, employee_type: "technician", active: true },
-    { id: 107, name: "Jon Kim", phone: "(309) 555-0107", is_team_lead: false, employee_type: "technician", active: true },
-    { id: 108, name: "Gary Chen", phone: "(309) 555-0108", is_team_lead: false, employee_type: "technician", active: true },
-    { id: 109, name: "Terry Brooks", phone: "(309) 555-0109", is_team_lead: false, employee_type: "technician", active: true },
-    { id: 110, name: "Brennan Cole", phone: "(309) 555-0110", is_team_lead: false, employee_type: "salesman", active: true },
-    { id: 111, name: "Tyrone Davis", phone: "(309) 555-0111", is_team_lead: false, employee_type: "salesman", active: true },
-    { id: 112, name: "Lebron James", phone: "(309) 555-0112", is_team_lead: false, employee_type: "salesman", active: true },
-    { id: 113, name: "MJ Jordan", phone: "(309) 555-0113", is_team_lead: false, employee_type: "salesman", active: true },
-    { id: 114, name: "Kyrie Irving", phone: "(309) 555-0114", is_team_lead: false, employee_type: "salesman", active: true },
-  ]
-
-  const services = ["ext_window_cleaning", "gutter_cleaning", "pressure_washing", "int_ext_windows", "screen_repair", "house_wash", "concrete_cleaning"]
-  const locations = ["Washington", "Morton", "Pekin", "East Peoria", "Bloomington", "Peoria Heights"]
-  const addresses = [
-    "1423 Oak St, Washington, IL 61571",
-    "809 Birch Ln, Morton, IL 61550",
-    "2205 Washington Rd, East Peoria, IL 61611",
-    "315 Main St, Peoria Heights, IL 61616",
-    "452 Maple Ave, Pekin, IL 61554",
-    "987 Cedar Dr, Bloomington, IL 61701",
-  ]
-  const customers = [
-    { first_name: "Sarah", last_name: "Mitchell" },
-    { first_name: "James", last_name: "Rodriguez" },
-    { first_name: "Linda", last_name: "Chen" },
-    { first_name: "Mike", last_name: "O'Brien" },
-    { first_name: "Karen", last_name: "Johnson" },
-    { first_name: "Dave", last_name: "Kowalski" },
-  ]
-
-  const jobs: Job[] = []
-  const crewDays: CrewDay[] = []
-  const tlIds = [101, 102, 103, 104]
-
-  // Generate jobs for Mon-Sat (6 days)
-  for (let d = 0; d < 6; d++) {
-    const day = addDays(monday, d)
-    const dateStr = toDateStr(day)
-    const dayTLs = d < 4 ? [tlIds[0], tlIds[1]] : [tlIds[2], tlIds[3]] // rotate leads
-
-    for (const tlId of dayTLs) {
-      const numJobs = 3 + (d % 2) // 3-4 jobs per TL per day
-      for (let j = 0; j < numJobs; j++) {
-        const hour = 8 + j * 2
-        const idx = (d * 3 + j + tlId) % 6
-        const isSales = j === numJobs - 1 && d % 3 === 0
-        jobs.push({
-          id: d * 1000 + tlId * 10 + j,
-          date: dateStr,
-          scheduled_at: `${String(hour).padStart(2, "0")}:${j % 2 === 0 ? "00" : "30"}`,
-          service_type: isSales ? "sales_appointment" : services[idx % services.length],
-          address: addresses[idx],
-          status: d < 2 ? "completed" : d === 2 ? "in_progress" : "scheduled",
-          price: isSales ? 0 : [185, 250, 320, 150, 275, 195][idx],
-          hours: isSales ? 1 : [1.5, 2, 2.5, 1, 2, 1.5][idx],
-          cleaner_id: tlId,
-          job_type: isSales ? "sales_appointment" : null,
-          cleaner_name: cleaners.find(c => c.id === tlId)?.name || null,
-          phone_number: `(309) 555-${String(1200 + idx)}`,
-          notes: j === 0 ? "Two-story, bring extension ladder" : null,
-          frequency: idx % 3 === 0 ? "monthly" : "one_time",
-          customers: customers[idx],
-        })
-      }
-
-      // Create crew day assignments
-      crewDays.push({
-        id: d * 100 + tlId,
-        date: dateStr,
-        team_lead_id: tlId,
-        crew_day_members: [
-          { cleaner_id: 105 + (d % 5), role: "technician" },
-          ...(d % 2 === 0 ? [{ cleaner_id: 110 + (d % 3), role: "salesman" }] : []),
-        ],
-      })
-    }
-  }
-
-  const timeOff: TimeOffEntry[] = [
-    { cleaner_id: 109, date: toDateStr(addDays(monday, 3)) },
-    { cleaner_id: 113, date: toDateStr(addDays(monday, 4)) },
-  ]
-
-  return { cleaners, crewDays, timeOff, jobs }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -241,7 +143,7 @@ function DroppableCell({ id, children }: { id: string; children: React.ReactNode
    ══════════════════════════════════════════════════════════════════════════ */
 
 export default function CrewAssignmentPage() {
-  const { isAdmin, user } = useAuth()
+  const { isAdmin, user, cleanerId } = useAuth()
 
   // ── Shared state ──
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
@@ -255,8 +157,6 @@ export default function CrewAssignmentPage() {
   const [crewDays, setCrewDays] = useState<CrewDay[]>([])
   const [timeOff, setTimeOff] = useState<TimeOffEntry[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
-  const [cleanerId, setCleanerId] = useState<number | null>(null)
-
   // ── Admin UI state ──
   const [expandedTLs, setExpandedTLs] = useState<Set<string>>(new Set())
   const [expandedTs, setExpandedTs] = useState<Set<string>>(new Set())
@@ -313,7 +213,6 @@ export default function CrewAssignmentPage() {
     return (tlAsn?.members || []).map(m => cleaners.find(c => c.id === m.cleaner_id)).filter(Boolean) as Cleaner[]
   }, [getAssignments, cleaners])
 
-  // Get all assigned member IDs for a day (across all TLs) to prevent double-booking
   const getAssignedIdsForDay = useCallback((dateStr: string): Set<number> => {
     const dayAsn = getAssignments(dateStr)
     const ids = new Set<number>()
@@ -333,79 +232,10 @@ export default function CrewAssignmentPage() {
     return salesmen.filter(s => !isOff(s.id, dateStr) && !assigned.has(s.id))
   }, [salesmen, isOff, getAssignedIdsForDay])
 
-  // ── Resolve worker cleaner_id ──
-  useEffect(() => {
-    if (isAdmin || !user?.id) return
-    fetch("/api/actions/settings").then(r => r.json()).then(d => setCleanerId(d.cleaner_id || -1)).catch(() => setCleanerId(-1))
-  }, [user, isAdmin])
-
-  // ── Generate demo jobs for real TLs when no real jobs exist ──
-  const generateDemoJobsForCleaners = useCallback((monday: Date, tls: Cleaner[]): Job[] => {
-    if (tls.length === 0) return []
-    const demoJobs: Job[] = []
-    const services = ["ext_window_cleaning", "gutter_cleaning", "pressure_washing", "int_ext_windows", "screen_repair", "house_wash", "concrete_cleaning"]
-    const addresses = [
-      "1423 Oak St, Washington, IL 61571",
-      "809 Birch Ln, Morton, IL 61550",
-      "2205 Washington Rd, East Peoria, IL 61611",
-      "315 Main St, Peoria Heights, IL 61616",
-      "452 Maple Ave, Pekin, IL 61554",
-      "987 Cedar Dr, Bloomington, IL 61701",
-      "1100 N Main St, East Peoria, IL 61611",
-    ]
-    const customers = [
-      { first_name: "Sarah", last_name: "Mitchell" },
-      { first_name: "James", last_name: "Rodriguez" },
-      { first_name: "Linda", last_name: "Chen" },
-      { first_name: "Mike", last_name: "O'Brien" },
-      { first_name: "Karen", last_name: "Johnson" },
-      { first_name: "Dave", last_name: "Kowalski" },
-      { first_name: "Emily", last_name: "Taylor" },
-    ]
-    const prices = [185, 250, 320, 150, 275, 195, 340]
-    const durations = [1.5, 2, 2.5, 1, 2, 1.5, 3]
-
-    for (let d = 0; d < 6; d++) { // Mon-Sat
-      const day = addDays(monday, d)
-      const dateStr = toDateStr(day)
-      // Assign 2 TLs per day, rotating through the list
-      const dayTLs = [tls[d % tls.length], tls[(d + 1) % tls.length]].filter((v, i, a) => a.indexOf(v) === i)
-
-      for (const tl of dayTLs) {
-        const numJobs = 3 + (d % 3) // 3-5 jobs per TL per day
-        for (let j = 0; j < numJobs; j++) {
-          const hour = 8 + j * 2
-          const min = j % 2 === 0 ? "00" : "30"
-          const idx = (d * 3 + j + tl.id) % 7
-          const isSales = j === numJobs - 1 && d % 4 === 0
-          demoJobs.push({
-            id: d * 10000 + tl.id * 100 + j,
-            date: dateStr,
-            scheduled_at: `${String(hour).padStart(2, "0")}:${min}`,
-            service_type: isSales ? "sales_appointment" : services[idx],
-            address: addresses[idx],
-            status: d < 1 ? "completed" : d === 1 ? "in_progress" : "scheduled",
-            price: isSales ? 0 : prices[idx],
-            hours: isSales ? 1 : durations[idx],
-            cleaner_id: tl.id,
-            job_type: isSales ? "sales_appointment" : null,
-            cleaner_name: tl.name,
-            phone_number: `(309) 555-${String(1200 + idx)}`,
-            notes: j === 0 && d < 3 ? "Two-story home, bring extension ladder" : null,
-            frequency: idx % 3 === 0 ? "monthly" : idx % 3 === 1 ? "bi_weekly" : "one_time",
-            customers: customers[idx],
-          })
-        }
-      }
-    }
-    return demoJobs
-  }, [])
-
   // ── Fetch data ──
   const fetchData = useCallback(async () => {
     const dateStr = toDateStr(weekStart)
     try {
-      // Admin/crew board: fetch ALL jobs (no cleaner_id filter)
       const [crewRes, jobsRes] = await Promise.all([
         fetch(`/api/actions/crews?date=${dateStr}&week=true`).then(r => r.json()),
         fetch(`/api/actions/my-jobs?date=${dateStr}&range=week`).then(r => r.json()),
@@ -442,7 +272,6 @@ export default function CrewAssignmentPage() {
     if (!e.over) return
     const cleaner = (e.active.data.current as any)?.cleaner as Cleaner
     if (!cleaner) return
-    // Droppable ID: "tl|{date}|{teamLeadId}"
     const parts = (e.over.id as string).split("|")
     if (parts.length !== 3) return
     const [, dateStr, tlIdStr] = parts
@@ -513,11 +342,9 @@ export default function CrewAssignmentPage() {
   const monthName = weekStart.toLocaleString("en-US", { month: "long" })
 
   /* ════════════════════════════════════════════════════════════════════════
-     WORKER VIEW — Days off calendar + time block schedule
+     WORKER VIEW — Simple on/off day calendar (no jobs, no times)
      ════════════════════════════════════════════════════════════════════════ */
-  // Workers access their schedule via the crew portal, not the dashboard.
-  // All dashboard users see the admin crew board.
-  const showWorkerView = false
+  const showWorkerView = !isAdmin
   if (showWorkerView) {
     const workerOffSet = new Set(workerTimeOff.map(t => t.date))
     const calYear = calendarMonth.getFullYear()
@@ -527,181 +354,143 @@ export default function CrewAssignmentPage() {
     const calLabel = calendarMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" })
     const WKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
-    // Worker's jobs sorted for day view
-    const workerDayJobs = jobs
-      .filter(j => j.date === selectedDay)
-      .sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
-
-    const workerDayTotal = workerDayJobs.reduce((s, j) => s + (Number(j.price) || 0), 0)
+    const todayDate = new Date()
+    todayDate.setHours(0, 0, 0, 0)
+    const twoWeeksOut = new Date(todayDate)
+    twoWeeksOut.setDate(twoWeeksOut.getDate() + 14)
 
     return (
       <div className="h-full flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div>
-            <h1 className="text-lg font-bold text-foreground">Crew Assignment</h1>
-            <p className="text-xs text-muted-foreground">Your schedule & time off</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="flex rounded-md border border-border overflow-hidden">
-              {(["day", "week"] as const).map(v => (
-                <button key={v} onClick={() => setViewMode(v)}
-                  className={`px-3 py-1 text-[10px] font-bold uppercase ${viewMode === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}>{v}</button>
-              ))}
-            </div>
-            <div className="flex items-center gap-1">
-              <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronLeft className="size-4" /></button>
-              <button onClick={nextWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronRight className="size-4" /></button>
-            </div>
+            <h1 className="text-lg font-bold text-foreground">Off Days</h1>
+            <p className="text-xs text-muted-foreground">Tap a date to toggle availability</p>
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* ── Days Off Calendar ── */}
-          <div className="p-4 border-b border-border">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold">Select Your Days Off</h2>
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => setCalendarMonth(p => { const n = new Date(p); n.setMonth(n.getMonth() - 1); return n })}
-                  className="p-1 rounded hover:bg-muted"><ChevronLeft className="size-3.5" /></button>
-                <span className="text-xs font-medium text-muted-foreground min-w-[110px] text-center">{calLabel}</span>
-                <button onClick={() => setCalendarMonth(p => { const n = new Date(p); n.setMonth(n.getMonth() + 1); return n })}
-                  className="p-1 rounded hover:bg-muted"><ChevronRight className="size-3.5" /></button>
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Month navigation */}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => setCalendarMonth(p => { const n = new Date(p); n.setMonth(n.getMonth() - 1); return n })}
+              className="p-2 rounded-md hover:bg-muted transition-colors"
+            >
+              <ChevronLeft className="size-5" />
+            </button>
+            <h2 className="text-base font-semibold text-foreground">{calLabel}</h2>
+            <button
+              onClick={() => setCalendarMonth(p => { const n = new Date(p); n.setMonth(n.getMonth() + 1); return n })}
+              className="p-2 rounded-md hover:bg-muted transition-colors"
+            >
+              <ChevronRight className="size-5" />
+            </button>
+          </div>
+
+          {/* Day-of-week headers */}
+          <div className="grid grid-cols-7 gap-1 mb-2">
+            {WKDAYS.map(d => (
+              <div key={d} className="text-center text-xs font-semibold text-muted-foreground uppercase py-1">
+                {d}
               </div>
+            ))}
+          </div>
+
+          {/* Calendar grid */}
+          <div className="grid grid-cols-7 gap-1">
+            {/* Leading empty cells */}
+            {Array.from({ length: firstDow }).map((_, i) => (
+              <div key={`pad-${i}`} className="aspect-square" />
+            ))}
+
+            {/* Day cells */}
+            {Array.from({ length: daysInMonth }, (_, i) => {
+              const dayNum = i + 1
+              const dayDate = new Date(calYear, calMonth, dayNum)
+              const dateStr = toDateStr(dayDate)
+              const off = workerOffSet.has(dateStr)
+              const isToday = dateStr === todayStr
+              const isPast = dayDate < todayDate
+              const tooSoon = !isPast && dayDate < twoWeeksOut
+              const toggling = togglingOff === dateStr
+              const noCleanerId = cleanerId !== null && cleanerId <= 0
+
+              // Past dates: non-clickable, grayed
+              // Within 14 days: grayed, non-clickable, show "Text manager" tooltip
+              // But if already OFF within 14 days, allow toggling back ON
+              const isDisabled = toggling || noCleanerId || isPast || (tooSoon && !off)
+
+              let cellClasses = "relative flex flex-col items-center justify-center rounded-lg aspect-square transition-all text-sm font-medium "
+
+              if (off) {
+                // OFF state: red, line-through styling
+                cellClasses += "bg-red-500/20 border-2 border-red-500/40 text-red-400 "
+              } else if (isPast) {
+                cellClasses += "bg-zinc-900/30 text-zinc-600 cursor-not-allowed "
+              } else if (tooSoon) {
+                cellClasses += "bg-zinc-900/30 text-zinc-500 cursor-not-allowed "
+              } else if (isToday) {
+                cellClasses += "bg-primary/10 border-2 border-primary/30 text-foreground hover:bg-primary/20 cursor-pointer "
+              } else {
+                // Available (ON) state: default
+                cellClasses += "border border-zinc-800/40 text-foreground hover:bg-muted/40 cursor-pointer "
+              }
+
+              return (
+                <button
+                  key={dateStr}
+                  onClick={() => {
+                    if (isDisabled) return
+                    toggleTimeOff(dateStr)
+                  }}
+                  disabled={isDisabled}
+                  title={
+                    isPast ? "Past date" :
+                    tooSoon && !off ? "Text manager for short-notice requests" :
+                    off ? "Tap to mark available" :
+                    "Tap to mark off"
+                  }
+                  className={cellClasses}
+                >
+                  <span className={off ? "line-through" : ""}>{dayNum}</span>
+                  {off && (
+                    <span className="text-[8px] font-bold uppercase leading-none mt-0.5 text-red-400">
+                      OFF
+                    </span>
+                  )}
+                  {tooSoon && !off && !isPast && (
+                    <span className="text-[7px] text-amber-400 font-semibold leading-none mt-0.5">
+                      TEXT MGR
+                    </span>
+                  )}
+                  {toggling && (
+                    <Loader2 className="absolute top-1 right-1 size-3 animate-spin text-muted-foreground" />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center justify-center gap-6 mt-6 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded border border-zinc-800/40 bg-background" />
+              <span>Available</span>
             </div>
-            <div className="grid grid-cols-7 gap-1 mb-1">
-              {WKDAYS.map(d => <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-0.5">{d}</div>)}
+            <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded bg-red-500/20 border-2 border-red-500/40" />
+              <span>Off</span>
             </div>
-            <div className="grid grid-cols-7 gap-1">
-              {Array.from({ length: firstDow }).map((_, i) => <div key={`pad-${i}`} className="min-h-[36px]" />)}
-              {Array.from({ length: daysInMonth }, (_, i) => {
-                const dayDate = new Date(calYear, calMonth, i + 1)
-                const dateStr = toDateStr(dayDate)
-                const off = workerOffSet.has(dateStr)
-                const today = dateStr === todayStr
-                const toggling = togglingOff === dateStr
-                return (
-                  <button key={dateStr} onClick={() => { toggleTimeOff(dateStr); setSelectedDay(dateStr) }}
-                    disabled={toggling || (cleanerId !== null && cleanerId <= 0)}
-                    className={`relative flex flex-col items-center justify-center p-1 rounded-lg min-h-[36px] transition-all
-                      ${off ? "bg-red-500/15 border border-red-500/30 text-red-400" : today ? "bg-primary/10 border border-primary/20" : "border border-transparent hover:bg-muted/40"}`}>
-                    <span className="text-xs font-medium">{i + 1}</span>
-                    {off && <span className="text-[7px] font-bold uppercase leading-none">OFF</span>}
-                    {toggling && <Loader2 className="absolute top-0.5 right-0.5 size-2.5 animate-spin" />}
-                  </button>
-                )
-              })}
+            <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded bg-zinc-900/30" />
+              <span>Locked</span>
             </div>
           </div>
 
-          {/* ── Schedule: Time Blocks ── */}
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold flex items-center gap-2">
-                <Clock className="size-4 text-muted-foreground" />
-                {viewMode === "day"
-                  ? new Date(selectedDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })
-                  : `Week of ${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
-              </h2>
-            </div>
-
-            {viewMode === "day" ? (
-              /* Day view — vertical time blocks */
-              <div className="space-y-1.5">
-                {workerOffSet.has(selectedDay) && (
-                  <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
-                    <p className="text-xs font-semibold text-red-400">Day Off</p>
-                  </div>
-                )}
-                {workerDayJobs.length === 0 ? (
-                  <div className="py-10 text-center text-xs text-muted-foreground">No jobs scheduled</div>
-                ) : (
-                  workerDayJobs.map(job => {
-                    const isExpanded = expandedJob === job.id
-                    const isSales = job.job_type === "sales_appointment" || job.service_type === "sales_appointment"
-                    const statusClass = STATUS_BG[job.status] || STATUS_BG.scheduled
-                    return (
-                      <div key={job.id}>
-                        <button onClick={() => setExpandedJob(isExpanded ? null : job.id)}
-                          className={`w-full text-left rounded-lg border p-3 transition-colors ${statusClass} ${isSales ? "border-amber-500/30" : ""}`}>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              {STATUS_MARK[job.status] || <div className="size-2.5 rounded-full border-2 border-blue-400/50" />}
-                              <span className="text-sm font-bold text-foreground">
-                                {formatTime12(job.scheduled_at)}
-                                {job.hours ? <span className="text-muted-foreground font-normal"> – {getEndTimeStr(job.scheduled_at, job.hours)}</span> : null}
-                              </span>
-                            </div>
-                            {job.price ? <span className="text-xs font-semibold text-green-400">${Number(job.price).toLocaleString()}</span> : null}
-                          </div>
-                          <div className="mt-1 text-xs text-foreground">
-                            {humanize(job.service_type)}
-                            {isSales && <span className="ml-1.5 text-[9px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded">SALES</span>}
-                            <span className="text-muted-foreground ml-2">{extractCity(job.address)}</span>
-                          </div>
-                        </button>
-                        {isExpanded && (
-                          <div className="ml-3 mt-1 mb-1 p-3 rounded-lg bg-muted/20 border border-border/20 space-y-1.5 text-[11px] text-muted-foreground">
-                            {job.address && <div className="flex items-start gap-2"><MapPin className="size-3.5 shrink-0 mt-0.5" /><span>{job.address}</span></div>}
-                            {job.customers && <div className="flex items-center gap-2"><User className="size-3.5 shrink-0" /><span>{[job.customers.first_name, job.customers.last_name].filter(Boolean).join(" ")}</span></div>}
-                            {job.phone_number && <div className="flex items-center gap-2"><Phone className="size-3.5 shrink-0" /><a href={`tel:${job.phone_number}`} className="hover:text-foreground">{job.phone_number}</a></div>}
-                            {job.notes && <p className="text-[10px] italic border-t border-border/10 pt-1.5 mt-1">{job.notes}</p>}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })
-                )}
-                {workerDayTotal > 0 && (
-                  <div className="pt-3 border-t border-border/20 text-center">
-                    <span className="text-sm font-bold text-green-400">${workerDayTotal.toLocaleString()} scheduled</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* Week view — 7 day columns with mini time blocks */
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-                {weekDays.map(day => {
-                  const dateStr = toDateStr(day)
-                  const off = workerOffSet.has(dateStr)
-                  const today = dateStr === todayStr
-                  const dayJobs = jobs.filter(j => j.date === dateStr).sort((a, b) => (a.scheduled_at || "").localeCompare(b.scheduled_at || ""))
-                  const dayTotal = dayJobs.reduce((s, j) => s + (Number(j.price) || 0), 0)
-                  return (
-                    <button key={dateStr} onClick={() => { setSelectedDay(dateStr); setViewMode("day") }}
-                      className={`rounded-lg border p-2 min-h-[120px] text-left transition-colors
-                        ${off ? "bg-red-500/5 border-red-500/20 opacity-60" : today ? "bg-primary/5 border-primary/20" : "bg-card/50 border-border/20 hover:bg-muted/30"}`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-[10px] font-semibold uppercase ${today ? "text-primary" : "text-muted-foreground"}`}>
-                          {day.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
-                        </span>
-                        {dayTotal > 0 && <span className="text-[9px] font-semibold text-green-400">${dayTotal.toLocaleString()}</span>}
-                      </div>
-                      {off ? <div className="text-[10px] text-red-400 font-medium">Day Off</div> : dayJobs.length === 0 ? <div className="text-[10px] text-muted-foreground/40 italic">No jobs</div> : (
-                        <div className="space-y-0.5">
-                          {dayJobs.slice(0, 4).map(j => (
-                            <div key={j.id} className={`text-[9px] px-1 py-0.5 rounded border ${STATUS_BG[j.status] || STATUS_BG.scheduled}`}>
-                              <span className="font-medium">{formatTime12(j.scheduled_at)}</span>
-                              <span className="text-muted-foreground ml-1">{extractCity(j.address)}</span>
-                            </div>
-                          ))}
-                          {dayJobs.length > 4 && <p className="text-[8px] text-muted-foreground/60 pl-1">+{dayJobs.length - 4} more</p>}
-                        </div>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          <p className="text-[11px] text-amber-400/70 mt-4 text-center">
+            Off-day requests must be at least 2 weeks in advance. Text your manager for short-notice requests.
+          </p>
         </div>
-
-        {/* Bottom total */}
-        {weeklyTotal > 0 && (
-          <div className="px-4 py-2.5 border-t border-border shrink-0">
-            <span className="text-sm font-bold text-foreground">${Math.round(weeklyTotal).toLocaleString()} <span className="text-xs font-normal text-muted-foreground">this week</span></span>
-          </div>
-        )}
       </div>
     )
   }

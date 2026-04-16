@@ -59,31 +59,31 @@ const CREW_MEMBERS = [
 
 const TRUST_STATS = [
   { value: "3+", label: "Years in Business" },
-  { value: "2,000+", label: "Cleanings Completed" },
+  { value: "2,500+", label: "Cleanings Completed" },
   { value: "4.9", label: "Star Rating" },
   { value: "9", label: "Professional Cleaners" },
 ]
 
 const WHY_CHOOSE = [
   {
-    title: "Safe for Your Family",
+    title: "Book in 60 Seconds",
     description:
-      "We only use high-quality, safe products. I have kids in my own family - I would never bring anything into your home that I would not use in mine.",
+      "No phone tag, no waiting for callbacks. Get an instant quote, pick your date, and you are confirmed on the spot. It is that fast.",
   },
   {
-    title: "We Actually Show Up",
+    title: "Guaranteed Peace of Mind",
     description:
-      "Sounds basic, right? But if you have dealt with other cleaning companies in LA, you know how rare this is. We show up on time, every single time.",
+      "Every cleaner is background-checked, insured, and professionally trained. If anything is not right, we come back and fix it at no charge.",
   },
   {
-    title: "Not Happy? We Fix It",
+    title: "Set It and Forget It",
     description:
-      "If something is not right, just call me. We will come back and make it right - no charge, no hassle, no attitude. That is how we have kept clients for years.",
+      "Book once and your cleaning shows up on schedule — weekly, biweekly, or monthly. No reminders needed. No rebooking. It just happens.",
   },
   {
-    title: "Last-Minute? Call Us",
+    title: "Same-Day Available",
     description:
-      "Guests coming tomorrow? Landlord doing a walkthrough? We get it. We do same-day cleanings when we can - just give us a call and we will figure it out.",
+      "Guests coming tomorrow? Landlord walkthrough? We offer same-day cleanings when available. Just submit your request and we will make it work.",
   },
 ]
 
@@ -176,7 +176,7 @@ const FAQS = [
   {
     question: "Can I trust your team in my home?",
     answer:
-      "100%. Everyone on my team is background-checked, insured, and bonded. I personally vet every person before they step foot in anyone's home. Your safety is not something I take lightly.",
+      "100%. Every cleaner passes a thorough background check and is fully insured before they ever step foot in a client's home. Your safety is non-negotiable.",
   },
   {
     question: "Do I need to be there?",
@@ -191,9 +191,9 @@ const FAQS = [
   {
     question: "How do I book?",
     answer:
-      "Easiest way is to just call us at " +
+      "Use our instant quote calculator on this page or give us a call at " +
       SPOTLESS_BUSINESS.phone +
-      " or fill out the form on this page. We will get back to you within the hour. No automated phone trees - you will talk to a real person.",
+      ". We respond instantly — you will get a confirmed appointment right away. No waiting for callbacks.",
   },
 ]
 
@@ -203,8 +203,8 @@ const HOW_TO_STEPS = [
     text: "Call, text, or fill out the form. Let us know what kind of cleaning you need and we will figure out the rest.",
   },
   {
-    name: "We Lock In Your Date",
-    text: "We will confirm your appointment within the hour and match you with the right crew. Same-day available when we can swing it.",
+    name: "Instantly Confirmed",
+    text: "Your appointment is confirmed right away. We match you with the right crew and lock in your date — no waiting.",
   },
   {
     name: "We Show Up and Get It Done",
@@ -236,17 +236,17 @@ export default function HomePage() {
             {/* Left side - copy */}
             <div className="text-white text-center lg:text-left">
               <p className="text-sm font-medium text-white/70 mb-4 tracking-wide">
-                SERVING ALL OF LOS ANGELES COUNTY
+                TRUSTED ACROSS LOS ANGELES COUNTY
               </p>
 
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-[1.1]">
-                LA&apos;s Cleaning Crew That Actually Shows Up
+                Book a Cleaning in 60 Seconds
               </h1>
 
               <p className="text-lg text-white/80 mb-10 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-                Hey, I&apos;m Dominic. My team and I have been cleaning homes and
-                businesses across LA County since 2023. We are fully insured,
-                background-checked, and we do not cancel on you. Ever.
+                Get an instant quote, pick your date, and your cleaning is
+                confirmed — right now. Fully insured, background-checked, and
+                backed by a 100% satisfaction guarantee.
               </p>
 
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-8">
@@ -265,8 +265,8 @@ export default function HomePage() {
               </div>
 
               <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-8 gap-y-2 text-sm text-white/60">
-                <span>Insured & Bonded</span>
-                <span>Background-Checked Team</span>
+                <span>Instant Booking</span>
+                <span>Insured & Background-Checked</span>
                 <span>5.0 Stars on Google</span>
               </div>
             </div>
@@ -293,11 +293,10 @@ export default function HomePage() {
               Our services
             </p>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-              Whatever You Need Cleaned, We Got You
+              Every Cleaning Service You Need
             </h2>
             <p className="text-slate-600 max-w-2xl mx-auto">
-              Whether it is your home every two weeks or a construction site that needs to be
-              move-in ready by tomorrow - we handle it all.
+              From recurring home cleanings to same-day post-construction jobs — we handle it all across LA County.
             </p>
           </div>
 
@@ -305,7 +304,7 @@ export default function HomePage() {
             {SPOTLESS_SERVICES.map((service) => (
               <Link
                 key={service.slug}
-                href={`/spotless/services/${service.slug}`}
+                href={`/services/${service.slug}`}
                 className="group cursor-pointer overflow-hidden bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.1)] transition-shadow duration-200"
               >
                 <div className="relative h-52 overflow-hidden">
@@ -342,7 +341,7 @@ export default function HomePage() {
               Why people stick with us
             </p>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900">
-              We Do Things Different Around Here
+              Why LA Homeowners Trust Us
             </h2>
           </div>
 
@@ -406,8 +405,8 @@ export default function HomePage() {
             The Spotless Promise
           </h2>
           <p className="text-lg text-white/80 mb-10 max-w-2xl mx-auto">
-            Every cleaning comes with our guarantee. If something is not right,
-            call Dominic directly. We come back and fix it - no charge, no questions, no hassle.
+            If something is not right, let us know within 24 hours. We come back
+            and fix it — no charge, no questions, no hassle.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
             <div>
@@ -423,9 +422,9 @@ export default function HomePage() {
               </p>
             </div>
             <div>
-              <div className="text-3xl font-bold mb-2">Direct</div>
+              <div className="text-3xl font-bold mb-2">24/7</div>
               <p className="text-sm text-white/70">
-                You talk to Dominic, not a call center. Real person, real accountability.
+                Text, call, or message us anytime. Always reachable, always accountable.
               </p>
             </div>
           </div>
@@ -457,40 +456,27 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ---- 8. Meet the Crew ---- */}
+      {/* ---- 8. Our Team ---- */}
       <section className="py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
+          <div className="text-center mb-10">
             <p className="text-sm font-medium text-[#2195b4] mb-3">
               The people behind the clean
             </p>
             <h2 className="text-3xl sm:text-4xl font-bold text-slate-900 mb-4">
-              Meet Your Cleaning Crew
+              A Professional Team You Can Trust
             </h2>
-            <p className="text-slate-600 max-w-2xl mx-auto">
-              Every person on this team was hand-picked by Dominic. Background-checked,
-              trained, insured, and they genuinely care about doing great work.
-            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {CREW_MEMBERS.map((member) => (
-              <div key={member.name} className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-6">
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 bg-[#164E63] flex items-center justify-center text-white text-lg font-semibold rounded-full">
-                    {member.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-[#164E63]">{member.name}</div>
-                    <div className="text-sm text-[#94A3B8]">{member.role}</div>
-                  </div>
-                </div>
-                <p className="text-sm text-[#475569] italic mb-4">&ldquo;{member.quote}&rdquo;</p>
-                <div className="flex gap-4 text-xs text-[#94A3B8]">
-                  <span>{member.cleanings}+ cleanings</span>
-                  <span>{member.years}+ years</span>
-                  <span>{member.specialty}</span>
-                </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            {[
+              { value: "2,500+", label: "Homes Cleaned" },
+              { value: "3+", label: "Years Serving LA" },
+              { value: "100%", label: "Background-Checked" },
+            ].map((stat) => (
+              <div key={stat.label} className="bg-white shadow-[0_2px_8px_rgba(0,0,0,0.06)] p-6 text-center">
+                <div className="text-3xl font-bold text-[#2195b4] mb-1">{stat.value}</div>
+                <div className="text-sm text-[#475569]">{stat.label}</div>
               </div>
             ))}
           </div>
@@ -569,7 +555,7 @@ export default function HomePage() {
             {SPOTLESS_AREAS.map((area) => (
               <Link
                 key={area.slug}
-                href={`/spotless/areas/${area.slug}`}
+                href={`/areas/${area.slug}`}
                 className="text-center px-3 py-3 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:border-[#2195b4] hover:text-[#2195b4] hover:shadow-sm transition-all"
               >
                 {area.city}
@@ -623,8 +609,8 @@ export default function HomePage() {
               Let Us Take Care of It
             </h2>
             <p className="text-white/80 text-lg">
-              Drop your info below and I will personally get back to you within the hour.
-              No sales pitch, no pressure - just an honest quote from a real person.
+              Drop your info below and get a confirmed quote in minutes.
+              No sales pitch, no pressure — just fast, professional service.
             </p>
           </div>
 

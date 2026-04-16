@@ -37,6 +37,7 @@ export interface JobInfo {
   price?: number | string | null
   phone_number?: string | null
   frequency?: string | null
+  addons?: Array<{ key: string; label?: string; price?: number }> | null
 }
 
 export interface CustomerInfo {
@@ -127,14 +128,36 @@ export async function notifyCleanerAssignment(
   if (job.hours) details.push(`${job.hours} hrs`)
   if (job.frequency && job.frequency !== 'one-time') details.push(`Recurring: ${humanize(job.frequency)}`)
 
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
-  if (payPercentage && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
-    details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+  // Cleaner pay — hourly model vs percentage model (NEVER cross between them)
+  if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    if (job.hours) {
+      details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+    } else {
+      details.push(`Pay rate: ${formatTenantCurrency(tenant, rate)}/hr`)
+    }
+  } else {
+    const payPercentage = tenant.workflow_config?.cleaner_pay_percentage
+    if (payPercentage && job.price) {
+      const cleanerPay = parseFloat(String(job.price)) * (payPercentage / 100)
+      details.push(`Your pay: ${formatTenantCurrency(tenant, cleanerPay)}`)
+    } else if (job.hours) {
+      const rate = cleaner.hourly_rate || 25
+      details.push(`Your pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`)
+    }
+  }
+
+  // Add paid add-ons to message (labels only — NEVER show prices to cleaners)
+  if (job.addons && Array.isArray(job.addons) && job.addons.length > 0) {
+    const addonLabels = job.addons
+      .map((a: { key: string; label?: string }) => a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+      .filter(Boolean)
+    if (addonLabels.length > 0) {
+      details.push(`Add-ons: ${addonLabels.join(', ')}`)
+    }
   }
 
   const detailStr = details.length > 0 ? `\n${details.join(' | ')}` : ''
@@ -197,15 +220,38 @@ export async function notifyCleanerAwarded(
   const time = formatTime(job.scheduled_at)
   const address = job.address || customer?.address || 'See details'
   const service = job.service_type ? humanize(job.service_type) : 'Cleaning'
-  // Cleaner pay — use percentage of job price (matches portal), fallback to hourly rate
-  const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
+  // Cleaner pay — hourly model vs percentage model (NEVER cross between them)
   let payStr = ''
-  if (payPercentage2 && job.price) {
-    const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
-  } else if (job.hours) {
-    const rate = cleaner.hourly_rate || 25
-    payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+  if (tenant.workflow_config?.cleaner_pay_model === 'hourly') {
+    const isDeep = job.service_type?.toLowerCase().includes('deep')
+    const rate = isDeep
+      ? (tenant.workflow_config.cleaner_pay_hourly_deep || 30)
+      : (tenant.workflow_config.cleaner_pay_hourly_standard || 25)
+    if (job.hours) {
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+    } else {
+      payStr = `\nPay rate: ${formatTenantCurrency(tenant, rate)}/hr`
+    }
+  } else {
+    const payPercentage2 = tenant.workflow_config?.cleaner_pay_percentage
+    if (payPercentage2 && job.price) {
+      const cleanerPay = parseFloat(String(job.price)) * (payPercentage2 / 100)
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, cleanerPay)}`
+    } else if (job.hours) {
+      const rate = cleaner.hourly_rate || 25
+      payStr = `\nYour pay: ${formatTenantCurrency(tenant, rate * Number(job.hours))}`
+    }
+  }
+
+  // Add paid add-ons to message (labels only — NEVER show prices to cleaners)
+  let addonsStr = ''
+  if (job.addons && Array.isArray(job.addons) && job.addons.length > 0) {
+    const addonLabels = job.addons
+      .map((a: { key: string; label?: string }) => a.label || a.key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+      .filter(Boolean)
+    if (addonLabels.length > 0) {
+      addonsStr = `\nAdd-ons: ${addonLabels.join(', ')}`
+    }
   }
 
   let link = ''
@@ -213,7 +259,7 @@ export async function notifyCleanerAwarded(
     link = `\n\nView checklist & details:\n${jobUrl(cleaner.portal_token, job.id)}`
   }
 
-  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${link}`
+  const message = `You're confirmed for ${date} ${time}\n${address}\n${service}${payStr}${addonsStr}${link}`
   return await sendSMS(tenant, cleaner.phone, message, { skipThrottle: true, bypassFilters: true, useCleaner: true })
 }
 

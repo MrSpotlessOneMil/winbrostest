@@ -10,12 +10,12 @@ import { sendSMS } from '@/lib/openphone'
 import { normalizePhone, toE164 } from '@/lib/phone-utils'
 import { appendToTextingTranscript, getSupabaseServiceClient, getTenantScopedClient } from '@/lib/supabase'
 import { getTenantBusinessName } from '@/lib/tenant'
-import { requireAuthWithTenant } from '@/lib/auth'
+import { requireAuthWithTenant, getAuthCleaner } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
   const authResult = await requireAuthWithTenant(request)
   if (authResult instanceof NextResponse) return authResult
-  const { tenant: authTenant } = authResult
+  const { tenant: authTenant, user: authUser } = authResult
 
   try {
     // Rate limit: max 30 outbound SMS per tenant per minute
@@ -67,6 +67,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Resolve sender attribution for non-admin employees (tech/TL/salesman)
+    // The SMS body is prepended with "From [role] [name]: " so customers know
+    // which team member texted them.
+    let smsBody = message
+    const cleaner = await getAuthCleaner(request)
+    if (cleaner && cleaner.name) {
+      const isAdminUser = authUser.username === 'admin' || authUser.username === authTenant.slug
+      if (!isAdminUser) {
+        const roleLabel = cleaner.is_team_lead
+          ? 'team lead'
+          : cleaner.employee_type === 'salesman'
+            ? 'salesman'
+            : 'tech'
+        const firstName = cleaner.name.split(' ')[0]
+        smsBody = `From ${roleLabel} ${firstName}: ${message}`
+      }
+    }
+
     // Pre-resolve customer and insert DB record BEFORE sending so the
     // outbound webhook dedup check always finds it (fixes double messages)
     const client = await getTenantScopedClient(authTenant.id)
@@ -79,12 +97,13 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', authTenant.id)
       .maybeSingle()
 
+    // DB record stores the attributed message so transcript matches what was sent
     const { data: msgRecord, error: msgError } = await client.from('messages').insert({
       tenant_id: authTenant.id,
       customer_id: customer?.id || null,
       phone_number: e164Phone,
       role: 'assistant',
-      content: message,
+      content: smsBody,
       direction: 'outbound',
       message_type: 'sms',
       ai_generated: false,
@@ -100,7 +119,7 @@ export async function POST(request: NextRequest) {
     // skipDedup: the route pre-inserts the DB record above, so the dedup check
     // inside sendSMS would find it and block the send as a false positive.
     // skipThrottle: manual dashboard sends should never be throttled by automated message counts.
-    const result = await sendSMS(authTenant, phoneNumber, message, { skipDedup: true, skipThrottle: true })
+    const result = await sendSMS(authTenant, phoneNumber, smsBody, { skipDedup: true, skipThrottle: true })
 
     if (!result.success) {
       // Clean up the pre-inserted record since send failed
@@ -148,7 +167,7 @@ export async function POST(request: NextRequest) {
     const businessNameShort = getTenantBusinessName(authTenant, true)
     await appendToTextingTranscript(
       phoneNumber,
-      `[${timestamp}] ${businessNameShort}: ${message}`
+      `[${timestamp}] ${businessNameShort}: ${smsBody}`
     )
 
     return NextResponse.json({

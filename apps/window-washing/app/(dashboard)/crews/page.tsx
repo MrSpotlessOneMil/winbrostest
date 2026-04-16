@@ -100,7 +100,7 @@ function DroppableTeamLeadCell({ id, children }: { id: string; children: React.R
 export default function CrewAssignmentPage() {
   const { isAdmin } = useAuth()
   const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
-  const [viewMode, setViewMode] = useState<"week" | "day">("week")
+  const [viewMode, setViewMode] = useState<"week" | "day">("day")
   const [selectedDay, setSelectedDay] = useState(() => toDateStr(new Date()))
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -268,6 +268,23 @@ export default function CrewAssignmentPage() {
   // Navigate
   const prevWeek = () => setWeekStart(addDays(weekStart, -7))
   const nextWeek = () => setWeekStart(addDays(weekStart, 7))
+  const prevDay = () => {
+    const current = new Date(selectedDay + 'T12:00:00')
+    const prev = addDays(current, -1)
+    const prevStr = toDateStr(prev)
+    setSelectedDay(prevStr)
+    // Update week if we've moved to a different week
+    const newMonday = getMonday(prev)
+    if (toDateStr(newMonday) !== toDateStr(weekStart)) setWeekStart(newMonday)
+  }
+  const nextDay = () => {
+    const current = new Date(selectedDay + 'T12:00:00')
+    const next = addDays(current, 1)
+    const nextStr = toDateStr(next)
+    setSelectedDay(nextStr)
+    const newMonday = getMonday(next)
+    if (toDateStr(newMonday) !== toDateStr(weekStart)) setWeekStart(newMonday)
+  }
   const goToday = () => { setWeekStart(getMonday(new Date())); setSelectedDay(toDateStr(new Date())) }
 
   // Drag handlers
@@ -362,13 +379,32 @@ export default function CrewAssignmentPage() {
         <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
           <div>
             <h1 className="text-lg font-bold text-foreground">Crew Assignment</h1>
-            <p className="text-xs text-muted-foreground">{monthName} {weekStart.getFullYear()}</p>
+            {viewMode === "day" ? (
+              <p className="text-xs text-muted-foreground">
+                {(() => {
+                  const d = new Date(selectedDay + 'T12:00:00')
+                  return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+                })()}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{monthName} {weekStart.getFullYear()}</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={goToday} className="text-xs text-primary font-medium hover:underline">Today</button>
             <div className="flex items-center gap-1">
-              <button onClick={prevWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronLeft className="size-4" /></button>
-              <button onClick={nextWeek} className="size-7 rounded-md flex items-center justify-center hover:bg-muted"><ChevronRight className="size-4" /></button>
+              <button
+                onClick={viewMode === "day" ? prevDay : prevWeek}
+                className="size-7 rounded-md flex items-center justify-center hover:bg-muted"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                onClick={viewMode === "day" ? nextDay : nextWeek}
+                className="size-7 rounded-md flex items-center justify-center hover:bg-muted"
+              >
+                <ChevronRight className="size-4" />
+              </button>
             </div>
             <div className="flex rounded-md border border-border overflow-hidden">
               {(["day", "week"] as const).map(v => (

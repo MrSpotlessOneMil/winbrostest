@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/auth-context"
 import { Send, Loader2, Trash2, Copy, Check, Pencil, X, DollarSign, CreditCard, FileText, UserPlus, RefreshCw, Download, ChevronDown, ChevronUp, Zap, KeyRound, Ban, Pause, Play, XCircle, Plus, Crown, ExternalLink, Calendar, MapPin } from "lucide-react"
 import { StripeCardForm } from "@/components/stripe-card-form"
 import CubeLoader from "@/components/ui/cube-loader"
+import { CustomerInfoTab } from "@/components/winbros/customer-info-tab"
+import { ServicePlanSetup } from "@/components/winbros/service-plan-setup"
 
 // Normalize phone to 10 digits for comparison
 function normalizePhone(phone: string | null | undefined): string {
@@ -105,6 +107,8 @@ interface Job {
   stripe_invoice_id?: string | null
   invoice_sent?: boolean
   addons?: string | null
+  cleaner_id?: number | null
+  credited_salesman_id?: number | null
   created_at: string
 }
 
@@ -259,7 +263,7 @@ function getLeadSourceConfig(source: string) {
 }
 
 export default function CustomersPage() {
-  const { user } = useAuth()
+  const { user, isAdmin, isSalesman, cleanerId: authCleanerId } = useAuth()
   const urlParams = useSearchParams()
   const isHouseCleaning = user?.tenantSlug !== "winbros"
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -298,9 +302,10 @@ export default function CustomersPage() {
     if (tab === "quotes" && selectedCustomer) {
       fetchCustomerQuotes(selectedCustomer.id, selectedCustomer.phone_number)
     }
-    // Lazy-fetch logs when switching to info tab
+    // Lazy-fetch logs + info tab data when switching to info tab
     if (tab === "info" && selectedCustomer) {
       fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+      if (!isHouseCleaning) fetchInfoTabData(selectedCustomer.id)
     }
   }
   const [loading, setLoading] = useState(true)
@@ -355,6 +360,9 @@ export default function CustomersPage() {
   const [createMembershipPlanSlug, setCreateMembershipPlanSlug] = useState("")
   const [createMembershipSaving, setCreateMembershipSaving] = useState(false)
 
+  // Service plan setup state (field employees creating plans)
+  const [showServicePlanSetup, setShowServicePlanSetup] = useState(false)
+
   // Invoice details state (lazy-loaded when Invoices tab is opened)
   const [invoiceDetails, setInvoiceDetails] = useState<Record<number, {
     tier: string | null; addons: string[]; subtotal: number | null; total: number | null
@@ -375,6 +383,37 @@ export default function CustomersPage() {
   const [createQuoteResult, setCreateQuoteResult] = useState<{ url?: string; error?: string } | null>(null)
   const prevSelectedCustomerIdRef = useRef<number | null>(null)
   const [createMembershipError, setCreateMembershipError] = useState("")
+
+  // Customer Info Tab state (WinBros only — tags, visits, tag definitions)
+  const [customerTags, setCustomerTags] = useState<Array<{ id: number; tag_type: string; tag_value: string }>>([])
+  const [customerVisits, setCustomerVisits] = useState<Array<{ id: number; visit_date: string; status: string; services: string[]; total: number }>>([])
+  const [availableTags, setAvailableTags] = useState<Array<{ tag_type: string; tag_value: string; color: string }>>([])
+  const [infoTabLoading, setInfoTabLoading] = useState(false)
+
+  // Field user filtering state (non-admin crew filtering)
+  const [myCleanerId, setMyCleanerId] = useState<number | null>(null)
+  const [crewMemberIds, setCrewMemberIds] = useState<number[]>([])
+
+  // Resolve cleaner_id for non-admin field users
+  useEffect(() => {
+    if (isAdmin || !user?.id) return
+    if (isSalesman && authCleanerId) {
+      setMyCleanerId(authCleanerId)
+      fetch(`/api/actions/salesman-crew?cleaner_id=${authCleanerId}`, { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.crew_member_ids && Array.isArray(d.crew_member_ids)) {
+            setCrewMemberIds(d.crew_member_ids)
+          }
+        })
+        .catch(() => {})
+      return
+    }
+    fetch("/api/actions/settings", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setMyCleanerId(d.cleaner_id ?? -1))
+      .catch(() => setMyCleanerId(-1))
+  }, [isAdmin, isSalesman, authCleanerId, user?.id])
 
   // Batch add state
   const [syncingContacts, setSyncingContacts] = useState(false)
@@ -510,6 +549,44 @@ export default function CustomersPage() {
       alert(`Failed to ${action} membership`)
     } finally {
       setMembershipActionLoading(null)
+    }
+  }
+
+  // Handle service plan setup submission (field employees)
+  // Maps the ServicePlanSetup form data to the existing membership creation API
+  const handleServicePlanSubmit = async (data: {
+    plan_type: string
+    service_months: number[]
+    plan_price: number
+    normal_price: number
+  }) => {
+    if (!selectedCustomer) return
+    try {
+      // Find matching plan slug from the available plans
+      const matchingPlan = membershipPlans.find(
+        (p) => p.slug === data.plan_type || p.name.toLowerCase().includes(data.plan_type.replace(/_/g, ' '))
+      )
+      if (!matchingPlan) {
+        alert(`No matching service plan found for type: ${data.plan_type}. Please ask admin to create this plan type.`)
+        return
+      }
+      const res = await fetch("/api/actions/memberships", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: selectedCustomer.id,
+          plan_slug: matchingPlan.slug,
+        }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setShowServicePlanSetup(false)
+        await fetchMemberships()
+      } else {
+        alert(result.error || "Failed to create service plan")
+      }
+    } catch {
+      alert("Failed to create service plan")
     }
   }
 
@@ -675,6 +752,7 @@ export default function CustomersPage() {
     if (selectedCustomer?.id !== prevSelectedCustomerIdRef.current) {
       prevSelectedCustomerIdRef.current = selectedCustomer?.id ?? null
       setCustomerQuotes([])
+      setShowServicePlanSetup(false)
       if (activeTab === "quotes" && selectedCustomer) {
         fetchCustomerQuotes(selectedCustomer.id, selectedCustomer.phone_number)
       }
@@ -695,13 +773,78 @@ export default function CustomersPage() {
     }
   }
 
+  // Fetch customer tags, visits, and tag definitions for the Info tab (WinBros only)
+  const fetchInfoTabData = async (custId: number) => {
+    setInfoTabLoading(true)
+    try {
+      const [tagsRes, visitsRes, defsRes] = await Promise.all([
+        fetch(`/api/actions/customer-tags?customer_id=${custId}`),
+        fetch(`/api/actions/customer-visits?customer_id=${custId}`),
+        fetch(`/api/actions/tag-definitions`),
+      ])
+      const tagsData = await tagsRes.json()
+      const visitsData = await visitsRes.json()
+      const defsData = await defsRes.json()
+      setCustomerTags(tagsData.data || [])
+      setCustomerVisits(visitsData.data || [])
+      setAvailableTags(defsData.data || [])
+    } catch {
+      setCustomerTags([])
+      setCustomerVisits([])
+      setAvailableTags([])
+    } finally {
+      setInfoTabLoading(false)
+    }
+  }
+
+  const handleAddTag = async (type: string, value: string) => {
+    if (!selectedCustomer) return
+    try {
+      const res = await fetch(`/api/actions/customer-tags`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: selectedCustomer.id, tag_type: type, tag_value: value }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.tag) setCustomerTags(prev => [...prev, data.tag])
+      }
+    } catch { /* silent */ }
+  }
+
+  const handleRemoveTag = async (tagId: number) => {
+    try {
+      const res = await fetch(`/api/actions/customer-tags?id=${tagId}`, { method: "DELETE" })
+      if (res.ok) setCustomerTags(prev => prev.filter(t => t.id !== tagId))
+    } catch { /* silent */ }
+  }
+
+  const handleSaveInfoNotes = async (notes: string) => {
+    if (!selectedCustomer) return
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: selectedCustomer.id, notes }),
+      })
+      const json = await res.json()
+      if (json.success && json.data) {
+        setCustomers(prev => prev.map(c => c.id === json.data.id ? json.data : c))
+        setSelectedCustomer(json.data)
+      }
+    } catch { /* silent */ }
+  }
+
   // Reset + re-fetch logs when selected customer changes while on info tab
   useEffect(() => {
     if (activeTab === "info" && selectedCustomer) {
       fetchCustomerLogs(selectedCustomer.phone_number, selectedCustomer.id)
+      if (!isHouseCleaning) fetchInfoTabData(selectedCustomer.id)
     }
     if (activeTab !== "info") {
       setCustomerLogs([]) // clear when leaving tab
+      setCustomerTags([])
+      setCustomerVisits([])
     }
   }, [selectedCustomer?.id, activeTab])
 
@@ -1704,8 +1847,36 @@ export default function CustomersPage() {
       ]
     : []
 
-  // Server already sorts by last activity and handles search — just use as-is
-  const filteredCustomers = customers
+  // For non-admin field users, filter customers to only those whose jobs involve their crew
+  const filteredCustomers = useMemo(() => {
+    if (isAdmin || !myCleanerId || myCleanerId <= 0) return customers
+
+    // Build set of customer phones/ids that have jobs assigned to this user's crew
+    const myCustomerPhones = new Set<string>()
+    const myCustomerIds = new Set<number>()
+
+    for (const job of jobs) {
+      let isMyJob = false
+
+      if (isSalesman && crewMemberIds.length > 0) {
+        // Salesmen see customers from jobs assigned to any crew member or sold by them
+        if (job.cleaner_id && crewMemberIds.includes(job.cleaner_id)) isMyJob = true
+        if (job.credited_salesman_id === myCleanerId) isMyJob = true
+      } else {
+        // Techs/TLs see only their own assigned jobs
+        if (job.cleaner_id === myCleanerId) isMyJob = true
+      }
+
+      if (isMyJob) {
+        if (job.phone_number) myCustomerPhones.add(normalizePhone(job.phone_number))
+        if (job.customer_id) myCustomerIds.add(job.customer_id)
+      }
+    }
+
+    return customers.filter((c) =>
+      myCustomerIds.has(c.id) || myCustomerPhones.has(normalizePhone(c.phone_number))
+    )
+  }, [customers, jobs, isAdmin, isSalesman, myCleanerId, crewMemberIds])
 
   // localStorage-based read tracking for unread badges
   const [readVersion, setReadVersion] = useState(0)
@@ -2026,6 +2197,12 @@ export default function CustomersPage() {
                                 </span>
                               )}
                             </div>
+                            {/* Phone number row */}
+                            {customer.phone_number && (
+                              <div className="text-[10px] text-zinc-500 mt-0.5 truncate">
+                                {formatPhone(customer.phone_number)}
+                              </div>
+                            )}
                             {/* Bottom row: message preview + unread badge */}
                             <div className="flex items-center justify-between gap-2 mt-0.5">
                               <span className="text-xs text-zinc-500 truncate">
@@ -3243,6 +3420,31 @@ export default function CustomersPage() {
                               </div>
                             </div>
                           )}
+
+                          {/* Service Plan Setup (field employees) */}
+                          <div className="border-t border-zinc-800 pt-4">
+                            {showServicePlanSetup ? (
+                              <div className="space-y-3">
+                                <ServicePlanSetup
+                                  customerName={[selectedCustomer.first_name, selectedCustomer.last_name].filter(Boolean).join(" ") || "Customer"}
+                                  onSubmit={handleServicePlanSubmit}
+                                />
+                                <button
+                                  onClick={() => setShowServicePlanSetup(false)}
+                                  className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setShowServicePlanSetup(true)}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition-colors"
+                              >
+                                <Plus className="w-3.5 h-3.5" /> New Service Plan
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )
                     })()}
@@ -3290,6 +3492,21 @@ export default function CustomersPage() {
 
                       return (
                         <div className="space-y-4 p-1 flex-1 overflow-y-auto min-h-0">
+                          {/* WinBros: Tags, Notes, Visit History */}
+                          {!isHouseCleaning && (
+                            <CustomerInfoTab
+                              customerId={selectedCustomer.id}
+                              tags={customerTags}
+                              notes={selectedCustomer.notes || ""}
+                              visits={customerVisits}
+                              availableTags={availableTags}
+                              onAddTag={handleAddTag}
+                              onRemoveTag={handleRemoveTag}
+                              onSaveNotes={handleSaveInfoNotes}
+                              onVisitClick={() => {}}
+                            />
+                          )}
+
                           {/* Core Info */}
                           <div className="space-y-1">
                             <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">Customer Details</p>

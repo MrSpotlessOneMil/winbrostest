@@ -58,7 +58,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
   // Get tenant name for branding
   const { data: tenant } = await supabase
     .from("tenants")
-    .select("name, business_name, brand_color, currency")
+    .select("name, business_name, brand_color, currency, slug")
     .eq("id", cleaner.tenant_id)
     .single()
 
@@ -82,6 +82,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       notes: quote.notes,
     } : null,
     cleaner_name: cleaner.name,
+    tenant_slug: tenant?.slug || null,
     business_name: tenant?.business_name || tenant?.name || 'Your Company',
     brand_color: tenant?.brand_color || null,
   })

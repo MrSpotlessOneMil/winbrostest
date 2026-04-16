@@ -1,0 +1,34 @@
+/* === NEON CONSTELLATION GRAPH === */
+body {
+  --graph-background: #0a0a0a;
+}
+
+.graph-view.color-fill {
+  color: #4466ff;
+}
+.graph-view.color-fill-focused {
+  color: #00ffff;
+}
+.graph-view.color-fill-tag {
+  color: #ff00ff;
+}
+.graph-view.color-fill-attachment {
+  color: #00ff88;
+}
+.graph-view.color-fill-unresolved {
+  color: #ff6644;
+}
+.graph-view.color-line {
+  color: rgba(0, 255, 255, 0.10);
+}
+.graph-view.color-line-highlight {
+  color: rgba(0, 255, 255, 0.55);
+}
+.graph-view.color-arrow {
+  color: rgba(0, 255, 255, 0.3);
+}
+
+/* Glow effect on focused nodes */
+.graph-view .node.is-focused circle {
+  filter: drop-shadow(0 0 8px #00ffff) drop-shadow(0 0 15px #00ffff);
+}

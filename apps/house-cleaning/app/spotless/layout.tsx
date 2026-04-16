@@ -19,14 +19,14 @@ export const metadata: Metadata = {
   },
   title: {
     template: "%s | Spotless Scrubbers - LA House Cleaning",
-    default: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
+    default: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
   },
   description:
-    "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
+    "Professional house cleaning in Los Angeles County. Book in 60 seconds, instant confirmation. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
   openGraph: {
-    title: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
+    title: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
     description:
-      "Professional house cleaning in Los Angeles County. Insured, 5-star rated. Standard, deep, move-in/out, commercial, Airbnb cleaning.",
+      "Professional house cleaning in Los Angeles County. Book in 60 seconds, instant confirmation. Insured, 5-star rated.",
     type: "website",
     siteName: "Spotless Scrubbers",
     images: [
@@ -40,9 +40,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Spotless Scrubbers - Top-Rated House Cleaning in Los Angeles",
+    title: "Spotless Scrubbers - Instant-Book House Cleaning in Los Angeles County",
     description:
-      "Professional house cleaning in LA County. Insured, 5-star rated. Call (424) 677-1146 for a free quote.",
+      "Professional house cleaning in LA County. Book in 60 seconds, instant confirmation. Call (424) 677-1146.",
   },
 }
 
@@ -67,6 +67,12 @@ export default function SpotlessLayout({ children }: { children: React.ReactNode
       <TrackingScripts
         metaPixelId={process.env.NEXT_PUBLIC_SPOTLESS_META_PIXEL}
         ga4MeasurementId={process.env.NEXT_PUBLIC_SPOTLESS_GA4}
+      />
+      {/* Microsoft Clarity — heatmaps + session recordings */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","wbqamthvdd");`,
+        }}
       />
     </div>
   )

@@ -79,6 +79,8 @@ export async function POST(request: NextRequest) {
     cleaner_ids,
     cleaner_pay,
     description,
+    // Line items (service-based quoting)
+    line_items,
   } = body
 
   if (!customer_name) {
@@ -150,6 +152,29 @@ export async function POST(request: NextRequest) {
 
   const hasPreconfirm = Array.isArray(cleaner_ids) && cleaner_ids.length > 0
 
+  // Validate line_items if provided
+  const parsedLineItems: Array<{ service_name: string; description?: string; price: number; quantity: number }> = []
+  if (Array.isArray(line_items) && line_items.length > 0) {
+    for (const item of line_items) {
+      if (!item || typeof item !== 'object') continue
+      const sName = typeof item.service_name === 'string' ? item.service_name.trim() : ''
+      const sPrice = Number(item.price)
+      const sQty = item.quantity != null ? Number(item.quantity) : 1
+      if (!sName || isNaN(sPrice) || sPrice < 0) continue
+      parsedLineItems.push({
+        service_name: sName,
+        description: typeof item.description === 'string' ? item.description.trim() || undefined : undefined,
+        price: sPrice,
+        quantity: sQty,
+      })
+    }
+  }
+
+  // Compute total_price from line items if present, otherwise fall back to custom_base_price
+  const lineItemsTotal = parsedLineItems.length > 0
+    ? parsedLineItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
+    : null
+
   const { data: quote, error } = await supabase
     .from("quotes")
     .insert({
@@ -168,6 +193,7 @@ export async function POST(request: NextRequest) {
       membership_plan: membership_plan && typeof membership_plan === 'string' ? membership_plan : null,
       notes: notes || null,
       custom_base_price: parsedCustomPrice,
+      ...(lineItemsTotal != null ? { total_price: lineItemsTotal } : {}),
       ...(parsedCleanerPay != null ? { cleaner_pay: parsedCleanerPay } : {}),
       ...(description ? { description: description as string } : {}),
       ...(hasPreconfirm ? { preconfirm_status: 'awaiting_cleaners' } : {}),
@@ -197,6 +223,27 @@ export async function POST(request: NextRequest) {
       .select("id, cleaner_id, status")
 
     preconfirms = inserted || []
+  }
+
+  // Insert line items into quote_line_items table
+  if (parsedLineItems.length > 0 && quote) {
+    const lineItemRows = parsedLineItems.map((item, index) => ({
+      quote_id: quote.id,
+      tenant_id: tenant.id,
+      service_name: item.service_name,
+      description: item.description || null,
+      price: item.price,
+      quantity: item.quantity,
+      sort_order: index,
+    }))
+
+    const { error: lineItemError } = await supabase
+      .from("quote_line_items")
+      .insert(lineItemRows)
+
+    if (lineItemError) {
+      console.error("[quotes/POST] Failed to insert line items:", lineItemError)
+    }
   }
 
   // Tag customer for quoted_not_booked retargeting (only if no existing override)

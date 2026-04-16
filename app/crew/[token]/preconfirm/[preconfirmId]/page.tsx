@@ -12,6 +12,7 @@ interface PreconfirmData {
     bathrooms: number | null; notes: string | null
   } | null
   cleaner_name: string
+  tenant_slug: string | null
   business_name: string
   brand_color: string | null
 }
@@ -212,24 +213,35 @@ export default function PreconfirmPage() {
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="space-y-3 pt-2">
-            <button
-              onClick={() => handleAction("confirm")}
-              disabled={submitting}
-              className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
-              style={{ backgroundColor: accentColor }}
-            >
-              {submitting ? <Loader2 className="size-5 animate-spin mx-auto" /> : "I'm In!"}
-            </button>
-            <button
-              onClick={() => handleAction("decline")}
-              disabled={submitting}
-              className="w-full py-3 rounded-xl bg-gray-100 text-gray-600 font-medium transition-all active:scale-[0.98] disabled:opacity-50"
-            >
-              Not Available
-            </button>
-          </div>
+          {/* Action Buttons — WinBros: no confirm/deny, admin assigns directly */}
+          {data.tenant_slug === 'winbros' ? (
+            <div className="pt-2">
+              <div className="w-full py-4 rounded-xl text-white font-bold text-lg text-center" style={{ backgroundColor: accentColor }}>
+                You've Been Assigned
+              </div>
+              <p className="text-center text-sm text-gray-500 mt-2">
+                Your manager has assigned you to this job. Check your schedule for details.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3 pt-2">
+              <button
+                onClick={() => handleAction("confirm")}
+                disabled={submitting}
+                className="w-full py-4 rounded-xl text-white font-bold text-lg shadow-md transition-all active:scale-[0.98] disabled:opacity-50"
+                style={{ backgroundColor: accentColor }}
+              >
+                {submitting ? <Loader2 className="size-5 animate-spin mx-auto" /> : "I'm In!"}
+              </button>
+              <button
+                onClick={() => handleAction("decline")}
+                disabled={submitting}
+                className="w-full py-3 rounded-xl bg-gray-100 text-gray-600 font-medium transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                Not Available
+              </button>
+            </div>
+          )}
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6 pb-8">

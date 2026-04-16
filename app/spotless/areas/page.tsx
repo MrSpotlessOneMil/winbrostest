@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description:
     "Spotless Scrubbers serves 20+ cities across Los Angeles County. Find professional house cleaning in your neighborhood - insured, 5-star rated.",
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/areas`,
+    canonical: `${SPOTLESS_BUSINESS.url}/areas`,
   },
 }
 
@@ -42,7 +42,7 @@ export default function AreasPage() {
           {SPOTLESS_AREAS.map((area) => (
             <Link
               key={area.slug}
-              href={`/spotless/areas/${area.slug}`}
+              href={`/areas/${area.slug}`}
               className="group rounded-xl border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col"
             >
               {/* Teal accent bar */}

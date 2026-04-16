@@ -1,0 +1,10 @@
+{
+  "theme": "obsidian",
+  "cssTheme": "",
+  "baseFontSize": 16,
+  "enabledCssSnippets": ["neon-graph"],
+  "showLineNumber": true,
+  "spellcheck": false,
+  "readableLineLength": true,
+  "showFrontmatter": false
+}

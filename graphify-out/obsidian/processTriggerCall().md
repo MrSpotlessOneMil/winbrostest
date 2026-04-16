@@ -1,0 +1,20 @@
+---
+source_file: "integrations\ghl\follow-up-scheduler.ts"
+type: "code"
+community: "Community 8"
+location: "L215"
+tags:
+  - graphify/code
+  - graphify/EXTRACTED
+  - community/Community_8
+---
+
+# processTriggerCall()
+
+## Connections
+- [[follow-up-scheduler.ts]] - `contains` [EXTRACTED]
+- [[processFollowUp()]] - `calls` [EXTRACTED]
+- [[scheduleFollowUp()]] - `calls` [EXTRACTED]
+- [[triggerVAPIOutboundCall()]] - `calls` [EXTRACTED]
+
+#graphify/code #graphify/EXTRACTED #community/Community_8

@@ -932,7 +932,6 @@ export default function JobsPage() {
   const [autoScheduleResult, setAutoScheduleResult] = useState<string | null>(null)
   const [cleanersList, setCleanersList] = useState<{ id: string; name: string }[]>([])
   const [sendToCleanerId, setSendToCleanerId] = useState("")
-  const [sendToCleanerIds, setSendToCleanerIds] = useState<string[]>([])
   const [sendingToCleaner, setSendingToCleaner] = useState(false)
   const [sendToCleanerResult, setSendToCleanerResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -1257,23 +1256,6 @@ export default function JobsPage() {
     setAddChargeOpen(false)
     setSendToCleanerId("")
     setSendToCleanerResult(null)
-    pmReset()
-
-    // Load cleaners list for send-to-cleaner dropdown (view mode)
-    if (cleanersList.length === 0) {
-      fetch("/api/teams").then(r => r.json()).then(data => {
-        const all: { id: string; name: string }[] = []
-        for (const team of data.data || []) {
-          for (const member of team.members || []) {
-            all.push({ id: String(member.id), name: member.name })
-          }
-        }
-        for (const c of data.unassigned_cleaners || []) {
-          all.push({ id: String(c.id), name: c.name })
-        }
-        setCleanersList(all)
-      }).catch(() => {})
-    }
   }
 
   const refreshJobs = async () => {
@@ -1468,19 +1450,19 @@ export default function JobsPage() {
   }
 
   const handleSendToCleaner = async () => {
-    if (!selectedEvent || sendToCleanerIds.length === 0) return
+    if (!selectedEvent || !sendToCleanerId) return
     setSendingToCleaner(true)
     setSendToCleanerResult(null)
     try {
-      const res = await fetch('/api/actions/notify-cleaners', {
+      const res = await fetch('/api/actions/assign-cleaner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerIds: sendToCleanerIds }),
+        body: JSON.stringify({ jobId: selectedEvent.jobId, cleanerId: sendToCleanerId }),
       })
       const data = await res.json()
       if (res.ok && data.success) {
-        setSendToCleanerResult(`Sent to ${data.notified} cleaner${data.notified === 1 ? '' : 's'} — waiting for response`)
-        setSendToCleanerIds([])
+        const name = data.cleaner?.name || 'Cleaner'
+        setSendToCleanerResult(`Sent to ${name} — waiting for response`)
         await refreshJobs()
       } else {
         setSendToCleanerResult(`Error: ${data.error || 'Failed to send'}`)
@@ -1491,33 +1473,6 @@ export default function JobsPage() {
       setSendingToCleaner(false)
     }
   }
-
-  const [sendingRanked, setSendingRanked] = useState(false)
-  const [sendRankedResult, setSendRankedResult] = useState<string | null>(null)
-  const handleSendRanked = async () => {
-    if (!selectedEvent) return
-    setSendingRanked(true)
-    setSendRankedResult(null)
-    try {
-      const res = await fetch('/api/actions/assign-cleaner', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: selectedEvent.jobId, mode: 'ranked' }),
-      })
-      const data = await res.json()
-      if (res.ok && data.success) {
-        setSendRankedResult('Sent to #1 ranked cleaner — will cascade if no response in 20 min')
-        await refreshJobs()
-      } else {
-        setSendRankedResult(`Error: ${data.error || 'Failed'}`)
-      }
-    } catch {
-      setSendRankedResult('Error: Network request failed')
-    } finally {
-      setSendingRanked(false)
-    }
-  }
-
   const handleAddCharge = async () => {
     if (!selectedEvent || !addChargeType) return
     setAddChargeSaving(true)
@@ -2043,6 +1998,8 @@ export default function JobsPage() {
           duration_minutes: Number(createForm.duration_minutes) || 120,
           estimated_value: finalPrice,
           notes: createForm.notes.trim() || undefined,
+          cleaner_notes: (createForm as any).cleaner_notes?.trim() || undefined,
+          cleaner_pay_override: (createForm as any).cleaner_pay_override ? Number((createForm as any).cleaner_pay_override) : undefined,
           bedrooms: createForm.bedrooms ? Number(createForm.bedrooms) : undefined,
           bathrooms: createForm.bathrooms ? Number(createForm.bathrooms) : undefined,
           sqft: createForm.sqft ? Number(createForm.sqft) : undefined,
@@ -2770,9 +2727,25 @@ export default function JobsPage() {
                     <strong>Price:</strong> ${Number(selectedEvent.price)}
                   </div>
                 ) : null}
+                {(selectedEvent as any)?.cleaner_pay_override ? (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Cleaner Pay Override:</strong> ${Number((selectedEvent as any).cleaner_pay_override)}
+                    {(selectedEvent as any)?.cleaners > 1 && (
+                      <span className="text-muted-foreground"> (${(Number((selectedEvent as any).cleaner_pay_override) / Number((selectedEvent as any).cleaners)).toFixed(2)} per cleaner)</span>
+                    )}
+                  </div>
+                ) : null}
                 {selectedEvent?.notes && (
+                  <div style={{ marginBottom: "0.5rem" }}>
+                    <strong>Admin Notes:</strong>{" "}
+                    <span className="text-muted-foreground">
+                      {selectedEvent.notes.split(/\||\n/).map((s: string) => s.trim()).filter((s: string) => s && !/^(PROMO:|NORMAL_PRICE:|__SYS)/i.test(s)).join(' — ') || '(internal system data only)'}
+                    </span>
+                  </div>
+                )}
+                {(selectedEvent as any)?.cleaner_notes && (
                   <div>
-                    <strong>Notes:</strong> {selectedEvent.notes}
+                    <strong>Cleaner Notes:</strong> {(selectedEvent as any).cleaner_notes}
                   </div>
                 )}
                 {/* Auto-schedule button for unscheduled cleaning jobs */}
@@ -2810,6 +2783,47 @@ export default function JobsPage() {
                     )}
                   </div>
                 )}
+                {/* Send to specific cleaner */}
+                <div style={{ marginTop: "1rem", padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
+                    Send to a specific cleaner
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select
+                      value={sendToCleanerId}
+                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
+                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
+                    >
+                      <option value="">Pick a cleaner...</option>
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSendToCleaner}
+                      disabled={!sendToCleanerId || sendingToCleaner}
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
+                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {sendingToCleaner ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                  {sendToCleanerResult && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
+                      {sendToCleanerResult}
+                    </div>
+                  )}
+                </div>
               </>
             ) : (
               <>
@@ -2920,19 +2934,49 @@ export default function JobsPage() {
                   <label className="cal-form-label">Address</label>
                   <input type="text" className="cal-form-control" value={editForm.address} onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))} />
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.5rem" }}>
-                  <div>
-                    <label className="cal-form-label">Service Type</label>
-                    <input type="text" className="cal-form-control" value={editForm.serviceType} onChange={(e) => setEditForm((f) => ({ ...f, serviceType: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label className="cal-form-label">Duration</label>
-                    <div style={{ fontSize: "0.8rem", color: "#71717a", padding: "0.45rem 0" }}>{selectedEvent?.hours || 2} hours</div>
-                  </div>
+                <div style={{ fontSize: "0.8rem", color: "#71717a", marginBottom: "0.75rem" }}>
+                  Duration: {selectedEvent?.hours || 2} hours
                 </div>
-                <div style={{ marginBottom: "0.5rem" }}>
-                  <label className="cal-form-label">Notes</label>
-                  <textarea className="cal-form-control" rows={2} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} style={{ resize: "vertical" }} />
+                {/* Send to specific cleaner (also in edit mode) */}
+                <div style={{ padding: "0.75rem", borderRadius: 8, background: "rgba(16, 185, 129, 0.08)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <div style={{ fontSize: "0.8rem", color: "#6ee7b7", marginBottom: "0.5rem", fontWeight: 600 }}>
+                    Send job offer to a cleaner
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <select
+                      value={sendToCleanerId}
+                      onChange={(e) => { setSendToCleanerId(e.target.value); setSendToCleanerResult(null) }}
+                      style={{ flex: 1, padding: "0.4rem 0.5rem", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e4e4e7", fontSize: "0.8rem" }}
+                    >
+                      <option value="">Pick a cleaner...</option>
+                      {cleanersList.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSendToCleaner}
+                      disabled={!sendToCleanerId || sendingToCleaner}
+                      style={{
+                        padding: "0.4rem 0.75rem",
+                        borderRadius: 6,
+                        border: "none",
+                        background: sendToCleanerId ? "linear-gradient(135deg, #10b981, #059669)" : "#333",
+                        color: "#fff",
+                        fontWeight: 600,
+                        fontSize: "0.8rem",
+                        cursor: !sendToCleanerId || sendingToCleaner ? "not-allowed" : "pointer",
+                        opacity: !sendToCleanerId || sendingToCleaner ? 0.5 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {sendingToCleaner ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                  {sendToCleanerResult && (
+                    <div style={{ marginTop: "0.5rem", fontSize: "0.8rem", color: sendToCleanerResult.startsWith('Error') ? "#f87171" : "#34d399" }}>
+                      {sendToCleanerResult}
+                    </div>
+                  )}
                 </div>
               </>
             )}
@@ -4063,10 +4107,10 @@ export default function JobsPage() {
                   </div>
                 </div>
 
-                {/* Row 6: Notes + Send as Quote */}
+                {/* Row 6: Admin Notes + Send as Quote */}
                 <div>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                    <label className="cal-form-label" style={{ margin: 0 }}>Notes</label>
+                    <label className="cal-form-label" style={{ margin: 0 }}>Admin Notes</label>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", cursor: "pointer", fontSize: "0.8rem", color: createForm.is_quote ? "#22d3ee" : "#a1a1aa" }}>
                       <input
                         type="checkbox"
@@ -4080,10 +4124,24 @@ export default function JobsPage() {
                   <textarea
                     className="cal-form-control"
                     rows={2}
-                    placeholder="Special instructions, access codes, etc."
+                    placeholder="Internal notes (not visible to cleaners)"
                     value={createForm.notes}
                     onChange={(e) =>
                       setCreateForm((prev) => ({ ...prev, notes: e.target.value }))
+                    }
+                  />
+                </div>
+
+                {/* Row 6b: Cleaner Notes */}
+                <div>
+                  <label className="cal-form-label">Cleaner Notes</label>
+                  <textarea
+                    className="cal-form-control"
+                    rows={2}
+                    placeholder="Instructions for cleaners (visible in their portal)"
+                    value={(createForm as any).cleaner_notes || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_notes: e.target.value }))
                     }
                   />
                 </div>
@@ -4303,6 +4361,23 @@ export default function JobsPage() {
                       </div>
                     )
                   })()}
+                </div>
+
+                {/* Cleaner Pay Override */}
+                <div>
+                  <label className="cal-form-label">Cleaner Pay Override</label>
+                  <input
+                    type="number"
+                    className="cal-form-control"
+                    placeholder="Auto (leave blank)"
+                    min="0"
+                    step="0.01"
+                    value={(createForm as any).cleaner_pay_override || ""}
+                    onChange={(e) =>
+                      setCreateForm((prev) => ({ ...prev, cleaner_pay_override: e.target.value }))
+                    }
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Exact amount each cleaner sees. Blank = auto-calculated.</p>
                 </div>
 
                 {/* Override Price */}

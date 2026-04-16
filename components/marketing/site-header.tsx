@@ -7,12 +7,12 @@ import { trackPhoneClick } from "@/lib/marketing/tracking"
 import { SPOTLESS_BUSINESS } from "@/lib/marketing/spotless-areas"
 
 const NAV_LINKS = [
-  { href: "/spotless", label: "Home" },
-  { href: "/spotless/services", label: "Services" },
-  { href: "/spotless/areas", label: "Areas" },
-  { href: "/spotless/blog", label: "Blog" },
-  { href: "/spotless/about", label: "About" },
-  { href: "/spotless/contact", label: "Contact" },
+  { href: "/", label: "Home" },
+  { href: "/services", label: "Services" },
+  { href: "/areas", label: "Areas" },
+  { href: "/blog", label: "Blog" },
+  { href: "/about", label: "About" },
+  { href: "/contact", label: "Contact" },
 ]
 
 export function SiteHeader() {
@@ -23,7 +23,7 @@ export function SiteHeader() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/spotless" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2">
             <img
               src="/images/marketing/spotless-logo.jpg"
               alt="Spotless Scrubbers"
@@ -58,7 +58,7 @@ export function SiteHeader() {
               {SPOTLESS_BUSINESS.phone}
             </a>
             <Link
-              href="/spotless/contact"
+              href="/contact"
               className="inline-flex items-center px-5 py-2 bg-[#2195b4] text-white text-sm font-medium hover:bg-[#155f73] transition-colors"
             >
               Book Now
@@ -101,7 +101,7 @@ export function SiteHeader() {
               {SPOTLESS_BUSINESS.phone}
             </a>
             <Link
-              href="/spotless/contact"
+              href="/contact"
               onClick={() => setMobileOpen(false)}
               className="block w-full text-center px-4 py-3 bg-[#2195b4] text-white font-medium"
             >
@@ -122,7 +122,7 @@ export function SiteHeader() {
           Call Now
         </a>
         <Link
-          href="/spotless/contact"
+          href="/contact"
           className="inline-flex items-center px-4 py-2 bg-white text-[#2195b4] text-sm font-bold"
         >
           Book Online

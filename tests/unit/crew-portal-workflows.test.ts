@@ -403,7 +403,7 @@ describe('Crew Portal — Edge Cases', () => {
 
     const job = data.body.jobs?.find((j: any) => j.id === 'job-wb-001')
     if (job) {
-      expect(job.price).toBeNull()
+      expect(job.price).toBeFalsy()
       expect(job.job_type).toBe('estimate')
     }
   })

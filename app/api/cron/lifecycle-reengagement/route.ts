@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       const { data: candidates, error: queryError } = await client
         .from('customers')
         .select(`
-          id, first_name, phone_number, post_job_stage, sms_opt_out,
+          id, first_name, phone_number, post_job_stage, sms_opt_out, auto_response_disabled,
           jobs!inner(id, completed_at, status)
         `)
         .eq('tenant_id', tenant.id)
@@ -90,6 +90,10 @@ export async function GET(request: NextRequest) {
 
       for (const cust of candidates) {
         if ((cust as any).sms_opt_out) continue
+        if ((cust as any).auto_response_disabled) {
+          console.log(`[lifecycle-reengagement] Skipping disabled customer ${cust.id}`)
+          continue
+        }
         if (membershipCustomerIds.has(cust.id)) continue
 
         const jobs = cust.jobs as Array<{ id: number; completed_at: string | null; status: string }>
@@ -123,7 +127,7 @@ export async function GET(request: NextRequest) {
 
       const { data: neverBookedCandidates } = await client
         .from('customers')
-        .select('id, first_name, phone_number, retargeting_completed_at, sms_opt_out')
+        .select('id, first_name, phone_number, retargeting_completed_at, sms_opt_out, auto_response_disabled')
         .eq('tenant_id', tenant.id)
         .not('phone_number', 'is', null)
         .eq('retargeting_stopped_reason', 'completed')
@@ -134,6 +138,10 @@ export async function GET(request: NextRequest) {
       if (neverBookedCandidates && neverBookedCandidates.length > 0) {
         for (const nb of neverBookedCandidates) {
           if (nb.sms_opt_out) continue
+          if ((nb as any).auto_response_disabled) {
+            console.log(`[lifecycle-reengagement] Skipping disabled customer ${nb.id}`)
+            continue
+          }
           if (membershipCustomerIds.has(nb.id)) continue
 
           // Confirm they have NO completed jobs (truly never-booked)
@@ -180,20 +188,20 @@ export async function GET(request: NextRequest) {
 
           const firstName = cust.first_name || 'there'
 
-          // Escalating offers based on days since last job
+          // Value-based re-engagement — NO discounts per business rules
           let message: string
           if (cust.daysSinceLastJob < 60) {
-            // 30-59 days: standard nudge
+            // 30-59 days: gentle nudge
             message = `Hi ${firstName}! It's been a while since your last ${serviceDesc} with ${businessName}. We'd love to have you back — we have openings this week! Reply YES to book.`
           } else if (cust.daysSinceLastJob < 90) {
-            // 60-89 days: 10% discount
-            message = `Hey ${firstName}, we miss you! It's been ${Math.round(cust.daysSinceLastJob / 7)} weeks since your last ${serviceDesc}. Book this week and get 10% off! Reply YES to grab a spot.`
+            // 60-89 days: urgency + value
+            message = `Hey ${firstName}, we miss you! It's been ${Math.round(cust.daysSinceLastJob / 7)} weeks since your last ${serviceDesc}. We've got a few spots open this week — want us to get you scheduled? Reply YES!`
           } else if (cust.daysSinceLastJob < 120) {
-            // 90-119 days: 15% discount
-            message = `Hi ${firstName}, it's been a while! We'd love to welcome you back to ${businessName}. Book your ${serviceDesc} this week and get ${defaultDiscount} off. Reply YES!`
+            // 90-119 days: personal touch
+            message = `Hi ${firstName}, it's been a while! We'd love to welcome you back to ${businessName}. Your home deserves a fresh ${serviceDesc} — we have availability this week. Reply YES to book!`
           } else {
-            // 120+ days: 20% discount
-            message = `Hey ${firstName}! We haven't seen you in a while and would love to have you back. Book your next ${serviceDesc} with ${businessName} and get 20% off — our biggest discount! Reply YES.`
+            // 120+ days: win-back
+            message = `Hey ${firstName}! We haven't seen you in a while and would love to have you back. Ready for a fresh start? We'll make your home sparkle. Reply YES to book your next ${serviceDesc} with ${businessName}!`
           }
 
           const result = await sendSMS(tenant, cust.phone_number, message)

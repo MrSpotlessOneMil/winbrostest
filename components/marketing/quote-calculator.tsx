@@ -3,10 +3,22 @@
 import { useState, useEffect, useRef } from "react"
 import { trackLead, trackFormSubmit } from "@/lib/marketing/tracking"
 
+function getUtmParams(): Record<string, string> {
+  if (typeof window === "undefined") return {}
+  const params = new URLSearchParams(window.location.search)
+  const utms: Record<string, string> = {}
+  for (const key of ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term"]) {
+    const val = params.get(key)
+    if (val) utms[key] = val
+  }
+  return utms
+}
+
 // ---------------------------------------------------------------------------
 // Pricing constants — exact values from Supabase pricing_tiers (Spotless Scrubbers)
 // Keyed by `${bedrooms}_${bathrooms}`, covers all calculator combos (1-6 bed, 1-4 bath)
 // ---------------------------------------------------------------------------
+
 
 const DB_PRICES: Record<string, Record<string, number>> = {
   standard: {
@@ -75,7 +87,6 @@ const CLEANING_TYPES = [
   { value: "airbnb", label: "Airbnb / Short-Term Rental" },
 ]
 
-// These service types skip the bed/bath calculator and go straight to contact form
 const REQUEST_ONLY_TYPES = new Set(["commercial", "post_construction", "airbnb"])
 
 const FREQUENCY_OPTIONS = [
@@ -110,6 +121,10 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
   // Submit state
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
   const [errorMsg, setErrorMsg] = useState("")
+
+  // UTM params
+  const [utmParams, setUtmParams] = useState<Record<string, string>>({})
+  useEffect(() => { setUtmParams(getUtmParams()) }, [])
 
   // Animated price counter
   const [displayedPrice, setDisplayedPrice] = useState(0)
@@ -179,6 +194,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         ? { message: notes || undefined }
         : { bedrooms, bathrooms, frequency, estimated_price: estimatedPrice }),
       source: source === "homepage" ? "quote_calculator" : `quote_calculator_${source}`,
+      ...utmParams,
     }
 
     try {
@@ -195,7 +211,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
       trackFormSubmit("quote_calculator")
     } catch {
       setStatus("error")
-      setErrorMsg("Something went wrong. Please call us at (319) 826-4311 or try again.")
+      setErrorMsg("Something went wrong. Please call us at (424) 677-1146 or try again.")
     }
   }
 
@@ -231,7 +247,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
         <p className="text-slate-600 mb-1">
           {isRequestOnly
             ? "We'll reach out shortly with a custom quote for your project."
-            : "We'll call you within the hour to confirm your cleaning."}
+            : "Your cleaning request is confirmed! We will reach out shortly to finalize the details."}
         </p>
         {!isRequestOnly && (
           <p className="text-sm text-slate-500">
@@ -283,7 +299,7 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
             : "opacity-0 -translate-x-8 h-0 overflow-hidden px-6 pb-0"
         }`}
       >
-        {/* Cleaning Type — always shown */}
+        {/* Cleaning Type — always shown first */}
         <div className="mt-4">
           <label htmlFor="qc-cleaning-type" className="block text-sm font-semibold text-slate-700 mb-2">
             Cleaning Type
@@ -309,7 +325,6 @@ export function QuoteCalculator({ source = "homepage" }: { source?: string }) {
 
         {isRequestOnly ? (
           <>
-            {/* Request-only: show message + notes instead of bed/bath */}
             <div className="mt-6 rounded-xl bg-gradient-to-r from-[#2195b4]/5 to-[#2195b4]/10 border border-[#2195b4]/20 p-5 text-center">
               <p className="text-sm font-medium text-slate-700 mb-1">Custom Quote</p>
               <p className="text-sm text-slate-500">

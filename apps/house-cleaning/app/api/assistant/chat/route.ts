@@ -1094,9 +1094,10 @@ async function executeTool(
           return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
         }
         const { createCustomPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined)
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined, tenant.currency || 'usd')
         if (result.success && result.url) {
-          return `Here's the payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nAmount: $${paymentAmount.toFixed(2)} — ${paymentDesc}`
+          const currencySymbol = (tenant.currency || 'usd').toUpperCase() === 'CAD' ? 'C$' : '$'
+          return `Here's the payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nAmount: ${currencySymbol}${paymentAmount.toFixed(2)} — ${paymentDesc}`
         }
         return `Failed to generate payment link: ${result.error || "Unknown error"}`
       } else if (linkType === "deposit") {
@@ -1104,10 +1105,11 @@ async function executeTool(
           return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
         }
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key, tenant.currency || 'usd')
         if (result.success && result.url) {
-          const depositAmt = result.amount ? `$${result.amount.toFixed(2)}` : `$${(Math.round((job.price / 2) * 1.03 * 100) / 100).toFixed(2)}`
-          return `Here's the deposit payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nDeposit amount: ${depositAmt} (50% of $${job.price} + 3% processing fee)`
+          const currencySymbol = (tenant.currency || 'usd').toUpperCase() === 'CAD' ? 'C$' : '$'
+          const depositAmt = result.amount ? `${currencySymbol}${result.amount.toFixed(2)}` : `${currencySymbol}${(Math.round((job.price / 2) * 1.03 * 100) / 100).toFixed(2)}`
+          return `Here's the deposit payment link for ${customer.first_name || phone}:\n\n${result.url}\n\nDeposit amount: ${depositAmt} (50% of ${currencySymbol}${job.price} + 3% processing fee)`
         }
         return `Failed to generate deposit link: ${result.error || "Unknown error"}`
       } else {
@@ -1609,7 +1611,7 @@ async function executeTool(
           return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
         }
         const { createCustomPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined)
+        const result = await createCustomPaymentLink(customer, paymentAmount, paymentDesc, tenantId, tenant.stripe_secret_key, job ? String(job.id) : undefined, tenant.currency || 'usd')
         if (!result.success || !result.url) return `Failed to generate payment link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = paymentAmount
@@ -1619,7 +1621,7 @@ async function executeTool(
           return "Stripe is not configured for this tenant. Please add a Stripe secret key in admin settings."
         }
         const { createDepositPaymentLink } = await import("@/lib/stripe-client")
-        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key)
+        const result = await createDepositPaymentLink(customer, job, undefined, tenantId, tenant.stripe_secret_key, tenant.currency || 'usd')
         if (!result.success || !result.url) return `Failed to generate deposit link: ${result.error || "Unknown error"}`
         linkUrl = result.url
         amount = result.amount || Math.round((job.price / 2) * 1.03 * 100) / 100
@@ -1642,7 +1644,7 @@ async function executeTool(
       const smsAmount = amount || job.price || 0
       const msg = linkType === "card_on_file"
         ? `Hi ${name}, please save your card on file to confirm your appointment: ${linkUrl}`
-        : paymentLink(name, smsAmount, linkUrl)
+        : paymentLink(name, smsAmount, linkUrl, tenant.currency || 'USD')
       const smsResult = await sendSMS(tenant, customer.phone_number, msg)
 
       if (!smsResult.success) {

@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
         success: true,
         data: {
           type: 'employee',
+          employeeType: cleaner.employee_type || 'technician',
+          cleanerId: cleaner.id,
           user: {
             id: -cleaner.id,
             username: cleaner.username,

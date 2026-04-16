@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAuthWithTenant } from "@/lib/auth"
 import { getSupabaseServiceClient } from "@/lib/supabase"
 import { sendSMS } from "@/lib/openphone"
-import { getBaseUrl } from "@/lib/admin-onboard"
 
 /**
  * POST — Send a quote link to a customer via SMS
@@ -51,7 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No phone number on this quote" }, { status: 400 })
   }
 
-  const baseUrl = getBaseUrl() || "https://cleanmachine.live"
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://cleanmachine.live"
   const quoteUrl = `${baseUrl}/quote/${quote.token}`
 
   const name = quote.customer_name?.split(" ")[0] || "there"

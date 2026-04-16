@@ -12,7 +12,7 @@ export const revalidate = 3600
 export const metadata: Metadata = {
   title: "Cleaning Tips & Guides | Spotless Scrubbers Blog",
   description:
-    "Cleaning tips, pricing guides, and home care advice from Spotless Scrubbers in Los Angeles. Written by Dominic, owner and operator.",
+    "Cleaning tips, pricing guides, and home care advice from Spotless Scrubbers in Los Angeles. Written by the Spotless Scrubbers team.",
   openGraph: {
     title: "Cleaning Tips & Guides | Spotless Scrubbers Blog",
     description:
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   alternates: {
-    canonical: `${SPOTLESS_BUSINESS.url}/spotless/blog`,
+    canonical: `${SPOTLESS_BUSINESS.url}/blog`,
   },
 }
 
@@ -95,7 +95,7 @@ export default async function BlogIndexPage() {
       <BreadcrumbJsonLd
         items={[
           { name: "Home", url: SPOTLESS_BUSINESS.url },
-          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/spotless/blog` },
+          { name: "Blog", url: `${SPOTLESS_BUSINESS.url}/blog` },
         ]}
       />
 
@@ -157,7 +157,7 @@ export default async function BlogIndexPage() {
                   </span>
                 </div>
 
-                <Link href={`/spotless/blog/${post.slug}`} className="group block">
+                <Link href={`/blog/${post.slug}`} className="group block">
                   <h2 className="text-xl sm:text-2xl font-bold text-slate-900 group-hover:text-[#2195b4] transition-colors mb-2">
                     {post.title}
                   </h2>
@@ -181,12 +181,12 @@ export default async function BlogIndexPage() {
             Ready for a Spotless Home?
           </h2>
           <p className="text-white/80 mb-8">
-            Stop reading about cleaning and let us handle it. Call Dominic directly
-            or fill out the form for a free quote.
+            Stop reading about cleaning and let us handle it. Book in 60 seconds
+            or call us for a free quote.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a
-              href="/spotless#quote"
+              href="/#quote"
               className="inline-flex items-center px-8 py-3 bg-white text-[#155f73] font-semibold hover:bg-white/90 transition-colors"
             >
               Get a Free Quote

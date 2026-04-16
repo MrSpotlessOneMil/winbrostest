@@ -64,67 +64,41 @@ const TIER_COLORS = [
   { bg: "bg-indigo-50", border: "border-indigo-500", ring: "ring-indigo-200", icon: "bg-indigo-600", check: "text-indigo-600", badge: "bg-indigo-600" },
 ]
 
-// ── Detailed Checklists (what the cleaner actually does) ────────────
+// ── Detailed Checklists (what the crew actually does) ────────────
 
-const STANDARD_CHECKLIST = [
-  "Wipe down all kitchen countertops and stovetop",
-  "Clean and sanitize kitchen sink",
-  "Wipe exterior of all appliances (fridge, microwave, oven, dishwasher)",
-  "Scrub and sanitize all toilets (inside and out)",
-  "Clean bathtub and shower surfaces",
-  "Clean bathroom vanity, sink, and mirrors",
-  "Vacuum all carpeted areas",
-  "Mop all hard floors",
-  "Dust all reachable surfaces, furniture, and shelves",
-  "Empty all trash cans and replace liners",
+// Window cleaning checklists (Good / Better / Best)
+const GOOD_CHECKLIST = [
+  "Complete exterior window cleaning — all accessible glass",
+  "Window frames and sills wiped down",
+  "Courtesy screen cleaning",
+  "Streak-free finish with purified water",
 ]
 
-const DEEP_EXTRAS = [
-  "Hand-wipe all baseboards throughout home",
-  "Dust and wipe all ceiling fan blades",
-  "Clean light fixtures and switch plates",
-  "Clean all window sills and ledges",
-  "Clean inside microwave",
-  "Clean inside fridge (shelves, drawers, and door compartments)",
-  "Clean inside oven (racks, walls, and door glass)",
+const BETTER_CHECKLIST = [
+  "Complete exterior window cleaning — all accessible glass",
+  "Interior window cleaning — streak-free with non-toxic solutions",
+  "Window frames and sills wiped down (inside and out)",
+  "Courtesy screen cleaning",
+  "Rain repellent hydrophobic coating applied",
+  "Streak-free finish with purified water",
 ]
 
-// Extra Deep removed — those items are now available as individual add-ons
-
-const MOVE_CHECKLIST = [
-  "Clean all kitchen countertops, stovetop, and sink",
-  "Clean inside microwave",
-  "Clean inside oven (racks, walls, door glass)",
-  "Clean inside fridge (shelves, drawers, compartments)",
-  "Clean inside dishwasher",
-  "Wipe all cabinet and drawer interiors and exteriors",
-  "Degrease range hood and filter",
-  "Clean garbage disposal area",
-  "Clean behind and under appliances",
-  "Scrub and sanitize all toilets, tubs, and showers",
-  "Scrub bathroom grout",
-  "Clean bathroom vanity, sink, and all mirrors",
-  "Vacuum all carpeted areas and mop all hard floors",
-  "Dust all surfaces and remove cobwebs",
-  "Detailed hand-wipe all baseboards",
-  "Detailed cleaning of all ceiling fans and light fixtures",
-  "Clean all window sills, ledges, and window tracks",
-  "Clean light switches, door knobs, and outlet covers",
-  "Sweep and wipe all closet interiors",
-  "Spot clean walls (scuffs and marks)",
-  "Empty all trash and replace liners",
+const BEST_CHECKLIST = [
+  "Complete exterior window cleaning — all accessible glass",
+  "Interior window cleaning — streak-free with non-toxic solutions",
+  "Deep track detailing — remove dirt, debris, and mildew from all tracks",
+  "Window frames and sills wiped down (inside and out)",
+  "Courtesy screen cleaning",
+  "Rain repellent hydrophobic coating applied",
+  "7-day rain guarantee — free re-clean if it rains",
+  "Streak-free finish with purified water",
 ]
 
 function getDetailedChecklist(tierKey: string): string[] {
   switch (tierKey) {
-    case "standard": return STANDARD_CHECKLIST
-    case "deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
-    case "extra_deep": return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS] // backward compat for old quotes
-    case "move": return MOVE_CHECKLIST
-    // Backward compat for old quotes
-    case "move_good": return MOVE_CHECKLIST
-    case "move_better": return MOVE_CHECKLIST
-    case "move_best": return MOVE_CHECKLIST
+    case "good": return GOOD_CHECKLIST
+    case "better": return BETTER_CHECKLIST
+    case "best": return BEST_CHECKLIST
     default: return []
   }
 }
@@ -435,7 +409,7 @@ export default function QuotePage() {
             <CheckCircle className="size-10 text-emerald-500" />
           </div>
           <h2 className="text-2xl font-bold text-slate-800 mb-2">You&apos;re All Set!</h2>
-          <p className="text-slate-500 mb-6">Your card is on file and your cleaning is booked. We&apos;ll be in touch!</p>
+          <p className="text-slate-500 mb-6">Your card is on file and your service is booked. We&apos;ll be in touch!</p>
           {tenant?.phone && (
             <a href={`tel:${tenant.phone}`} className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-700 text-sm font-medium">
               <Phone className="size-4" /> {tenant.phone}
@@ -494,9 +468,9 @@ export default function QuotePage() {
                 <Phone className="size-4 text-blue-300 shrink-0" /> {quote.customer_phone}
               </div>
             )}
-            {serviceType === "house_cleaning" && (quote.bedrooms || quote.bathrooms) && (
+            {quote.square_footage && (
               <div className="flex items-center gap-2 text-slate-500">
-                <Home className="size-4 text-blue-300 shrink-0" /> {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath
+                <Home className="size-4 text-blue-300 shrink-0" /> {quote.square_footage.toLocaleString()} sq ft
               </div>
             )}
           </div>
@@ -525,15 +499,13 @@ export default function QuotePage() {
 
         {/* ── Tier Selection (hidden for custom-priced quotes) ─ */}
         {isCustomPriced ? (() => {
-          // Determine checklist from selected_tier (most specific) or service_category
+          // Determine checklist from selected_tier (most specific)
           const tier = (quote as any).selected_tier as string || ''
-          const cat = (quote as any).service_category as string || 'standard'
-          const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
-          const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
-          const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
+          const tierKeyMap: Record<string, string> = { good: 'good', better: 'better', best: 'best' }
+          const customTierKey = tierKeyMap[tier] || 'good'
           const customChecklist = getDetailedChecklist(customTierKey)
           // Show service type name
-          const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
+          const nameMap: Record<string, string> = { good: 'Exterior Clean', better: 'Complete Clean', best: 'Full Detail' }
           const serviceName = nameMap[customTierKey] || 'Custom Service Package'
           return (
           <div>
@@ -599,8 +571,8 @@ export default function QuotePage() {
           {/* Single-price hero view for VAPI quotes */}
           {singleTierMode && selectedTier && selectedTierPrice ? (
             <div>
-              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Cleaning Quote</h2>
-              <p className="text-slate-400 text-sm mb-4">Based on your {quote.bedrooms || 0} bed / {quote.bathrooms || 0} bath home.</p>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Your Window Cleaning Quote</h2>
+              <p className="text-slate-400 text-sm mb-4">Based on your property details.</p>
 
               <div className="bg-blue-50 border-2 border-blue-300 rounded-2xl p-5 sm:p-6">
                 <div className="flex items-center gap-3 mb-4">
@@ -642,8 +614,8 @@ export default function QuotePage() {
           ) : (
           /* Full tier selection (locked salesman quotes, expanded view, or non-VAPI) */
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Package"}</h2>
-            <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your recurring service." : "Select the service level that fits your needs."}</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">{tierLocked ? "Your Package" : "Choose Your Service Level"}</h2>
+            <p className="text-slate-400 text-sm mb-5">{tierLocked ? "Selected for your property." : "Select the service level that fits your needs."}</p>
 
             <div className={`space-y-3 sm:space-y-0 ${tiers.length === 1 ? "sm:max-w-md sm:mx-auto" : tiers.length === 2 ? "sm:grid sm:grid-cols-2 sm:gap-5" : "sm:grid sm:grid-cols-3 sm:gap-4"}`}>
               {tiers.map((tier, idx) => {
@@ -732,8 +704,8 @@ export default function QuotePage() {
         {/* ── Add-ons */}
         {addons.length > 0 && (
           <div>
-            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Customize Your Clean</h2>
-            <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect package.</p>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-1">Add-On Services</h2>
+            <p className="text-slate-400 text-sm mb-5">Tap to add or remove. Build your perfect service package.</p>
 
             <div className="space-y-2">
               {addons.map((addon) => {
@@ -804,8 +776,8 @@ export default function QuotePage() {
           </div>
         )}
 
-        {/* ── Recurring Savings Banner — standard tier or custom quotes with membership */}
-        {!isExpired && servicePlans.length > 0 && (selectedTierKey === 'standard' || (isCustomPriced && !['deep', 'extra_deep', 'move'].includes((quote as any).selected_tier || '') && (quote as any).service_category !== 'move_in_out')) && (
+        {/* ── Recurring Savings Banner — show for any tier when service plans exist */}
+        {!isExpired && servicePlans.length > 0 && (
           <div>
               <div className={`rounded-2xl border-2 overflow-hidden transition-all ${
                 selectedMembership ? "border-emerald-300 bg-emerald-50" : "border-blue-100 bg-gradient-to-r from-emerald-50 to-blue-50"
@@ -816,7 +788,7 @@ export default function QuotePage() {
                       <Sparkles className="size-5 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-slate-800 font-bold text-base">Save on Every Clean</h3>
+                      <h3 className="text-slate-800 font-bold text-base">Save on Every Service</h3>
                       <p className="text-slate-500 text-sm mt-0.5">Book recurring and pay less every visit. Cancel anytime.</p>
                     </div>
                   </div>
@@ -873,7 +845,7 @@ export default function QuotePage() {
               <MapPin className="size-5 text-blue-500" />
               Service Address
             </h2>
-            <p className="text-slate-400 text-sm mb-4">Where should we send the cleaning crew?</p>
+            <p className="text-slate-400 text-sm mb-4">Where should we send the crew?</p>
             <div className="relative">
               <input
                 type="text"
@@ -1126,7 +1098,7 @@ export default function QuotePage() {
               </div>
               <p className="text-slate-400 text-xs mt-2">
                 {selectedPlan
-                  ? `Charged after each visit · Every ${selectedPlan.interval_months} month${selectedPlan.interval_months !== 1 ? 's' : ''} · ${selectedPlan.visits_per_year} visit${selectedPlan.visits_per_year !== 1 ? 's' : ''}/year`
+                  ? `Charged after each service · Every ${selectedPlan.interval_months} month${selectedPlan.interval_months !== 1 ? 's' : ''} · ${selectedPlan.visits_per_year} visit${selectedPlan.visits_per_year !== 1 ? 's' : ''}/year`
                   : "Your card will be saved on file. Charged after service is complete."}
               </p>
             </div>
@@ -1144,7 +1116,7 @@ export default function QuotePage() {
                 : "bg-slate-300 cursor-not-allowed"
             }`}
           >
-            {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Save Card &amp; Book — {fmt(total)}</>}
+            {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Approve &amp; Book — {fmt(total)}</>}
           </button>
           {!agreementAccepted && (
             <p className="text-amber-600 text-sm font-medium flex items-center gap-1.5">
@@ -1179,7 +1151,7 @@ export default function QuotePage() {
               : "bg-slate-300 cursor-not-allowed"
           }`}
         >
-          {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Save Card &amp; Book</>}
+          {approving ? <><Loader2 className="size-5 animate-spin" /> Processing...</> : <><CreditCard className="size-5" /> Approve &amp; Book</>}
         </button>
         <p className="text-center text-slate-400 text-[10px] mt-1.5 flex items-center justify-center gap-1"><Lock className="size-2.5" /> Secure payment by Stripe</p>
       </div>

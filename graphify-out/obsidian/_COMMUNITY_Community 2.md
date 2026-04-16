@@ -1,0 +1,218 @@
+---
+type: community
+cohesion: 0.02
+members: 167
+---
+
+# Community 2
+
+**Cohesion:** 0.02 - loosely connected
+**Members:** 167 nodes
+
+## Members
+- [[03-opt-out-detection.test.ts]] - code - tests\sms-regression\03-opt-out-detection.test.ts
+- [[DELETE()]] - code - apps\window-washing\app\api\service-plans\route.ts
+- [[GET()]] - code - apps\window-washing\app\api\webhooks\vapi\[slug]\route.ts
+- [[OPTIONS()]] - code - apps\window-washing\app\api\webhooks\website\[slug]\route.ts
+- [[PATCH()]] - code - apps\window-washing\app\api\tenant\campaigns\route.ts
+- [[POST()]] - code - apps\window-washing\app\api\webhooks\website\[slug]\route.ts
+- [[PUT()]] - code - apps\window-washing\app\api\pricing\route.ts
+- [[addDays()_1]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[addMonths()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[blog-topics.ts]] - code - lib\marketing\blog-topics.ts
+- [[bucketIso()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[buildOwnerCancelAlert()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[buildSystemPrompt()]] - code - apps\window-washing\app\api\cron\generate-blog-post\route.ts
+- [[buildTools()]] - code - apps\window-washing\app\api\assistant\chat\route.ts
+- [[calculateNextDate()]] - code - apps\window-washing\app\api\jobs\route.ts
+- [[checkPersonalHours()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[computeDateRange()]] - code - apps\window-washing\app\api\actions\insights\retention\route.ts
+- [[computeDayMetrics()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[computeIntegrationStatus()]] - code - apps\window-washing\app\api\settings\route.ts
+- [[computeWebhookBase()]] - code - apps\window-washing\app\api\settings\route.ts
+- [[createQuoteAndGetLink()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[cron-auth.ts]] - code - packages\core\src\cron-auth.ts
+- [[dailyTarget()]] - code - apps\window-washing\app\api\teams\route.ts
+- [[dailyTargetPerCrew()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[daysInRange()]] - code - apps\window-washing\app\api\actions\insights\pricing\route.ts
+- [[deriveException()]] - code - apps\window-washing\app\api\exceptions\route.ts
+- [[detectOptOutIntent()]] - code - packages\core\src\sms-opt-out.ts
+- [[distributeTip()]] - code - packages\core\src\tips.ts
+- [[endOfDayUTC()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[escapeCsv()]] - code - apps\window-washing\app\api\actions\export\route.ts
+- [[executeCheckTimeouts()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[executeCompleteJob()]] - code - apps\window-washing\app\api\actions\complete-job\route.ts
+- [[executeFollowups()]] - code - apps\window-washing\app\api\cron\ghl-followups\route.ts
+- [[executeHandler()]] - code - apps\window-washing\app\api\cron\send-final-payments\route.ts
+- [[executeMonthlyFollowup()]] - code - apps\window-washing\app\api\cron\monthly-followup\route.ts
+- [[executeRetryPayment()]] - code - apps\window-washing\app\api\actions\retry-payment\route.ts
+- [[executeStage1()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[executeStage2()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[executeStage3()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[executeStage4()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[executeStage5()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[executeTool()]] - code - apps\window-washing\app\api\assistant\chat\route.ts
+- [[extractNameFromConversation()]] - code - apps\window-washing\app\api\webhooks\openphone\route.ts
+- [[extractPaymentFailedTime()]] - code - apps\window-washing\app\api\cron\send-final-payments\route.ts
+- [[extractRetryCount()]] - code - apps\window-washing\app\api\cron\send-final-payments\route.ts
+- [[extractScheduledFinalPayment()]] - code - apps\window-washing\app\api\cron\send-final-payments\route.ts
+- [[fetchAccountReport()]] - code - apps\window-washing\app\api\cron\poll-lsa-leads\route.ts
+- [[fetchLSALeads()]] - code - apps\window-washing\app\api\cron\poll-lsa-leads\route.ts
+- [[fetchMetaLead()]] - code - apps\window-washing\app\api\webhooks\meta\[slug]\route.ts
+- [[fetchWithTimeout()]] - code - apps\window-washing\app\api\cron\unified-daily\route.ts
+- [[findCustomerByPhone()]] - code - apps\window-washing\app\api\assistant\chat\route.ts
+- [[formatDateHuman()]] - code - apps\window-washing\app\api\webhooks\openphone\route.ts
+- [[formatHCPAddress()]] - code - apps\window-washing\app\api\webhooks\housecall-pro\route.ts
+- [[formatTime()]] - code - apps\window-washing\app\api\automation\send-reminder\route.ts
+- [[generateAndPersist()]] - code - apps\window-washing\app\api\cron\generate-blog-post\route.ts
+- [[generateFakeSummary()]] - code - apps\window-washing\app\api\demo\seed\route.ts
+- [[generatePersonalizedSMS()]] - code - apps\window-washing\app\api\cron\poll-meta-sheet\route.ts
+- [[generatePin()]] - code - apps\window-washing\app\api\manage-teams\route.ts
+- [[generateRecurringInstances()]] - code - apps\window-washing\app\api\jobs\route.ts
+- [[generateUniqueUsername()]] - code - apps\window-washing\app\api\manage-teams\route.ts
+- [[getAccessToken()]] - code - apps\window-washing\app\api\cron\poll-lsa-leads\route.ts
+- [[getActiveTimezones()]] - code - apps\window-washing\app\api\cron\send-reminders\route.ts
+- [[getAdminClient()]] - code - apps\window-washing\app\api\tenant\campaigns\route.ts
+- [[getAffectedJobs()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[getCandidateDates()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[getCustomerEmail()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[getCustomerName()_1]] - code - apps\window-washing\app\api\actions\complete-job\route.ts
+- [[getIntervalDays()]] - code - apps\window-washing\app\api\jobs\route.ts
+- [[getJobCountsByDate()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[getLatestSystemEvent()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[getLocalDate()]] - code - apps\window-washing\app\api\cron\route-dispatch\route.ts
+- [[getLocalHour()]] - code - apps\window-washing\app\api\cron\route-dispatch\route.ts
+- [[getOldestPendingCreatedAt()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[getOwnerPhoneForJob()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[getPacificDateString()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[getReplySubject()]] - code - apps\window-washing\app\api\cron\process-email-leads\route.ts
+- [[getSegmentCustomerIds()]] - code - apps\window-washing\app\api\cron\seasonal-reminders\route.ts
+- [[getSupabaseClient()]] - code - apps\window-washing\app\api\cron\crew-briefing\route.ts
+- [[getSupabaseClient()_2]] - code - packages\core\src\tips.ts
+- [[getTenantSlugsWithTopics()]] - code - lib\marketing\blog-topics.ts
+- [[getTimeoutMinutes()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[getTomorrowDate()]] - code - apps\window-washing\app\api\automation\send-reminder\route.ts
+- [[getTopicsForTenant()]] - code - lib\marketing\blog-topics.ts
+- [[handleCancelReassign()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[handleCardOnFileSaved()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleCheckoutSessionCompleted()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleDepositPayment()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleEmailBookingCompletion()]] - code - apps\window-washing\app\api\cron\process-email-leads\route.ts
+- [[handleFinalPayment()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleMembershipLifecycle()]] - code - apps\window-washing\app\api\actions\complete-job\route.ts
+- [[handlePatch()]] - code - apps\window-washing\app\api\admin\patch-vapi-transfer\route.ts
+- [[handlePaymentIntentFailed()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handlePaymentIntentSucceeded()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleQuoteCardOnFile()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleQuoteDepositPayment()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleReregister()]] - code - apps\window-washing\app\api\admin\reregister-all-webhooks\route.ts
+- [[handleSetupIntentSucceeded()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleTipPayment()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[handleVerify()]] - code - apps\window-washing\app\api\admin\verify-all-webhooks\route.ts
+- [[hasEnv()]] - code - apps\window-washing\app\api\settings\route.ts
+- [[hasSystemEvent()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[isKeywordOptOut()]] - code - packages\core\src\sms-opt-out.ts
+- [[isSameDayJob()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[isStartRequest()]] - code - packages\core\src\sms-opt-out.ts
+- [[isUrgentJob()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[isoDate()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[jsonError()]] - code - apps\window-washing\app\api\manage-teams\route.ts
+- [[lookupPriceFromDB()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[mapDbServiceTypeToApi()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[mapDbStatusToApi()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[mapDirection()]] - code - apps\window-washing\app\api\calls\route.ts
+- [[mapGhlSourceToLeadSource()]] - code - apps\window-washing\app\api\webhooks\ghl\route.ts
+- [[mapLead()_1]] - code - apps\window-washing\app\api\leads\route.ts
+- [[mapOutcome()]] - code - apps\window-washing\app\api\calls\route.ts
+- [[maybeCancelFee()]] - code - apps\window-washing\app\api\actions\recurring\route.ts
+- [[mergeInvoiceLinkIntoNotes()]] - code - apps\window-washing\app\api\actions\send-invoice\route.ts
+- [[message-disposition.ts]] - code - packages\core\src\message-disposition.ts
+- [[minutesSince()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[parseCSV()]] - code - apps\window-washing\app\api\cron\poll-meta-sheet\route.ts
+- [[pickTimestamp()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[pickUnusedTopic()]] - code - apps\window-washing\app\api\cron\generate-blog-post\route.ts
+- [[processDayBeforeReminder()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processHotLeadFollowup()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processIncomingEmail()]] - code - apps\window-washing\app\api\cron\process-email-leads\route.ts
+- [[processJobBroadcast()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processJobReminder()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processLeadFollowup()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processManualCall()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processMetaLead()]] - code - apps\window-washing\app\api\webhooks\meta\[slug]\route.ts
+- [[processMidConvoNudge()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processPostJobRecurringPush()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processPostJobReview()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processQuoteFollowupUrgent()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processRankedCascade()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processRetargeting()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processSmsRetry()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[processStripeEvent()]] - code - apps\window-washing\app\api\webhooks\stripe\route.ts
+- [[processTask()]] - code - apps\window-washing\app\api\cron\process-scheduled-tasks\route.ts
+- [[rand()]] - code - apps\window-washing\app\api\demo\seed\route.ts
+- [[randPhone()]] - code - apps\window-washing\app\api\demo\seed\route.ts
+- [[rebroadcastJobToCleaners()]] - code - apps\window-washing\app\api\cron\check-timeouts\route.ts
+- [[relTime()]] - code - apps\window-washing\app\api\notifications\route.ts
+- [[rescheduleJob()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[resolveTenantSlugFromAssistant()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[route.ts]] - code - apps\window-washing\app\api\webhooks\website\[slug]\route.ts
+- [[safePct()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[saveOutboundMessage()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[sendDepositPaymentFlow()]] - code - apps\window-washing\app\api\webhooks\openphone\route.ts
+- [[sendMultiPartSMS()]] - code - apps\window-washing\app\api\webhooks\openphone\route.ts
+- [[sleep()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[sms-opt-out.ts]] - code - packages\core\src\sms-opt-out.ts
+- [[startOfDayUTC()]] - code - apps\window-washing\app\api\metrics\route.ts
+- [[syncCustomerNameIfAvailable()]] - code - apps\window-washing\app\api\webhooks\openphone\route.ts
+- [[tips.ts]] - code - packages\core\src\tips.ts
+- [[titleFrom()]] - code - apps\window-washing\app\api\notifications\route.ts
+- [[toBucket()]] - code - apps\window-washing\app\api\actions\insights\pricing\route.ts
+- [[toCsvRow()]] - code - apps\window-washing\app\api\actions\export\route.ts
+- [[toIsoDateOnly()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[toNumber()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[toSelectedTier()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[toServiceCategory()]] - code - apps\window-washing\app\api\vapi\send-customer-text\route.ts
+- [[toTimeHHMM()]] - code - apps\window-washing\app\api\rain-day\route.ts
+- [[todayISO()]] - code - apps\window-washing\app\api\teams\route.ts
+- [[unauthorizedResponse()]] - code - packages\core\src\cron-auth.ts
+- [[updateDisposition()]] - code - packages\core\src\message-disposition.ts
+- [[updateLeadAfterOutreach()]] - code - apps\window-washing\app\api\automation\lead-followup\route.ts
+- [[verifyCronAuth()]] - code - packages\core\src\cron-auth.ts
+
+## Live Query (requires Dataview plugin)
+
+```dataview
+TABLE source_file, type FROM #community/Community_2
+SORT file.name ASC
+```
+
+## Connections to other communities
+- 6 edges to [[_COMMUNITY_Community 4]]
+- 4 edges to [[_COMMUNITY_Community 3]]
+- 4 edges to [[_COMMUNITY_Community 11]]
+- 4 edges to [[_COMMUNITY_Community 9]]
+- 4 edges to [[_COMMUNITY_Community 7]]
+- 3 edges to [[_COMMUNITY_Community 5]]
+- 3 edges to [[_COMMUNITY_Community 15]]
+- 3 edges to [[_COMMUNITY_Community 13]]
+- 2 edges to [[_COMMUNITY_Community 22]]
+- 2 edges to [[_COMMUNITY_Community 1]]
+- 2 edges to [[_COMMUNITY_Community 19]]
+- 2 edges to [[_COMMUNITY_Community 25]]
+- 2 edges to [[_COMMUNITY_Community 16]]
+- 2 edges to [[_COMMUNITY_Community 24]]
+- 1 edge to [[_COMMUNITY_Community 26]]
+- 1 edge to [[_COMMUNITY_Community 23]]
+- 1 edge to [[_COMMUNITY_Community 18]]
+- 1 edge to [[_COMMUNITY_Community 20]]
+- 1 edge to [[_COMMUNITY_Community 33]]
+- 1 edge to [[_COMMUNITY_Community 28]]
+- 1 edge to [[_COMMUNITY_Community 8]]
+- 1 edge to [[_COMMUNITY_Community 44]]
+- 1 edge to [[_COMMUNITY_Community 17]]
+- 1 edge to [[_COMMUNITY_Community 21]]
+- 1 edge to [[_COMMUNITY_Community 29]]
+- 1 edge to [[_COMMUNITY_Community 14]]
+- 1 edge to [[_COMMUNITY_Community 6]]
+
+## Top bridge nodes
+- [[route.ts]] - degree 213, connects to 27 communities

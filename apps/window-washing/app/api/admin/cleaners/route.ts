@@ -175,5 +175,18 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "Cleaner not found" }, { status: 404 })
   }
 
-  return NextResponse.json({ success: true })
+  // Unassign all non-completed/non-closed jobs from the deleted cleaner
+  // This returns those jobs to the unscheduled bank
+  const { data: unassigned } = await client
+    .from("jobs")
+    .update({ cleaner_id: null })
+    .eq("cleaner_id", parsedId)
+    .eq("tenant_id", tenantId)
+    .not("status", "in", '("completed","closed")')
+    .select("id")
+
+  return NextResponse.json({
+    success: true,
+    unassigned_jobs: unassigned?.length ?? 0,
+  })
 }
