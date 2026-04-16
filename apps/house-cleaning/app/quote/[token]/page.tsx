@@ -129,27 +129,49 @@ function tierToServiceCategory(tierKey: string): string {
   return 'standard_cleaning'
 }
 
+/**
+ * Tenant-specific scope-of-work lines that are always included for that tenant
+ * on given tiers, regardless of what's in the cleaning_checklists DB table.
+ * Keyed by tenant slug → service category → array of checklist strings.
+ */
+const TENANT_SCOPE_EXTRAS: Record<string, Record<string, string[]>> = {
+  'west-niagara': {
+    standard_cleaning: ['Clean interior windows (sills & glass)'],
+    deep_cleaning: ['Clean interior windows (sills & glass)'],
+  },
+}
+
 function getDetailedChecklist(
   tierKey: string,
-  dbChecklists?: Record<string, string[]>
+  dbChecklists?: Record<string, string[]>,
+  tenantSlug?: string,
 ): string[] {
   const category = tierToServiceCategory(tierKey)
+  const extras = (tenantSlug && TENANT_SCOPE_EXTRAS[tenantSlug]?.[category]) || []
+  const withExtras = (items: string[]) => {
+    if (extras.length === 0) return items
+    // Avoid duplicates if the DB happens to already list the same item.
+    const seen = new Set(items.map((s) => s.trim().toLowerCase()))
+    const unique = extras.filter((e) => !seen.has(e.trim().toLowerCase()))
+    return [...items, ...unique]
+  }
+
   const fromDb = dbChecklists?.[category]
   if (fromDb && fromDb.length > 0) {
     // Deep tier: show STANDARD + DEEP items so the customer sees the full
     // base clean plus the deep upgrades (matches cleaner's actual workflow).
     if (category === 'deep_cleaning') {
       const std = dbChecklists?.['standard_cleaning'] || []
-      return [...std, ...fromDb]
+      return withExtras([...std, ...fromDb])
     }
-    return fromDb
+    return withExtras(fromDb)
   }
   // Fallback for tenants whose cleaning_checklists aren't seeded yet.
   switch (tierKey) {
-    case 'standard': return STANDARD_CHECKLIST
+    case 'standard': return withExtras(STANDARD_CHECKLIST)
     case 'deep':
     case 'extra_deep':
-      return [...STANDARD_CHECKLIST, ...DEEP_EXTRAS]
+      return withExtras([...STANDARD_CHECKLIST, ...DEEP_EXTRAS])
     case 'move':
     case 'move_good':
     case 'move_better':
@@ -579,7 +601,7 @@ export default function QuotePage() {
               <div className="border-t border-blue-50 pt-4">
                 <p className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2">Included in Your Clean</p>
                 <div className="space-y-1.5">
-                  {getDetailedChecklist(quote.selected_tier || '', data?.checklists).map((task, i) => (
+                  {getDetailedChecklist(quote.selected_tier || '', data?.checklists, tenant?.slug).map((task, i) => (
                     <div key={`task-${i}`} className="flex items-center gap-2 text-sm text-slate-600">
                       <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -786,7 +808,7 @@ export default function QuotePage() {
           const tierKeyMap: Record<string, string> = { standard: 'standard', deep: 'deep', extra_deep: 'extra_deep', move: 'move', move_good: 'move', move_better: 'move', move_best: 'move' }
           const catKeyMap: Record<string, string> = { standard: 'standard', move_in_out: 'move' }
           const customTierKey = tierKeyMap[tier] || catKeyMap[cat] || 'standard'
-          const customChecklist = getDetailedChecklist(customTierKey, data?.checklists)
+          const customChecklist = getDetailedChecklist(customTierKey, data?.checklists, tenant?.slug)
           // Show service type name
           const nameMap: Record<string, string> = { standard: 'Standard Clean', deep: 'Deep Clean', move: 'Move-Out Clean' }
           const serviceName = nameMap[customTierKey] || 'Custom Service Package'
@@ -862,7 +884,7 @@ export default function QuotePage() {
                 <div className="border-t border-blue-200 pt-4 space-y-2">
                   <p className="text-xs font-bold text-slate-600 uppercase tracking-wide mb-2">What&apos;s Included</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {getDetailedChecklist(selectedTierKey || '', data?.checklists).map((task, i) => (
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists, tenant?.slug).map((task, i) => (
                       <div key={`task-${i}`} className="flex items-start gap-2">
                         <Check className="size-3.5 shrink-0 mt-0.5 text-emerald-500" />
                         <span className="text-sm text-slate-600">{task}</span>
@@ -1328,7 +1350,7 @@ export default function QuotePage() {
                   return (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
-                    {getDetailedChecklist(tierKey, data?.checklists).map((task, i) => (
+                    {getDetailedChecklist(tierKey, data?.checklists, tenant?.slug).map((task, i) => (
                       <div key={`task-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>
@@ -1365,7 +1387,7 @@ export default function QuotePage() {
                 {summaryExpanded && (
                   <div className="mt-2.5 ml-1 pl-3 border-l-2 border-emerald-200 space-y-1.5 pb-1">
                     <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">What&apos;s included</p>
-                    {getDetailedChecklist(selectedTierKey || '', data?.checklists).map((task, i) => (
+                    {getDetailedChecklist(selectedTierKey || '', data?.checklists, tenant?.slug).map((task, i) => (
                       <div key={`base-${i}`} className="flex items-start gap-2">
                         <CheckCircle className="size-3.5 shrink-0 mt-0.5 text-emerald-400" />
                         <span className="text-xs text-slate-600">{task}</span>

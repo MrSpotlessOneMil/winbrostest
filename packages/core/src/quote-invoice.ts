@@ -128,7 +128,7 @@ export async function generateQuoteInvoice(
     for (const rawAddon of selectedAddons) {
       const key = typeof rawAddon === 'string' ? rawAddon : rawAddon.key
       const explicitIncluded = typeof rawAddon === 'string' ? undefined : rawAddon.included
-      const included = isEffectivelyIncluded({ key, included: explicitIncluded }, selectedTier, hasCustomPriceInv)
+      const included = isEffectivelyIncluded({ key, included: explicitIncluded }, selectedTier, hasCustomPriceInv, tenant.slug)
       const addonDef = pricing.addons.find((a) => a.key === key)
       const label = addonDef?.name || (typeof rawAddon !== 'string' ? rawAddon.label : undefined) || key
       const refPrice = addonDef?.price ?? (typeof rawAddon !== 'string' ? rawAddon.price ?? 0 : 0)

@@ -53,6 +53,25 @@ export const TIER_UPGRADES: Record<string, string[]> = {
 }
 
 // ---------------------------------------------------------------------------
+// 2b. Tenant-specific tier additions — merge with TIER_UPGRADES per-tenant
+//     West Niagara (TJ) includes interior window cleaning (sills + glass) in
+//     both standard and deep tiers — a scope-of-work differentiator, not an
+//     upcharge. Every inclusion check + customer display must respect this.
+// ---------------------------------------------------------------------------
+
+export const TENANT_TIER_ADDITIONS: Record<string, Record<string, string[]>> = {
+  'west-niagara': {
+    standard: ['interior_windows'],
+    deep: ['interior_windows'],
+  },
+}
+
+function getTenantAdditions(tier: string, tenantSlug?: string): string[] {
+  if (!tenantSlug) return []
+  return TENANT_TIER_ADDITIONS[tenantSlug]?.[tier] ?? []
+}
+
+// ---------------------------------------------------------------------------
 // 3. Derived sets for fast lookups
 // ---------------------------------------------------------------------------
 
@@ -61,14 +80,15 @@ export const STANDARD_BASE_KEYS: Set<string> = new Set(
 )
 
 // ---------------------------------------------------------------------------
-// 4. isIncludedInTier — true if key is a base task OR in the tier's upgrades
+// 4. isIncludedInTier — true if key is a base task, in the tier's upgrades,
+//    or in the tenant's tier-specific additions.
 // ---------------------------------------------------------------------------
 
-export function isIncludedInTier(addonKey: string, tier: string): boolean {
+export function isIncludedInTier(addonKey: string, tier: string, tenantSlug?: string): boolean {
   if (STANDARD_BASE_KEYS.has(addonKey)) return true
   const upgrades = TIER_UPGRADES[tier]
-  if (!upgrades) return false
-  return upgrades.includes(addonKey)
+  if (upgrades?.includes(addonKey)) return true
+  return getTenantAdditions(tier, tenantSlug).includes(addonKey)
 }
 
 // ---------------------------------------------------------------------------
@@ -101,12 +121,13 @@ export interface NormalizedAddon extends AddonObjectInput {
 export function isEffectivelyIncluded(
   addon: { key: string; included?: boolean },
   tier: string,
-  hasCustomPrice: boolean
+  hasCustomPrice: boolean,
+  tenantSlug?: string
 ): boolean {
   if (addon.included === true) return true
   if (addon.included === false) return false
   if (hasCustomPrice) return true
-  return isIncludedInTier(addon.key, tier)
+  return isIncludedInTier(addon.key, tier, tenantSlug)
 }
 
 /**
@@ -116,18 +137,19 @@ export function isEffectivelyIncluded(
 export function normalizeAddon(
   raw: AddonInput,
   tier: string,
-  hasCustomPrice: boolean
+  hasCustomPrice: boolean,
+  tenantSlug?: string
 ): NormalizedAddon {
   if (typeof raw === 'string') {
     return {
       key: raw,
       quantity: 1,
-      included: isEffectivelyIncluded({ key: raw }, tier, hasCustomPrice),
+      included: isEffectivelyIncluded({ key: raw }, tier, hasCustomPrice, tenantSlug),
     }
   }
   const key = raw.key
   const quantity = Math.max(1, Math.floor(raw.quantity ?? 1))
-  const included = isEffectivelyIncluded(raw, tier, hasCustomPrice)
+  const included = isEffectivelyIncluded(raw, tier, hasCustomPrice, tenantSlug)
   return { key, quantity, included }
 }
 
@@ -137,9 +159,10 @@ export function normalizeAddon(
 export function normalizeAddons(
   raws: AddonInput[],
   tier: string,
-  hasCustomPrice: boolean
+  hasCustomPrice: boolean,
+  tenantSlug?: string
 ): NormalizedAddon[] {
-  return raws.map((r) => normalizeAddon(r, tier, hasCustomPrice))
+  return raws.map((r) => normalizeAddon(r, tier, hasCustomPrice, tenantSlug))
 }
 
 /**
@@ -149,14 +172,15 @@ export function normalizeAddons(
 export function getPaidAddons<T extends AddonInput>(
   selectedAddons: T[],
   tier: string,
-  hasCustomPrice: boolean = false
+  hasCustomPrice: boolean = false,
+  tenantSlug?: string
 ): T[] {
   return selectedAddons.filter((addon) => {
     const obj =
       typeof addon === 'string'
         ? { key: addon }
         : { key: addon.key, included: addon.included }
-    return !isEffectivelyIncluded(obj, tier, hasCustomPrice)
+    return !isEffectivelyIncluded(obj, tier, hasCustomPrice, tenantSlug)
   })
 }
 
@@ -184,25 +208,32 @@ const UPGRADE_LABELS: Record<string, string> = {
   light_fixtures: 'Light fixtures',
   window_sills: 'Window sills',
   wall_cleaning: 'Wall cleaning',
+  interior_windows: 'Interior windows (sills & glass)',
 }
 
-export function getBaseChecklist(tier: string): ChecklistItem[] {
+export function getBaseChecklist(tier: string, tenantSlug?: string): ChecklistItem[] {
   const items: ChecklistItem[] = STANDARD_BASE_TASKS.map((t) => ({
     key: t.key,
     label: t.label,
     source: 'base' as const,
   }))
 
+  const seen = new Set<string>()
+  const pushUpgrade = (key: string) => {
+    if (seen.has(key)) return
+    seen.add(key)
+    items.push({
+      key,
+      label: UPGRADE_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      source: 'tier_upgrade' as const,
+    })
+  }
+
   const upgrades = TIER_UPGRADES[tier]
   if (upgrades) {
-    for (const key of upgrades) {
-      items.push({
-        key,
-        label: UPGRADE_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        source: 'tier_upgrade' as const,
-      })
-    }
+    for (const key of upgrades) pushUpgrade(key)
   }
+  for (const key of getTenantAdditions(tier, tenantSlug)) pushUpgrade(key)
 
   return items
 }

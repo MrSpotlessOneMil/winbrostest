@@ -93,6 +93,17 @@ describe('service-scope', () => {
       expect(isIncludedInTier('kitchen_surfaces', 'unknown')).toBe(true) // base task
       expect(isIncludedInTier('inside_fridge', 'unknown')).toBe(false)
     })
+
+    it('West Niagara: interior_windows is included in standard and deep (not other tenants)', () => {
+      expect(isIncludedInTier('interior_windows', 'standard', 'west-niagara')).toBe(true)
+      expect(isIncludedInTier('interior_windows', 'deep', 'west-niagara')).toBe(true)
+      // Other tenants: never included
+      expect(isIncludedInTier('interior_windows', 'standard', 'spotless-scrubbers')).toBe(false)
+      expect(isIncludedInTier('interior_windows', 'deep', 'cedar-rapids')).toBe(false)
+      // No tenant context: never included (backward compat)
+      expect(isIncludedInTier('interior_windows', 'standard')).toBe(false)
+      expect(isIncludedInTier('interior_windows', 'deep')).toBe(false)
+    })
   })
 
   describe('getPaidAddons', () => {
@@ -173,6 +184,20 @@ describe('service-scope', () => {
         expect(item.label).toBeTruthy()
         expect(['base', 'tier_upgrade']).toContain(item.source)
       }
+    })
+
+    it('West Niagara: interior_windows appears on standard and deep checklists', () => {
+      const std = getBaseChecklist('standard', 'west-niagara')
+      expect(std.some((i) => i.key === 'interior_windows' && i.label === 'Interior windows (sills & glass)')).toBe(true)
+
+      const deep = getBaseChecklist('deep', 'west-niagara')
+      expect(deep.some((i) => i.key === 'interior_windows')).toBe(true)
+      // window_sills (existing deep upgrade) still present — no dedup required, the keys are distinct
+      expect(deep.some((i) => i.key === 'window_sills')).toBe(true)
+
+      // Other tenants: interior_windows NOT in checklist
+      const spotless = getBaseChecklist('standard', 'spotless-scrubbers')
+      expect(spotless.some((i) => i.key === 'interior_windows')).toBe(false)
     })
   })
 })

@@ -12,7 +12,7 @@
 import { computeTierPrice, QUOTE_TIERS, QUOTE_ADDONS, type QuoteTier, type QuoteAddon } from './pricebook'
 import { getWindowTiersFromDB } from './pricebook-db'
 import { getSupabaseServiceClient } from './supabase'
-import { isEffectivelyIncluded, type AddonInput } from './service-scope'
+import { isEffectivelyIncluded, TENANT_TIER_ADDITIONS, type AddonInput } from './service-scope'
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -182,7 +182,7 @@ export async function getQuotePricing(
   if (isWindowCleaningTenant(tenantSlug)) {
     return getWindowCleaningPricing(params.squareFootage, tenantId)
   }
-  return getHouseCleaningPricing(tenantId, params, serviceCategory)
+  return getHouseCleaningPricing(tenantId, tenantSlug, params, serviceCategory)
 }
 
 // ── Window Cleaning (WinBros) ────────────────────────────────────────
@@ -219,6 +219,7 @@ async function getWindowCleaningPricing(squareFootage?: number | null, tenantId?
 
 async function getHouseCleaningPricing(
   tenantId: string,
+  tenantSlug: string,
   params: { bedrooms?: number | null; bathrooms?: number | null; squareFootage?: number | null },
   serviceCategory: 'standard' | 'move_in_out'
 ): Promise<QuotePricingResult> {
@@ -249,7 +250,7 @@ async function getHouseCleaningPricing(
     return buildMoveInOutPricing(pricingTiers || [], pricingAddons || [], bedrooms, bathrooms, bedbathLabel)
   }
 
-  return buildStandardPricing(pricingTiers || [], pricingAddons || [], bedrooms, bathrooms, bedbathLabel)
+  return buildStandardPricing(pricingTiers || [], pricingAddons || [], bedrooms, bathrooms, bedbathLabel, tenantSlug)
 }
 
 // ── Standard Cleaning Pricing (3 tiers) ──────────────────────────────
@@ -269,6 +270,7 @@ function buildStandardPricing(
   bedrooms: number,
   bathrooms: number,
   bedbathLabel: string,
+  tenantSlug?: string,
 ): QuotePricingResult {
   const standardPrice = findPricingRow(pricingTiers, 'standard', bedrooms, bathrooms)
   const deepPrice = findPricingRow(pricingTiers, 'deep', bedrooms, bathrooms)
@@ -300,8 +302,20 @@ function buildStandardPricing(
     unit: undefined,
   }))
 
+  // Tenant-aware tier scope: merge any tenant-specific additions (e.g. West
+  // Niagara's interior windows) into each tier's included[] so the quote page
+  // and invoice both see them. Pricing engine treats them as $0 via service-scope.
+  const tiersForTenant = tenantSlug && TENANT_TIER_ADDITIONS[tenantSlug]
+    ? CLEANING_TIERS.map((tier) => {
+        const extras = TENANT_TIER_ADDITIONS[tenantSlug][tier.key] ?? []
+        if (extras.length === 0) return tier
+        const merged = Array.from(new Set([...tier.included, ...extras]))
+        return { ...tier, included: merged }
+      })
+    : CLEANING_TIERS
+
   return {
-    tiers: CLEANING_TIERS,
+    tiers: tiersForTenant,
     tierPrices,
     addons,
     serviceType: 'house_cleaning',
@@ -590,7 +604,7 @@ export async function computeQuoteTotal(
       typeof raw === 'string' ? { key: raw } : { key: raw.key, included: raw.included }
     const addon = pricing.addons.find((a) => a.key === addonObj.key)
     if (!addon) continue
-    const included = isEffectivelyIncluded(addonObj, effectiveTier, hasCustomPrice)
+    const included = isEffectivelyIncluded(addonObj, effectiveTier, hasCustomPrice, tenantSlug)
     addonBreakdown.push({ service: addon.name, price: addon.price, included })
     if (!included && addon.price > 0) {
       subtotal += addon.price
