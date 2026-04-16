@@ -1346,7 +1346,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     return {
       response: cleanResponse,
@@ -1381,7 +1381,7 @@ export async function generateEmailResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
 
     return {
       response: cleanResponse,
@@ -1710,7 +1710,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
@@ -1748,7 +1748,7 @@ async function generateHouseCleaningResponse(
     const lastCustomerMsg = conversationHistory?.filter(m => m.role === 'client').pop()?.content
     const escalation = detectEscalation(rawText, conversationHistory, lastCustomerMsg)
     const isBookingComplete = detectBookingComplete(rawText)
-    const cleanResponse = stripEscalationTags(rawText)
+    const cleanResponse = sanitizeAIResponse(autoSplitLongMessage(stripEscalationTags(rawText)))
     const silentHandoff = detectSilentHandoff(rawText, escalation.shouldEscalate, isBookingComplete, false)
 
     return {
