@@ -19,8 +19,11 @@ function sanitizeAIResponse(text: string): string {
   cleaned = cleaned.replace(/\u2014/g, ',').replace(/\u2013/g, '-')
   cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
     .replace(/^#{1,6}\s+/gm, '').replace(/^[-*+]\s+/gm, '')
+  // Strip sentences that ask for email (model ignores prompt instructions)
+  cleaned = cleaned.replace(/[^.!?]*\b(what('s| is) (your|the best|a good) email|email (address|to send|so I can|for|where)|send (you|your|everything|the|pricing|details|a quote) (to your|over to your|to an|via) email|can you share your email|could you share your email|share your email)[^.!?]*[.!?]?\s*/gi, '')
+  // Clean up whitespace
   cleaned = cleaned.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim()
-  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown')
+  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown/email-asks')
   return cleaned
 }
 
