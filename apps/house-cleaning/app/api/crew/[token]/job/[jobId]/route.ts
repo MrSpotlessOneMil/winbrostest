@@ -138,6 +138,34 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     completed_at: completedMap.get(item.id)?.completed_at || null,
   }))
 
+  // Tenant-specific scope extras — mirrors TENANT_SCOPE_EXTRAS on the customer
+  // quote page so what the customer sees is exactly what the cleaner sees.
+  // West Niagara: interior windows (sills & glass) on standard + deep.
+  const TENANT_CREW_SCOPE_EXTRAS: Record<string, Record<string, string[]>> = {
+    'west-niagara': {
+      standard_cleaning: ['Clean interior windows (sills & glass)'],
+      deep_cleaning: ['Clean interior windows (sills & glass)'],
+    },
+  }
+  const tenantExtras = TENANT_CREW_SCOPE_EXTRAS[tenant.slug]?.[serviceCategory] ?? []
+  if (tenantExtras.length > 0) {
+    const existingTexts = new Set(checklist.map((c) => c.text.trim().toLowerCase()))
+    let nextOrder = checklist.length > 0 ? Math.max(...checklist.map((c) => c.order)) + 1 : 1
+    for (const text of tenantExtras) {
+      if (existingTexts.has(text.trim().toLowerCase())) continue
+      const stableId = `scope_extra_${tenant.slug}_${text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}`
+      checklist.push({
+        id: stableId,
+        text,
+        order: nextOrder++,
+        required: true,
+        completed: completedMap.get(stableId)?.completed || false,
+        completed_at: completedMap.get(stableId)?.completed_at || null,
+      })
+      existingTexts.add(text.trim().toLowerCase())
+    }
+  }
+
   // Inject add-on items that aren't already covered by the static checklist
   // e.g. "inside fridge" added to a standard cleaning should still appear
   // Dynamic lookup from pricing_addons table so ALL tenant addons are covered
@@ -418,9 +446,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const completed = !!body.completed
     const itemId = body.checklist_item_id
 
-    // Add-on checklist items have string IDs (e.g. "addon_inside_fridge")
-    // — can't store in job_checklist_items FK. Accept toggle silently.
-    if (typeof itemId === 'string' && String(itemId).startsWith('addon_')) {
+    // Add-on + tenant-scope-extra checklist items have string IDs (e.g.
+    // "addon_inside_fridge", "scope_extra_west-niagara_..."). These aren't
+    // rows in cleaning_checklists, so they can't be stored via the integer
+    // FK in job_checklist_items. Accept the toggle silently — the UI will
+    // keep the local checked state for the session.
+    if (typeof itemId === 'string' && (String(itemId).startsWith('addon_') || String(itemId).startsWith('scope_extra_'))) {
       return NextResponse.json({ success: true })
     }
 
