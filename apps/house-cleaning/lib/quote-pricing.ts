@@ -282,12 +282,12 @@ function buildStandardPricing(
   const tierPrices: Record<string, TierPriceResult> = {
     standard: {
       price: stdPriceValue,
-      breakdown: buildCleaningBreakdown('standard', standardPrice || { price: stdPriceValue }, pricingAddons),
+      breakdown: buildCleaningBreakdown('standard', standardPrice || { price: stdPriceValue }, pricingAddons, undefined, tenantSlug),
       tier: bedbathLabel,
     },
     deep: {
       price: deepPriceValue,
-      breakdown: buildCleaningBreakdown('deep', deepPrice || { price: deepPriceValue }, pricingAddons),
+      breakdown: buildCleaningBreakdown('deep', deepPrice || { price: deepPriceValue }, pricingAddons, undefined, tenantSlug),
       tier: bedbathLabel,
     },
   }
@@ -428,11 +428,20 @@ function findPricingRow(
   return { price: Number(best.price), labor_hours: Number(best.labor_hours), cleaners: best.cleaners }
 }
 
+/** Tenant-specific scope-of-work lines shown in the tier card breakdown. */
+const TENANT_BREAKDOWN_EXTRAS: Record<string, Record<string, string[]>> = {
+  'west-niagara': {
+    standard: ['Interior windows (sills & glass)'],
+    deep: ['Interior windows (sills & glass)'],
+  },
+}
+
 function buildCleaningBreakdown(
   tierKey: string,
   basePrice: { price: number } | null,
   _addons: Array<{ addon_key: string; label: string; flat_price: string }>,
-  includedAddons?: Array<{ addon_key: string; label: string; flat_price: string }>
+  includedAddons?: Array<{ addon_key: string; label: string; flat_price: string }>,
+  tenantSlug?: string,
 ): { service: string; price: number }[] {
   const breakdown: { service: string; price: number }[] = []
 
@@ -464,6 +473,16 @@ function buildCleaningBreakdown(
   if (includedAddons && includedAddons.length > 0) {
     for (const addon of includedAddons) {
       breakdown.push({ service: addon.label, price: Number(addon.flat_price) || 0 })
+    }
+  }
+
+  // Tenant-specific scope additions (e.g. West Niagara interior windows)
+  if (tenantSlug) {
+    const extras = TENANT_BREAKDOWN_EXTRAS[tenantSlug]?.[tierKey] ?? []
+    const existing = new Set(breakdown.map((b) => b.service.trim().toLowerCase()))
+    for (const svc of extras) {
+      if (existing.has(svc.trim().toLowerCase())) continue
+      breakdown.push({ service: svc, price: 0 })
     }
   }
 

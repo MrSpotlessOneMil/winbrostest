@@ -1013,12 +1013,12 @@ export default function QuotePage() {
           <div className="mb-6">
             <h3 className="text-sm font-medium text-muted-foreground mb-2">Included in your {selectedTier?.name || 'Standard'} Clean</h3>
             <ul className="space-y-1">
-              {STANDARD_BASE_TASKS.map(task => (
-                <li key={task.key} className="flex items-center gap-2 text-sm text-muted-foreground">
+              {getDetailedChecklist(selectedTierKey || 'standard', data?.checklists, tenant?.slug).map((task, i) => (
+                <li key={`base-${i}`} className="flex items-center gap-2 text-sm text-muted-foreground">
                   <svg className="h-4 w-4 text-green-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
-                  {task.label}
+                  {task}
                 </li>
               ))}
             </ul>
