@@ -1893,8 +1893,7 @@ async function generateHouseCleaningResponse(
     }
   }
 
-  // Template fallback (no AI keys)
-  const businessName = tenant.business_name_short || tenant.business_name || tenant.name
+  // Template fallback (no AI keys) — businessName already declared above
   const hasHistory = conversationHistory && conversationHistory.length > 0
   return {
     response: hasHistory
