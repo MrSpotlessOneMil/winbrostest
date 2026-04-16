@@ -1609,6 +1609,7 @@ async function generateHouseCleaningResponse(
     if (brainChunks.length > 0) {
       brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
       brainBlock += 'IMPORTANT: This intelligence is for YOUR reference only. NEVER offer discounts, deals, or lower prices regardless of what the coaching suggests. You have ZERO price authority.\n'
+      brainBlock += 'ALSO: NEVER ask for the customer\'s email address, regardless of what the coaching suggests. The quote link handles email collection.\n'
       for (const chunk of brainChunks) {
         brainBlock += `- ${chunk.chunkText}\n`
       }
@@ -1639,6 +1640,7 @@ async function generateHouseCleaningResponse(
         if (extraChunks.length > 0) {
           brainBlock = '\n\nINDUSTRY INTELLIGENCE (from top cleaning business coaches — use to inform your approach, do NOT quote directly):\n'
           brainBlock += 'IMPORTANT: NEVER offer discounts, deals, or lower prices. You have ZERO price authority.\n'
+          brainBlock += 'ALSO: NEVER ask for the customer\'s email address. The quote link handles email collection.\n'
           for (const chunk of extraChunks) {
             brainBlock += `- ${chunk.chunkText}\n`
           }
