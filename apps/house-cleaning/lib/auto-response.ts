@@ -23,9 +23,15 @@ function sanitizeAIResponse(text: string): string {
   // Strip markdown
   cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
     .replace(/^#{1,6}\s+/gm, '').replace(/^[-*+]\s+/gm, '')
+  // Strip any sentence containing "email" (model keeps asking despite instructions)
+  if (cleaned.toLowerCase().includes('email')) {
+    const sentences = cleaned.split(/(?<=[.!?])\s+/)
+    cleaned = sentences.filter(s => !s.toLowerCase().includes('email')).join(' ')
+    console.log('[SMS Sanitizer] Stripped email-asking sentence(s)')
+  }
   // Clean up whitespace
   cleaned = cleaned.replace(/  +/g, ' ').replace(/ +\n/g, '\n').trim()
-  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown')
+  if (cleaned !== text) console.log('[SMS Sanitizer] Cleaned AI output — removed emojis/dashes/markdown/email-asks')
   return cleaned
 }
 
