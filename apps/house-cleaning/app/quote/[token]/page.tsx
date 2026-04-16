@@ -365,6 +365,20 @@ export default function QuotePage() {
       ? selectedTierPrice.price + addonTotal
       : 0
 
+  // Value anchor: sum every INCLUDED add-on's reference price — this is what the
+  // customer "would have paid" if nothing was bundled. Used for the struck-through
+  // "Regular Price" line so the deal feels like a steal.
+  const includedValueTotal = addons.reduce((sum, addon) => {
+    if (!selectedAddons[addon.key]) return sum
+    if (!isAddonIncluded(addon.key)) return sum
+    if (STANDARD_BASE_KEYS.has(addon.key)) return sum
+    return sum + getAddonPrice(addon)
+  }, 0) + customAddonsFromQuote.reduce((sum, ca) => {
+    if (!selectedAddons[ca.key]) return sum
+    if (!isAddonIncluded(ca.key)) return sum
+    return sum + ca.price
+  }, 0)
+
   const selectedPlan = servicePlans.find((p) => p.slug === selectedMembership) ?? null
   const membershipDiscount = selectedPlan ? Number(selectedPlan.discount_per_visit) || 0 : 0
   const existingDiscount = Number(quote?.discount) || 0
@@ -569,7 +583,7 @@ export default function QuotePage() {
                           {displayLabel}
                         </div>
                         {refPrice > 0 && (
-                          <span className="text-xs text-slate-400">{fmt(refPrice)} value</span>
+                          <span className="text-xs text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(refPrice)}</span>
                         )}
                       </div>
                     )
@@ -1328,8 +1342,8 @@ export default function QuotePage() {
                 <div key={addon.key} className="flex justify-between text-sm">
                   <span className="text-slate-500">{addon.name}</span>
                   <span className="text-xs font-medium flex items-center gap-2">
-                    {refPrice > 0 && <span className="text-slate-400">{fmt(refPrice)} value</span>}
-                    <span className="text-emerald-500">Included</span>
+                    {refPrice > 0 && <span className="text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(refPrice)}</span>}
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Included</span>
                   </span>
                 </div>
               )
@@ -1338,8 +1352,8 @@ export default function QuotePage() {
               <div key={ca.key} className="flex justify-between text-sm">
                 <span className="text-slate-500">{ca.label} <span className="text-[10px] text-blue-500">(Custom)</span></span>
                 <span className="text-xs font-medium flex items-center gap-2">
-                  {ca.price > 0 && <span className="text-slate-400">{fmt(ca.price)} value</span>}
-                  <span className="text-emerald-500">Included</span>
+                  {ca.price > 0 && <span className="text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(ca.price)}</span>}
+                  <span className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">Included</span>
                 </span>
               </div>
             ))}
@@ -1368,10 +1382,22 @@ export default function QuotePage() {
             )}
 
             <div className="border-t-2 border-blue-100 pt-3">
+              {includedValueTotal > 0 && (
+                <div className="flex justify-between items-baseline mb-1">
+                  <span className="text-slate-400 text-xs">Regular Price</span>
+                  <span className="text-slate-400 text-sm line-through decoration-red-400/70 decoration-[1.5px]">{fmt(total + includedValueTotal)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-baseline">
                 <span className="text-slate-800 font-bold text-lg">Total</span>
                 <span className="text-slate-800 font-bold text-3xl">{fmt(total)}</span>
               </div>
+              {includedValueTotal > 0 && (
+                <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 border border-emerald-200 px-3 py-1">
+                  <Sparkles className="size-3.5 text-emerald-500" />
+                  <span className="text-emerald-700 text-xs font-bold">You save {fmt(includedValueTotal)}</span>
+                </div>
+              )}
               <p className="text-slate-400 text-xs mt-2">
                 {selectedPlan
                   ? `Charged after each visit · Every ${selectedPlan.interval_months} month${selectedPlan.interval_months !== 1 ? 's' : ''} · ${selectedPlan.visits_per_year} visit${selectedPlan.visits_per_year !== 1 ? 's' : ''}/year`
@@ -1433,11 +1459,18 @@ export default function QuotePage() {
         <div className="flex items-center justify-between mb-2.5">
           <div>
             <span className="text-xs text-slate-400">Total</span>
-            <p className="text-xl font-bold text-slate-800">{fmt(total)}</p>
+            <div className="flex items-baseline gap-2">
+              <p className="text-xl font-bold text-slate-800">{fmt(total)}</p>
+              {includedValueTotal > 0 && (
+                <span className="text-[11px] text-slate-400 line-through decoration-red-400/70 decoration-[1.5px]">{fmt(total + includedValueTotal)}</span>
+              )}
+            </div>
           </div>
-          {activeExtraAddons > 0 && (
+          {includedValueTotal > 0 ? (
+            <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-full">Save {fmt(includedValueTotal)}</span>
+          ) : activeExtraAddons > 0 ? (
             <span className="text-xs text-slate-400 bg-blue-50 px-2 py-1 rounded-full">{activeExtraAddons} add-on{activeExtraAddons !== 1 ? "s" : ""}</span>
-          )}
+          ) : null}
         </div>
         <button
           disabled={!canApprove}
